@@ -1,0 +1,2 @@
+import React,{useEffect} from "react";import {ActivityIndicator,View} from "react-native";import {router} from "expo-router";import {useSession} from "./SessionProvider";
+export function RequireAuth({children}:{children:React.ReactNode}){const s=useSession();useEffect(()=>{if(!s.loading&&!s.authenticated)router.replace("/login")},[s.loading,s.authenticated]);if(s.loading||!s.authenticated)return <View style={{flex:1,alignItems:"center",justifyContent:"center"}}><ActivityIndicator/></View>;return <>{children}</>}
