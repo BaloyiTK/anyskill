@@ -1,13 +1,16 @@
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { db } from "./db";
 import { authRouter } from "./authRoutes";
 import { requireAuth, AuthRequest } from "./auth";
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+const allowedOrigins=(process.env.CORS_ORIGINS??"").split(",").map(x=>x.trim()).filter(Boolean);
+app.use(cors({origin:(origin,cb)=>!origin||!allowedOrigins.length||allowedOrigins.includes(origin)?cb(null,true):cb(new Error("CORS_NOT_ALLOWED"))}));
+app.use(express.json({limit:"256kb"}));
+app.use("/auth",rateLimit({windowMs:15*60*1000,limit:100,standardHeaders:true,legacyHeaders:false}));
 app.use("/auth", authRouter);
 
 app.get("/health", async (_req, res) => {
