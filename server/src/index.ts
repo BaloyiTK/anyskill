@@ -326,6 +326,34 @@ app.post("/bookings/:id/reviews",requireAuth,async(req:AuthRequest,res,next)=>{
   }catch(e:any){await client.query("ROLLBACK");if(e?.code==="23505")return res.status(409).json({error:{code:"ALREADY_REVIEWED"}});next(e);}finally{client.release();}
 });
 
+
+app.post("/bookings/:id/payments",requireAuth,async(req:AuthRequest,res,next)=>{
+ const client=await db.connect();try{
+  const p=z.object({id:z.string().uuid(),idempotencyKey:z.string().min(8).max(255)}).parse(req.body);await client.query("BEGIN");
+  const br=await client.query("select * from bookings where id=$1 for update",[req.params.id]);
+  if(!br.rowCount){await client.query("ROLLBACK");return res.status(404).json({error:{code:"BOOKING_NOT_FOUND"}});}
+  const b=br.rows[0];if(b.customer_id!==req.auth!.id){await client.query("ROLLBACK");return res.status(403).json({error:{code:"FORBIDDEN"}});}
+  if(b.status!=="CUSTOMER_CONFIRMED"){await client.query("ROLLBACK");return res.status(409).json({error:{code:"PAYMENT_NOT_ALLOWED"}});}
+  const existing=await client.query("select * from payments where idempotency_key=$1",[p.idempotencyKey]);
+  if(existing.rowCount){await client.query("COMMIT");return res.json({data:existing.rows[0]});}
+  const pr=await client.query(`insert into payments(id,booking_id,customer_id,professional_id,amount_minor,currency,status,idempotency_key)
+   values($1,$2,$3,$4,$5,$6,'PENDING',$7) returning *`,[p.id,b.id,b.customer_id,b.professional_id,b.agreed_amount_minor,b.currency,p.idempotencyKey]);
+  await client.query("update bookings set status='PAYMENT_PROCESSING',updated_at=now() where id=$1",[b.id]);
+  await client.query("insert into booking_status_history(booking_id,status,changed_by_user_id) values($1,'PAYMENT_PROCESSING',$2)",[b.id,req.auth!.id]);
+  await client.query("COMMIT");res.status(201).json({data:pr.rows[0]});
+ }catch(e){await client.query("ROLLBACK");next(e);}finally{client.release();}
+});
+
+app.get("/professionals/me/earnings",requireAuth,async(req:AuthRequest,res,next)=>{
+ try{
+  const r=await db.query(`select coalesce(sum(amount_minor),0)::bigint as lifetime_earnings_minor,
+   coalesce(sum(amount_minor) filter(where created_at>=date_trunc('month',now())),0)::bigint as month_earnings_minor,
+   count(*)::int as earning_entries from ledger_entries where user_id=$1 and entry_type='PROFESSIONAL_EARNING'`,[req.auth!.id]);
+  const payouts=await db.query("select * from payouts where professional_id=$1 order by created_at desc limit 50",[req.auth!.id]);
+  res.json({data:{summary:r.rows[0],payouts:payouts.rows}});
+ }catch(e){next(e);}
+});
+
 app.use((err:any,_req:any,res:any,_next:any)=>{
   if(err instanceof z.ZodError)return res.status(400).json({error:{code:"VALIDATION_ERROR",details:err.flatten()}});
   console.error(err); res.status(500).json({error:{code:"INTERNAL_ERROR"}});
