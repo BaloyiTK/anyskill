@@ -194,35 +194,80 @@ app.get("/professionals/me/job-requests",requireAuth,async(req:AuthRequest,res,n
     const r=await db.query(`select jr.*,u.display_name as customer_name,s.name as skill_name
       from job_requests jr join users u on u.id=jr.customer_id join skills s on s.id=jr.skill_id
       where jr.professional_id=$1 and jr.status in ('REQUESTED','QUOTED')
-      order by jr.created_at desc`,[req.params.id]);
+      order by jr.created_at desc`,[req.auth!.id]);
     res.json({data:r.rows});
   }catch(e){next(e);}
 });
 
-app.post("/job-requests/:id/decline",async(req,res,next)=>{
+app.post("/job-requests/:id/decline",requireAuth,async(req:AuthRequest,res,next)=>{
   try{
     const r=await db.query(`update job_requests set status='DECLINED',updated_at=now()
-      where id=$1 and status in ('REQUESTED','QUOTED') returning id,status`,[req.params.id]);
+      where id=$1 and professional_id=$2 and status in ('REQUESTED','QUOTED') returning id,status`,[req.params.id,req.auth!.id]);
     if(!r.rowCount)return res.status(409).json({error:{code:"INVALID_STATE"}});
     res.json({data:r.rows[0]});
   }catch(e){next(e);}
 });
 
-app.post("/job-requests/:id/quotes",async(req,res,next)=>{
+app.post("/job-requests/:id/quotes",requireAuth,async(req:AuthRequest,res,next)=>{
   const client=await db.connect();
   try{
-    const p=z.object({id:z.string().uuid(),professionalId:z.string().uuid(),amountMinor:z.number().int().nonnegative(),note:z.string().max(2000).optional()}).parse(req.body);
+    const p=z.object({id:z.string().uuid(),amountMinor:z.number().int().nonnegative(),note:z.string().max(2000).optional()}).parse(req.body);
     await client.query("BEGIN");
     const request=await client.query("select professional_id,status from job_requests where id=$1 for update",[req.params.id]);
-    if(!request.rowCount||request.rows[0].professional_id!==p.professionalId||!["REQUESTED","QUOTED"].includes(request.rows[0].status)){
+    if(!request.rowCount||request.rows[0].professional_id!==req.auth!.id||!["REQUESTED","QUOTED"].includes(request.rows[0].status)){
       await client.query("ROLLBACK");return res.status(409).json({error:{code:"INVALID_REQUEST_STATE"}});
     }
     await client.query("update quotes set status='SUPERSEDED',updated_at=now() where job_request_id=$1 and status='PENDING'",[req.params.id]);
     const r=await client.query(`insert into quotes(id,job_request_id,professional_id,amount_minor,note)
-      values($1,$2,$3,$4,$5) returning *`,[p.id,req.params.id,p.professionalId,p.amountMinor,p.note??null]);
+      values($1,$2,$3,$4,$5) returning *`,[p.id,req.params.id,req.auth!.id,p.amountMinor,p.note??null]);
     await client.query("update job_requests set status='QUOTED',updated_at=now() where id=$1",[req.params.id]);
     await client.query("COMMIT"); res.status(201).json({data:r.rows[0]});
   }catch(e){await client.query("ROLLBACK");next(e);}finally{client.release();}
+});
+
+
+app.get("/job-requests/me",requireAuth,async(req:AuthRequest,res,next)=>{
+  try{
+    const r=await db.query(`select jr.*,u.display_name as professional_name,s.name as skill_name,
+      q.id as quote_id,q.amount_minor,q.note as quote_note,q.status as quote_status
+      from job_requests jr join users u on u.id=jr.professional_id join skills s on s.id=jr.skill_id
+      left join quotes q on q.job_request_id=jr.id and q.status='PENDING'
+      where jr.customer_id=$1 order by jr.created_at desc`,[req.auth!.id]);
+    res.json({data:r.rows});
+  }catch(e){next(e);}
+});
+
+app.post("/quotes/:id/accept",requireAuth,async(req:AuthRequest,res,next)=>{
+  const client=await db.connect();
+  try{
+    const p=z.object({bookingId:z.string().uuid()}).parse(req.body);
+    await client.query("BEGIN");
+    const q=await client.query(`select q.*,jr.customer_id,jr.skill_id,jr.professional_id,jr.scheduled_for
+      from quotes q join job_requests jr on jr.id=q.job_request_id where q.id=$1 for update`,[req.params.id]);
+    if(!q.rowCount||q.rows[0].customer_id!==req.auth!.id||q.rows[0].status!=="PENDING"){
+      await client.query("ROLLBACK");return res.status(409).json({error:{code:"QUOTE_NOT_ACCEPTABLE"}});
+    }
+    const x=q.rows[0];
+    await client.query("update quotes set status='ACCEPTED',updated_at=now() where id=$1",[req.params.id]);
+    await client.query("update quotes set status='SUPERSEDED',updated_at=now() where job_request_id=$1 and id<>$2 and status='PENDING'",[x.job_request_id,req.params.id]);
+    await client.query("update job_requests set status='ACCEPTED',updated_at=now() where id=$1",[x.job_request_id]);
+    const b=await client.query(`insert into bookings(id,job_request_id,customer_id,professional_id,skill_id,agreed_amount_minor,currency,scheduled_for,status)
+      values($1,$2,$3,$4,$5,$6,$7,$8,'CONFIRMED') returning *`,
+      [p.bookingId,x.job_request_id,x.customer_id,x.professional_id,x.skill_id,x.amount_minor,x.currency??"ZAR",x.scheduled_for]);
+    await client.query(`insert into booking_status_history(booking_id,status,changed_by_user_id)
+      values($1,'CONFIRMED',$2)`,[p.bookingId,req.auth!.id]);
+    await client.query("COMMIT");res.status(201).json({data:b.rows[0]});
+  }catch(e){await client.query("ROLLBACK");next(e);}finally{client.release();}
+});
+
+app.post("/quotes/:id/decline",requireAuth,async(req:AuthRequest,res,next)=>{
+  try{
+    const r=await db.query(`update quotes q set status='DECLINED',updated_at=now()
+      from job_requests jr where q.id=$1 and q.job_request_id=jr.id and jr.customer_id=$2
+      and q.status='PENDING' returning q.id,q.status`,[req.params.id,req.auth!.id]);
+    if(!r.rowCount)return res.status(409).json({error:{code:"QUOTE_NOT_DECLINABLE"}});
+    res.json({data:r.rows[0]});
+  }catch(e){next(e);}
 });
 
 app.use((err:any,_req:any,res:any,_next:any)=>{
