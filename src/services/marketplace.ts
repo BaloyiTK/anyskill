@@ -6,3 +6,10 @@ export const searchProfessionals=(p:{skillId:string;latitude:number;longitude:nu
 };
 export const createJobRequest=(input:{id:string;professionalId:string;skillId:string;description:string;budgetMinMinor?:number;budgetMaxMinor?:number;scheduledFor?:string;addressText?:string;latitude?:number;longitude?:number})=>
  api<{data:any}>("/job-requests",{method:"POST",body:JSON.stringify(input)});
+
+export const getMyJobRequests=()=>api<{data:any[]}>("/job-requests/me");
+export const sendQuote=(jobRequestId:string,input:{id:string;amountMinor:number;note?:string})=>
+ api<{data:any}>(`/job-requests/${jobRequestId}/quotes`,{method:"POST",body:JSON.stringify(input)});
+export const declineJobRequest=(jobRequestId:string)=>api<{data:any}>(`/job-requests/${jobRequestId}/decline`,{method:"POST"});
+export const acceptQuote=(quoteId:string,bookingId:string)=>api<{data:any}>(`/quotes/${quoteId}/accept`,{method:"POST",body:JSON.stringify({bookingId})});
+export const declineQuote=(quoteId:string)=>api<{data:any}>(`/quotes/${quoteId}/decline`,{method:"POST"});
