@@ -278,7 +278,7 @@ const professionalTransitions:Record<string,string>={CONFIRMED:"ON_THE_WAY",ON_T
 app.get("/bookings/me",requireAuth,async(req:AuthRequest,res,next)=>{
   try{
     const r=await db.query(`select b.*,s.name as skill_name,cu.display_name as customer_name,pu.display_name as professional_name
-      from bookings b join skills s on s.id=b.skill_id join users cu on cu.id=b.customer_id join users pu on pu.id=b.professional_id
+      from bookings b join job_requests jr on jr.id=b.job_request_id join skills s on s.id=jr.skill_id join users cu on cu.id=b.customer_id join users pu on pu.id=b.professional_id
       where b.customer_id=$1 or b.professional_id=$1 order by b.created_at desc`,[req.auth!.id]);
     res.json({data:r.rows});
   }catch(e){next(e);}
@@ -293,7 +293,7 @@ app.post("/bookings/:id/advance",requireAuth,async(req:AuthRequest,res,next)=>{
     const b=r.rows[0]; if(b.professional_id!==req.auth!.id){await client.query("ROLLBACK");return res.status(403).json({error:{code:"FORBIDDEN"}});}
     const nextStatus=professionalTransitions[b.status]; if(!nextStatus){await client.query("ROLLBACK");return res.status(409).json({error:{code:"INVALID_BOOKING_TRANSITION"}});}
     const u=await client.query("update bookings set status=$2,updated_at=now() where id=$1 returning *",[b.id,nextStatus]);
-    await client.query("insert into booking_status_history(booking_id,status,changed_by_user_id) values($1,$2,$3)",[b.id,nextStatus,req.auth!.id]);
+    await client.query("insert into booking_status_history(booking_id,to_status,actor_id) values($1,$2,$3)",[b.id,nextStatus,req.auth!.id]);
     await client.query("COMMIT");res.json({data:u.rows[0]});
   }catch(e){await client.query("ROLLBACK");next(e);}finally{client.release();}
 });
@@ -307,7 +307,7 @@ app.post("/bookings/:id/confirm-completion",requireAuth,async(req:AuthRequest,re
     const b=r.rows[0]; if(b.customer_id!==req.auth!.id){await client.query("ROLLBACK");return res.status(403).json({error:{code:"FORBIDDEN"}});}
     if(b.status!=="COMPLETION_SUBMITTED"){await client.query("ROLLBACK");return res.status(409).json({error:{code:"INVALID_BOOKING_TRANSITION"}});}
     const u=await client.query("update bookings set status='CUSTOMER_CONFIRMED',updated_at=now() where id=$1 returning *",[b.id]);
-    await client.query("insert into booking_status_history(booking_id,status,changed_by_user_id) values($1,'CUSTOMER_CONFIRMED',$2)",[b.id,req.auth!.id]);
+    await client.query("insert into booking_status_history(booking_id,to_status,actor_id) values($1,'CUSTOMER_CONFIRMED',$2)",[b.id,req.auth!.id]);
     await client.query("COMMIT");res.json({data:u.rows[0]});
   }catch(e){await client.query("ROLLBACK");next(e);}finally{client.release();}
 });
@@ -320,11 +320,11 @@ app.post("/bookings/:id/reviews",requireAuth,async(req:AuthRequest,res,next)=>{
     const br=await client.query("select * from bookings where id=$1 for update",[req.params.id]);
     if(!br.rowCount){await client.query("ROLLBACK");return res.status(404).json({error:{code:"BOOKING_NOT_FOUND"}});}
     const b=br.rows[0]; if(b.customer_id!==req.auth!.id){await client.query("ROLLBACK");return res.status(403).json({error:{code:"FORBIDDEN"}});}
-    if(!["CUSTOMER_CONFIRMED","PAID"].includes(b.status)){await client.query("ROLLBACK");return res.status(409).json({error:{code:"REVIEW_NOT_ALLOWED"}});}
+    if(b.status!=="PAID"){await client.query("ROLLBACK");return res.status(409).json({error:{code:"REVIEW_NOT_ALLOWED"}});}
     const rv=await client.query(`insert into reviews(id,booking_id,reviewer_id,reviewee_id,rating,body)
       values($1,$2,$3,$4,$5,$6) returning *`,[p.id,b.id,req.auth!.id,b.professional_id,p.rating,p.comment??null]);
     await client.query("update bookings set status='REVIEWED',updated_at=now() where id=$1",[b.id]);
-    await client.query("insert into booking_status_history(booking_id,status,changed_by_user_id) values($1,'REVIEWED',$2)",[b.id,req.auth!.id]);
+    await client.query("insert into booking_status_history(booking_id,to_status,actor_id) values($1,'REVIEWED',$2)",[b.id,req.auth!.id]);
     await client.query("COMMIT");res.status(201).json({data:rv.rows[0]});
   }catch(e:any){await client.query("ROLLBACK");if(e?.code==="23505")return res.status(409).json({error:{code:"ALREADY_REVIEWED"}});next(e);}finally{client.release();}
 });
@@ -338,11 +338,11 @@ app.post("/bookings/:id/payments",requireAuth,async(req:AuthRequest,res,next)=>{
   const b=br.rows[0];if(b.customer_id!==req.auth!.id){await client.query("ROLLBACK");return res.status(403).json({error:{code:"FORBIDDEN"}});}
   if(b.status!=="CUSTOMER_CONFIRMED"){await client.query("ROLLBACK");return res.status(409).json({error:{code:"PAYMENT_NOT_ALLOWED"}});}
   const existing=await client.query("select * from payments where idempotency_key=$1",[p.idempotencyKey]);
-  if(existing.rowCount){await client.query("COMMIT");return res.json({data:existing.rows[0]});}
+  if(existing.rowCount){const e=existing.rows[0];if(e.booking_id!==b.id||e.customer_id!==req.auth!.id){await client.query("ROLLBACK");return res.status(409).json({error:{code:"IDEMPOTENCY_KEY_REUSED"}});}await client.query("COMMIT");return res.json({data:e});}
   const pr=await client.query(`insert into payments(id,booking_id,customer_id,professional_id,amount_minor,currency,status,idempotency_key)
    values($1,$2,$3,$4,$5,$6,'PENDING',$7) returning *`,[p.id,b.id,b.customer_id,b.professional_id,b.agreed_amount_minor,b.currency,p.idempotencyKey]);
   await client.query("update bookings set status='PAYMENT_PROCESSING',updated_at=now() where id=$1",[b.id]);
-  await client.query("insert into booking_status_history(booking_id,status,changed_by_user_id) values($1,'PAYMENT_PROCESSING',$2)",[b.id,req.auth!.id]);
+  await client.query("insert into booking_status_history(booking_id,to_status,actor_id) values($1,'PAYMENT_PROCESSING',$2)",[b.id,req.auth!.id]);
   await client.query("COMMIT");res.status(201).json({data:pr.rows[0]});
  }catch(e){await client.query("ROLLBACK");next(e);}finally{client.release();}
 });
