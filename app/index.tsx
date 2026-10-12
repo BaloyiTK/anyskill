@@ -12,8 +12,8 @@ export default function WelcomeScreen() {
         <Text style={styles.subtitle}>Discover trusted people with the skills you need, right around you.</Text>
       </View>
       <View style={styles.actions}>
-        <Pressable style={styles.primary} onPress={() => router.push("/home")}><Text style={styles.primaryText}>Get started</Text></Pressable>
-        <Text style={styles.note}>Find help. Offer your skills. One community.</Text>
+        <Pressable style={styles.primary} onPress={() => router.push("/register")}><Text style={styles.primaryText}>Get started</Text></Pressable>
+        <Pressable onPress={() => router.push("/login")}><Text style={styles.note}>I already have an account</Text></Pressable><Text style={styles.note}>Find help. Offer your skills. One community.</Text>
       </View>
     </SafeAreaView>
   );
