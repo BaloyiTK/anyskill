@@ -251,10 +251,10 @@ app.post("/quotes/:id/accept",requireAuth,async(req:AuthRequest,res,next)=>{
     await client.query("update quotes set status='ACCEPTED',updated_at=now() where id=$1",[req.params.id]);
     await client.query("update quotes set status='SUPERSEDED',updated_at=now() where job_request_id=$1 and id<>$2 and status='PENDING'",[x.job_request_id,req.params.id]);
     await client.query("update job_requests set status='ACCEPTED',updated_at=now() where id=$1",[x.job_request_id]);
-    const b=await client.query(`insert into bookings(id,job_request_id,customer_id,professional_id,skill_id,agreed_amount_minor,currency,scheduled_for,status)
+    const b=await client.query(`insert into bookings(id,job_request_id,customer_id,professional_id,accepted_quote_id,agreed_amount_minor,currency,scheduled_for,status)
       values($1,$2,$3,$4,$5,$6,$7,$8,'CONFIRMED') returning *`,
-      [p.bookingId,x.job_request_id,x.customer_id,x.professional_id,x.skill_id,x.amount_minor,x.currency??"ZAR",x.scheduled_for]);
-    await client.query(`insert into booking_status_history(booking_id,status,changed_by_user_id)
+      [p.bookingId,x.job_request_id,x.customer_id,x.professional_id,req.params.id,x.amount_minor,x.currency??"ZAR",x.scheduled_for]);
+    await client.query(`insert into booking_status_history(booking_id,to_status,actor_id)
       values($1,'CONFIRMED',$2)`,[p.bookingId,req.auth!.id]);
     await client.query("COMMIT");res.status(201).json({data:b.rows[0]});
   }catch(e){await client.query("ROLLBACK");next(e);}finally{client.release();}
@@ -318,7 +318,7 @@ app.post("/bookings/:id/reviews",requireAuth,async(req:AuthRequest,res,next)=>{
     if(!br.rowCount){await client.query("ROLLBACK");return res.status(404).json({error:{code:"BOOKING_NOT_FOUND"}});}
     const b=br.rows[0]; if(b.customer_id!==req.auth!.id){await client.query("ROLLBACK");return res.status(403).json({error:{code:"FORBIDDEN"}});}
     if(!["CUSTOMER_CONFIRMED","PAID"].includes(b.status)){await client.query("ROLLBACK");return res.status(409).json({error:{code:"REVIEW_NOT_ALLOWED"}});}
-    const rv=await client.query(`insert into reviews(id,booking_id,reviewer_id,reviewee_id,rating,comment)
+    const rv=await client.query(`insert into reviews(id,booking_id,reviewer_id,reviewee_id,rating,body)
       values($1,$2,$3,$4,$5,$6) returning *`,[p.id,b.id,req.auth!.id,b.professional_id,p.rating,p.comment??null]);
     await client.query("update bookings set status='REVIEWED',updated_at=now() where id=$1",[b.id]);
     await client.query("insert into booking_status_history(booking_id,status,changed_by_user_id) values($1,'REVIEWED',$2)",[b.id,req.auth!.id]);
