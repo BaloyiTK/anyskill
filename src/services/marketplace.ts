@@ -19,3 +19,6 @@ export const advanceBooking=(bookingId:string)=>api<{data:any}>(`/bookings/${boo
 export const confirmCompletion=(bookingId:string)=>api<{data:any}>(`/bookings/${bookingId}/confirm-completion`,{method:"POST"});
 export const reviewBooking=(bookingId:string,input:{id:string;rating:number;comment?:string})=>
  api<{data:any}>(`/bookings/${bookingId}/reviews`,{method:"POST",body:JSON.stringify(input)});
+
+export const createPayment=(bookingId:string,input:{id:string;idempotencyKey:string})=>api<{data:any}>(`/bookings/${bookingId}/payments`,{method:"POST",body:JSON.stringify(input)});
+export const getProfessionalEarnings=()=>api<{data:any}>("/professionals/me/earnings");
