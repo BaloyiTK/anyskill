@@ -2,10 +2,13 @@ import express from "express";
 import cors from "cors";
 import { z } from "zod";
 import { db } from "./db";
+import { authRouter } from "./authRoutes";
+import { requireAuth, AuthRequest } from "./auth";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use("/auth", authRouter);
 
 app.get("/health", async (_req, res) => {
   const result = await db.query("select now() as database_time");
@@ -27,22 +30,22 @@ const locationSchema=z.object({
   areaLabel:z.string().max(160).optional()
 });
 
-app.put("/professionals/:id/location", async (req,res,next)=>{
+app.put("/professionals/me/location", requireAuth, async (req:AuthRequest,res,next)=>{
   try {
     const p=locationSchema.parse(req.body);
     await db.query(`insert into professional_locations(professional_id,latitude,longitude,area_label)
       values($1,$2,$3,$4)
       on conflict(professional_id) do update set latitude=excluded.latitude,longitude=excluded.longitude,
-      area_label=excluded.area_label,updated_at=now()`,[req.params.id,p.latitude,p.longitude,p.areaLabel??null]);
+      area_label=excluded.area_label,updated_at=now()`,[req.auth!.id,p.latitude,p.longitude,p.areaLabel??null]);
     res.status(204).send();
   } catch(e){ next(e); }
 });
 
-app.put("/professionals/:id/availability", async(req,res,next)=>{
+app.put("/professionals/me/availability", requireAuth, async(req:AuthRequest,res,next)=>{
   try {
     const p=z.object({isOnline:z.boolean(),acceptingJobs:z.boolean()}).parse(req.body);
     await db.query("update professional_profiles set is_online=$2,accepting_jobs=$3,updated_at=now() where user_id=$1",
-      [req.params.id,p.isOnline,p.acceptingJobs]);
+      [req.auth!.id,p.isOnline,p.acceptingJobs]);
     res.status(204).send();
   } catch(e){next(e);}
 });
@@ -85,7 +88,7 @@ app.get("/professionals/search",async(req,res,next)=>{
 });
 
 const requestSchema=z.object({
-  id:z.string().uuid(), customerId:z.string().uuid(), professionalId:z.string().uuid(),
+  id:z.string().uuid(), professionalId:z.string().uuid(),
   skillId:z.string().uuid(), description:z.string().min(5).max(4000),
   budgetMinMinor:z.number().int().nonnegative().optional(),
   budgetMaxMinor:z.number().int().nonnegative().optional(),
@@ -93,7 +96,7 @@ const requestSchema=z.object({
   latitude:z.number().min(-90).max(90).optional(), longitude:z.number().min(-180).max(180).optional()
 });
 
-app.post("/job-requests",async(req,res,next)=>{
+app.post("/job-requests",requireAuth,async(req:AuthRequest,res,next)=>{
   const client=await db.connect();
   try {
     const p=requestSchema.parse(req.body);
@@ -108,13 +111,13 @@ app.post("/job-requests",async(req,res,next)=>{
     const r=await client.query(`insert into job_requests
       (id,customer_id,professional_id,skill_id,description,budget_min_minor,budget_max_minor,scheduled_for,address_text,latitude,longitude)
       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
-      [p.id,p.customerId,p.professionalId,p.skillId,p.description,p.budgetMinMinor??null,p.budgetMaxMinor??null,p.scheduledFor??null,p.addressText??null,p.latitude??null,p.longitude??null]);
+      [p.id,req.auth!.id,p.professionalId,p.skillId,p.description,p.budgetMinMinor??null,p.budgetMaxMinor??null,p.scheduledFor??null,p.addressText??null,p.latitude??null,p.longitude??null]);
     await client.query("COMMIT");
     res.status(201).json({data:r.rows[0]});
   } catch(e){await client.query("ROLLBACK");next(e);} finally {client.release();}
 });
 
-app.get("/professionals/:id/job-requests",async(req,res,next)=>{
+app.get("/professionals/me/job-requests",requireAuth,async(req:AuthRequest,res,next)=>{
   try{
     const r=await db.query(`select jr.*,u.display_name as customer_name,s.name as skill_name
       from job_requests jr join users u on u.id=jr.customer_id join skills s on s.id=jr.skill_id
