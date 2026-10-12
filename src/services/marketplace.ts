@@ -13,3 +13,9 @@ export const sendQuote=(jobRequestId:string,input:{id:string;amountMinor:number;
 export const declineJobRequest=(jobRequestId:string)=>api<{data:any}>(`/job-requests/${jobRequestId}/decline`,{method:"POST"});
 export const acceptQuote=(quoteId:string,bookingId:string)=>api<{data:any}>(`/quotes/${quoteId}/accept`,{method:"POST",body:JSON.stringify({bookingId})});
 export const declineQuote=(quoteId:string)=>api<{data:any}>(`/quotes/${quoteId}/decline`,{method:"POST"});
+
+export const getMyBookings=()=>api<{data:any[]}>("/bookings/me");
+export const advanceBooking=(bookingId:string)=>api<{data:any}>(`/bookings/${bookingId}/advance`,{method:"POST"});
+export const confirmCompletion=(bookingId:string)=>api<{data:any}>(`/bookings/${bookingId}/confirm-completion`,{method:"POST"});
+export const reviewBooking=(bookingId:string,input:{id:string;rating:number;comment?:string})=>
+ api<{data:any}>(`/bookings/${bookingId}/reviews`,{method:"POST",body:JSON.stringify(input)});
