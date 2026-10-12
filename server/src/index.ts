@@ -44,10 +44,82 @@ app.put("/professionals/me/location", requireAuth, async (req:AuthRequest,res,ne
 app.put("/professionals/me/availability", requireAuth, async(req:AuthRequest,res,next)=>{
   try {
     const p=z.object({isOnline:z.boolean(),acceptingJobs:z.boolean()}).parse(req.body);
-    await db.query("update professional_profiles set is_online=$2,accepting_jobs=$3,updated_at=now() where user_id=$1",
+    if(p.isOnline||p.acceptingJobs){
+      const ready=await db.query(`select 1 from professional_profiles pp
+        where pp.user_id=$1 and pp.verification_status='VERIFIED'
+        and exists(select 1 from professional_skills ps where ps.professional_id=$1 and ps.active=true)
+        and exists(select 1 from professional_locations pl where pl.professional_id=$1)`,[req.auth!.id]);
+      if(!ready.rowCount)return res.status(409).json({error:{code:"PROFESSIONAL_NOT_READY"}});
+    }
+    const updated=await db.query("update professional_profiles set is_online=$2,accepting_jobs=$3,updated_at=now() where user_id=$1 returning is_online,accepting_jobs",
       [req.auth!.id,p.isOnline,p.acceptingJobs]);
-    res.status(204).send();
+    if(!updated.rowCount)return res.status(404).json({error:{code:"PROFESSIONAL_PROFILE_NOT_FOUND"}});
+    res.json({data:updated.rows[0]});
   } catch(e){next(e);}
+});
+
+const professionalProfileSchema=z.object({
+  bio:z.string().max(3000).optional(),
+  yearsExperience:z.number().int().min(0).max(80).optional(),
+  serviceRadiusM:z.number().int().min(500).max(100000).default(10000)
+});
+
+app.put("/professionals/me/profile",requireAuth,async(req:AuthRequest,res,next)=>{
+  try{
+    const p=professionalProfileSchema.parse(req.body);
+    const r=await db.query(`insert into professional_profiles(user_id,bio,years_experience,service_radius_m)
+      values($1,$2,$3,$4)
+      on conflict(user_id) do update set bio=excluded.bio,years_experience=excluded.years_experience,
+      service_radius_m=excluded.service_radius_m,updated_at=now()
+      returning user_id,bio,years_experience,verification_status,is_online,accepting_jobs,service_radius_m`,
+      [req.auth!.id,p.bio??null,p.yearsExperience??null,p.serviceRadiusM]);
+    res.json({data:r.rows[0]});
+  }catch(e){next(e);}
+});
+
+app.get("/professionals/me/profile",requireAuth,async(req:AuthRequest,res,next)=>{
+  try{
+    const profile=await db.query(`select pp.*,u.display_name,u.email,u.phone
+      from professional_profiles pp join users u on u.id=pp.user_id where pp.user_id=$1`,[req.auth!.id]);
+    if(!profile.rowCount)return res.status(404).json({error:{code:"PROFESSIONAL_PROFILE_NOT_FOUND"}});
+    const skills=await db.query(`select ps.id,ps.skill_id,s.name,s.slug,ps.title,ps.description,
+      ps.base_price_minor,ps.currency,ps.active from professional_skills ps
+      join skills s on s.id=ps.skill_id where ps.professional_id=$1 order by s.name`,[req.auth!.id]);
+    res.json({data:{...profile.rows[0],skills:skills.rows}});
+  }catch(e){next(e);}
+});
+
+app.put("/professionals/me/skills",requireAuth,async(req:AuthRequest,res,next)=>{
+  const client=await db.connect();
+  try{
+    const p=z.object({skills:z.array(z.object({
+      id:z.string().uuid(), skillId:z.string().uuid(), title:z.string().max(140).optional(),
+      description:z.string().max(3000).optional(), basePriceMinor:z.number().int().nonnegative().optional(),
+      currency:z.string().length(3).default("ZAR")
+    })).min(1).max(30)}).parse(req.body);
+    await client.query("BEGIN");
+    const exists=await client.query("select 1 from professional_profiles where user_id=$1 for update",[req.auth!.id]);
+    if(!exists.rowCount){await client.query("ROLLBACK");return res.status(409).json({error:{code:"PROFESSIONAL_PROFILE_REQUIRED"}});}
+    await client.query("update professional_skills set active=false,updated_at=now() where professional_id=$1",[req.auth!.id]);
+    for(const s of p.skills){
+      await client.query(`insert into professional_skills(id,professional_id,skill_id,title,description,base_price_minor,currency,active)
+        values($1,$2,$3,$4,$5,$6,$7,true)
+        on conflict(professional_id,skill_id) do update set title=excluded.title,description=excluded.description,
+        base_price_minor=excluded.base_price_minor,currency=excluded.currency,active=true,updated_at=now()`,
+        [s.id,req.auth!.id,s.skillId,s.title??null,s.description??null,s.basePriceMinor??null,s.currency.toUpperCase()]);
+    }
+    await client.query("COMMIT"); res.status(204).send();
+  }catch(e){await client.query("ROLLBACK");next(e);}finally{client.release();}
+});
+
+app.post("/professionals/me/submit-verification",requireAuth,async(req:AuthRequest,res,next)=>{
+  try{
+    const r=await db.query(`update professional_profiles set verification_status='PENDING',is_online=false,
+      accepting_jobs=false,updated_at=now() where user_id=$1 and verification_status in ('UNVERIFIED','REJECTED')
+      returning verification_status`,[req.auth!.id]);
+    if(!r.rowCount)return res.status(409).json({error:{code:"VERIFICATION_NOT_SUBMITTABLE"}});
+    res.json({data:r.rows[0]});
+  }catch(e){next(e);}
 });
 
 // PostgreSQL-10-compatible v0 radius search using great-circle distance.
