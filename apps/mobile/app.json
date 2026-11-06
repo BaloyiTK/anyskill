@@ -14,6 +14,12 @@
         {
           "defaultChannel": "default"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AnySkill needs photo-library access so Providers can submit job-completion evidence."
+        }
       ]
     ],
     "ios": {
