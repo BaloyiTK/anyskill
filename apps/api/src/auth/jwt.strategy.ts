@@ -36,6 +36,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         email: true,
         emailVerifiedAt: true,
         identityVerification: true,
+        googleSubject: true,
       },
     });
 
@@ -46,6 +47,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       emailVerified: Boolean(user.emailVerifiedAt),
       identityVerification: user.identityVerification,
+      googleLinked: Boolean(user.googleSubject),
     };
   }
 }
