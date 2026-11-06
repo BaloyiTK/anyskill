@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useIdTokenAuthRequest } from "expo-auth-session/providers/google";
 import {
   ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable,
   SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
@@ -30,6 +31,20 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? "not-configured.apps.googleusercontent.com";
+  const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? "not-configured.apps.googleusercontent.com";
+  const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? "not-configured.apps.googleusercontent.com";
+  const googleConfigured = Boolean(
+    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID &&
+    process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID &&
+    process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
+  );
+  const [googleRequest, , promptGoogle] = useIdTokenAuthRequest({
+    webClientId: googleWebClientId,
+    iosClientId: googleIosClientId,
+    androidClientId: googleAndroidClientId,
+    selectAccount: true,
+  });
 
   const feedback = () => { setMessage(""); setError(""); };
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
@@ -103,6 +118,58 @@ export default function App() {
       await clearTokens();
       setError(e instanceof Error ? e.message : "Sign in failed.");
     } finally { setBusy(false); }
+  };
+
+  const continueWithGoogle = async () => {
+    feedback();
+    if (!googleConfigured) {
+      setError("Google sign-in is not configured yet. Add the Google OAuth client IDs to the mobile and API environment files.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await promptGoogle();
+      if (result.type !== "success") return;
+      const idToken = result.params.id_token;
+      if (!idToken) throw new Error("Google did not return an ID token. Please try again.");
+
+      const tokens = await apiRequest<Tokens>("/auth/google", {
+        method: "POST",
+        body: JSON.stringify({ idToken }),
+      });
+      await saveTokens(tokens);
+      await loadAccount();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Google sign-in failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const connectGoogle = async () => {
+    feedback();
+    if (!googleConfigured) {
+      setError("Google sign-in is not configured yet. Add the Google OAuth client IDs to the mobile and API environment files.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await promptGoogle();
+      if (result.type !== "success") return;
+      const idToken = result.params.id_token;
+      if (!idToken) throw new Error("Google did not return an ID token. Please try again.");
+      await apiRequest("/auth/google/link", {
+        method: "POST",
+        body: JSON.stringify({ idToken }),
+      }, true);
+      const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
+      setAccount(me);
+      setMessage("Google account connected successfully.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not connect Google account.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const requestPasswordReset = async () => {
@@ -207,6 +274,8 @@ export default function App() {
             <Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry />
             {screen === "register" && <Text style={s.helper}>Email verification is required before sign-in. Use at least 12 characters for your password.</Text>}
             <Primary label={screen === "register" ? "Create account" : "Sign in"} onPress={screen === "register" ? register : login} disabled={busy || !email.trim() || password.length < 12} />
+            <Text style={s.helper}>OR</Text>
+            <Secondary label="Continue with Google" onPress={continueWithGoogle} />
             <Secondary label={screen === "register" ? "I already have an account" : "Create a new account"} onPress={() => goTo(screen === "register" ? "login" : "register")} />
             {screen === "login" && <TextButton label="Forgot password?" onPress={() => goTo("forgot-password")} />}
             <TextButton label="Back" onPress={() => goTo("welcome")} />
@@ -262,6 +331,7 @@ export default function App() {
               <Text style={s.noticeText}>Both Skill Seekers and Skill Providers must verify their identity. This build can record a request, but the identity-check provider and approval workflow have not yet been connected.</Text>
               {["not_started", "failed", "requires_information"].includes(identityStatus) && <Primary label="Start identity verification request" onPress={startIdentityVerification} disabled={busy} />}
             </View>}
+            {!account.googleLinked && <Secondary label="Connect Google account" onPress={connectGoogle} />}
             <Text style={s.sectionTitle}>Current mode</Text>
             <View style={s.modeList}>
               <ModeCard title="Skill Seeker" description="Request skills and compare provider offers." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
