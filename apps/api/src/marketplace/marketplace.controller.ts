@@ -10,7 +10,7 @@ import {
   ProviderResponseDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
-  SelectProviderDto,
+  SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto,
 } from "./dto/service-request.dto";
 import { MarketplaceService } from "./marketplace.service";
 
@@ -63,6 +63,45 @@ export class MarketplaceController {
     @Body() dto: SelectProviderDto,
   ) {
     return this.marketplace.selectProvider(user.id, requestId, dto.responseId);
+  }
+
+
+  @Get("marketplace/my-jobs")
+  myJobs(@CurrentUser() user: AuthenticatedUser) { return this.marketplace.listMyJobs(user.id); }
+
+  @Post("marketplace/requests/:requestId/estimate")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_SUBMIT_ESTIMATE")
+  submitEstimate(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: SubmitEstimateDto) {
+    return this.marketplace.submitEstimate(user.id, requestId, dto);
+  }
+
+  @Post("marketplace/requests/:requestId/estimate-decision")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("SEEKER_DECIDE_ESTIMATE")
+  decideEstimate(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: DecideEstimateDto) {
+    return this.marketplace.decideEstimate(user.id, requestId, dto);
+  }
+
+  @Post("marketplace/requests/:requestId/start-work")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_START_WORK")
+  startWork(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.startWork(user.id, requestId);
+  }
+
+  @Post("marketplace/requests/:requestId/additional-hours")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_REQUEST_EXTRA_HOURS")
+  requestAdditionalHours(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: RequestAdditionalHoursDto) {
+    return this.marketplace.requestAdditionalHours(user.id, requestId, dto);
+  }
+
+  @Post("marketplace/requests/:requestId/additional-hours/:adjustmentId/decision")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("SEEKER_DECIDE_EXTRA_HOURS")
+  decideAdditionalHours(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Param("adjustmentId", new ParseUUIDPipe()) adjustmentId: string, @Body() dto: DecideAdditionalHoursDto) {
+    return this.marketplace.decideAdditionalHours(user.id, requestId, adjustmentId, dto);
   }
 
   @Get("marketplace/provider-profile")
