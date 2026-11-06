@@ -78,6 +78,10 @@ Email verification proves control of an email inbox. It does not prove a person'
 | GET | `/api/v1/auth/me` | Return authenticated account summary |
 | GET | `/api/v1/identity-verification/status` | Read identity-verification status |
 | POST | `/api/v1/identity-verification/submit` | Create a verification case |
+| POST | `/api/v1/marketplace/requests` | Submit a service request (verified Seeker only) |
+| GET | `/api/v1/marketplace/incoming-requests` | View open requests (unverified Providers may view) |
+| GET | `/api/v1/marketplace/my-requests` | View the Seeker's own requests and Provider responses |
+| POST | `/api/v1/marketplace/requests/:requestId/accept` | Send a Provider offer (verified Provider only; does not award job) |
 
 ## Local development
 
@@ -87,7 +91,7 @@ Email verification proves control of an email inbox. It does not prove a person'
 
 ## Implementation gaps and production requirements
 
-- Marketplace request creation and provider acceptance endpoints are not implemented yet. When built, they must enforce the action-specific identity gates described above; read-only incoming-request routes must remain available to unverified providers.
+- Marketplace API foundation is implemented: verified Seekers can publish service requests; Providers can read open incoming requests while unverified; verified Providers can respond through the Accept action. The response is an offer/interest record and does not award the job—the Seeker still chooses a Provider. Mobile marketplace screens, provider matching/notification delivery, request cancellation/closing, and the Seeker's offer-selection flow remain to be built.
 - Phone number is optional in the current registration API, and SMS/phone OTP verification is not implemented. If mobile verification remains a mandatory product rule, it must be implemented and enforced before marketplace launch.
 - Select and contract with a compliant identity-verification provider.
 - Implement provider session creation, callback/webhook signature validation and result reconciliation.
