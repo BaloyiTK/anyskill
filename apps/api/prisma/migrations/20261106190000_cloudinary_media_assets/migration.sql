@@ -1,3 +1,4 @@
+ALTER TABLE "job_completion_submissions" ALTER COLUMN "evidence_urls" SET DEFAULT ARRAY[]::TEXT[];
 CREATE TYPE "MediaAssetStatus" AS ENUM ('PENDING', 'READY', 'EXPIRED');
 CREATE TABLE "media_assets" (
   "id" UUID NOT NULL,
