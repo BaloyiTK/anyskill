@@ -328,7 +328,7 @@ export function MarketplaceScreen(p: Props) {
               <TextInput value={completionReviewNote} onChangeText={setCompletionReviewNote} placeholder="Describe the work that still needs attention..." multiline style={[s.input, s.multiline]} />
               <View style={s.choiceRow}>
                 <Primary label="Approve completion" onPress={() => void reviewCompletion(request.id, submission.id, true)} disabled={jobActionBusy} />
-                <Secondary label="Request corrections" onPress={() => void reviewCompletion(request.id, submission.id, false)} disabled={jobActionBusy || completionReviewNote.trim().length < 10} />
+                <Secondary label="Request corrections" onPress={() => { if (!jobActionBusy && completionReviewNote.trim().length >= 10) void reviewCompletion(request.id, submission.id, false); }} />
               </View>
             </View>) : null}
             {request.jobEngagement?.status === "COMPLETED" ? <Text style={s.response}>Completion approved by you. Job marked completed.</Text> : null}
