@@ -94,12 +94,26 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async updateProviderLiveLocation(userId: string, input: UpdateLiveLocationDto) {
-    const profile = await this.prisma.providerProfile.findUnique({ where: { userId }, select: { isAvailable: true, deliveryModes: true } });
-    if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
-    if (!profile.isAvailable) throw new ConflictException("Set your Provider status to Available before sharing live location.");
-    if (!profile.deliveryModes.some((mode) => mode === "ONSITE" || mode === "EITHER")) throw new ConflictException("Live location is only needed for on-site matching.");
     if (input.accuracyM > 250) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix.");
-    return this.prisma.providerProfile.update({ where: { userId }, data: { liveLatitude: input.latitude, liveLongitude: input.longitude, liveAccuracyM: input.accuracyM, liveLocationUpdatedAt: new Date() }, select: { isAvailable: true, liveLocationUpdatedAt: true, liveAccuracyM: true } });
+    const updatedAt = new Date();
+    // Guard the write in the database itself. A separate read followed by update
+    // could race with the Provider switching to Unavailable and restore a GPS fix
+    // after the availability update had cleared it.
+    const result = await this.prisma.providerProfile.updateMany({
+      where: { userId, isAvailable: true, deliveryModes: { hasSome: ["ONSITE", "EITHER"] } },
+      data: {
+        liveLatitude: input.latitude,
+        liveLongitude: input.longitude,
+        liveAccuracyM: input.accuracyM,
+        liveLocationUpdatedAt: updatedAt,
+      },
+    });
+    if (result.count !== 1) {
+      const profile = await this.prisma.providerProfile.findUnique({ where: { userId }, select: { userId: true } });
+      if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
+      throw new ConflictException("Set your Provider status to Available and enable on-site delivery before sharing live location.");
+    }
+    return { isAvailable: true, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
   }
 
   async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
