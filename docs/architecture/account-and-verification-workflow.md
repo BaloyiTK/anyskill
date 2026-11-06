@@ -82,6 +82,10 @@ Email verification proves control of an email inbox. It does not prove a person'
 | GET | `/api/v1/marketplace/incoming-requests` | View open requests (unverified Providers may view) |
 | GET | `/api/v1/marketplace/my-requests` | View the Seeker's own requests and Provider responses |
 | POST | `/api/v1/marketplace/requests/:requestId/accept` | Send a Provider offer (verified Provider only; does not award job) |
+| GET/POST | `/api/v1/marketplace/provider-profile` | Read or update Provider skills, service areas, delivery modes and availability |
+| POST | `/api/v1/notifications/devices` | Register an Expo push token |
+| GET | `/api/v1/notifications` | Read in-app notifications |
+| PATCH | `/api/v1/notifications/:notificationId/read` | Mark a notification as read |
 
 ## Local development
 
@@ -91,7 +95,9 @@ Email verification proves control of an email inbox. It does not prove a person'
 
 ## Implementation gaps and production requirements
 
-- Marketplace API foundation is implemented: verified Seekers can publish service requests; Providers can read open incoming requests while unverified; verified Providers can respond through the Accept action. The response is an offer/interest record and does not award the job—the Seeker still chooses a Provider. The mobile request form and incoming-request feed are now implemented. This first feed lists open requests; it is not yet the Smart Matching engine and does not send push notifications. Provider matching/notification delivery, request cancellation/closing, and the Seeker's offer-selection flow remain to be built.
+- Smart Matching now ranks available Provider profiles by exact skill-category match, compatible delivery mode and matching service area. It notifies a configurable first wave (default 5 Providers), waits a configurable response window (default 5 minutes), then expands to the next wave if nobody has submitted an offer. A Provider's identity status does not block notification or viewing; the existing server-side verified-action gate still blocks sending an offer.
+- Match assignments and notifications are persisted in PostgreSQL. In-app notifications are available even without push credentials. Expo push tokens are registered from the mobile app and queued notifications are sent through Expo Push Service with retry tracking. Remote push requires an EAS project ID and valid iOS/Android push credentials; an Expo development build is required (Expo Go on Android does not support remote push). Native HarmonyOS NEXT push is not included in this Expo push path.
+- The current matcher uses normalized text service-area matching and exact skill-category strings; it is an MVP, not geospatial distance routing or semantic skill matching. Its 15-second in-process poller is suitable for development/single-instance operation only; production needs a dedicated durable worker/queue and distributed locking. Request cancellation/closing and the Seeker's offer comparison/selection flow remain to be built.
 - Phone number is optional in the current registration API, and SMS/phone OTP verification is not implemented. If mobile verification remains a mandatory product rule, it must be implemented and enforced before marketplace launch.
 - Select and contract with a compliant identity-verification provider.
 - Implement provider session creation, callback/webhook signature validation and result reconciliation.
