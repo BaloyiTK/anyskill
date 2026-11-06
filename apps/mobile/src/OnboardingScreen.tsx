@@ -75,7 +75,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   };
 
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Draft / not complete";
-  const next = () => setActive(tabs[Math.min(tabs.indexOf(active) + 1, tabs.length - 1)]);
+  const next = () => setActive(tabs[Math.min(tabs.indexOf(active) + 1, tabs.length - 1)] ?? "Submit");
   const Field = (label: string, value: string, change: (v: string) => void, multiline = false) => (
     <View style={st.field} key={label}><Text style={st.label}>{label}</Text><TextInput value={value} onChangeText={change} multiline={multiline} placeholder={label} placeholderTextColor="#93A099" style={[st.input, multiline && st.multiline]} /></View>
   );
