@@ -145,7 +145,7 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode === "provider") { void loadRequests(); void loadProviderProfile(); }
-  }, [p.mode, loadRequests]);
+  }, [p.mode, loadRequests, loadProviderProfile]);
 
   const saveProviderProfile = async () => {
     setSavingProfile(true); setError(""); setNotice("");
