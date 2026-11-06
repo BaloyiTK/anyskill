@@ -10,7 +10,7 @@ import {
   ProviderResponseDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
-  SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto,
+  SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
 } from "./dto/service-request.dto";
 import { MarketplaceService } from "./marketplace.service";
 
@@ -65,6 +65,21 @@ export class MarketplaceController {
     return this.marketplace.selectProvider(user.id, requestId, dto.responseId);
   }
 
+
+
+  @Post("marketplace/requests/:requestId/completion")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_SUBMIT_COMPLETION")
+  submitJobCompletion(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: SubmitJobCompletionDto) {
+    return this.marketplace.submitJobCompletion(user.id, requestId, dto);
+  }
+
+  @Post("marketplace/requests/:requestId/completion/:submissionId/decision")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("SEEKER_REVIEW_COMPLETION")
+  decideJobCompletion(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Param("submissionId", new ParseUUIDPipe()) submissionId: string, @Body() dto: DecideJobCompletionDto) {
+    return this.marketplace.decideJobCompletion(user.id, requestId, submissionId, dto);
+  }
 
   @Get("marketplace/my-jobs")
   myJobs(@CurrentUser() user: AuthenticatedUser) { return this.marketplace.listMyJobs(user.id); }
