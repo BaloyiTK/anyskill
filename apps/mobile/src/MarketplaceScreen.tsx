@@ -238,7 +238,7 @@ export function MarketplaceScreen(p: Props) {
         body: JSON.stringify({
           title: title.trim(), skillCategory: category.trim(), description: description.trim(),
           ...(location.trim() ? { location: location.trim() } : {}),
-          ...(requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude } : {}), deliveryMode,
+          ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude } : {}), deliveryMode,
         }),
       }, true);
       setTitle(""); setCategory(""); setDescription(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
