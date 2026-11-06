@@ -28,7 +28,8 @@ type SeekerRequest = {
   status: string; createdAt: string;
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
-    provider: { providerProfile: { skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[] } | null };
+    hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null;
+    provider: { providerProfile: { publicName: string; hourlyRate: string | number | null; assessmentFee: string | number; skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[] } | null };
   }>;
 };
 type Props = {
@@ -56,6 +57,9 @@ export function MarketplaceScreen(p: Props) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [verificationPrompt, setVerificationPrompt] = useState(false);
+  const [providerPublicName, setProviderPublicName] = useState("");
+  const [providerHourlyRate, setProviderHourlyRate] = useState("");
+  const [providerAssessmentFee, setProviderAssessmentFee] = useState("0");
   const [providerSkills, setProviderSkills] = useState("");
   const [providerAreas, setProviderAreas] = useState("");
   const [providerModes, setProviderModes] = useState("ONSITE");
@@ -74,7 +78,7 @@ export function MarketplaceScreen(p: Props) {
   }, []);
 
   useEffect(() => {
-    if (p.mode === "provider") void loadRequests();
+    if (p.mode === "provider") { void loadRequests(); void loadProviderProfile(); }
   }, [p.mode, loadRequests]);
 
   const loadMyRequests = useCallback(async () => {
@@ -123,12 +127,35 @@ export function MarketplaceScreen(p: Props) {
     } finally { setBusy(false); }
   };
 
+  const loadProviderProfile = useCallback(async () => {
+    setProviderProfileLoaded(false);
+    try {
+      const profile = await apiRequest<{
+        publicName: string; hourlyRate: string | number | null; assessmentFee: string | number;
+        skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable: boolean;
+      } | null>("/marketplace/provider-profile", {}, true);
+      if (profile) {
+        setProviderPublicName(profile.publicName || "");
+        setProviderHourlyRate(profile.hourlyRate == null ? "" : String(profile.hourlyRate));
+        setProviderAssessmentFee(String(profile.assessmentFee ?? 0));
+        setProviderSkills(profile.skillCategories.join(", "));
+        setProviderAreas(profile.serviceAreas.join(", "));
+        setProviderModes(profile.deliveryModes.join(", "));
+        setProviderAvailable(profile.isAvailable);
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load Provider profile."); }
+    finally { setProviderProfileLoaded(true); }
+  }, []);
+
   const saveProviderProfile = async () => {
     setSavingProfile(true); setError(""); setNotice("");
     try {
       const profile = await apiRequest<{isAvailable:boolean}>("/marketplace/provider-profile", {
         method: "POST",
         body: JSON.stringify({
+          publicName: providerPublicName.trim(),
+          hourlyRate: Number(providerHourlyRate),
+          assessmentFee: Number(providerAssessmentFee),
           skillCategories: providerSkills.split(",").map((v) => v.trim()).filter(Boolean),
           serviceAreas: providerAreas.split(",").map((v) => v.trim()).filter(Boolean),
           deliveryModes: providerModes.split(",").map((v) => v.trim()).filter(Boolean),
@@ -202,9 +229,12 @@ export function MarketplaceScreen(p: Props) {
             {selected ? <Text style={s.response}>Selected Provider: {selected.providerId.slice(0, 8)} · {new Date(selected.createdAt).toLocaleString()}</Text> : null}
             <Text style={s.sectionSmall}>Offers received ({offers.length})</Text>
             {offers.map((offer, index) => <View key={offer.id} style={s.offerCard}>
-              <Text style={s.offerTitle}>Provider offer {index + 1}</Text>
+              <Text style={s.offerTitle}>{offer.provider.providerProfile?.publicName || "Skill Provider"}</Text>
+              <Text style={s.meta}>Provider offer {index + 1}</Text>
               <Text style={s.meta}>Received {new Date(offer.createdAt).toLocaleString()}</Text>
               <Text style={s.meta}>Provider ID: {offer.providerId.slice(0, 8)}</Text>
+              <Text style={s.meta}>Hourly rate: {offer.hourlyRateAtOffer == null ? "Not supplied" : `R ${Number(offer.hourlyRateAtOffer).toFixed(2)} / hour`}</Text>
+              <Text style={s.meta}>Assessment fee: {offer.assessmentFeeAtOffer == null ? "Not supplied" : Number(offer.assessmentFeeAtOffer) === 0 ? "No assessment fee" : `R ${Number(offer.assessmentFeeAtOffer).toFixed(2)}`}</Text>
               {offer.provider.providerProfile?.skillCategories?.length ? <Text style={s.meta}>Skills: {offer.provider.providerProfile.skillCategories.join(", ")}</Text> : null}
               {offer.provider.providerProfile?.serviceAreas?.length ? <Text style={s.meta}>Service areas: {offer.provider.providerProfile.serviceAreas.join(", ")}</Text> : null}
               {offer.provider.providerProfile?.deliveryModes?.length ? <Text style={s.meta}>Work modes: {offer.provider.providerProfile.deliveryModes.join(", ")}</Text> : null}
@@ -220,6 +250,13 @@ export function MarketplaceScreen(p: Props) {
       </> : <>
         <Text style={s.section}>Your Provider profile</Text>
         <Text style={s.helper}>Tell AnySkill what work you do and where you can do it. Matching uses these details and your availability.</Text>
+        <Text style={s.label}>Public Provider name</Text>
+        <TextInput value={providerPublicName} onChangeText={setProviderPublicName} placeholder="e.g. Tiyani's Plumbing Services" style={s.input} />
+        <Text style={s.label}>Hourly rate (ZAR)</Text>
+        <TextInput value={providerHourlyRate} onChangeText={setProviderHourlyRate} placeholder="e.g. 350.00" keyboardType="decimal-pad" style={s.input} />
+        <Text style={s.label}>Assessment / call-out fee (ZAR)</Text>
+        <TextInput value={providerAssessmentFee} onChangeText={setProviderAssessmentFee} placeholder="0.00" keyboardType="decimal-pad" style={s.input} />
+        <Text style={s.helper}>The Seeker sees these charges before choosing you. Your hourly rate and assessment fee are saved with each offer, so later profile edits do not change an existing offer.</Text>
         <Text style={s.label}>Skill categories (comma-separated)</Text>
         <TextInput value={providerSkills} onChangeText={setProviderSkills} placeholder="e.g. Plumbing, Electrical, Painting" style={s.input} />
         <Text style={s.label}>Service areas (comma-separated)</Text>
@@ -229,7 +266,7 @@ export function MarketplaceScreen(p: Props) {
         <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
           <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
         </Pressable>
-        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim()} />
+        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim() || providerPublicName.trim().length < 2 || !(Number(providerHourlyRate) > 0) || !Number.isFinite(Number(providerAssessmentFee)) || Number(providerAssessmentFee) < 0} />
         <Text style={s.section}>Notifications</Text>
         {notifications.slice(0,4).map((item) => <View key={item.id} style={s.notificationCard}>
           <Text style={s.cardTitle}>{item.title}</Text><Text style={s.meta}>{item.body}</Text>
