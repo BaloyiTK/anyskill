@@ -21,17 +21,24 @@ The mobile product is one application with two operating modes. A single account
 
 - Node.js 22.22.3 or newer.
 - pnpm 10 or newer.
-- PostgreSQL 15 or newer.
+- Docker Desktop or Docker Engine with Compose.
 - Xcode for local iOS builds on macOS.
 - Android Studio for Android builds.
+
+## Start local services
+
+```bash
+docker compose up -d postgres mailpit
+```
+
+Mailpit captures local email at [http://localhost:8025](http://localhost:8025). It is for development only; production must use a real SMTP provider.
 
 ## API setup
 
 1. Copy `apps/api/.env.example` to `apps/api/.env`.
-2. Set `DATABASE_URL`, a unique `JWT_ACCESS_SECRET` and SMTP credentials.
-3. Install dependencies and generate the Prisma client.
-4. Apply the database migrations.
-5. Start the API.
+2. Generate a unique `JWT_ACCESS_SECRET` of at least 32 characters.
+3. Install dependencies, generate Prisma Client and apply migrations.
+4. Start the API.
 
 ```bash
 corepack enable
@@ -45,6 +52,8 @@ The API health endpoint is `http://localhost:3000/api/v1/health`.
 
 ## Mobile setup
 
+Copy `apps/mobile/.env.example` to `apps/mobile/.env`. Change `EXPO_PUBLIC_API_URL` to your computer's LAN address when testing on a physical device.
+
 ```bash
 pnpm dev:mobile
 ```
@@ -55,8 +64,8 @@ pnpm dev:mobile
 - Email verification is required before login.
 - Both user roles must complete identity verification before marketplace access.
 - Email verification is not identity verification.
-- The API creates and tracks identity-verification cases, but no identity provider has been selected or integrated yet.
-- Never mark a user verified from a mobile client or from an untrusted request.
+- The API creates and tracks identity-verification cases, but no identity provider or approval process has been selected or integrated yet.
+- Never mark a user verified from a mobile client or an untrusted request.
 
 See `docs/architecture/account-and-verification-workflow.md` for the API contract and implementation boundaries.
 
