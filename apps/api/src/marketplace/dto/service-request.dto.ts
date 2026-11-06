@@ -5,6 +5,9 @@ import {
   IsIn,
   IsOptional,
   IsString,
+  IsNumber,
+  Min,
+  Max,
   IsUrl,
   MaxLength,
   MinLength,
@@ -59,6 +62,21 @@ export class ProviderResponseDto {
 
  
 export class UpdateProviderProfileDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(80)
+  publicName!: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(1)
+  @Max(1000000)
+  hourlyRate!: number;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1000000)
+  assessmentFee!: number;
+
   @IsArray()
   @ArrayMaxSize(30)
   @IsString({ each: true })
