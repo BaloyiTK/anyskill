@@ -7,6 +7,8 @@ import { JwtAuthGuard } from "./jwt-auth.guard";
 import { EmailVerificationService } from "./email-verification.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
+import { VerifyRegistrationOtpDto } from "./dto/verify-registration-otp.dto";
+import { CompleteRegistrationDto } from "./dto/complete-registration.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { TokenDto } from "./dto/token.dto";
 
@@ -37,11 +39,17 @@ export class AuthController {
     private readonly emailVerification: EmailVerificationService,
   ) {}
 
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @Post("register")
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
-  }
+  register(@Body() dto: RegisterDto) { return this.auth.register(dto); }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("verify-registration-otp")
+  verifyRegistrationOtp(@Body() dto: VerifyRegistrationOtpDto) { return this.auth.verifyRegistrationOtp(dto.email, dto.otp); }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("complete-registration")
+  completeRegistration(@Body() dto: CompleteRegistrationDto) { return this.auth.completeRegistration(dto.registrationToken, dto.password); }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("google")
