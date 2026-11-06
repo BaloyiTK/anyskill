@@ -325,10 +325,10 @@ export default function App() {
             </View>
             {verified ? <View style={s.successNotice}>
               <Text style={s.successTitle}>Identity verified</Text>
-              <Text style={s.successText}>Your account meets the identity requirement. Marketplace features will become available as they are released.</Text>
+              <Text style={s.successText}>You are verified and can complete actions that require identity verification as those marketplace features become available.</Text>
             </View> : <View style={s.notice}>
-              <Text style={s.noticeTitle}>Marketplace access is locked</Text>
-              <Text style={s.noticeText}>Both Skill Seekers and Skill Providers must verify their identity. This build can record a request, but the identity-check provider and approval workflow have not yet been connected.</Text>
+              <Text style={s.noticeTitle}>Identity verification required for key actions</Text>
+              <Text style={s.noticeText}>You can explore AnySkill before verifying. Skill Seekers must verify before submitting a request. Skill Providers can still receive and view incoming requests, but must verify before accepting one. Identity checks are not yet connected to a verification provider in this build.</Text>
               {["not_started", "failed", "requires_information"].includes(identityStatus) && <Primary label="Start identity verification request" onPress={startIdentityVerification} disabled={busy} />}
             </View>}
             {!account.googleLinked && <Secondary label="Connect Google account" onPress={connectGoogle} />}
