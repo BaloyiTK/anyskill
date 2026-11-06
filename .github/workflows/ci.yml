@@ -58,8 +58,8 @@ jobs:
 
       - name: Verify PostGIS and geographic index
         run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT postgis_version();"
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT indexname FROM pg_indexes WHERE indexname = 'provider_profiles_live_geography_gist_idx';" | grep provider_profiles_live_geography_gist_idx
+          psql "postgresql://postgres:postgres@localhost:5432/anyskill" -v ON_ERROR_STOP=1 -c "SELECT postgis_version();"
+          psql "postgresql://postgres:postgres@localhost:5432/anyskill" -v ON_ERROR_STOP=1 -c "SELECT indexname FROM pg_indexes WHERE indexname = 'provider_profiles_live_geography_gist_idx';" | grep provider_profiles_live_geography_gist_idx
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
 
