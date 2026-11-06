@@ -123,6 +123,7 @@ export default function App() {
       await apiRequest("/auth/reset-password", {
         method: "POST", body: JSON.stringify({ token: resetToken, newPassword }),
       });
+      await clearTokens();
       setMessage("Password updated. Sign in with your new password.");
       setPassword("");
       setNewPassword("");
