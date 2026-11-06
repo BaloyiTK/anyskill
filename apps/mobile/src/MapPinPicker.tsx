@@ -10,6 +10,7 @@ type Props = {
 };
 
 const TILE = 256;
+const TILE_URL_TEMPLATE = process.env.EXPO_PUBLIC_MAP_TILE_URL ?? "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const MAX_LAT = 85.05112878;
 const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 function worldPoint(latitude: number, longitude: number, zoom: number) {
@@ -53,7 +54,7 @@ export function MapPinPicker(p: Props) {
           const left = rawX * TILE - center.x + size.width / 2;
           const top = y * TILE - center.y + size.height / 2;
           return <Image key={zoom + ":" + rawX + ":" + y}
-            source={{ uri: "https://tile.openstreetmap.org/" + zoom + "/" + x + "/" + y + ".png" }}
+            source={{ uri: TILE_URL_TEMPLATE.replace("{z}", String(zoom)).replace("{x}", String(x)).replace("{y}", String(y)) }}
             style={{ position: "absolute", width: TILE, height: TILE, left, top }}
             resizeMode="stretch" />;
         }))}
