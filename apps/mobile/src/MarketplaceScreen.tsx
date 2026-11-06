@@ -22,6 +22,15 @@ type RequestItem = {
   alreadyResponded: boolean;
   myResponse: { id: string; status: string } | null;
 };
+type SeekerRequest = {
+  id: string; title: string; skillCategory: string; description: string;
+  deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
+  status: string; createdAt: string;
+  providerResponses: Array<{
+    id: string; providerId: string; status: string; message: string | null; createdAt: string;
+    provider: { providerProfile: { skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[] } | null };
+  }>;
+};
 type Props = {
   mode: Mode;
   verified: boolean;
@@ -35,6 +44,8 @@ const C = { ink: "#17231F", muted: "#68766F", primary: "#176B5B", border: "#DCE5
 
 export function MarketplaceScreen(p: Props) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
+  const [myRequests, setMyRequests] = useState<SeekerRequest[]>([]);
+  const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
@@ -65,6 +76,33 @@ export function MarketplaceScreen(p: Props) {
   useEffect(() => {
     if (p.mode === "provider") void loadRequests();
   }, [p.mode, loadRequests]);
+
+  const loadMyRequests = useCallback(async () => {
+    setBusy(true); setError("");
+    try {
+      const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
+      setMyRequests(result);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load your requests."); }
+    finally { setBusy(false); }
+  }, []);
+
+  useEffect(() => {
+    if (p.mode === "seeker") void loadMyRequests();
+  }, [p.mode, loadMyRequests]);
+
+  const selectProvider = async (requestId: string, responseId: string) => {
+    setSelectingOfferId(responseId); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/select-provider`, {
+        method: "POST", body: JSON.stringify({ responseId }),
+      }, true);
+      setNotice("Provider selected. The request is now closed to further offers.");
+      await loadMyRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not select this Provider.");
+      await loadMyRequests();
+    } finally { setSelectingOfferId(null); }
+  };
 
   const submitRequest = async () => {
     setBusy(true); setError(""); setNotice(""); setVerificationPrompt(false);
@@ -150,6 +188,35 @@ export function MarketplaceScreen(p: Props) {
         </View>
         <Primary label="Publish service request" onPress={submitRequest} disabled={busy || title.trim().length < 5 || category.trim().length < 2 || description.trim().length < 20} />
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
+        <Text style={s.section}>Your service requests and Provider offers</Text>
+        <Text style={s.helper}>Compare the offers you receive. Selecting a Provider closes the request to further offers. You can only select one offer.</Text>
+        <Secondary label="Refresh my requests" onPress={() => void loadMyRequests()} />
+        {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
+        {myRequests.map((request) => {
+          const offers = request.providerResponses.filter((offer) => ["OFFERED", "SELECTED"].includes(offer.status));
+          const selected = request.providerResponses.find((offer) => offer.status === "SELECTED");
+          return <View key={request.id} style={s.card}>
+            <Text style={s.cardTitle}>{request.title}</Text>
+            <Text style={s.meta}>{request.skillCategory} · {request.status === "OPEN" ? "Open" : request.status}</Text>
+            <Text style={s.body}>{request.description}</Text>
+            {selected ? <Text style={s.response}>Selected Provider: {selected.providerId.slice(0, 8)} · {new Date(selected.createdAt).toLocaleString()}</Text> : null}
+            <Text style={s.sectionSmall}>Offers received ({offers.length})</Text>
+            {offers.map((offer, index) => <View key={offer.id} style={s.offerCard}>
+              <Text style={s.offerTitle}>Provider offer {index + 1}</Text>
+              <Text style={s.meta}>Received {new Date(offer.createdAt).toLocaleString()}</Text>
+              <Text style={s.meta}>Provider ID: {offer.providerId.slice(0, 8)}</Text>
+              {offer.provider.providerProfile?.skillCategories?.length ? <Text style={s.meta}>Skills: {offer.provider.providerProfile.skillCategories.join(", ")}</Text> : null}
+              {offer.provider.providerProfile?.serviceAreas?.length ? <Text style={s.meta}>Service areas: {offer.provider.providerProfile.serviceAreas.join(", ")}</Text> : null}
+              {offer.provider.providerProfile?.deliveryModes?.length ? <Text style={s.meta}>Work modes: {offer.provider.providerProfile.deliveryModes.join(", ")}</Text> : null}
+              <Text style={s.body}>{offer.message?.trim() || "The Provider did not add a message."}</Text>
+              {offer.status === "SELECTED" ? <Text style={s.response}>Selected</Text> : request.status === "OPEN" ?
+                <Primary label={selectingOfferId === offer.id ? "Selecting..." : "Select this Provider"} onPress={() => void selectProvider(request.id, offer.id)} disabled={!!selectingOfferId || busy} /> :
+                <Text style={s.meta}>This request is closed; this offer cannot be selected.</Text>}
+            </View>)}
+            {offers.length === 0 ? <Text style={s.helper}>No offers yet. Matched Providers can still respond while this request is open.</Text> : null}
+          </View>;
+        })}
+        {!busy && myRequests.length === 0 ? <Text style={s.helper}>You have not published any service requests yet.</Text> : null}
       </> : <>
         <Text style={s.section}>Your Provider profile</Text>
         <Text style={s.helper}>Tell AnySkill what work you do and where you can do it. Matching uses these details and your availability.</Text>
@@ -208,6 +275,9 @@ const s = StyleSheet.create({
   modeTextActive: { color: C.primary },
   content: { paddingHorizontal: 22, paddingBottom: 36 },
   section: { color: C.ink, fontSize: 19, fontWeight: "800", marginTop: 8 },
+  sectionSmall: { color: C.ink, fontSize: 14, fontWeight: "800", marginTop: 15 },
+  offerCard: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 11, padding: 12, marginTop: 10 },
+  offerTitle: { color: C.ink, fontSize: 13, fontWeight: "800" },
   helper: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 8, marginBottom: 14 },
   label: { color: C.ink, fontSize: 12, fontWeight: "800", marginTop: 13, marginBottom: 6 },
   input: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 11, minHeight: 48, paddingHorizontal: 12, color: C.ink },
