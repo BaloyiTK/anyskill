@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import * as Notifications from "expo-notifications";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { Platform } from "react-native";
 import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -65,6 +66,10 @@ export function MarketplaceScreen(p: Props) {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
+  const [requestLatitude, setRequestLatitude] = useState<number | null>(null);
+  const [requestLongitude, setRequestLongitude] = useState<number | null>(null);
+  const [savedHomeLocation, setSavedHomeLocation] = useState<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null} | null>(null);
+  const [locationBusy, setLocationBusy] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
   const [responseMessage, setResponseMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -78,6 +83,7 @@ export function MarketplaceScreen(p: Props) {
   const [providerAreas, setProviderAreas] = useState("");
   const [providerModes, setProviderModes] = useState("ONSITE");
   const [providerAvailable, setProviderAvailable] = useState(false);
+  const [providerLiveTrackingEnabled, setProviderLiveTrackingEnabled] = useState(false);
   const [providerProfileLoaded, setProviderProfileLoaded] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [notifications, setNotifications] = useState<Array<{id:string;title:string;body:string;readAt:string|null;createdAt:string}>>([]);
@@ -101,8 +107,8 @@ export function MarketplaceScreen(p: Props) {
   }, []);
 
   useEffect(() => {
-    if (p.mode === "seeker") void loadMyRequests();
-  }, [p.mode, loadMyRequests]);
+    if (p.mode === "seeker") { void loadMyRequests(); void loadHomeLocation(); }
+  }, [p.mode, loadMyRequests, loadHomeLocation]);
 
   const selectProvider = async (requestId: string, responseId: string) => {
     setSelectingOfferId(responseId); setError(""); setNotice("");
@@ -228,10 +234,11 @@ export function MarketplaceScreen(p: Props) {
         method: "POST",
         body: JSON.stringify({
           title: title.trim(), skillCategory: category.trim(), description: description.trim(),
-          ...(location.trim() ? { location: location.trim() } : {}), deliveryMode,
+          ...(location.trim() ? { location: location.trim() } : {}),
+          ...(requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude } : {}), deliveryMode,
         }),
       }, true);
-      setTitle(""); setCategory(""); setDescription(""); setLocation("");
+      setTitle(""); setCategory(""); setDescription(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
       setNotice("Your service request has been published.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not submit your request.";
@@ -255,10 +262,39 @@ export function MarketplaceScreen(p: Props) {
         setProviderAreas(profile.serviceAreas.join(", "));
         setProviderModes(profile.deliveryModes.join(", "));
         setProviderAvailable(profile.isAvailable);
+        setProviderLiveTrackingEnabled(profile.isAvailable);
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load Provider profile."); }
     finally { setProviderProfileLoaded(true); }
   }, []);
+
+  const loadHomeLocation = useCallback(async () => {
+    try {
+      const home = await apiRequest<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null}>("/profile/location/home", {}, true);
+      setSavedHomeLocation(home);
+    } catch { setSavedHomeLocation(null); }
+  }, []);
+
+  const useCurrentJobLocation = async () => {
+    setLocationBusy(true); setError(""); setNotice("");
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) throw new Error("Allow location access or choose your saved Home Location to set the job location.");
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setRequestLatitude(current.coords.latitude); setRequestLongitude(current.coords.longitude);
+      setNotice("Current GPS location selected for this job only.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not read current location."); }
+    finally { setLocationBusy(false); }
+  };
+
+  const useSavedHomeLocation = () => {
+    if (!savedHomeLocation?.homeLatitude || !savedHomeLocation?.homeLongitude) {
+      setError("Save a Home Location with GPS coordinates in your Profile first."); return;
+    }
+    setRequestLatitude(savedHomeLocation.homeLatitude); setRequestLongitude(savedHomeLocation.homeLongitude);
+    if (savedHomeLocation.homeLocationLabel) setLocation(savedHomeLocation.homeLocationLabel);
+    setNotice("Saved Home Location selected as this job's location.");
+  };
 
   const loadMyJobs = useCallback(async () => {
     try {
@@ -270,6 +306,38 @@ export function MarketplaceScreen(p: Props) {
   useEffect(() => {
     if (p.mode === "provider") { void loadRequests(); void loadProviderProfile(); void loadMyJobs(); }
   }, [p.mode, loadRequests, loadProviderProfile, loadMyJobs]);
+
+  useEffect(() => {
+    if (p.mode !== "provider" || !providerAvailable || !providerLiveTrackingEnabled ||
+        (!providerModes.split(",").map((v) => v.trim()).includes("ONSITE") && !providerModes.split(",").map((v) => v.trim()).includes("EITHER"))) return;
+    let active = true;
+    let subscription: Location.LocationSubscription | null = null;
+    const sendLocation = async (coords: Location.LocationObjectCoords) => {
+      if (!active || coords.accuracy == null || coords.accuracy > 250) return;
+      try {
+        await apiRequest("/marketplace/provider-location/live", {
+          method: "POST",
+          body: JSON.stringify({ latitude: coords.latitude, longitude: coords.longitude, accuracyM: coords.accuracy }),
+        }, true);
+      } catch (e) {
+        if (active) setError(e instanceof Error ? e.message : "Live location update failed.");
+      }
+    };
+    void (async () => {
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted) throw new Error("Location permission is needed for on-site matching. You remain unavailable for geographic matching until you allow it.");
+        const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        await sendLocation(initial.coords);
+        if (!active) return;
+        subscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 50 },
+          (position) => { void sendLocation(position.coords); },
+        );
+      } catch (e) { if (active) setError(e instanceof Error ? e.message : "Could not start live location."); }
+    })();
+    return () => { active = false; subscription?.remove(); };
+  }, [p.mode, providerAvailable, providerLiveTrackingEnabled, providerModes]);
 
   const saveProviderProfile = async () => {
     setSavingProfile(true); setError(""); setNotice("");
@@ -286,7 +354,8 @@ export function MarketplaceScreen(p: Props) {
           isAvailable: providerAvailable,
         }),
       }, true);
-      setNotice(profile.isAvailable ? "Provider profile saved. You are available for matching." : "Provider profile saved. You are currently unavailable for matching.");
+      setProviderLiveTrackingEnabled(profile.isAvailable);
+      setNotice(profile.isAvailable ? "Provider profile saved. Live location will be shared while the app is in use if on-site matching is enabled." : "Provider profile saved. You are currently unavailable; live location sharing has stopped.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save Provider profile."); }
     finally { setSavingProfile(false); }
   };
@@ -333,6 +402,11 @@ export function MarketplaceScreen(p: Props) {
         <TextInput value={description} onChangeText={setDescription} placeholder="Explain what needs to be done..." multiline style={[s.input, s.multiline]} />
         <Text style={s.label}>Service area (not your exact street address)</Text>
         <TextInput value={location} onChangeText={setLocation} placeholder="e.g. Rosebank, Johannesburg" style={s.input} />
+        <View style={s.choiceRow}>
+          <Secondary label="Use saved Home Location" onPress={useSavedHomeLocation} />
+          <Secondary label={locationBusy ? "Getting GPS..." : "Use current GPS"} onPress={() => void useCurrentJobLocation()} />
+        </View>
+        <Text style={s.helper}>{requestLatitude != null && requestLongitude != null ? `Job coordinates selected: ${requestLatitude.toFixed(5)}, ${requestLongitude.toFixed(5)}` : "For on-site requests, choose a job location using Home Location or current GPS. Only this job location is shared with matched Providers."}</Text>
         <Text style={s.label}>Where should the work happen?</Text>
         <View style={s.choiceRow}>
           {(["ONSITE", "REMOTE", "EITHER"] as const).map((value) => <Pressable key={value} onPress={() => setDeliveryMode(value)} style={[s.choice, deliveryMode === value && s.choiceActive]}><Text style={[s.choiceText, deliveryMode === value && s.choiceTextActive]}>{value === "ONSITE" ? "On-site" : value === "REMOTE" ? "Remote" : "Either"}</Text></Pressable>)}
@@ -413,7 +487,7 @@ export function MarketplaceScreen(p: Props) {
         {!busy && myRequests.length === 0 ? <Text style={s.helper}>You have not published any service requests yet.</Text> : null}
       </> : <>
         <Text style={s.section}>Your Provider profile</Text>
-        <Text style={s.helper}>Tell AnySkill what work you do and where you can do it. Matching uses these details and your availability.</Text>
+        <Text style={s.helper}>Tell AnySkill what work you do and where you can do it. Matching uses these details and your availability. Live GPS is used only while Available for on-site matching.</Text>
         <Text style={s.label}>Public Provider name</Text>
         <TextInput value={providerPublicName} onChangeText={setProviderPublicName} placeholder="e.g. Tiyani's Plumbing Services" style={s.input} />
         <Text style={s.label}>Hourly rate (ZAR)</Text>
@@ -427,6 +501,7 @@ export function MarketplaceScreen(p: Props) {
         <TextInput value={providerAreas} onChangeText={setProviderAreas} placeholder="e.g. Rosebank, Sandton, Johannesburg" style={s.input} />
         <Text style={s.label}>Delivery modes (ONSITE, REMOTE, EITHER)</Text>
         <TextInput value={providerModes} onChangeText={setProviderModes} placeholder="ONSITE, REMOTE" style={s.input} />
+        <Text style={s.helper}>{providerLiveTrackingEnabled && providerAvailable ? "Live location sharing is enabled while the app is in use; updates stop when you become unavailable or leave Provider mode." : "Live location is not currently being shared."}</Text>
         <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
           <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
         </Pressable>
