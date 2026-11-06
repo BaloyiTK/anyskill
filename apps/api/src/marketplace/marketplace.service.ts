@@ -14,6 +14,7 @@ import {
   ProviderResponseDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
+  SelectProviderDto,
 } from "./dto/service-request.dto";
 
 type RankedProvider = { userId: string; score: number };
@@ -170,9 +171,65 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       include: {
         providerResponses: {
           orderBy: { createdAt: "asc" },
-          select: { id: true, providerId: true, status: true, message: true, createdAt: true },
+          select: {
+            id: true, providerId: true, status: true, message: true, createdAt: true,
+            provider: {
+              select: {
+                providerProfile: {
+                  select: { skillCategories: true, serviceAreas: true, deliveryModes: true },
+                },
+              },
+            },
+          },
         },
       },
+    });
+  }
+
+  async selectProvider(seekerId: string, requestId: string, responseId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const request = await tx.serviceRequest.findUnique({
+        where: { id: requestId },
+        select: { id: true, seekerId: true, status: true, title: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker who created this request can select a Provider.");
+      if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider selection.");
+
+      const offer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, status: "OFFERED" },
+        select: { id: true, providerId: true },
+      });
+      if (!offer) throw new NotFoundException("This Provider offer is no longer available.");
+
+      // Conditional update is the final concurrency guard: only one selection can close an open request.
+      const claimed = await tx.serviceRequest.updateMany({
+        where: { id: requestId, seekerId, status: "OPEN" },
+        data: { status: "CLOSED", matchingNextAt: null },
+      });
+      if (claimed.count !== 1) throw new ConflictException("Another selection or request update has already closed this request.");
+
+      await tx.providerResponse.update({
+        where: { id: offer.id },
+        data: { status: "SELECTED" },
+      });
+      await tx.providerResponse.updateMany({
+        where: { requestId, id: { not: offer.id }, status: "OFFERED" },
+        data: { status: "WITHDRAWN" },
+      });
+      await tx.requestMatch.updateMany({
+        where: { requestId, providerId: offer.providerId },
+        data: { status: "RESPONDED" },
+      });
+      await tx.appNotification.create({
+        data: {
+          userId: offer.providerId,
+          title: "Your offer was selected",
+          body: `The Skill Seeker selected your offer for: ${request.title}`,
+          data: { type: "PROVIDER_SELECTED", requestId, responseId: offer.id },
+        },
+      });
+      return { success: true, requestId, selectedResponseId: offer.id, selectedProviderId: offer.providerId, status: "CLOSED" };
     });
   }
 
