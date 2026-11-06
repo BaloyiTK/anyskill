@@ -23,7 +23,8 @@ type RequestItem = {
   myResponse: { id: string; status: string } | null;
 };
 type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
-type JobEngagement = { id: string; status: string; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; adjustments: JobAdjustment[] };
+type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
+type JobEngagement = { id: string; status: string; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
@@ -54,6 +55,9 @@ export function MarketplaceScreen(p: Props) {
   const [estimateNotes, setEstimateNotes] = useState("");
   const [extraHours, setExtraHours] = useState("1");
   const [extraReason, setExtraReason] = useState("");
+  const [completionNotes, setCompletionNotes] = useState("");
+  const [completionEvidenceUrls, setCompletionEvidenceUrls] = useState("");
+  const [completionReviewNote, setCompletionReviewNote] = useState("");
   const [jobActionBusy, setJobActionBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
@@ -156,6 +160,32 @@ export function MarketplaceScreen(p: Props) {
       setNotice(approved ? "Additional hours approved." : "Additional hours rejected.");
       await loadMyRequests();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not decide additional hours."); }
+    finally { setJobActionBusy(false); }
+  };
+
+
+  const submitCompletion = async (requestId: string) => {
+    const evidenceUrls = completionEvidenceUrls.split(/\\n/).map((url) => url.trim()).filter(Boolean);
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/completion`, {
+        method: "POST", body: JSON.stringify({ notes: completionNotes.trim(), evidenceUrls }),
+      }, true);
+      setNotice("Completion submitted. The Seeker must review and approve it.");
+      setCompletionNotes(""); setCompletionEvidenceUrls(""); await loadMyJobs();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit job completion."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const reviewCompletion = async (requestId: string, submissionId: string, approved: boolean) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/completion/${submissionId}/decision`, {
+        method: "POST", body: JSON.stringify({ approved, note: approved ? undefined : completionReviewNote.trim() }),
+      }, true);
+      setNotice(approved ? "Completion approved. The job is marked completed." : "Corrections requested. The Provider can update the work and resubmit.");
+      setCompletionReviewNote(""); await loadMyRequests();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not review job completion."); }
     finally { setJobActionBusy(false); }
   };
 
@@ -289,7 +319,7 @@ export function MarketplaceScreen(p: Props) {
             <Text style={s.meta}>{request.skillCategory} · {request.status === "OPEN" ? "Open" : request.status}</Text>
             <Text style={s.body}>{request.description}</Text>
             {selected ? <Text style={s.response}>Selected Provider: {selected.providerId.slice(0, 8)} · {new Date(selected.createdAt).toLocaleString()}</Text> : null}
-            {request.jobEngagement ? <View style={s.offerCard}>
+            {seekerUi}            {request.jobEngagement ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Assessment and job-cost approval</Text>
               <Text style={s.meta}>Status: {request.jobEngagement.status.replaceAll("_", " ")}</Text>
               <Text style={s.meta}>Agreed hourly rate: R {Number(request.jobEngagement.hourlyRate).toFixed(2)}</Text>
@@ -373,6 +403,21 @@ export function MarketplaceScreen(p: Props) {
             <Primary label="Request additional hours" onPress={() => void requestExtraHours(job.request.id)} disabled={jobActionBusy || !(Number(extraHours) > 0) || extraReason.trim().length < 10} />
           </> : null}
           {job.adjustments.map((adjustment) => <Text key={adjustment.id} style={s.meta}>Extra hours request: {Number(adjustment.requestedHours).toFixed(2)} · R {Number(adjustment.requestedAmount).toFixed(2)} · {adjustment.status}</Text>)}
+{job.status === "IN_PROGRESS" ? <>
+            <Text style={s.helper}>When the agreed work is finished, submit completion notes and photo evidence. The Seeker must approve before the job is marked completed.</Text>
+            <Text style={s.label}>Completion notes</Text>
+            <TextInput value={completionNotes} onChangeText={setCompletionNotes} placeholder="Summarise the work completed, tests performed and any handover details..." multiline style={[s.input, s.multiline]} />
+            <Text style={s.label}>Photo evidence image links (one HTTPS link per line)</Text>
+            <TextInput value={completionEvidenceUrls} onChangeText={setCompletionEvidenceUrls} placeholder={"https://.../before-after-1.jpg\\nhttps://.../completed-work.jpg"} multiline style={[s.input, s.multiline]} />
+            <Primary label="Submit job completion" onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || completionNotes.trim().length < 20 || !completionEvidenceUrls.split(/\\n/).some((url) => url.trim().startsWith("https://"))} />
+          </> : null}
+          {job.status === "COMPLETION_PENDING" ? <Text style={s.helper}>Completion submitted. Wait for the Seeker to review it. Do not mark the job complete yourself.</Text> : null}
+          {job.status === "COMPLETED" ? <Text style={s.response}>The Seeker approved this job's completion.</Text> : null}
+          {job.completionSubmissions.map((submission) => <View key={submission.id} style={s.offerCard}>
+            <Text style={s.meta}>Completion submission · {submission.status} · {new Date(submission.submittedAt).toLocaleString()}</Text>
+            <Text style={s.body}>{submission.notes}</Text>
+            {submission.reviewNote ? <Text style={s.meta}>Seeker feedback: {submission.reviewNote}</Text> : null}
+          </View>)}
         </View>)}
         {!myJobs.length ? <Text style={s.helper}>No selected jobs yet. When a Seeker selects your offer, the assessment will appear here.</Text> : null}
         <Text style={s.section}>Notifications</Text>
