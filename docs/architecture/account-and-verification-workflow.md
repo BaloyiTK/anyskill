@@ -87,6 +87,18 @@ Email verification proves control of an email inbox. It does not prove a person'
 | GET | `/api/v1/notifications` | Read in-app notifications |
 | PATCH | `/api/v1/notifications/:notificationId/read` | Mark a notification as read |
 
+## Saved payment method during Skill Seeker profile setup
+
+The intended payment experience collects the Skill Seeker's payment card during profile setup, before they request or approve work. This is a saved payment method, not an upfront charge.
+
+- The card-entry experience must be provided by PayGate using a supported hosted/tokenised flow. AnySkill mobile and API must not receive, log or store the full primary account number (PAN) or card verification value (CVV).
+- PayGate must return a gateway customer/payment-method token or equivalent reusable reference. AnySkill stores only that reference, gateway/customer identifiers as required, card brand, masked last four digits, expiry metadata where supplied, consent record and lifecycle status.
+- The Seeker must explicitly consent to storing the payment method and using it for future AnySkill job payments. The Seeker can add, replace and remove a saved method; removal must be blocked or deferred where an active authorisation or unsettled transaction still depends on it.
+- A card is not considered ready for job start merely because it was saved. AnySkill must obtain a successful authorisation for the approved estimate before the Provider is told to start.
+- The gateway's support for card-on-file credentials, customer-initiated setup/verification, subsequent merchant-initiated authorisation and delayed capture must be confirmed for the actual PayGate Gateway merchant account before implementation. Do not assume PayWeb3 and PayHost expose identical capabilities.
+
+The detailed payment state machine, authorisation/capture rules, settlement boundary and unresolved gateway checks are documented in `payment-and-settlement-workflow.md`.
+ 
 ## Local development
 
 - PostgreSQL and Mailpit are available through the repository Docker Compose file.
@@ -97,7 +109,7 @@ Email verification proves control of an email inbox. It does not prove a person'
 
 - Smart Matching now ranks available Provider profiles by exact skill-category match, compatible delivery mode and matching service area. It notifies a configurable first wave (default 5 Providers), waits a configurable response window (default 5 minutes), then expands to the next wave if nobody has submitted an offer. A Provider's identity status does not block notification or viewing; the existing server-side verified-action gate still blocks sending an offer.
 - Match assignments and notifications are persisted in PostgreSQL. In-app notifications are available even without push credentials. Expo push tokens are registered from the mobile app and queued notifications are sent through Expo Push Service with retry tracking. Remote push requires an EAS project ID and valid iOS/Android push credentials; an Expo development build is required (Expo Go on Android does not support remote push). Native HarmonyOS NEXT push is not included in this Expo push path.
-- The current matcher uses normalized text service-area matching and exact skill-category strings; it is an MVP, not geospatial distance routing or semantic skill matching. Its 15-second in-process poller is suitable for development/single-instance operation only; production needs a dedicated durable worker/queue and distributed locking. Request cancellation/closing and the Seeker's offer comparison/selection flow remain to be built.
+- The current matcher uses normalized text service-area matching and exact skill-category strings; it is an MVP, not geospatial distance routing or semantic skill matching. Its 15-second in-process poller is suitable for development/single-instance operation only; production needs a dedicated durable worker/queue and distributed locking. The Seeker offer comparison/Provider selection flow is implemented; request cancellation/closing still needs completion.
 - Phone number is optional in the current registration API, and SMS/phone OTP verification is not implemented. If mobile verification remains a mandatory product rule, it must be implemented and enforced before marketplace launch.
 - Select and contract with a compliant identity-verification provider.
 - Implement provider session creation, callback/webhook signature validation and result reconciliation.
