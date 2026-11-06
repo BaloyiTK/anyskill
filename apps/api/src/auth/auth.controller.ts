@@ -1,8 +1,9 @@
 import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
-import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { IsEmail, IsString, MinLength } from "class-validator";
 import { AuthService } from "./auth.service";
 import { CurrentUser, AuthenticatedUser } from "./current-user.decorator";
 import { JwtAuthGuard } from "./jwt-auth.guard";
+import { EmailVerificationService } from "./email-verification.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
@@ -14,8 +15,6 @@ class RefreshDto {
   refreshToken!: string;
 }
 
-class LogoutDto extends RefreshDto {}
-
 class ForgotPasswordDto {
   @IsEmail()
   email!: string;
@@ -23,7 +22,10 @@ class ForgotPasswordDto {
 
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly emailVerification: EmailVerificationService,
+  ) {}
 
   @Post("register")
   register(@Body() dto: RegisterDto) {
@@ -40,13 +42,18 @@ export class AuthController {
     return this.auth.verifyEmail(dto.token);
   }
 
+  @Post("resend-verification")
+  resendVerification(@Body() dto: ForgotPasswordDto) {
+    return this.emailVerification.resend(dto.email);
+  }
+
   @Post("refresh")
   refresh(@Body() dto: RefreshDto) {
     return this.auth.refresh(dto.refreshToken);
   }
 
   @Post("logout")
-  logout(@Body() dto: LogoutDto) {
+  logout(@Body() dto: RefreshDto) {
     return this.auth.logout(dto.refreshToken);
   }
 
