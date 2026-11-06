@@ -10,6 +10,13 @@ import { RegisterDto } from "./dto/register.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
 import { TokenDto } from "./dto/token.dto";
 
+class GoogleIdTokenDto {
+  @IsString()
+  @MinLength(100)
+  @MaxLength(8192)
+  idToken!: string;
+}
+
 class RefreshDto {
   @IsString()
   @MinLength(32)
@@ -34,6 +41,22 @@ export class AuthController {
   @Post("register")
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post("google")
+  googleSignIn(@Body() dto: GoogleIdTokenDto) {
+    return this.auth.googleSignIn(dto.idToken);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("google/link")
+  @UseGuards(JwtAuthGuard)
+  linkGoogleAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: GoogleIdTokenDto,
+  ) {
+    return this.auth.linkGoogleAccount(user.id, dto.idToken);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
