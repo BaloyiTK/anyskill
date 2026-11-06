@@ -71,6 +71,12 @@ enum CostAdjustmentStatus {
   REJECTED
 }
 
+enum JobCompletionSubmissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum NotificationDeliveryStatus {
   PENDING
   SENDING
@@ -298,6 +304,7 @@ model JobEngagement {
   request             ServiceRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
   response            ProviderResponse     @relation(fields: [responseId], references: [id], onDelete: Restrict)
   adjustments         JobCostAdjustment[]
+  completionSubmissions JobCompletionSubmission[]
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@map("job_engagements")
@@ -317,4 +324,20 @@ model JobCostAdjustment {
   engagement      JobEngagement         @relation(fields: [engagementId], references: [id], onDelete: Cascade)
   @@index([engagementId, status, createdAt])
   @@map("job_cost_adjustments")
+}
+
+
+model JobCompletionSubmission {
+  id             String                           @id @default(uuid()) @db.Uuid
+  engagementId   String                           @db.Uuid @map("engagement_id")
+  providerId     String                           @db.Uuid @map("provider_id")
+  notes          String                           @db.VarChar(3000)
+  evidenceUrls   String[]                         @map("evidence_urls")
+  status         JobCompletionSubmissionStatus    @default(PENDING)
+  reviewNote     String?                          @map("review_note") @db.VarChar(1000)
+  submittedAt    DateTime                         @default(now()) @map("submitted_at")
+  reviewedAt     DateTime?                        @map("reviewed_at")
+  engagement     JobEngagement                    @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  @@index([engagementId, status, submittedAt])
+  @@map("job_completion_submissions")
 }
