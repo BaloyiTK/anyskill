@@ -9,7 +9,7 @@ import {
 } from "./src/api";
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "forgot-password" | "reset-password" | "dashboard" | "marketplace";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password" | "dashboard" | "marketplace";
 type UserMode = "seeker" | "provider";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
 
@@ -24,6 +24,8 @@ export default function App() {
   const [mode, setMode] = useState<UserMode>("seeker");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [otp, setOtp] = useState("");
+  const [registrationToken, setRegistrationToken] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [resetToken, setResetToken] = useState("");
@@ -95,16 +97,43 @@ export default function App() {
   const register = async () => {
     feedback(); setBusy(true);
     try {
-      await apiRequest("/auth/register", {
+      const result = await apiRequest<{ message: string }>("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ email: email.trim(), password, ...(phone.trim() ? { phone: phone.trim() } : {}) }),
+        body: JSON.stringify({ email: email.trim(), mode: mode === "provider" ? "PROVIDER" : "SEEKER" }),
       });
-      setMessage("Account created. Open the verification link sent to your email, then sign in.");
-      setPassword("");
-      setScreen("verify-email");
+      setMessage(result.message);
+      setOtp("");
+      setScreen("verify-otp");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Registration failed.");
+      setError(e instanceof Error ? e.message : "Could not send verification code.");
     } finally { setBusy(false); }
+  };
+
+  const verifyRegistrationOtp = async () => {
+    feedback(); setBusy(true);
+    try {
+      const result = await apiRequest<{ registrationToken: string }>("/auth/verify-registration-otp", {
+        method: "POST", body: JSON.stringify({ email: email.trim(), otp }),
+      });
+      setRegistrationToken(result.registrationToken);
+      setScreen("complete-registration");
+      setMessage("Email verified. Set a password to finish creating your account.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Code verification failed."); }
+    finally { setBusy(false); }
+  };
+
+  const completeRegistration = async () => {
+    feedback(); setBusy(true);
+    try {
+      const tokens = await apiRequest<Tokens>("/auth/complete-registration", {
+        method: "POST", body: JSON.stringify({ registrationToken, password }),
+      });
+      await saveTokens(tokens);
+      setPassword("");
+      setRegistrationToken("");
+      await loadAccount();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not complete registration."); }
+    finally { setBusy(false); }
   };
 
   const login = async () => {
@@ -282,15 +311,31 @@ export default function App() {
             <Text style={s.formTitle}>{screen === "register" ? "Create your account" : "Sign in to AnySkill"}</Text>
             <Text style={s.subtitle}>{screen === "register" ? "One account gives you access to both operating modes." : "Sign in to continue to your account."}</Text>
             <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
-            {screen === "register" && <Field label="Mobile number (optional)" value={phone} onChangeText={setPhone} placeholder="+27..." keyboardType="phone-pad" />}
-            <Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry />
-            {screen === "register" && <Text style={s.helper}>Email verification is required before sign-in. Use at least 12 characters for your password.</Text>}
-            <Primary label={screen === "register" ? "Create account" : "Sign in"} onPress={screen === "register" ? register : login} disabled={busy || !email.trim() || password.length < 12} />
+            {screen === "login" && <Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry />}
+            {screen === "register" && <Text style={s.helper}>First, enter only your email address. We will send a six-digit code before asking for any other details.</Text>}
+            <Primary label={screen === "register" ? "Send verification code" : "Sign in"} onPress={screen === "register" ? register : login} disabled={busy || !email.trim() || (screen === "login" && password.length < 12)} />
             <Text style={s.helper}>OR</Text>
             <Secondary label="Continue with Google" onPress={continueWithGoogle} />
             <Secondary label={screen === "register" ? "I already have an account" : "Create a new account"} onPress={() => goTo(screen === "register" ? "login" : "register")} />
             {screen === "login" && <TextButton label="Forgot password?" onPress={() => goTo("forgot-password")} />}
             <TextButton label="Back" onPress={() => goTo("welcome")} />
+          </View>}
+
+          {screen === "verify-otp" && <View style={s.form}>
+            <Text style={s.kicker}>CHECK YOUR INBOX</Text>
+            <Text style={s.formTitle}>Enter your code</Text>
+            <Text style={s.subtitle}>We sent a six-digit code to {email}. It expires in 10 minutes.</Text>
+            <Field label="Six-digit verification code" value={otp} onChangeText={setOtp} placeholder="000000" keyboardType="phone-pad" />
+            <Primary label="Verify email" onPress={verifyRegistrationOtp} disabled={busy || !/^\\d{6}$/.test(otp)} />
+            <TextButton label="Back" onPress={() => goTo("register")} />
+          </View>}
+
+          {screen === "complete-registration" && <View style={s.form}>
+            <Text style={s.kicker}>EMAIL VERIFIED</Text>
+            <Text style={s.formTitle}>Finish your account</Text>
+            <Text style={s.subtitle}>Your email is verified. Set a password to finish registration. Your profile can be completed later in steps.</Text>
+            <Field label="Create password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry />
+            <Primary label="Complete registration" onPress={completeRegistration} disabled={busy || password.length < 12 || !registrationToken} />
           </View>}
 
           {screen === "verify-email" && <View style={s.form}>
