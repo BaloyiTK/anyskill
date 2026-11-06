@@ -91,7 +91,7 @@ Email verification proves control of an email inbox. It does not prove a person'
 
 ## Implementation gaps and production requirements
 
-- Marketplace API foundation is implemented: verified Seekers can publish service requests; Providers can read open incoming requests while unverified; verified Providers can respond through the Accept action. The response is an offer/interest record and does not award the job—the Seeker still chooses a Provider. Mobile marketplace screens, provider matching/notification delivery, request cancellation/closing, and the Seeker's offer-selection flow remain to be built.
+- Marketplace API foundation is implemented: verified Seekers can publish service requests; Providers can read open incoming requests while unverified; verified Providers can respond through the Accept action. The response is an offer/interest record and does not award the job—the Seeker still chooses a Provider. The mobile request form and incoming-request feed are now implemented. This first feed lists open requests; it is not yet the Smart Matching engine and does not send push notifications. Provider matching/notification delivery, request cancellation/closing, and the Seeker's offer-selection flow remain to be built.
 - Phone number is optional in the current registration API, and SMS/phone OTP verification is not implemented. If mobile verification remains a mandatory product rule, it must be implemented and enforced before marketplace launch.
 - Select and contract with a compliant identity-verification provider.
 - Implement provider session creation, callback/webhook signature validation and result reconciliation.
