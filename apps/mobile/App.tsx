@@ -7,8 +7,9 @@ import {
 import {
   AccountSummary, apiRequest, clearTokens, IdentitySummary, saveTokens, signOut,
 } from "./src/api";
+import { MarketplaceScreen } from "./src/MarketplaceScreen";
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "forgot-password" | "reset-password" | "dashboard";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "forgot-password" | "reset-password" | "dashboard" | "marketplace";
 type UserMode = "seeker" | "provider";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
 
@@ -28,6 +29,7 @@ export default function App() {
   const [resetToken, setResetToken] = useState("");
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [identity, setIdentity] = useState<IdentitySummary | null>(null);
+  const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -226,6 +228,16 @@ export default function App() {
     } finally { setBusy(false); }
   };
 
+  const refreshIdentityStatus = async () => {
+    feedback(); setBusy(true);
+    try {
+      const status = await apiRequest<IdentitySummary>("/identity-verification/status", {}, true);
+      setIdentity(status);
+      setMessage(status.status === "verified" ? "Identity verification is approved." : `Verification status: ${formatStatus(status.status)}.`);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not refresh verification status."); }
+    finally { setBusy(false); }
+  };
+
   const logout = async () => {
     setBusy(true);
     try { await signOut(); }
@@ -311,7 +323,21 @@ export default function App() {
             <Primary label="Update password" onPress={completePasswordReset} disabled={busy || newPassword.length < 12 || !resetToken} />
           </View>}
 
-          {screen === "dashboard" && account && <View style={s.form}>
+          {screen === "marketplace" && account && <MarketplaceScreen
+        mode={mode}
+        verified={verified}
+        pendingRequestId={pendingAcceptRequestId}
+        onModeChange={setMode}
+        onBack={() => setScreen("dashboard")}
+        onIdentityRequired={(requestId) => {
+          setPendingAcceptRequestId(requestId);
+          setMessage("Identity verification is required before you can accept this request. Your request has been saved so you can return to it after approval.");
+          setScreen("dashboard");
+        }}
+        onStartVerification={() => { void startIdentityVerification(); }}
+      />}
+
+      {screen === "dashboard" && account && <View style={s.form}>
             <Text style={s.kicker}>YOUR ACCOUNT</Text>
             <Text style={s.formTitle}>You're signed in</Text>
             <Text style={s.subtitle}>{account.email}</Text>
@@ -332,6 +358,9 @@ export default function App() {
               {["not_started", "failed", "requires_information"].includes(identityStatus) && <Primary label="Start identity verification request" onPress={startIdentityVerification} disabled={busy} />}
             </View>}
             {!account.googleLinked && <Secondary label="Connect Google account" onPress={connectGoogle} />}
+            <Secondary label="Open marketplace" onPress={() => goTo("marketplace")} />
+            <Secondary label="Refresh identity-verification status" onPress={refreshIdentityStatus} />
+            {pendingAcceptRequestId && verified && <Primary label="Return to incoming request" onPress={() => { setMode("provider"); goTo("marketplace"); }} />}
             <Text style={s.sectionTitle}>Current mode</Text>
             <View style={s.modeList}>
               <ModeCard title="Skill Seeker" description="Request skills and compare provider offers." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
