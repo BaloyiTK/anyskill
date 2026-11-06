@@ -52,7 +52,7 @@ export function MarketplaceScreen(p: Props) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [myRequests, setMyRequests] = useState<SeekerRequest[]>([]);
   const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
-  const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null } }>>([]);
+  const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>([]);
   const [estimateHours, setEstimateHours] = useState("2");
   const [estimateNotes, setEstimateNotes] = useState("");
   const [extraHours, setExtraHours] = useState("1");
@@ -511,6 +511,8 @@ export function MarketplaceScreen(p: Props) {
         {myJobs.map((job) => <View key={job.id} style={s.card}>
           <Text style={s.cardTitle}>{job.request.title}</Text>
           <Text style={s.meta}>Status: {job.status.replaceAll("_", " ")}</Text>
+          {job.request.location ? <Text style={s.meta}>Job location: {job.request.location}</Text> : null}
+          {job.request.latitude != null && job.request.longitude != null ? <Text style={s.meta}>Job pin: {job.request.latitude.toFixed(5)}, {job.request.longitude.toFixed(5)}</Text> : null}
           <Text style={s.meta}>Agreed rate: R {Number(job.hourlyRate).toFixed(2)} / hour · Assessment fee: R {Number(job.assessmentFee).toFixed(2)}</Text>
           {job.status === "ASSESSMENT_PENDING" || job.status === "ESTIMATE_REJECTED" ? <>
             <Text style={s.helper}>Complete the assessment, then submit the estimated hours and a clear explanation. The Seeker must approve before work begins.</Text>
