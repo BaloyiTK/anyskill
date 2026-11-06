@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
@@ -35,47 +35,58 @@ export class AuthService {
     private readonly mail: MailService,
   ) {}
 
-  async register(input: { email: string; password: string; phone?: string }) {
+  private registrationOtpHash(email: string, otp: string): string {
+    const secret = process.env.JWT_ACCESS_SECRET;
+    if (!secret || secret.length < 32) throw new Error("JWT_ACCESS_SECRET must be configured.");
+    return createHmac("sha256", secret).update(`${email.toLowerCase()}:${otp}`).digest("hex");
+  }
+
+  async register(input: { email: string; mode?: "SEEKER" | "PROVIDER" }) {
     const email = input.email.trim().toLowerCase();
-    const passwordHash = await argon2.hash(input.password, {
-      type: argon2.argon2id,
-      memoryCost: 19456,
-      timeCost: 2,
-      parallelism: 1,
+    if (await this.prisma.user.findUnique({ where: { email } })) throw new ConflictException("An account with this email already exists.");
+    const previous = await this.prisma.pendingRegistration.findUnique({ where: { email } });
+    const now = new Date();
+    if (previous?.verifiedAt) throw new ConflictException("Email verification is already complete. Continue registration.");
+    if (previous && previous.resendAvailableAt > now) throw new ConflictException("A code was sent recently. Please wait before requesting another.");
+    const otp = randomInt(0, 1_000_000).toString().padStart(6, "0");
+    await this.prisma.pendingRegistration.upsert({
+      where: { email },
+      create: { email, mode: input.mode ?? "SEEKER", otpHash: this.registrationOtpHash(email, otp), expiresAt: new Date(now.getTime()+600000), resendAvailableAt: new Date(now.getTime()+60000) },
+      update: { mode: input.mode ?? "SEEKER", otpHash: this.registrationOtpHash(email, otp), attempts: 0, expiresAt: new Date(now.getTime()+600000), resendAvailableAt: new Date(now.getTime()+60000), verifiedAt: null, registrationTokenHash: null, registrationTokenExpiresAt: null },
     });
+    await this.mail.sendRegistrationOtp(email, otp);
+    return { otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60, message: "A six-digit verification code has been sent to your email address." };
+  }
 
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) throw new ConflictException("An account with this email already exists");
-
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        passwordHash,
-        ...(input.phone ? { phone: input.phone.trim() } : {}),
-      },
-      select: { id: true, email: true, createdAt: true },
-    });
-
-    const token = opaqueToken();
-    await this.prisma.emailVerificationToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: tokenHash(token),
-        expiresAt: new Date(Date.now() + EMAIL_TOKEN_TTL_MS),
-      },
-    });
-
-    try {
-      await this.mail.sendVerificationEmail(user.email, token);
-    } catch (error) {
-      this.logger.error("Verification email delivery failed; user can request a resend.", error);
+  async verifyRegistrationOtp(emailInput: string, otp: string) {
+    const email=emailInput.trim().toLowerCase(); const now=new Date();
+    const row=await this.prisma.pendingRegistration.findUnique({where:{email}});
+    if(!row || row.verifiedAt || row.expiresAt<=now || row.attempts>=5) throw new UnauthorizedException("The code is invalid, expired or locked. Request a new code.");
+    const expected=Buffer.from(row.otpHash,"hex"), actual=Buffer.from(this.registrationOtpHash(email,otp),"hex");
+    if(expected.length!==actual.length || !timingSafeEqual(expected,actual)) {
+      await this.prisma.pendingRegistration.updateMany({where:{id:row.id,verifiedAt:null,attempts:{lt:5}},data:{attempts:{increment:1}}});
+      throw new UnauthorizedException("The verification code is incorrect.");
     }
+    const registrationToken=opaqueToken();
+    const consumed=await this.prisma.pendingRegistration.updateMany({where:{id:row.id,verifiedAt:null,expiresAt:{gt:now},attempts:{lt:5}},data:{verifiedAt:now,registrationTokenHash:tokenHash(registrationToken),registrationTokenExpiresAt:new Date(now.getTime()+900000)}});
+    if(consumed.count!==1) throw new UnauthorizedException("The verification code has already been used.");
+    return {verified:true,registrationToken,expiresInSeconds:900};
+  }
 
-    return {
-      user,
-      emailVerificationRequired: true,
-      message: "Check your email to verify your address before signing in.",
-    };
+  async completeRegistration(registrationToken:string,password:string) {
+    const hash=tokenHash(registrationToken), now=new Date();
+    const row=await this.prisma.pendingRegistration.findUnique({where:{registrationTokenHash:hash}});
+    if(!row?.verifiedAt || !row.registrationTokenExpiresAt || row.registrationTokenExpiresAt<=now) throw new UnauthorizedException("Registration session expired. Verify your email again.");
+    const passwordHash=await argon2.hash(password,{type:argon2.argon2id,memoryCost:19456,timeCost:2,parallelism:1});
+    try {
+      const user=await this.prisma.$transaction(async tx=>{
+        const used=await tx.pendingRegistration.updateMany({where:{id:row.id,registrationTokenHash:hash,registrationTokenExpiresAt:{gt:now}},data:{registrationTokenHash:null,registrationTokenExpiresAt:null}});
+        if(used.count!==1) throw new UnauthorizedException("Registration session has already been used.");
+        const created=await tx.user.create({data:{email:row.email,passwordHash,emailVerifiedAt:now,initialMode:row.mode},select:{id:true,email:true,createdAt:true}});
+        await tx.pendingRegistration.delete({where:{id:row.id}}); return created;
+      });
+      return {user,...await this.issueTokens(user.id,user.email)};
+    } catch(error) { if(typeof error==="object" && error!==null && "code" in error && error.code==="P2002") throw new ConflictException("An account with this email already exists."); throw error; }
   }
 
   async verifyEmail(token: string) {
