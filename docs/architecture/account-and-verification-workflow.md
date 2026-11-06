@@ -58,7 +58,9 @@ Email verification proves control of an email inbox. It does not prove a person'
 - Mailpit captures verification and password-reset messages at `http://localhost:8025`.
 - Mailpit is development-only. Production must use a real SMTP provider and verified sender domain.
 
-## Production requirements still outstanding
+## Implementation gaps and production requirements
+
+- Phone number is optional in the current registration API, and SMS/phone OTP verification is not implemented. If mobile verification remains a mandatory product rule, it must be implemented and enforced before marketplace launch.
 
 - Select and contract with a compliant identity-verification provider.
 - Implement provider session creation, callback/webhook signature validation and result reconciliation.
