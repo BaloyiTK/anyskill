@@ -1,6 +1,6 @@
 # Account, authentication and identity verification
 
-**Status:** API foundation implemented. Provider integration and operational review process remain undecided.
+**Status:** Account/authentication foundation implemented. Identity provider integration and operational review process remain undecided.
 
 ## Account registration
 
@@ -32,20 +32,34 @@
 - Google OAuth client IDs are public identifiers and are configured per mobile platform. No Google client secret is embedded in the mobile app.
 - Huawei Android-compatible devices use the browser-based OAuth flow; availability depends on the device being able to reach Google's sign-in service. Native HarmonyOS NEXT remains a separate client integration.
 
-## Identity verification
+## Identity verification and action gates
 
-- Every Skill Seeker and Skill Provider must complete identity verification before marketplace access.
+Identity verification is mandatory for both Skill Seekers and Skill Providers, but it is **not a blanket gate on viewing the marketplace or receiving a job request**. It is enforced when a user attempts a consequential action:
+
+1. **Skill Seeker request submission:** A Skill Seeker must have identity status `VERIFIED` before submitting a service request. They may browse and prepare a request beforehand, but cannot publish/submit it until verified.
+2. **Skill Provider incoming requests:** A Skill Provider may receive notifications and view incoming requests while unverified. This preserves the opportunity to review available work.
+3. **Skill Provider acceptance:** When an unverified provider taps Accept, AnySkill must pause acceptance and show a clear identity-verification prompt. The provider must complete verification and reach `VERIFIED` status before acceptance can be submitted. After verification, they can return to the request and accept it if it is still available.
+4. **Other marketplace actions:** Apply the relevant action-specific policy. Do not apply a blanket identity guard to read-only marketplace routes or incoming-request delivery.
+
+The API must enforce these rules server-side; hiding or disabling a mobile button is not sufficient. The seeker-request creation endpoint and provider-accept endpoint must each check the authenticated user's current verification status immediately before performing the action. The provider acceptance must re-check that the request is still available after the verification flow.
+
 - The API supports submitting a verification case and checking its status.
 - The identity provider is not selected; no provider-specific SDK or API is assumed.
 - User clients cannot set a provider reference or approve themselves.
 - The submission endpoint only creates a pending case; it cannot mark a user verified.
 - Suspended and revoked accounts cannot submit a new case through the ordinary user endpoint.
-- A user already verified cannot accidentally downgrade their status by submitting again.
-- Marketplace endpoints must use both JWT authentication and `MarketplaceAccessGuard`.
+- Verification status must be read from trusted server-side records, not accepted from the client.
+
+## Verification experience
+
+- Explain the requirement at the point it matters: before a Seeker submits a request, and when a Provider tries to accept an incoming request.
+- Tell the user why verification is needed, what the next step is, and whether their current verification is pending, needs more information, failed, suspended or verified.
+- Preserve the provider's incoming request context during verification and provide a return-to-request path.
+- Do not imply that submitting a verification case means the identity has been approved.
 
 ## Important distinction
 
-Email verification proves control of an email inbox. It does not prove a person's legal identity. A submitted verification case is not an approved identity check.
+Email verification proves control of an email inbox. It does not prove a person's legal identity. A submitted identity-verification case is not an approved identity check.
 
 ## API endpoints
 
@@ -73,8 +87,8 @@ Email verification proves control of an email inbox. It does not prove a person'
 
 ## Implementation gaps and production requirements
 
+- Marketplace request creation and provider acceptance endpoints are not implemented yet. When built, they must enforce the action-specific identity gates described above; read-only incoming-request routes must remain available to unverified providers.
 - Phone number is optional in the current registration API, and SMS/phone OTP verification is not implemented. If mobile verification remains a mandatory product rule, it must be implemented and enforced before marketplace launch.
-
 - Select and contract with a compliant identity-verification provider.
 - Implement provider session creation, callback/webhook signature validation and result reconciliation.
 - Implement administrator roles, audit logs and any manual review workflow.
@@ -82,5 +96,5 @@ Email verification proves control of an email inbox. It does not prove a person'
 - Add rate limiting, abuse monitoring and account recovery controls.
 - Configure production SMTP and deep links.
 - Define POPIA-aligned purpose, retention, deletion and access policies.
-- Add automated tests for registration races, token reuse, refresh rotation and verification access control.
+- Add automated tests for registration races, token reuse, refresh rotation and action-specific verification access control.
 - Add an outbox/retry mechanism so email delivery failures do not strand new accounts.
