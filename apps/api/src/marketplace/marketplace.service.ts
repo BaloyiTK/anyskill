@@ -267,7 +267,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async listMyJobs(providerId: string) {
     return this.prisma.jobEngagement.findMany({
       where: { providerId }, orderBy: { updatedAt: "desc" },
-      include: { request: { select: { id: true, title: true, description: true, location: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
+      include: { request: { select: { id: true, title: true, description: true, location: true, latitude: true, longitude: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
     });
   }
 
