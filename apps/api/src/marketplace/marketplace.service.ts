@@ -169,6 +169,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { seekerId },
       orderBy: { createdAt: "desc" },
       include: {
+        jobEngagement: { include: { adjustments: { orderBy: { createdAt: "desc" } } } },
         providerResponses: {
           orderBy: { createdAt: "asc" },
           select: {
