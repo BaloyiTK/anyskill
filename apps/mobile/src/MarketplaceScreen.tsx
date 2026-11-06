@@ -108,7 +108,7 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode === "seeker") { void loadMyRequests(); void loadHomeLocation(); }
-  }, [p.mode, loadMyRequests, loadHomeLocation]);
+  }, [p.mode, loadMyRequests]);
 
   const selectProvider = async (requestId: string, responseId: string) => {
     setSelectingOfferId(responseId); setError(""); setNotice("");
@@ -268,12 +268,12 @@ export function MarketplaceScreen(p: Props) {
     finally { setProviderProfileLoaded(true); }
   }, []);
 
-  const loadHomeLocation = useCallback(async () => {
+  async function loadHomeLocation() {
     try {
       const home = await apiRequest<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null}>("/profile/location/home", {}, true);
       setSavedHomeLocation(home);
     } catch { setSavedHomeLocation(null); }
-  }, []);
+  }
 
   const useCurrentJobLocation = async () => {
     setLocationBusy(true); setError(""); setNotice("");
