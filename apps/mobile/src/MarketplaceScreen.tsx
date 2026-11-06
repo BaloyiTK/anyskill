@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import * as Notifications from "expo-notifications";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
+import { MapPinPicker } from "./MapPinPicker";
 import { Platform } from "react-native";
 import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -79,6 +80,7 @@ export function MarketplaceScreen(p: Props) {
   const [providerPublicName, setProviderPublicName] = useState("");
   const [providerHourlyRate, setProviderHourlyRate] = useState("");
   const [providerAssessmentFee, setProviderAssessmentFee] = useState("0");
+  const [providerTravelRadius, setProviderTravelRadius] = useState("25");
   const [providerSkills, setProviderSkills] = useState("");
   const [providerAreas, setProviderAreas] = useState("");
   const [providerModes, setProviderModes] = useState("ONSITE");
@@ -228,6 +230,7 @@ export function MarketplaceScreen(p: Props) {
   };
 
   const submitRequest = async () => {
+    if (deliveryMode === "ONSITE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the on-site job location on the map or use GPS before publishing."); return; }
     setBusy(true); setError(""); setNotice(""); setVerificationPrompt(false);
     try {
       await apiRequest("/marketplace/requests", {
@@ -252,12 +255,13 @@ export function MarketplaceScreen(p: Props) {
     try {
       const profile = await apiRequest<{
         publicName: string; hourlyRate: string | number | null; assessmentFee: string | number;
-        skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable: boolean;
+        skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable: boolean; maxTravelDistanceKm: number;
       } | null>("/marketplace/provider-profile", {}, true);
       if (profile) {
         setProviderPublicName(profile.publicName || "");
         setProviderHourlyRate(profile.hourlyRate == null ? "" : String(profile.hourlyRate));
         setProviderAssessmentFee(String(profile.assessmentFee ?? 0));
+        setProviderTravelRadius(String(profile.maxTravelDistanceKm ?? 25));
         setProviderSkills(profile.skillCategories.join(", "));
         setProviderAreas(profile.serviceAreas.join(", "));
         setProviderModes(profile.deliveryModes.join(", "));
@@ -352,6 +356,7 @@ export function MarketplaceScreen(p: Props) {
           serviceAreas: providerAreas.split(",").map((v) => v.trim()).filter(Boolean),
           deliveryModes: providerModes.split(",").map((v) => v.trim()).filter(Boolean),
           isAvailable: providerAvailable,
+          maxTravelDistanceKm: Number(providerTravelRadius),
         }),
       }, true);
       setProviderLiveTrackingEnabled(profile.isAvailable);
@@ -411,7 +416,21 @@ export function MarketplaceScreen(p: Props) {
         <View style={s.choiceRow}>
           {(["ONSITE", "REMOTE", "EITHER"] as const).map((value) => <Pressable key={value} onPress={() => setDeliveryMode(value)} style={[s.choice, deliveryMode === value && s.choiceActive]}><Text style={[s.choiceText, deliveryMode === value && s.choiceTextActive]}>{value === "ONSITE" ? "On-site" : value === "REMOTE" ? "Remote" : "Either"}</Text></Pressable>)}
         </View>
-        <Primary label="Publish service request" onPress={submitRequest} disabled={busy || title.trim().length < 5 || category.trim().length < 2 || description.trim().length < 20} />
+        {deliveryMode !== "REMOTE" ? <>
+          <Text style={s.label}>Choose the exact job location</Text>
+          <View style={s.choiceRow}>
+            <Secondary label="Use saved Home Location" onPress={useSavedHomeLocation} />
+            <Secondary label={locationBusy ? "Getting GPS..." : "Use current GPS"} onPress={() => void useCurrentJobLocation()} />
+          </View>
+          <MapPinPicker
+            latitude={requestLatitude ?? savedHomeLocation?.homeLatitude ?? -26.2041}
+            longitude={requestLongitude ?? savedHomeLocation?.homeLongitude ?? 28.0473}
+            selectedLatitude={requestLatitude}
+            selectedLongitude={requestLongitude}
+            onSelect={(lat, lon) => { setRequestLatitude(lat); setRequestLongitude(lon); setLocation("On-site job location"); }}
+          />
+        </> : <Text style={s.helper}>Remote requests do not need a physical job location or GPS coordinates.</Text>}
+        <Primary label="Publish service request" onPress={submitRequest} disabled={busy || title.trim().length < 5 || category.trim().length < 2 || description.trim().length < 20 || (deliveryMode === "ONSITE" && (requestLatitude == null || requestLongitude == null))} />
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
         <Text style={s.section}>Your service requests and Provider offers</Text>
         <Text style={s.helper}>Compare the offers you receive. Selecting a Provider closes the request to further offers. You can only select one offer.</Text>
@@ -499,13 +518,16 @@ export function MarketplaceScreen(p: Props) {
         <TextInput value={providerSkills} onChangeText={setProviderSkills} placeholder="e.g. Plumbing, Electrical, Painting" style={s.input} />
         <Text style={s.label}>Service areas (comma-separated)</Text>
         <TextInput value={providerAreas} onChangeText={setProviderAreas} placeholder="e.g. Rosebank, Sandton, Johannesburg" style={s.input} />
+        <Text style={s.label}>Maximum on-site travel distance (km)</Text>
+        <TextInput value={providerTravelRadius} onChangeText={setProviderTravelRadius} placeholder="25" keyboardType="number-pad" style={s.input} />
+        <Text style={s.helper}>Choose a radius from 1 to 200 km. This applies to on-site matches; remote requests do not use GPS distance.</Text>
         <Text style={s.label}>Delivery modes (ONSITE, REMOTE, EITHER)</Text>
         <TextInput value={providerModes} onChangeText={setProviderModes} placeholder="ONSITE, REMOTE" style={s.input} />
         <Text style={s.helper}>{providerLiveTrackingEnabled && providerAvailable ? "AnySkill requests foreground GPS permission when you are Available; accurate fixes are shared for on-site matching while the app is open." : "Live location is not currently being shared."}</Text>
         <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
           <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
         </Pressable>
-        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim() || providerPublicName.trim().length < 2 || !(Number(providerHourlyRate) > 0) || !Number.isFinite(Number(providerAssessmentFee)) || Number(providerAssessmentFee) < 0} />
+        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim() || providerPublicName.trim().length < 2 || !(Number(providerHourlyRate) > 0) || !Number.isFinite(Number(providerAssessmentFee)) || Number(providerAssessmentFee) < 0 || !(Number(providerTravelRadius) >= 1 && Number(providerTravelRadius) <= 200)} />
         <Text style={s.section}>Selected jobs and assessments</Text>
         <Secondary label="Refresh selected jobs" onPress={() => void loadMyJobs()} />
         {myJobs.map((job) => <View key={job.id} style={s.card}>
