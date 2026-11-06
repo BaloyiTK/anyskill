@@ -359,7 +359,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }
       const claim = await this.prisma.appNotification.updateMany({
         where: { id: notification.id, deliveryStatus: "PENDING" },
-        data: { attempts: { increment: 1 } },
+        data: { deliveryStatus: "SENDING", attempts: { increment: 1 } },
       });
       if (claim.count === 0) continue;
       try {
