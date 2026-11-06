@@ -13,15 +13,15 @@ export class MailService {
     const pass = process.env.SMTP_PASSWORD;
     const port = Number(process.env.SMTP_PORT ?? 587);
 
-    if (!host || !user || !pass || !process.env.MAIL_FROM) {
-      throw new InternalServerErrorException("Email delivery is not configured");
+    if (!host || !process.env.MAIL_FROM || Boolean(user) !== Boolean(pass)) {
+      throw new InternalServerErrorException("Email delivery is not configured correctly");
     }
 
     this.transporter = nodemailer.createTransport({
       host,
       port,
       secure: process.env.SMTP_SECURE === "true",
-      auth: { user, pass },
+      ...(user && pass ? { auth: { user, pass } } : {}),
     });
 
     return this.transporter;
