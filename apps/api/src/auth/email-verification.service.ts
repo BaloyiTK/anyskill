@@ -1,10 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
 
 @Injectable()
 export class EmailVerificationService {
+  private readonly logger = new Logger(EmailVerificationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mail: MailService,
@@ -34,7 +36,11 @@ export class EmailVerificationService {
         }),
       ]);
 
-      await this.mail.sendVerificationEmail(user.email, token);
+      try {
+        await this.mail.sendVerificationEmail(user.email, token);
+      } catch (error) {
+        this.logger.error("Resend verification email delivery failed.", error);
+      }
     }
 
     return {
