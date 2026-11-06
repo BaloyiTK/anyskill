@@ -86,16 +86,21 @@ export class AuthService {
       throw new UnauthorizedException("The email verification link is invalid or expired");
     }
 
-    await this.prisma.$transaction([
-      this.prisma.emailVerificationToken.update({
-        where: { id: record.id },
-        data: { consumedAt: new Date() },
-      }),
-      this.prisma.user.update({
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.emailVerificationToken.updateMany({
+        where: { id: record.id, consumedAt: null, expiresAt: { gt: now } },
+        data: { consumedAt: now },
+      });
+      if (consumed.count !== 1) {
+        throw new UnauthorizedException("The email verification link has already been used");
+      }
+
+      await tx.user.update({
         where: { id: record.userId },
-        data: { emailVerifiedAt: record.user.emailVerifiedAt ?? new Date() },
-      }),
-    ]);
+        data: { emailVerifiedAt: record.user.emailVerifiedAt ?? now },
+      });
+    });
 
     return { emailVerified: true };
   }
@@ -244,20 +249,25 @@ export class AuthService {
       parallelism: 1,
     });
 
-    await this.prisma.$transaction([
-      this.prisma.passwordResetToken.update({
-        where: { id: record.id },
-        data: { consumedAt: new Date() },
-      }),
-      this.prisma.user.update({
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.passwordResetToken.updateMany({
+        where: { id: record.id, consumedAt: null, expiresAt: { gt: now } },
+        data: { consumedAt: now },
+      });
+      if (consumed.count !== 1) {
+        throw new UnauthorizedException("The password reset link has already been used");
+      }
+
+      await tx.user.update({
         where: { id: record.userId },
         data: { passwordHash },
-      }),
-      this.prisma.refreshSession.updateMany({
+      });
+      await tx.refreshSession.updateMany({
         where: { userId: record.userId, revokedAt: null },
-        data: { revokedAt: new Date() },
-      }),
-    ]);
+        data: { revokedAt: now },
+      });
+    });
 
     return { passwordUpdated: true };
   }
