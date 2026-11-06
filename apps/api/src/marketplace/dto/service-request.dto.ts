@@ -86,3 +86,11 @@ export class RegisterPushDeviceDto {
   @IsIn(["ios", "android", "huawei-android"])
   platform!: string;
 }
+
+
+export class SelectProviderDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(64)
+  responseId!: string;
+}
