@@ -216,13 +216,20 @@ export class AuthService {
     // Always return the same response to avoid account enumeration.
     if (user) {
       const token = opaqueToken();
-      await this.prisma.passwordResetToken.create({
-        data: {
-          userId: user.id,
-          tokenHash: tokenHash(token),
-          expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
-        },
-      });
+      const now = new Date();
+      await this.prisma.$transaction([
+        this.prisma.passwordResetToken.updateMany({
+          where: { userId: user.id, consumedAt: null },
+          data: { consumedAt: now },
+        }),
+        this.prisma.passwordResetToken.create({
+          data: {
+            userId: user.id,
+            tokenHash: tokenHash(token),
+            expiresAt: new Date(now.getTime() + RESET_TOKEN_TTL_MS),
+          },
+        }),
+      ]);
       try {
         await this.mail.sendPasswordResetEmail(user.email, token);
       } catch (error) {
