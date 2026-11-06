@@ -1,178 +1,283 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  View,
-  Pressable,
+  ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable,
+  SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from "react-native";
+import {
+  AccountSummary, apiRequest, clearTokens, IdentitySummary, saveTokens, signOut,
+} from "./src/api";
 
+type Screen = "welcome" | "register" | "login" | "verify-email" | "dashboard";
 type UserMode = "seeker" | "provider";
+type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
 
-const COLORS = {
-  background: "#F7F8FA",
-  surface: "#FFFFFF",
-  ink: "#14202B",
-  muted: "#667482",
-  primary: "#176B5B",
-  primarySoft: "#E5F2EE",
-  border: "#E1E6EA",
-  warning: "#FFF4DB",
-  warningInk: "#76520A",
+const C = {
+  bg: "#F6F8F7", surface: "#FFFFFF", ink: "#17231F", muted: "#68766F",
+  primary: "#176B5B", border: "#DCE5E0", soft: "#E7F2EE",
+  warning: "#FFF3D8", warningInk: "#79540B", danger: "#A12D2D",
 };
 
-const MODES: {
-  id: UserMode;
-  eyebrow: string;
-  title: string;
-  description: string;
-  action: string;
-}[] = [
-  {
-    id: "seeker",
-    eyebrow: "FIND A SKILL",
-    title: "I need a skill",
-    description:
-      "Describe the work, receive offers from available Skill Providers and choose who you want to work with.",
-    action: "Skill Seeker Mode",
-  },
-  {
-    id: "provider",
-    eyebrow: "OFFER YOUR SKILLS",
-    title: "I offer a skill",
-    description:
-      "Showcase your skills, set your hourly rate and receive relevant work opportunities.",
-    action: "Skill Provider Mode",
-  },
-];
-
 export default function App() {
-  const [selectedMode, setSelectedMode] = useState<UserMode | null>(null);
+  const [screen, setScreen] = useState<Screen>("welcome");
+  const [mode, setMode] = useState<UserMode>("seeker");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [identity, setIdentity] = useState<IdentitySummary | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const feedback = () => { setMessage(""); setError(""); };
+  const goTo = (next: Screen) => { feedback(); setScreen(next); };
+
+  const loadAccount = async () => {
+    const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
+    const verification = await apiRequest<IdentitySummary>("/identity-verification/status", {}, true);
+    setAccount(me);
+    setIdentity(verification);
+    setScreen("dashboard");
+  };
+
+  const verifyEmailFromLink = async (url: string) => {
+    if (!url.includes("verify-email")) return;
+    const token = new URLSearchParams(url.split("?")[1] ?? "").get("token");
+    if (!token) return;
+    setBusy(true);
+    try {
+      await apiRequest("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) });
+      setMessage("Email verified. You can now sign in.");
+      setScreen("login");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Email verification failed.");
+      setScreen("login");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    void Linking.getInitialURL().then((url) => { if (url) void verifyEmailFromLink(url); });
+    const subscription = Linking.addEventListener("url", ({ url }) => { void verifyEmailFromLink(url); });
+    return () => subscription.remove();
+  }, []);
+
+  const register = async () => {
+    feedback(); setBusy(true);
+    try {
+      await apiRequest("/auth/register", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim(), password, ...(phone.trim() ? { phone: phone.trim() } : {}) }),
+      });
+      setMessage("Account created. Open the verification link sent to your email, then sign in.");
+      setPassword("");
+      setScreen("verify-email");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Registration failed.");
+    } finally { setBusy(false); }
+  };
+
+  const login = async () => {
+    feedback(); setBusy(true);
+    try {
+      const tokens = await apiRequest<Tokens>("/auth/login", {
+        method: "POST", body: JSON.stringify({ email: email.trim(), password }),
+      });
+      await saveTokens(tokens);
+      await loadAccount();
+      setPassword("");
+    } catch (e) {
+      await clearTokens();
+      setError(e instanceof Error ? e.message : "Sign in failed.");
+    } finally { setBusy(false); }
+  };
+
+  const startIdentityVerification = async () => {
+    feedback(); setBusy(true);
+    try {
+      const result = await apiRequest<{ status: string; message?: string }>(
+        "/identity-verification/submit", { method: "POST", body: JSON.stringify({}) }, true,
+      );
+      const status = await apiRequest<IdentitySummary>("/identity-verification/status", {}, true);
+      setIdentity(status);
+      setMessage(result.message ?? "Your verification request has been recorded.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not submit verification request.");
+    } finally { setBusy(false); }
+  };
+
+  const logout = async () => {
+    setBusy(true);
+    try { await signOut(); }
+    finally {
+      setAccount(null); setIdentity(null); setPassword(""); setScreen("welcome"); setBusy(false);
+    }
+  };
+
+  const identityStatus = identity?.status ?? "not_started";
+  const verified = identityStatus === "verified";
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.brandRow}>
-          <View style={styles.brandMark}>
-            <Text style={styles.brandMarkText}>A</Text>
+    <SafeAreaView style={s.safe}>
+      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+          <View style={s.brandRow}>
+            <View style={s.brandMark}><Text style={s.brandMarkText}>A</Text></View>
+            <Text style={s.brandName}>AnySkill</Text>
+            <View style={s.spacer} />
+            <Text style={s.early}>EARLY BUILD</Text>
           </View>
-          <Text style={styles.brandName}>AnySkill</Text>
-        </View>
 
-        <View style={styles.hero}>
-          <Text style={styles.kicker}>SKILLS, WHEN YOU NEED THEM</Text>
-          <Text style={styles.heading}>The right skills.{ "\n" }Right when you need them.</Text>
-          <Text style={styles.subtitle}>
-            A real-time marketplace connecting people who need work done with
-            people who can do it.
-          </Text>
-        </View>
+          {screen === "welcome" && <>
+            <View style={s.hero}>
+              <Text style={s.kicker}>SKILLS, WHEN YOU NEED THEM</Text>
+              <Text style={s.heading}>The right skills.{"\n"}Right when you need them.</Text>
+              <Text style={s.subtitle}>A real-time marketplace connecting people who need work done with people who can do it.</Text>
+            </View>
+            <Text style={s.sectionTitle}>One account. Two modes.</Text>
+            <View style={s.modeList}>
+              <ModeCard title="Skill Seeker" description="Find available people with the skills you need." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
+              <ModeCard title="Skill Provider" description="Offer your skills, set your rate and receive work requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
+            </View>
+            <Text style={s.helper}>You can use both modes with the same account.</Text>
+            <Primary label="Create an account" onPress={() => goTo("register")} />
+            <Secondary label="I already have an account" onPress={() => goTo("login")} />
+          </>}
 
-        <View style={styles.sectionHeading}>
-          <Text style={styles.sectionTitle}>How will you use AnySkill?</Text>
-          <Text style={styles.sectionHint}>
-            Choose a mode to preview. One account can use both.
-          </Text>
-        </View>
+          {(screen === "register" || screen === "login") && <View style={s.form}>
+            <Text style={s.kicker}>{screen === "register" ? "GET STARTED" : "WELCOME BACK"}</Text>
+            <Text style={s.formTitle}>{screen === "register" ? "Create your account" : "Sign in to AnySkill"}</Text>
+            <Text style={s.subtitle}>{screen === "register" ? "One account gives you access to both operating modes." : "Sign in to continue to your account."}</Text>
+            <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
+            {screen === "register" && <Field label="Mobile number (optional)" value={phone} onChangeText={setPhone} placeholder="+27..." keyboardType="phone-pad" />}
+            <Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry />
+            {screen === "register" && <Text style={s.helper}>Email verification is required before sign-in. Use at least 12 characters for your password.</Text>}
+            <Primary label={screen === "register" ? "Create account" : "Sign in"} onPress={screen === "register" ? register : login} disabled={busy || !email.trim() || password.length < 12} />
+            <Secondary label={screen === "register" ? "I already have an account" : "Create a new account"} onPress={() => goTo(screen === "register" ? "login" : "register")} />
+            <TextButton label="Back" onPress={() => goTo("welcome")} />
+          </View>}
 
-        <View style={styles.modeList}>
-          {MODES.map((mode) => {
-            const selected = selectedMode === mode.id;
-            return (
-              <Pressable
-                key={mode.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                onPress={() => setSelectedMode(mode.id)}
-                style={[styles.modeCard, selected && styles.modeCardSelected]}
-              >
-                <View style={styles.modeCardTop}>
-                  <Text style={styles.modeEyebrow}>{mode.eyebrow}</Text>
-                  <View
-                    style={[
-                      styles.selectionMark,
-                      selected && styles.selectionMarkSelected,
-                    ]}
-                  >
-                    {selected ? <Text style={styles.check}>✓</Text> : null}
-                  </View>
-                </View>
-                <Text style={styles.modeTitle}>{mode.title}</Text>
-                <Text style={styles.modeDescription}>{mode.description}</Text>
-                <Text style={styles.modeAction}>{mode.action} →</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+          {screen === "verify-email" && <View style={s.form}>
+            <Text style={s.kicker}>CHECK YOUR INBOX</Text>
+            <Text style={s.formTitle}>Verify your email</Text>
+            <Text style={s.subtitle}>We sent a verification link to {email || "your email address"}. Open it on this device, then sign in.</Text>
+            <View style={s.notice}>
+              <Text style={s.noticeTitle}>Email verification is not identity verification.</Text>
+              <Text style={s.noticeText}>You must also complete identity verification before using the marketplace.</Text>
+            </View>
+            <Primary label="Go to sign in" onPress={() => goTo("login")} />
+            <TextButton label="Back to start" onPress={() => goTo("welcome")} />
+          </View>}
 
-        {selectedMode ? (
-          <View style={styles.selectionNotice} accessibilityLiveRegion="polite">
-            <Text style={styles.selectionNoticeTitle}>
-              {selectedMode === "seeker"
-                ? "Skill Seeker Mode selected"
-                : "Skill Provider Mode selected"}
-            </Text>
-            <Text style={styles.selectionNoticeText}>
-              Both modes will be available under one account. Account setup and
-              identity verification are the next onboarding steps.
-            </Text>
-          </View>
-        ) : null}
+          {screen === "dashboard" && account && <View style={s.form}>
+            <Text style={s.kicker}>YOUR ACCOUNT</Text>
+            <Text style={s.formTitle}>You're signed in</Text>
+            <Text style={s.subtitle}>{account.email}</Text>
+            <View style={s.statusCard}>
+              <Text style={s.statusLabel}>EMAIL</Text>
+              <Text style={s.statusValue}>{account.emailVerified ? "Verified" : "Not verified"}</Text>
+              <View style={s.divider} />
+              <Text style={s.statusLabel}>IDENTITY VERIFICATION</Text>
+              <Text style={s.statusValue}>{formatStatus(identityStatus)}</Text>
+              {identity?.latestCase && <Text style={s.helper}>Request submitted {new Date(identity.latestCase.submittedAt).toLocaleString()}.</Text>}
+            </View>
+            {verified ? <View style={s.successNotice}>
+              <Text style={s.successTitle}>Identity verified</Text>
+              <Text style={s.successText}>Your account meets the identity requirement. Marketplace features will become available as they are released.</Text>
+            </View> : <View style={s.notice}>
+              <Text style={s.noticeTitle}>Marketplace access is locked</Text>
+              <Text style={s.noticeText}>Both Skill Seekers and Skill Providers must verify their identity. This build can record a request, but the identity-check provider and approval workflow have not yet been connected.</Text>
+              {["not_started", "failed", "requires_information"].includes(identityStatus) && <Primary label="Start identity verification request" onPress={startIdentityVerification} disabled={busy} />}
+            </View>}
+            <Text style={s.sectionTitle}>Current mode</Text>
+            <View style={s.modeList}>
+              <ModeCard title="Skill Seeker" description="Request skills and compare provider offers." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
+              <ModeCard title="Skill Provider" description="Offer skills and respond to suitable requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
+            </View>
+            <Text style={s.helper}>One account supports both modes.</Text>
+            <Secondary label="Sign out" onPress={logout} />
+          </View>}
 
-        <View style={styles.securityNotice}>
-          <Text style={styles.securityIcon}>✓</Text>
-          <View style={styles.securityCopy}>
-            <Text style={styles.securityTitle}>Identity-verified community</Text>
-            <Text style={styles.securityText}>
-              Every Skill Seeker and Skill Provider must verify their identity
-              before accessing the marketplace.
-            </Text>
-          </View>
-        </View>
-
-        <Text style={styles.footer}>
-          One account. Two ways to use AnySkill.
-        </Text>
-      </ScrollView>
+          {message ? <View style={s.successNotice}><Text style={s.successText}>{message}</Text></View> : null}
+          {error ? <View style={s.errorNotice}><Text style={s.errorText}>{error}</Text></View> : null}
+          {busy ? <ActivityIndicator color={C.primary} style={s.loader} /> : null}
+          <Text style={s.footer}>One account. Two ways to use AnySkill.</Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: COLORS.background },
-  content: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 22, paddingBottom: 36 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  brandMark: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.primary, alignItems: "center", justifyContent: "center" },
-  brandMarkText: { color: "#FFFFFF", fontSize: 23, fontWeight: "800" },
-  brandName: { color: COLORS.ink, fontSize: 20, fontWeight: "800", letterSpacing: -0.5 },
-  hero: { marginTop: 52, marginBottom: 36 },
-  kicker: { color: COLORS.primary, fontSize: 11, fontWeight: "800", letterSpacing: 1.6, marginBottom: 14 },
-  heading: { color: COLORS.ink, fontSize: 38, lineHeight: 44, fontWeight: "800", letterSpacing: -1.4 },
-  subtitle: { color: COLORS.muted, fontSize: 16, lineHeight: 24, marginTop: 16, maxWidth: 440 },
-  sectionHeading: { marginBottom: 16 },
-  sectionTitle: { color: COLORS.ink, fontSize: 19, fontWeight: "800" },
-  sectionHint: { color: COLORS.muted, fontSize: 13, lineHeight: 19, marginTop: 5 },
-  modeList: { gap: 12 },
-  modeCard: { backgroundColor: COLORS.surface, borderColor: COLORS.border, borderWidth: 1, borderRadius: 18, padding: 18 },
-  modeCardSelected: { borderColor: COLORS.primary, borderWidth: 2, backgroundColor: "#F5FBF8", padding: 17 },
+function formatStatus(status: string) {
+  return status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function ModeCard(p: { title: string; description: string; selected: boolean; onPress: () => void }) {
+  return <Pressable onPress={p.onPress} style={[s.modeCard, p.selected && s.modeCardSelected]}>
+    <View style={s.modeCardTop}><Text style={s.modeTitle}>{p.title}</Text><View style={[s.radio, p.selected && s.radioSelected]} /></View>
+    <Text style={s.modeDescription}>{p.description}</Text>
+  </Pressable>;
+}
+
+function Field(p: {
+  label: string; value: string; onChangeText: (v: string) => void; placeholder: string;
+  secureTextEntry?: boolean; keyboardType?: "default" | "email-address" | "phone-pad";
+}) {
+  return <View style={s.field}>
+    <Text style={s.fieldLabel}>{p.label}</Text>
+    <TextInput value={p.value} onChangeText={p.onChangeText} placeholder={p.placeholder}
+      placeholderTextColor="#93A099" secureTextEntry={p.secureTextEntry}
+      keyboardType={p.keyboardType ?? "default"} autoCapitalize="none" autoCorrect={false} style={s.input} />
+  </View>;
+}
+
+function Primary(p: { label: string; onPress: () => void; disabled?: boolean }) {
+  return <Pressable onPress={p.onPress} disabled={p.disabled} style={[s.primary, p.disabled && s.disabled]}>
+    <Text style={s.primaryText}>{p.label}</Text>
+  </Pressable>;
+}
+function Secondary(p: { label: string; onPress: () => void }) {
+  return <Pressable onPress={p.onPress} style={s.secondary}><Text style={s.secondaryText}>{p.label}</Text></Pressable>;
+}
+function TextButton(p: { label: string; onPress: () => void }) {
+  return <Pressable onPress={p.onPress} style={s.textButton}><Text style={s.textButtonText}>{p.label}</Text></Pressable>;
+}
+
+const s = StyleSheet.create({
+  flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
+  content: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 36 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 30 },
+  brandMark: { width: 38, height: 38, borderRadius: 12, backgroundColor: C.primary, alignItems: "center", justifyContent: "center" },
+  brandMarkText: { color: "#FFF", fontSize: 23, fontWeight: "800" }, brandName: { color: C.ink, fontSize: 20, fontWeight: "800" },
+  spacer: { flex: 1 }, early: { color: C.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1 },
+  hero: { marginTop: 25, marginBottom: 36 }, kicker: { color: C.primary, fontSize: 10, fontWeight: "800", letterSpacing: 1.5, marginBottom: 12 },
+  heading: { color: C.ink, fontSize: 37, lineHeight: 43, fontWeight: "800", letterSpacing: -1.3 },
+  formTitle: { color: C.ink, fontSize: 29, lineHeight: 35, fontWeight: "800", letterSpacing: -0.8 },
+  subtitle: { color: C.muted, fontSize: 15, lineHeight: 23, marginTop: 12, marginBottom: 22 },
+  sectionTitle: { color: C.ink, fontSize: 18, fontWeight: "800", marginBottom: 13, marginTop: 18 },
+  modeList: { gap: 11, marginBottom: 18 }, modeCard: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 16, padding: 16 },
+  modeCardSelected: { borderColor: C.primary, borderWidth: 2, padding: 15, backgroundColor: "#F5FBF8" },
   modeCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  modeEyebrow: { color: COLORS.primary, fontSize: 10, fontWeight: "800", letterSpacing: 1.2 },
-  selectionMark: { width: 22, height: 22, borderRadius: 11, borderColor: COLORS.border, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
-  selectionMarkSelected: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  check: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
-  modeTitle: { color: COLORS.ink, fontSize: 21, fontWeight: "800", marginTop: 12 },
-  modeDescription: { color: COLORS.muted, fontSize: 13, lineHeight: 20, marginTop: 7 },
-  modeAction: { color: COLORS.primary, fontSize: 13, fontWeight: "800", marginTop: 15 },
-  selectionNotice: { backgroundColor: COLORS.primarySoft, borderRadius: 14, padding: 15, marginTop: 16 },
-  selectionNoticeTitle: { color: COLORS.primary, fontSize: 14, fontWeight: "800" },
-  selectionNoticeText: { color: COLORS.ink, fontSize: 12, lineHeight: 18, marginTop: 5 },
-  securityNotice: { flexDirection: "row", alignItems: "flex-start", backgroundColor: COLORS.warning, borderRadius: 14, padding: 15, marginTop: 22, gap: 11 },
-  securityIcon: { color: COLORS.warningInk, fontSize: 16, fontWeight: "900" },
-  securityCopy: { flex: 1 },
-  securityTitle: { color: COLORS.warningInk, fontSize: 13, fontWeight: "800" },
-  securityText: { color: COLORS.warningInk, fontSize: 12, lineHeight: 18, marginTop: 4 },
-  footer: { color: COLORS.muted, fontSize: 12, textAlign: "center", marginTop: 28 },
+  modeTitle: { color: C.ink, fontSize: 16, fontWeight: "800" }, modeDescription: { color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 6 },
+  radio: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: C.border }, radioSelected: { borderWidth: 6, borderColor: C.primary },
+  form: { marginTop: 12 }, field: { marginBottom: 16 }, fieldLabel: { color: C.ink, fontSize: 12, fontWeight: "700", marginBottom: 7 },
+  input: { minHeight: 52, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, color: C.ink, backgroundColor: C.surface, fontSize: 15 },
+  helper: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 7, marginBottom: 14 },
+  primary: { minHeight: 52, borderRadius: 13, backgroundColor: C.primary, alignItems: "center", justifyContent: "center", marginTop: 8, paddingHorizontal: 18 },
+  primaryText: { color: "#FFF", fontSize: 14, fontWeight: "800" }, disabled: { opacity: 0.45 },
+  secondary: { minHeight: 50, borderRadius: 13, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 10, backgroundColor: C.surface },
+  secondaryText: { color: C.primary, fontSize: 13, fontWeight: "800" }, textButton: { alignItems: "center", paddingVertical: 16 },
+  textButtonText: { color: C.muted, fontSize: 13, fontWeight: "700" },
+  notice: { backgroundColor: C.warning, borderRadius: 14, padding: 15, marginVertical: 14 },
+  noticeTitle: { color: C.warningInk, fontSize: 13, fontWeight: "800", marginBottom: 5 }, noticeText: { color: C.warningInk, fontSize: 12, lineHeight: 18 },
+  successNotice: { backgroundColor: C.soft, borderRadius: 14, padding: 15, marginVertical: 12 },
+  successTitle: { color: C.primary, fontSize: 13, fontWeight: "800", marginBottom: 5 }, successText: { color: C.ink, fontSize: 12, lineHeight: 18 },
+  errorNotice: { backgroundColor: "#FCE9E9", borderRadius: 12, padding: 13, marginTop: 14 }, errorText: { color: C.danger, fontSize: 12, lineHeight: 18 },
+  statusCard: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 16, padding: 17, marginBottom: 10 },
+  statusLabel: { color: C.muted, fontSize: 10, fontWeight: "800", letterSpacing: 1.1 },
+  statusValue: { color: C.ink, fontSize: 16, fontWeight: "800", marginTop: 5, marginBottom: 14 },
+  divider: { height: 1, backgroundColor: C.border, marginVertical: 8 }, loader: { marginTop: 15 },
+  footer: { color: C.muted, fontSize: 11, textAlign: "center", marginTop: 30 },
 });
