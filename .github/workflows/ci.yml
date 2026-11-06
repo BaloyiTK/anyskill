@@ -1,0 +1,47 @@
+name: AnySkill CI
+
+on:
+  push:
+    branches:
+      - main
+      - "foundation/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
+
+      - name: Build API
+        run: pnpm build:api
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
+
+      - name: Type-check mobile app
+        run: pnpm --filter @anyskill/mobile typecheck
