@@ -92,16 +92,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }
     return this.prisma.providerProfile.upsert({
       where: { userId },
-      create: { userId, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable },
-      update: { skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable },
-      select: { skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, updatedAt: true },
+      create: { userId, publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable },
+      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable },
+      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, updatedAt: true },
     });
   }
 
   async getProviderProfile(userId: string) {
     return this.prisma.providerProfile.findUnique({
       where: { userId },
-      select: { skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, updatedAt: true },
+      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, updatedAt: true },
     });
   }
 
@@ -172,10 +172,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           orderBy: { createdAt: "asc" },
           select: {
             id: true, providerId: true, status: true, message: true, createdAt: true,
+            hourlyRateAtOffer: true, assessmentFeeAtOffer: true,
             provider: {
               select: {
                 providerProfile: {
-                  select: { skillCategories: true, serviceAreas: true, deliveryModes: true },
+                  select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true },
                 },
               },
             },
@@ -235,7 +236,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async respondToRequest(providerId: string, requestId: string, input: ProviderResponseDto) {
     const provider = await this.prisma.user.findUnique({
       where: { id: providerId },
-      select: { identityVerification: true },
+      select: { identityVerification: true, providerProfile: { select: { hourlyRate: true, assessmentFee: true } } },
     });
     if (!provider || provider.identityVerification !== "VERIFIED") {
       throw new ForbiddenException({
@@ -243,6 +244,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         action: "PROVIDER_ACCEPT_REQUEST",
         message: "You can view this request, but you must complete identity verification before accepting it. Your request will remain available if it has not been taken or closed.",
       });
+    }
+
+    if (!provider.providerProfile?.hourlyRate) {
+      throw new ConflictException("Complete your Provider profile and set your hourly rate before sending an offer.");
     }
 
     try {
@@ -262,8 +267,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         if (!match) throw new ForbiddenException("This request has not been matched to your Provider profile.");
 
         const response = await tx.providerResponse.create({
-          data: { requestId, providerId, message: input.message?.trim() || null, status: "OFFERED" },
-          select: { id: true, requestId: true, status: true, message: true, createdAt: true },
+          data: {
+            requestId, providerId, message: input.message?.trim() || null, status: "OFFERED",
+            hourlyRateAtOffer: provider.providerProfile!.hourlyRate!,
+            assessmentFeeAtOffer: provider.providerProfile!.assessmentFee,
+          },
+          select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true },
         });
         await tx.requestMatch.update({ where: { id: match.id }, data: { status: "RESPONDED" } });
         await tx.serviceRequest.update({ where: { id: requestId }, data: { matchingNextAt: null } });
