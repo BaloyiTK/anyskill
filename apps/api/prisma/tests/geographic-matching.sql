@@ -7,7 +7,8 @@ BEGIN
   WITH provider_fixtures(name, latitude, longitude, accuracy_m, updated_at, radius_km) AS (
     VALUES
       ('nearby', -26.2100::double precision, 28.0500::double precision, 18.0::double precision, NOW(), 25.0::double precision),
-      ('outside-radius', -26.5000::double precision, 28.0500::double precision, 20.0::double precision, NOW(), 25.0::double precision),
+      ('near-radius-inside', -26.2041::double precision, 28.2900::double precision, 22.0::double precision, NOW(), 25.0::double precision),
+      ('outside-radius', -26.2041::double precision, 28.3100::double precision, 20.0::double precision, NOW(), 25.0::double precision),
       ('stale', -26.2110::double precision, 28.0510::double precision, 15.0::double precision, NOW() - INTERVAL '11 minutes', 25.0::double precision),
       ('inaccurate', -26.2120::double precision, 28.0520::double precision, 300.0::double precision, NOW(), 25.0::double precision)
   )
@@ -25,8 +26,8 @@ BEGIN
       ST_SetSRID(ST_MakePoint(28.0473, -26.2041), 4326)::geography
     ) <= p.radius_km * 1000.0;
 
-  IF eligible_count <> 1 THEN
-    RAISE EXCEPTION 'Expected exactly one fresh, accurate Provider inside radius; got %', eligible_count;
+  IF eligible_count <> 2 THEN
+    RAISE EXCEPTION 'Expected exactly two fresh, accurate Providers inside their configured 25 km radius; got %', eligible_count;
   END IF;
 
   IF ST_Distance(
