@@ -14,7 +14,6 @@ import {
   ProviderResponseDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
-  SelectProviderDto,
 } from "./dto/service-request.dto";
 
 type RankedProvider = { userId: string; score: number };
