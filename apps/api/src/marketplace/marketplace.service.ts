@@ -15,6 +15,7 @@ import {
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
   SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
+  UpdateHomeLocationDto, UpdateLiveLocationDto,
 } from "./dto/service-request.dto";
 
 type RankedProvider = { userId: string; score: number };
@@ -63,6 +64,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         description: input.description.trim(),
         imageUrls: input.imageUrls ?? [],
         location: input.location?.trim() || null,
+        latitude: input.latitude ?? null,
+        longitude: input.longitude ?? null,
         deliveryMode: input.deliveryMode,
         preferredStartAt: input.preferredStartAt ? new Date(input.preferredStartAt) : null,
         instructions: input.instructions?.trim() || null,
@@ -76,6 +79,24 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
     const matching = await this.dispatchNextWave(request.id, 1);
     return { ...request, matching };
+  }
+
+
+  async getHomeLocation(userId: string) {
+    return this.prisma.user.findUnique({ where: { id: userId }, select: { homeLocationLabel: true, homeLatitude: true, homeLongitude: true } });
+  }
+
+  async updateHomeLocation(userId: string, input: UpdateHomeLocationDto) {
+    return this.prisma.user.update({ where: { id: userId }, data: { homeLocationLabel: input.label.trim(), homeLatitude: input.latitude, homeLongitude: input.longitude }, select: { homeLocationLabel: true, homeLatitude: true, homeLongitude: true } });
+  }
+
+  async updateProviderLiveLocation(userId: string, input: UpdateLiveLocationDto) {
+    const profile = await this.prisma.providerProfile.findUnique({ where: { userId }, select: { isAvailable: true, deliveryModes: true } });
+    if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
+    if (!profile.isAvailable) throw new ConflictException("Set your Provider status to Available before sharing live location.");
+    if (!profile.deliveryModes.some((mode) => mode === "ONSITE" || mode === "EITHER")) throw new ConflictException("Live location is only needed for on-site matching.");
+    if (input.accuracyM > 250) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix.");
+    return this.prisma.providerProfile.update({ where: { userId }, data: { liveLatitude: input.latitude, liveLongitude: input.longitude, liveAccuracyM: input.accuracyM, liveLocationUpdatedAt: new Date() }, select: { isAvailable: true, liveLocationUpdatedAt: true, liveAccuracyM: true } });
   }
 
   async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
@@ -94,8 +115,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.providerProfile.upsert({
       where: { userId },
       create: { userId, publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable },
-      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable },
-      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, updatedAt: true },
+      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, ...(!input.isAvailable ? { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null } : {}) },
+      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
     });
   }
 
@@ -456,30 +477,55 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async rankedProviders(request: {
-    id: string; seekerId: string; skillCategory: string; location: string | null; deliveryMode: string;
+    id: string; seekerId: string; skillCategory: string; location: string | null; latitude?: number | null; longitude?: number | null; deliveryMode: string;
   }): Promise<RankedProvider[]> {
-    const profiles = await this.prisma.providerProfile.findMany({
-      where: { isAvailable: true, skillCategories: { has: normalise(request.skillCategory) }, userId: { not: request.seekerId } },
-      select: { userId: true, serviceAreas: true, deliveryModes: true, updatedAt: true },
+    const remoteProfiles = await this.prisma.providerProfile.findMany({
+      where: { isAvailable: true, skillCategories: { has: normalise(request.skillCategory) }, userId: { not: request.seekerId }, deliveryModes: { hasSome: request.deliveryMode === "EITHER" ? ["REMOTE", "EITHER"] : [request.deliveryMode, "EITHER"] } },
+      select: { userId: true, serviceAreas: true, deliveryModes: true },
     });
-    const area = request.location ? normalise(request.location) : null;
-    return profiles.flatMap((profile) => {
-      const modes = profile.deliveryModes;
-      const modeMatches = modes.includes("EITHER") || modes.includes(request.deliveryMode) ||
-        (request.deliveryMode === "EITHER" && (modes.includes("ONSITE") || modes.includes("REMOTE")));
-      if (!modeMatches) return [];
-      const areaMatches = !area || request.deliveryMode === "REMOTE" ||
-        profile.serviceAreas.some((serviceArea) => area.includes(serviceArea) || serviceArea.includes(area));
-      if (!areaMatches) return [];
-      const score = 100 + (area && profile.serviceAreas.length ? 40 : 0) + (modes.includes(request.deliveryMode) ? 20 : 10);
-      return [{ userId: profile.userId, score }];
-    }).sort((a, b) => b.score - a.score || a.userId.localeCompare(b.userId));
+    const ranked = new Map<string, number>();
+    for (const profile of remoteProfiles) {
+      const modeMatches = request.deliveryMode === "REMOTE"
+        ? profile.deliveryModes.includes("REMOTE") || profile.deliveryModes.includes("EITHER")
+        : request.deliveryMode === "EITHER"
+          ? profile.deliveryModes.some((mode) => mode === "REMOTE" || mode === "EITHER")
+          : false;
+      if (modeMatches) ranked.set(profile.userId, 110);
+    }
+
+    if (request.deliveryMode !== "REMOTE" && request.latitude != null && request.longitude != null) {
+      const geo = await this.prisma.$queryRaw<Array<{ userId: string; distanceKm: number }>>\` 
+        SELECT pp.user_id AS "userId",
+          ST_Distance(
+            ST_SetSRID(ST_MakePoint(pp.live_longitude, pp.live_latitude), 4326)::geography,
+            ST_SetSRID(ST_MakePoint(${request.longitude}, ${request.latitude}), 4326)::geography
+          ) / 1000.0 AS "distanceKm"
+        FROM provider_profiles pp
+        WHERE pp.is_available = TRUE
+          AND pp.user_id <> ${request.seekerId}::uuid
+          AND pp.skill_categories @> ARRAY[${normalise(request.skillCategory)}]::text[]
+          AND pp.delivery_modes && ARRAY['ONSITE','EITHER']::text[]
+          AND pp.live_latitude IS NOT NULL AND pp.live_longitude IS NOT NULL
+          AND pp.live_accuracy_m <= 250
+          AND pp.live_location_updated_at >= NOW() - INTERVAL '10 minutes'
+          AND ST_DWithin(
+            ST_SetSRID(ST_MakePoint(pp.live_longitude, pp.live_latitude), 4326)::geography,
+            ST_SetSRID(ST_MakePoint(${request.longitude}, ${request.latitude}), 4326)::geography,
+            pp.max_travel_distance_km * 1000.0
+          )
+      \`;
+      for (const provider of geo) {
+        const distanceBonus = Math.max(0, 40 - Math.floor(provider.distanceKm));
+        ranked.set(provider.userId, Math.max(ranked.get(provider.userId) ?? 0, 120 + distanceBonus));
+      }
+    }
+    return [...ranked.entries()].map(([userId, score]) => ({ userId, score })).sort((a, b) => b.score - a.score || a.userId.localeCompare(b.userId));
   }
 
   private async dispatchNextWave(requestId: string, wave: number) {
     const request = await this.prisma.serviceRequest.findUnique({
       where: { id: requestId },
-      select: { id: true, seekerId: true, skillCategory: true, location: true, deliveryMode: true, status: true },
+      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, deliveryMode: true, status: true },
     });
     if (!request || request.status !== "OPEN") return { notified: 0, wave };
 
