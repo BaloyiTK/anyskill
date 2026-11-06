@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import * as Location from "expo-location";
+import { MapPinPicker } from "./MapPinPicker";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
 
@@ -69,6 +70,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
       setData(result);
       if (section === "profile" && homeLatitude.trim() && homeLongitude.trim()) {
+        if (!Number.isFinite(Number(homeLatitude)) || !Number.isFinite(Number(homeLongitude)) || Number(homeLatitude) < -90 || Number(homeLatitude) > 90 || Number(homeLongitude) < -180 || Number(homeLongitude) > 180) throw new Error("Enter valid Home Location coordinates.");
         await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: [suburb, city, province, country].filter(Boolean).join(", ") || "Saved Home Location", latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
       }
       setMessage("Your changes have been saved as a draft.");
@@ -118,9 +120,11 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         <Text style={st.help}>Save what you have now. You can leave fields incomplete and return later.</Text>
         {Field("First name", firstName, setFirstName)}{Field("Last name", lastName, setLastName)}{Field("Contact number", phone, setPhone)}
         {Field("Country", country, setCountry)}{Field("Province", province, setProvince)}{Field("City", city, setCity)}{Field("Suburb", suburb, setSuburb)}{Field("Home address", address, setAddress, true)}
-        {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
         <Action label={homeLocationBusy ? "Getting location..." : "Use current GPS for Home Location"} onPress={() => void useCurrentHomeLocation()} disabled={busy || homeLocationBusy} />
-        <Text style={st.help}>Home Location is saved to your profile and used as a default. It is not continuous live tracking.</Text>
+        <Text style={st.label}>Choose Home Location on the map</Text>
+        <MapPinPicker latitude={homeLatitude.trim() ? Number(homeLatitude) : -26.2041} longitude={homeLongitude.trim() ? Number(homeLongitude) : 28.0473} selectedLatitude={homeLatitude.trim() ? Number(homeLatitude) : null} selectedLongitude={homeLongitude.trim() ? Number(homeLongitude) : null} onSelect={(lat, lon) => { setHomeLatitude(String(lat)); setHomeLongitude(String(lon)); }} />
+        {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
+        <Text style={st.help}>Home Location is saved to your profile and used as a default. It is not continuous live tracking. You can also type coordinates if map tiles are unavailable.</Text>
         <Text style={st.status}>Section: {status("profile")}</Text>
         <Action label="Save Profile Draft" onPress={() => void save("profile")} disabled={busy} />
       </>}
