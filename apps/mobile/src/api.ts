@@ -107,6 +107,7 @@ export type AccountSummary = {
   email: string;
   emailVerified: boolean;
   identityVerification: string;
+  googleLinked: boolean;
 };
 
 export type IdentitySummary = {
