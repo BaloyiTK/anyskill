@@ -178,6 +178,8 @@ model ProviderResponse {
   providerId  String                 @db.Uuid @map("provider_id")
   status      ProviderResponseStatus @default(OFFERED)
   message     String?                @db.VarChar(2000)
+  hourlyRateAtOffer Decimal?           @map("hourly_rate_at_offer") @db.Decimal(10, 2)
+  assessmentFeeAtOffer Decimal?        @map("assessment_fee_at_offer") @db.Decimal(10, 2)
   createdAt   DateTime               @default(now()) @map("created_at")
   updatedAt   DateTime               @updatedAt @map("updated_at")
   request     ServiceRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
@@ -193,6 +195,9 @@ model ProviderResponse {
 model ProviderProfile {
   id              String   @id @default(uuid()) @db.Uuid
   userId          String   @unique @db.Uuid @map("user_id")
+  publicName      String   @default("") @map("public_name") @db.VarChar(80)
+  hourlyRate      Decimal? @map("hourly_rate") @db.Decimal(10, 2)
+  assessmentFee   Decimal  @default(0) @map("assessment_fee") @db.Decimal(10, 2)
   skillCategories String[] @default([]) @map("skill_categories")
   serviceAreas    String[] @default([]) @map("service_areas")
   deliveryModes   String[] @default(["ONSITE"]) @map("delivery_modes")
