@@ -54,6 +54,23 @@ enum RequestMatchStatus {
   EXPIRED
 }
 
+enum JobEngagementStatus {
+  ASSESSMENT_PENDING
+  ESTIMATE_SUBMITTED
+  ESTIMATE_REJECTED
+  ESTIMATE_APPROVED
+  IN_PROGRESS
+  COMPLETION_PENDING
+  COMPLETED
+  DISPUTED
+}
+
+enum CostAdjustmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum NotificationDeliveryStatus {
   PENDING
   SENDING
@@ -166,6 +183,7 @@ model ServiceRequest {
   seeker             User                  @relation(fields: [seekerId], references: [id], onDelete: Restrict)
   providerResponses ProviderResponse[]
   matches           RequestMatch[]
+  jobEngagement     JobEngagement?
 
   @@index([status, createdAt])
   @@index([seekerId, createdAt])
@@ -184,6 +202,7 @@ model ProviderResponse {
   updatedAt   DateTime               @updatedAt @map("updated_at")
   request     ServiceRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
   provider    User                   @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  jobEngagement JobEngagement?
 
   @@unique([requestId, providerId])
   @@index([providerId, status, createdAt])
@@ -255,4 +274,47 @@ model AppNotification {
   @@index([userId, readAt, createdAt])
   @@index([deliveryStatus, createdAt])
   @@map("app_notifications")
+}
+
+
+model JobEngagement {
+  id                    String              @id @default(uuid()) @db.Uuid
+  requestId             String              @unique @db.Uuid @map("request_id")
+  responseId            String              @unique @db.Uuid @map("response_id")
+  seekerId              String              @db.Uuid @map("seeker_id")
+  providerId            String              @db.Uuid @map("provider_id")
+  status                JobEngagementStatus @default(ASSESSMENT_PENDING)
+  hourlyRate            Decimal             @map("hourly_rate") @db.Decimal(10, 2)
+  assessmentFee         Decimal             @default(0) @map("assessment_fee") @db.Decimal(10, 2)
+  estimatedHours       Decimal?            @map("estimated_hours") @db.Decimal(8, 2)
+  estimatedTotal       Decimal?            @map("estimated_total") @db.Decimal(10, 2)
+  estimateNotes        String?             @map("estimate_notes") @db.VarChar(2000)
+  estimateDecisionNote String?             @map("estimate_decision_note") @db.VarChar(1000)
+  estimateSubmittedAt DateTime?            @map("estimate_submitted_at")
+  estimateDecidedAt   DateTime?            @map("estimate_decided_at")
+  workStartedAt       DateTime?            @map("work_started_at")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  request             ServiceRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  response            ProviderResponse     @relation(fields: [responseId], references: [id], onDelete: Restrict)
+  adjustments         JobCostAdjustment[]
+  @@index([seekerId, status, createdAt])
+  @@index([providerId, status, createdAt])
+  @@map("job_engagements")
+}
+
+model JobCostAdjustment {
+  id              String                @id @default(uuid()) @db.Uuid
+  engagementId    String                @db.Uuid @map("engagement_id")
+  requestedHours  Decimal               @map("requested_hours") @db.Decimal(8, 2)
+  hourlyRate      Decimal               @map("hourly_rate") @db.Decimal(10, 2)
+  requestedAmount Decimal               @map("requested_amount") @db.Decimal(10, 2)
+  reason          String                @db.VarChar(1000)
+  status          CostAdjustmentStatus  @default(PENDING)
+  decisionNote    String?               @map("decision_note") @db.VarChar(1000)
+  decidedAt       DateTime?             @map("decided_at")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  engagement      JobEngagement         @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  @@index([engagementId, status, createdAt])
+  @@map("job_cost_adjustments")
 }
