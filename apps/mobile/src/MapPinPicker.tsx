@@ -63,9 +63,9 @@ export function MapPinPicker(p: Props) {
         const point = coordinateAt(event.nativeEvent.locationX, event.nativeEvent.locationY, center.x, center.y, size.width, size.height, zoom);
         p.onSelect(point.latitude, point.longitude);
       }}>
-        <View pointerEvents="none" style={[styles.pin, { left: markerX - 12, top: markerY - 26 }]}>
+        {marker ? <View pointerEvents="none" style={[styles.pin, { left: markerX - 12, top: markerY - 26 }]}>
           <View style={styles.pinHead} /><View style={styles.pinTail} />
-        </View>
+        </View> : null}
       </Pressable>
       <View style={styles.zoom}>
         <Pressable onPress={() => setZoom((value) => Math.min(19, value + 1))} style={styles.zoomButton}><Text style={styles.zoomText}>+</Text></Pressable>
