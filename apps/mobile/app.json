@@ -16,6 +16,12 @@
         }
       ],
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "AnySkill uses your location to set your Home Location and match on-site jobs while you are available."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "AnySkill needs photo-library access so Providers can submit job-completion evidence."
