@@ -69,7 +69,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         : { portfolio: portfolioTitle.trim() ? [{ title: portfolioTitle.trim(), description: portfolioDescription }] : [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
       setData(result);
-      if (section === "profile" && homeLatitude.trim() && homeLongitude.trim()) {
+      if (section === "profile" && (homeLatitude.trim() || homeLongitude.trim())) {
+        if (!homeLatitude.trim() || !homeLongitude.trim()) throw new Error("Choose both latitude and longitude for your Home Location.");
         if (!Number.isFinite(Number(homeLatitude)) || !Number.isFinite(Number(homeLongitude)) || Number(homeLatitude) < -90 || Number(homeLatitude) > 90 || Number(homeLongitude) < -180 || Number(homeLongitude) > 180) throw new Error("Enter valid Home Location coordinates.");
         await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: [suburb, city, province, country].filter(Boolean).join(", ") || "Saved Home Location", latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
       }
@@ -122,7 +123,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         {Field("Country", country, setCountry)}{Field("Province", province, setProvince)}{Field("City", city, setCity)}{Field("Suburb", suburb, setSuburb)}{Field("Home address", address, setAddress, true)}
         <Action label={homeLocationBusy ? "Getting location..." : "Use current GPS for Home Location"} onPress={() => void useCurrentHomeLocation()} disabled={busy || homeLocationBusy} />
         <Text style={st.label}>Choose Home Location on the map</Text>
-        <MapPinPicker latitude={homeLatitude.trim() ? Number(homeLatitude) : -26.2041} longitude={homeLongitude.trim() ? Number(homeLongitude) : 28.0473} selectedLatitude={homeLatitude.trim() ? Number(homeLatitude) : null} selectedLongitude={homeLongitude.trim() ? Number(homeLongitude) : null} onSelect={(lat, lon) => { setHomeLatitude(String(lat)); setHomeLongitude(String(lon)); }} />
+        <MapPinPicker latitude={homeLatitude.trim() && Number.isFinite(Number(homeLatitude)) ? Number(homeLatitude) : -26.2041} longitude={homeLongitude.trim() && Number.isFinite(Number(homeLongitude)) ? Number(homeLongitude) : 28.0473} selectedLatitude={homeLatitude.trim() ? Number(homeLatitude) : null} selectedLongitude={homeLongitude.trim() ? Number(homeLongitude) : null} onSelect={(lat, lon) => { setHomeLatitude(String(lat)); setHomeLongitude(String(lon)); }} />
         {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
         <Text style={st.help}>Home Location is saved to your profile and used as a default. It is not continuous live tracking. You can also type coordinates if map tiles are unavailable.</Text>
         <Text style={st.status}>Section: {status("profile")}</Text>
