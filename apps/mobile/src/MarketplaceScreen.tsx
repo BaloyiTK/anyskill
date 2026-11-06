@@ -288,7 +288,7 @@ export function MarketplaceScreen(p: Props) {
   };
 
   const useSavedHomeLocation = () => {
-    if (!savedHomeLocation?.homeLatitude || !savedHomeLocation?.homeLongitude) {
+    if (savedHomeLocation?.homeLatitude == null || savedHomeLocation?.homeLongitude == null) {
       setError("Save a Home Location with GPS coordinates in your Profile first."); return;
     }
     setRequestLatitude(savedHomeLocation.homeLatitude); setRequestLongitude(savedHomeLocation.homeLongitude);
@@ -501,7 +501,7 @@ export function MarketplaceScreen(p: Props) {
         <TextInput value={providerAreas} onChangeText={setProviderAreas} placeholder="e.g. Rosebank, Sandton, Johannesburg" style={s.input} />
         <Text style={s.label}>Delivery modes (ONSITE, REMOTE, EITHER)</Text>
         <TextInput value={providerModes} onChangeText={setProviderModes} placeholder="ONSITE, REMOTE" style={s.input} />
-        <Text style={s.helper}>{providerLiveTrackingEnabled && providerAvailable ? "Live location sharing is enabled while the app is in use; updates stop when you become unavailable or leave Provider mode." : "Live location is not currently being shared."}</Text>
+        <Text style={s.helper}>{providerLiveTrackingEnabled && providerAvailable ? "AnySkill requests foreground GPS permission when you are Available; accurate fixes are shared for on-site matching while the app is open." : "Live location is not currently being shared."}</Text>
         <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
           <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
         </Pressable>
