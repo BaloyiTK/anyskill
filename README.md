@@ -69,6 +69,10 @@ pnpm dev:mobile
 
 See `docs/architecture/account-and-verification-workflow.md` for the API contract and implementation boundaries.
 
+## Payments
+
+The approved payment direction is saved-card tokenisation during Skill Seeker profile setup, card pre-authorisation after the Seeker approves the job estimate and before work starts, and payment capture only after the Seeker approves the Provider's completed work. Provider settlement is a separate platform process. See `docs/architecture/payment-and-settlement-workflow.md`. PayGate saved-card, authorisation, capture and settlement capabilities still require merchant-account confirmation; payment processing is not yet implemented.
+
 ## Engineering principles
 
 - The backend is authoritative for identity, permissions, matching, pricing, approvals and payments.
