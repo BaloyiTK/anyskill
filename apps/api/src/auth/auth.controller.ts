@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
-import { IsEmail, IsString, MinLength } from "class-validator";
+import { IsEmail, IsString, MaxLength, MinLength } from "class-validator";
 import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
 import { CurrentUser, AuthenticatedUser } from "./current-user.decorator";
@@ -19,6 +19,7 @@ class RefreshDto {
 
 class ForgotPasswordDto {
   @IsEmail()
+  @MaxLength(320)
   email!: string;
 }
 
