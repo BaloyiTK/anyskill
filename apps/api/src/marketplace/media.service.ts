@@ -142,7 +142,9 @@ export class MediaService {
     }
 
     const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
-    const format = asset.contentType === "image/jpeg" ? "jpg" : asset.contentType.split("/")[1];
+    const formatByMime: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+    const format = formatByMime[asset.contentType];
+    if (!format) throw new BadRequestException("Evidence image has an unsupported content type.");
     const publicId = asset.objectKey.slice((FOLDER + "/").length);
     const url = cloudinary.utils.private_download_url(publicId, format, {
       resource_type: "image",
