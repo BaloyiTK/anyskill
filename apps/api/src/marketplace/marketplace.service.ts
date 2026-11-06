@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -44,6 +45,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async createRequest(seekerId: string, input: CreateServiceRequestDto) {
+    if ((input.latitude == null) !== (input.longitude == null)) throw new BadRequestException("Provide both latitude and longitude for the job location.");
+    if (input.deliveryMode === "ONSITE" && (input.latitude == null || input.longitude == null)) throw new BadRequestException("Choose the on-site job location on the map before publishing.");
     const seeker = await this.prisma.user.findUnique({
       where: { id: seekerId },
       select: { identityVerification: true },
@@ -494,7 +497,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (request.deliveryMode !== "REMOTE" && request.latitude != null && request.longitude != null) {
-      const geo = await this.prisma.$queryRaw<Array<{ userId: string; distanceKm: number }>>\` 
+      const geo = await this.prisma.$queryRaw<Array<{ userId: string; distanceKm: number }>>`
         SELECT pp.user_id AS "userId",
           ST_Distance(
             ST_SetSRID(ST_MakePoint(pp.live_longitude, pp.live_latitude), 4326)::geography,
