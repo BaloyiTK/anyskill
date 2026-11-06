@@ -7,7 +7,7 @@ import {
   AccountSummary, apiRequest, clearTokens, IdentitySummary, saveTokens, signOut,
 } from "./src/api";
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "dashboard";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "forgot-password" | "reset-password" | "dashboard";
 type UserMode = "seeker" | "provider";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
 
@@ -23,6 +23,8 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [resetToken, setResetToken] = useState("");
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [identity, setIdentity] = useState<IdentitySummary | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,8 +43,17 @@ export default function App() {
   };
 
   const verifyEmailFromLink = async (url: string) => {
+    const query = new URLSearchParams(url.split("?")[1] ?? "");
+    if (url.includes("reset-password")) {
+      const token = query.get("token");
+      if (token) {
+        setResetToken(token);
+        setScreen("reset-password");
+      }
+      return;
+    }
     if (!url.includes("verify-email")) return;
-    const token = new URLSearchParams(url.split("?")[1] ?? "").get("token");
+    const token = query.get("token");
     if (!token) return;
     setBusy(true);
     try {
@@ -59,6 +70,7 @@ export default function App() {
 
   useEffect(() => {
     void Linking.getInitialURL().then((url) => { if (url) void verifyEmailFromLink(url); });
+    void loadAccount().catch(() => undefined);
     const subscription = Linking.addEventListener("url", ({ url }) => { void verifyEmailFromLink(url); });
     return () => subscription.remove();
   }, []);
@@ -90,6 +102,45 @@ export default function App() {
     } catch (e) {
       await clearTokens();
       setError(e instanceof Error ? e.message : "Sign in failed.");
+    } finally { setBusy(false); }
+  };
+
+  const requestPasswordReset = async () => {
+    feedback(); setBusy(true);
+    try {
+      const result = await apiRequest<{ message: string }>("/auth/forgot-password", {
+        method: "POST", body: JSON.stringify({ email: email.trim() }),
+      });
+      setMessage(result.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not request password reset.");
+    } finally { setBusy(false); }
+  };
+
+  const completePasswordReset = async () => {
+    feedback(); setBusy(true);
+    try {
+      await apiRequest("/auth/reset-password", {
+        method: "POST", body: JSON.stringify({ token: resetToken, newPassword }),
+      });
+      setMessage("Password updated. Sign in with your new password.");
+      setPassword("");
+      setNewPassword("");
+      setScreen("login");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not reset password.");
+    } finally { setBusy(false); }
+  };
+
+  const resendVerification = async () => {
+    feedback(); setBusy(true);
+    try {
+      const result = await apiRequest<{ message: string }>("/auth/resend-verification", {
+        method: "POST", body: JSON.stringify({ email: email.trim() }),
+      });
+      setMessage(result.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not resend verification email.");
     } finally { setBusy(false); }
   };
 
@@ -156,6 +207,7 @@ export default function App() {
             {screen === "register" && <Text style={s.helper}>Email verification is required before sign-in. Use at least 12 characters for your password.</Text>}
             <Primary label={screen === "register" ? "Create account" : "Sign in"} onPress={screen === "register" ? register : login} disabled={busy || !email.trim() || password.length < 12} />
             <Secondary label={screen === "register" ? "I already have an account" : "Create a new account"} onPress={() => goTo(screen === "register" ? "login" : "register")} />
+            {screen === "login" && <TextButton label="Forgot password?" onPress={() => goTo("forgot-password")} />}
             <TextButton label="Back" onPress={() => goTo("welcome")} />
           </View>}
 
@@ -168,7 +220,25 @@ export default function App() {
               <Text style={s.noticeText}>You must also complete identity verification before using the marketplace.</Text>
             </View>
             <Primary label="Go to sign in" onPress={() => goTo("login")} />
+            <Secondary label="Resend verification email" onPress={resendVerification} />
             <TextButton label="Back to start" onPress={() => goTo("welcome")} />
+          </View>}
+
+          {screen === "forgot-password" && <View style={s.form}>
+            <Text style={s.kicker}>ACCOUNT RECOVERY</Text>
+            <Text style={s.formTitle}>Reset your password</Text>
+            <Text style={s.subtitle}>Enter your account email. If an account exists, we will send a secure reset link.</Text>
+            <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
+            <Primary label="Send reset link" onPress={requestPasswordReset} disabled={busy || !email.trim()} />
+            <TextButton label="Back to sign in" onPress={() => goTo("login")} />
+          </View>}
+
+          {screen === "reset-password" && <View style={s.form}>
+            <Text style={s.kicker}>ACCOUNT RECOVERY</Text>
+            <Text style={s.formTitle}>Choose a new password</Text>
+            <Text style={s.subtitle}>Use at least 12 characters. This will sign out your other active sessions.</Text>
+            <Field label="New password" value={newPassword} onChangeText={setNewPassword} placeholder="At least 12 characters" secureTextEntry />
+            <Primary label="Update password" onPress={completePasswordReset} disabled={busy || newPassword.length < 12 || !resetToken} />
           </View>}
 
           {screen === "dashboard" && account && <View style={s.form}>
