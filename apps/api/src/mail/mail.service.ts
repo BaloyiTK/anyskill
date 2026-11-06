@@ -1,9 +1,8 @@
-import { Injectable, InternalServerErrorException, Logger } from "@nestjs/common";
+import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import nodemailer, { Transporter } from "nodemailer";
 
 @Injectable()
 export class MailService {
-  private readonly logger = new Logger(MailService.name);
   private transporter: Transporter | null = null;
 
   private getTransporter(): Transporter {
@@ -14,7 +13,7 @@ export class MailService {
     const pass = process.env.SMTP_PASSWORD;
     const port = Number(process.env.SMTP_PORT ?? 587);
 
-    if (!host || !user || !pass) {
+    if (!host || !user || !pass || !process.env.MAIL_FROM) {
       throw new InternalServerErrorException("Email delivery is not configured");
     }
 
@@ -31,7 +30,7 @@ export class MailService {
   async sendVerificationEmail(email: string, token: string): Promise<void> {
     const url = `${process.env.APP_DEEP_LINK ?? "anyskill://"}verify-email?token=${encodeURIComponent(token)}`;
     await this.getTransporter().sendMail({
-      from: process.env.MAIL_FROM,
+      from: process.env.MAIL_FROM!,
       to: email,
       subject: "Verify your AnySkill email address",
       text: `Verify your email address by opening this link: ${url}`,
@@ -41,7 +40,7 @@ export class MailService {
   async sendPasswordResetEmail(email: string, token: string): Promise<void> {
     const url = `${process.env.APP_DEEP_LINK ?? "anyskill://"}reset-password?token=${encodeURIComponent(token)}`;
     await this.getTransporter().sendMail({
-      from: process.env.MAIL_FROM,
+      from: process.env.MAIL_FROM!,
       to: email,
       subject: "Reset your AnySkill password",
       text: `If you requested a password reset, open this link: ${url}`,
