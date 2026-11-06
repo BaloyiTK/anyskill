@@ -1,0 +1,16 @@
+{
+  "name": "anyskill",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=22.22.3",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "dev:mobile": "pnpm --filter @anyskill/mobile start",
+    "dev:api": "pnpm --filter @anyskill/api start:dev",
+    "build:api": "pnpm --filter @anyskill/api build",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
