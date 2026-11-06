@@ -10,6 +10,7 @@ import {
   ProviderResponseDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
+  SelectProviderDto,
 } from "./dto/service-request.dto";
 import { MarketplaceService } from "./marketplace.service";
 
@@ -50,6 +51,16 @@ export class MarketplaceController {
     @Body() dto: ProviderResponseDto,
   ) {
     return this.marketplace.respondToRequest(user.id, requestId, dto);
+  }
+
+
+  @Post("marketplace/requests/:requestId/select-provider")
+  selectProvider(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Body() dto: SelectProviderDto,
+  ) {
+    return this.marketplace.selectProvider(user.id, requestId, dto.responseId);
   }
 
   @Get("marketplace/provider-profile")
