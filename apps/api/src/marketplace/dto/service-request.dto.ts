@@ -45,6 +45,12 @@ export class CreateServiceRequestDto {
   @IsIn(["ONSITE", "REMOTE", "EITHER"])
   deliveryMode!: "ONSITE" | "REMOTE" | "EITHER";
 
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90)
+  latitude?: number;
+
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180)
+  longitude?: number;
+
   @IsOptional()
   @IsDateString()
   preferredStartAt?: string;
@@ -180,4 +186,16 @@ export class DecideJobCompletionDto {
   @IsString()
   @MaxLength(1000)
   note?: string;
+}
+
+export class UpdateHomeLocationDto {
+  @IsString() @MinLength(3) @MaxLength(500) label!: string;
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90) latitude!: number;
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180) longitude!: number;
+}
+
+export class UpdateLiveLocationDto {
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90) latitude!: number;
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180) longitude!: number;
+  @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) accuracyM!: number;
 }
