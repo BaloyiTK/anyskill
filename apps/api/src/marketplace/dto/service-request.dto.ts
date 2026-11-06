@@ -156,3 +156,26 @@ export class DecideAdditionalHoursDto {
   @MaxLength(1000)
   note?: string;
 }
+
+export class SubmitJobCompletionDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(3000)
+  notes!: string;
+
+  @IsArray()
+  @ArrayMaxSize(8)
+  @ArrayMinSize(1)
+  @IsUrl({ protocols: ["https"], require_protocol: true }, { each: true })
+  evidenceUrls!: string[];
+}
+
+export class DecideJobCompletionDto {
+  @IsIn([true, false])
+  approved!: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+}
