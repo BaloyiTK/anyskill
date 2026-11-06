@@ -514,8 +514,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           AND ST_DWithin(
             ST_SetSRID(ST_MakePoint(pp.live_longitude, pp.live_latitude), 4326)::geography,
             ST_SetSRID(ST_MakePoint(${request.longitude}, ${request.latitude}), 4326)::geography,
-            pp.max_travel_distance_km * 1000.0
+            200000.0
           )
+          AND ST_Distance(
+            ST_SetSRID(ST_MakePoint(pp.live_longitude, pp.live_latitude), 4326)::geography,
+            ST_SetSRID(ST_MakePoint(${request.longitude}, ${request.latitude}), 4326)::geography
+          ) <= pp.max_travel_distance_km * 1000.0
       `) as Array<{ userId: string; distanceKm: number }>;
       for (const provider of geo) {
         const distanceBonus = Math.max(0, 40 - Math.floor(provider.distanceKm));
