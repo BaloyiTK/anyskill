@@ -14,6 +14,7 @@ import {
   ProviderResponseDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
+  SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto,
 } from "./dto/service-request.dto";
 
 type RankedProvider = { userId: string; score: number };
@@ -229,7 +230,84 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           data: { type: "PROVIDER_SELECTED", requestId, responseId: offer.id },
         },
       });
-      return { success: true, requestId, selectedResponseId: offer.id, selectedProviderId: offer.providerId, status: "CLOSED" };
+      await tx.jobEngagement.create({
+        data: { requestId, responseId: offer.id, seekerId, providerId: offer.providerId, hourlyRate: (await tx.providerResponse.findUniqueOrThrow({ where: { id: offer.id }, select: { hourlyRateAtOffer: true } })).hourlyRateAtOffer!, assessmentFee: (await tx.providerResponse.findUniqueOrThrow({ where: { id: offer.id }, select: { assessmentFeeAtOffer: true } })).assessmentFeeAtOffer ?? 0 },
+      });
+      await tx.appNotification.create({ data: { userId: offer.providerId, title: "Assessment required", body: `Your offer was selected for: ${request.title}. Complete the assessment and submit an estimate before starting work.`, data: { type: "ASSESSMENT_REQUIRED", requestId } } });
+      return { success: true, requestId, selectedResponseId: offer.id, selectedProviderId: offer.providerId, status: "ASSESSMENT_PENDING" };
+    });
+  }
+
+
+  async listMyJobs(providerId: string) {
+    return this.prisma.jobEngagement.findMany({
+      where: { providerId }, orderBy: { updatedAt: "desc" },
+      include: { request: { select: { id: true, title: true, description: true, location: true } }, adjustments: { orderBy: { createdAt: "desc" } } },
+    });
+  }
+
+  async submitEstimate(providerId: string, requestId: string, input: SubmitEstimateDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit this estimate.");
+      if (!["ASSESSMENT_PENDING", "ESTIMATE_REJECTED"].includes(job.status)) throw new ConflictException("An estimate cannot be submitted at this stage.");
+      const hours = new Prisma.Decimal(input.estimatedHours);
+      const total = hours.mul(job.hourlyRate).toDecimalPlaces(2);
+      const updated = await tx.jobEngagement.update({ where: { id: job.id }, data: { estimatedHours: hours, estimatedTotal: total, estimateNotes: input.notes.trim(), estimateSubmittedAt: new Date(), estimateDecisionNote: null, status: "ESTIMATE_SUBMITTED" } });
+      await tx.appNotification.create({ data: { userId: job.seekerId, title: "Job estimate ready", body: `Your Provider submitted an estimate of R ${total.toFixed(2)} for ${hours.toString()} hours. Review and approve before work starts.`, data: { type: "ESTIMATE_SUBMITTED", requestId } } });
+      return updated;
+    });
+  }
+
+  async decideEstimate(seekerId: string, requestId: string, input: DecideEstimateDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Job estimate not found.");
+      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide this estimate.");
+      if (job.status !== "ESTIMATE_SUBMITTED") throw new ConflictException("There is no estimate awaiting your decision.");
+      if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the estimate.");
+      const updated = await tx.jobEngagement.update({ where: { id: job.id }, data: { status: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", estimateDecisionNote: input.note?.trim() || null, estimateDecidedAt: new Date() } });
+      await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Estimate approved" : "Estimate needs revision", body: input.approved ? "The Seeker approved your estimate. You may now start the agreed work." : `The Seeker rejected the estimate: ${input.note}`, data: { type: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", requestId } } });
+      return updated;
+    });
+  }
+
+  async startWork(providerId: string, requestId: string) {
+    const job = await this.prisma.jobEngagement.findUnique({ where: { requestId } });
+    if (!job) throw new NotFoundException("Selected job not found.");
+    if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
+    if (job.status !== "ESTIMATE_APPROVED") throw new ConflictException("The Seeker must approve the estimate before work can start.");
+    return this.prisma.jobEngagement.update({ where: { id: job.id }, data: { status: "IN_PROGRESS", workStartedAt: new Date() } });
+  }
+
+  async requestAdditionalHours(providerId: string, requestId: string, input: RequestAdditionalHoursDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
+      if (job.status !== "IN_PROGRESS") throw new ConflictException("Extra hours can only be requested while work is in progress.");
+      const pending = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
+      if (pending) throw new ConflictException("An additional-hours request is already awaiting the Seeker's decision.");
+      const hours = new Prisma.Decimal(input.additionalHours);
+      const amount = hours.mul(job.hourlyRate).toDecimalPlaces(2);
+      const adjustment = await tx.jobCostAdjustment.create({ data: { engagementId: job.id, requestedHours: hours, hourlyRate: job.hourlyRate, requestedAmount: amount, reason: input.reason.trim() } });
+      await tx.appNotification.create({ data: { userId: job.seekerId, title: "Additional hours approval needed", body: `Your Provider requested ${hours.toString()} extra hours costing R ${amount.toFixed(2)}. Approval is required before this extra work.`, data: { type: "ADDITIONAL_HOURS_PENDING", requestId, adjustmentId: adjustment.id } } });
+      return adjustment;
+    });
+  }
+
+  async decideAdditionalHours(seekerId: string, requestId: string, adjustmentId: string, input: DecideAdditionalHoursDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide additional hours.");
+      const adjustment = await tx.jobCostAdjustment.findFirst({ where: { id: adjustmentId, engagementId: job.id, status: "PENDING" } });
+      if (!adjustment) throw new NotFoundException("Pending additional-hours request not found.");
+      if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the additional hours.");
+      const updated = await tx.jobCostAdjustment.update({ where: { id: adjustment.id }, data: { status: input.approved ? "APPROVED" : "REJECTED", decisionNote: input.note?.trim() || null, decidedAt: new Date() } });
+      await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Additional hours approved" : "Additional hours rejected", body: input.approved ? "The Seeker approved the additional hours. You may proceed with the extra work." : `The Seeker rejected the additional hours: ${input.note}`, data: { type: input.approved ? "ADDITIONAL_HOURS_APPROVED" : "ADDITIONAL_HOURS_REJECTED", requestId, adjustmentId } } });
+      return updated;
     });
   }
 
