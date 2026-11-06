@@ -77,10 +77,6 @@ export function MarketplaceScreen(p: Props) {
     finally { setBusy(false); }
   }, []);
 
-  useEffect(() => {
-    if (p.mode === "provider") { void loadRequests(); void loadProviderProfile(); }
-  }, [p.mode, loadRequests]);
-
   const loadMyRequests = useCallback(async () => {
     setBusy(true); setError("");
     try {
@@ -146,6 +142,10 @@ export function MarketplaceScreen(p: Props) {
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load Provider profile."); }
     finally { setProviderProfileLoaded(true); }
   }, []);
+
+  useEffect(() => {
+    if (p.mode === "provider") { void loadRequests(); void loadProviderProfile(); }
+  }, [p.mode, loadRequests]);
 
   const saveProviderProfile = async () => {
     setSavingProfile(true); setError(""); setNotice("");
