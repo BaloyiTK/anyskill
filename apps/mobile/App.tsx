@@ -326,7 +326,7 @@ export default function App() {
             <Text style={s.formTitle}>Enter your code</Text>
             <Text style={s.subtitle}>We sent a six-digit code to {email}. It expires in 10 minutes.</Text>
             <Field label="Six-digit verification code" value={otp} onChangeText={setOtp} placeholder="000000" keyboardType="phone-pad" />
-            <Primary label="Verify email" onPress={verifyRegistrationOtp} disabled={busy || !/^\\d{6}$/.test(otp)} />
+            <Primary label="Verify email" onPress={verifyRegistrationOtp} disabled={busy || !/^\d{6}$/.test(otp)} />
             <TextButton label="Back" onPress={() => goTo("register")} />
           </View>}
 
