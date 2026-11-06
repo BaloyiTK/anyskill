@@ -67,7 +67,7 @@ export class MediaService {
     const job = asset.completionSubmission.engagement;
     if (job.seekerId !== userId && job.providerId !== userId) throw new ForbiddenException("You are not allowed to view this evidence.");
     const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
-    const format = asset.contentType === "image/jpeg" ? "jpg" : asset.contentType.split("/")[1];
+    const format = asset.contentType === "image/jpeg" ? "jpg" : (asset.contentType.split("/")[1] ?? "jpg");
     const publicId = asset.objectKey.slice((FOLDER + "/").length);
     const url = cloudinary.utils.private_download_url(publicId, format, { resource_type: "image", type: "authenticated", expires_at: expiresAt, attachment: false });
     return { url, expiresAt: new Date(expiresAt * 1000).toISOString() };
