@@ -319,7 +319,23 @@ export function MarketplaceScreen(p: Props) {
             <Text style={s.meta}>{request.skillCategory} · {request.status === "OPEN" ? "Open" : request.status}</Text>
             <Text style={s.body}>{request.description}</Text>
             {selected ? <Text style={s.response}>Selected Provider: {selected.providerId.slice(0, 8)} · {new Date(selected.createdAt).toLocaleString()}</Text> : null}
-            {seekerUi}            {request.jobEngagement ? <View style={s.offerCard}>
+            {request.jobEngagement?.status === "COMPLETION_PENDING" ? request.jobEngagement.completionSubmissions.filter((submission) => submission.status === "PENDING").map((submission) => <View key={submission.id} style={s.offerCard}>
+              <Text style={s.offerTitle}>Provider completion submitted</Text>
+              <Text style={s.meta}>Submitted {new Date(submission.submittedAt).toLocaleString()}</Text>
+              <Text style={s.body}>{submission.notes}</Text>
+              {submission.evidenceUrls.map((url, index) => <Text key={url} style={s.meta}>Photo evidence {index + 1}: {url}</Text>)}
+              <Text style={s.label}>If rejecting, explain what needs correction</Text>
+              <TextInput value={completionReviewNote} onChangeText={setCompletionReviewNote} placeholder="Describe the work that still needs attention..." multiline style={[s.input, s.multiline]} />
+              <View style={s.choiceRow}>
+                <Primary label="Approve completion" onPress={() => void reviewCompletion(request.id, submission.id, true)} disabled={jobActionBusy} />
+                <Secondary label="Request corrections" onPress={() => void reviewCompletion(request.id, submission.id, false)} disabled={jobActionBusy || completionReviewNote.trim().length < 10} />
+              </View>
+            </View>) : null}
+            {request.jobEngagement?.status === "COMPLETED" ? <Text style={s.response}>Completion approved by you. Job marked completed.</Text> : null}
+            {request.jobEngagement?.completionSubmissions.filter((submission) => submission.status === "REJECTED").map((submission) => <View key={submission.id} style={s.offerCard}>
+              <Text style={s.meta}>Previous completion review: corrections requested</Text>
+              <Text style={s.body}>{submission.reviewNote}</Text>
+            </View>)}            {request.jobEngagement ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Assessment and job-cost approval</Text>
               <Text style={s.meta}>Status: {request.jobEngagement.status.replaceAll("_", " ")}</Text>
               <Text style={s.meta}>Agreed hourly rate: R {Number(request.jobEngagement.hourlyRate).toFixed(2)}</Text>
