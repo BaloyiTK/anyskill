@@ -1,0 +1,120 @@
+import * as SecureStore from "expo-secure-store";
+
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? "http://10.0.2.2:3000/api/v1";
+const ACCESS_TOKEN_KEY = "anyskill.access-token";
+const REFRESH_TOKEN_KEY = "anyskill.refresh-token";
+
+type TokenResponse = {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: "Bearer";
+  expiresIn: number;
+};
+
+async function readJson(response: Response) {
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message =
+      typeof payload.message === "string"
+        ? payload.message
+        : Array.isArray(payload.message)
+          ? payload.message.join(", ")
+          : "Something went wrong. Please try again.";
+    throw new Error(message);
+  }
+  return payload;
+}
+
+export async function saveTokens(tokens: TokenResponse): Promise<void> {
+  await Promise.all([
+    SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.accessToken),
+    SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken),
+  ]);
+}
+
+export async function clearTokens(): Promise<void> {
+  await Promise.all([
+    SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
+    SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+  ]);
+}
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestInit = {},
+  authenticated = false,
+): Promise<T> {
+  const headers = new Headers(options.headers);
+  headers.set("Content-Type", "application/json");
+
+  if (authenticated) {
+    const accessToken = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+    if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  }
+
+  let response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (authenticated && response.status === 401) {
+    const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+    if (refreshToken) {
+      const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+
+      if (refreshResponse.ok) {
+        const tokens = (await refreshResponse.json()) as TokenResponse;
+        await saveTokens(tokens);
+        headers.set("Authorization", `Bearer ${tokens.accessToken}`);
+        response = await fetch(`${API_BASE_URL}${path}`, {
+          ...options,
+          headers,
+        });
+      } else {
+        await clearTokens();
+      }
+    }
+  }
+
+  return (await readJson(response)) as T;
+}
+
+export async function signOut(): Promise<void> {
+  const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+  if (refreshToken) {
+    try {
+      await apiRequest("/auth/logout", {
+        method: "POST",
+        body: JSON.stringify({ refreshToken }),
+      });
+    } finally {
+      await clearTokens();
+    }
+  } else {
+    await clearTokens();
+  }
+}
+
+export type AccountSummary = {
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  identityVerification: string;
+};
+
+export type IdentitySummary = {
+  status: string;
+  verifiedAt: string | null;
+  latestCase: {
+    id: string;
+    status: string;
+    submittedAt: string;
+    reviewedAt: string | null;
+    decisionReason: string | null;
+  } | null;
+};
