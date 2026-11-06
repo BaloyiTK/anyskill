@@ -10,6 +10,7 @@ import {
   Min,
   Max,
   IsUrl,
+  IsUUID,
   MaxLength,
   MinLength,
 } from "class-validator";
@@ -167,8 +168,8 @@ export class SubmitJobCompletionDto {
   @IsArray()
   @ArrayMaxSize(8)
   @ArrayMinSize(1)
-  @IsUrl({ protocols: ["https"], require_protocol: true }, { each: true })
-  evidenceUrls!: string[];
+  @IsUUID("4", { each: true })
+  evidenceAssetIds!: string[];
 }
 
 export class DecideJobCompletionDto {
