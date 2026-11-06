@@ -27,6 +27,27 @@ enum VerificationCaseStatus {
   CANCELLED
 }
 
+
+enum ServiceRequestStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+  COMPLETED
+}
+
+enum ProviderResponseStatus {
+  OFFERED
+  WITHDRAWN
+  DECLINED
+  SELECTED
+}
+
+enum ServiceDeliveryMode {
+  ONSITE
+  REMOTE
+  EITHER
+}
+
 model User {
   id                       String                      @id @default(uuid()) @db.Uuid
   email                    String                      @unique @db.VarChar(320)
@@ -42,6 +63,8 @@ model User {
   emailVerificationTokens  EmailVerificationToken[]
   passwordResetTokens      PasswordResetToken[]
   identityCases            IdentityVerificationCase[]
+  serviceRequests          ServiceRequest[]
+  providerResponses        ProviderResponse[]
 
   @@index([identityVerification])
   @@map("users")
@@ -103,4 +126,44 @@ model IdentityVerificationCase {
   @@index([userId, status])
   @@index([status, submittedAt])
   @@map("identity_verification_cases")
+}
+
+ 
+model ServiceRequest {
+  id                 String                @id @default(uuid()) @db.Uuid
+  seekerId           String                @db.Uuid @map("seeker_id")
+  title              String                @db.VarChar(120)
+  skillCategory      String                @map("skill_category") @db.VarChar(100)
+  description        String                @db.VarChar(5000)
+  imageUrls          String[]              @default([]) @map("image_urls")
+  location           String?               @db.VarChar(500)
+  deliveryMode       ServiceDeliveryMode   @map("delivery_mode")
+  preferredStartAt   DateTime?             @map("preferred_start_at")
+  instructions       String?               @db.VarChar(2000)
+  status             ServiceRequestStatus  @default(OPEN)
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  seeker             User                  @relation(fields: [seekerId], references: [id], onDelete: Restrict)
+  providerResponses ProviderResponse[]
+
+  @@index([status, createdAt])
+  @@index([seekerId, createdAt])
+  @@map("service_requests")
+}
+
+model ProviderResponse {
+  id          String                 @id @default(uuid()) @db.Uuid
+  requestId   String                 @db.Uuid @map("request_id")
+  providerId  String                 @db.Uuid @map("provider_id")
+  status      ProviderResponseStatus @default(OFFERED)
+  message     String?                @db.VarChar(2000)
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+  request     ServiceRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  provider    User                   @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  @@unique([requestId, providerId])
+  @@index([providerId, status, createdAt])
+  @@index([requestId, status])
+  @@map("provider_responses")
 }
