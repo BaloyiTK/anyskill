@@ -13,6 +13,7 @@ The mobile product is one application with two operating modes. A single account
 
 - `apps/mobile`: React Native + Expo application.
 - `apps/api`: NestJS backend.
+- `apps/api/prisma`: PostgreSQL schema and migrations.
 - `packages/contracts`: shared TypeScript domain contracts.
 - `docs/architecture`: architecture decisions and specifications.
 
@@ -20,37 +21,49 @@ The mobile product is one application with two operating modes. A single account
 
 - Node.js 22.22.3 or newer.
 - pnpm 10 or newer.
+- PostgreSQL 15 or newer.
 - Xcode for local iOS builds on macOS.
 - Android Studio for Android builds.
 
-## Getting started
+## API setup
+
+1. Copy `apps/api/.env.example` to `apps/api/.env`.
+2. Set `DATABASE_URL`, a unique `JWT_ACCESS_SECRET` and SMTP credentials.
+3. Install dependencies and generate the Prisma client.
+4. Apply the database migrations.
+5. Start the API.
 
 ```bash
 corepack enable
 pnpm install
-pnpm dev:mobile
-```
-
-In another terminal:
-
-```bash
+pnpm db:generate
+pnpm db:deploy
 pnpm dev:api
 ```
 
 The API health endpoint is `http://localhost:3000/api/v1/health`.
 
-## Current implementation status
+## Mobile setup
 
-This is the initial foundation scaffold. It establishes the workspace, mobile application shell, backend application shell and shared identity-verification contracts.
+```bash
+pnpm dev:mobile
+```
 
-**Marketplace access policy:** both Skill Seekers and Skill Providers must complete identity verification before using marketplace functionality. The backend must enforce this policy. A mobile UI check is never an authorization boundary.
+## Account and identity policy
 
-The identity-verification provider, evidence requirements, manual review process and retention periods have not yet been selected.
+- A single account can use both Skill Seeker and Skill Provider modes.
+- Email verification is required before login.
+- Both user roles must complete identity verification before marketplace access.
+- Email verification is not identity verification.
+- The API creates and tracks identity-verification cases, but no identity provider has been selected or integrated yet.
+- Never mark a user verified from a mobile client or from an untrusted request.
+
+See `docs/architecture/account-and-verification-workflow.md` for the API contract and implementation boundaries.
 
 ## Engineering principles
 
 - The backend is authoritative for identity, permissions, matching, pricing, approvals and payments.
 - Mobile clients communicate with versioned APIs; they do not connect directly to the database.
-- PostgreSQL/PostGIS, Redis, real-time transport, object storage and external integrations will be introduced behind clear interfaces.
+- External providers are accessed through replaceable adapters.
 - Start with a modular monolith and preserve module boundaries.
 - Never commit credentials, signing keys, identity documents or production personal data.
