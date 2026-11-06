@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Injectable,
+  SetMetadata,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { AuthenticatedUser } from "../auth/current-user.decorator";
@@ -10,10 +11,15 @@ import { IdentityRequiredAction, canPerformVerifiedAction } from "./identity-ver
 
 export const IDENTITY_REQUIRED_ACTION = "identity_required_action";
 
+/** Mark only a consequential action endpoint as requiring verified identity. */
+export const RequireIdentityFor = (action: IdentityRequiredAction) =>
+  SetMetadata(IDENTITY_REQUIRED_ACTION, action);
+
 /**
- * Apply only to consequential action endpoints, such as submitting a Seeker
- * request or accepting a Provider request. Do not apply to browse/read routes
- * or incoming-request delivery.
+ * Apply only to consequential action endpoints:
+ * @RequireIdentityFor("SEEKER_SUBMIT_REQUEST") or
+ * @RequireIdentityFor("PROVIDER_ACCEPT_REQUEST").
+ * Do not apply to browse/read routes or incoming-request delivery.
  */
 @Injectable()
 export class MarketplaceAccessGuard implements CanActivate {
@@ -32,8 +38,9 @@ export class MarketplaceAccessGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<{ user?: AuthenticatedUser }>();
-    if (!request.user || !canPerformVerifiedAction(
-      request.user.identityVerification.toLowerCase() as "verified" | "not_started" | "pending" | "failed" | "requires_information" | "suspended" | "revoked",
+    const status = request.user?.identityVerification?.toLowerCase();
+    if (!status || !canPerformVerifiedAction(
+      status as Parameters<typeof canPerformVerifiedAction>[0],
       action,
     )) {
       throw new ForbiddenException({
