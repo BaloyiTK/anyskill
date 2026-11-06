@@ -55,6 +55,8 @@ export class MarketplaceController {
 
 
   @Post("marketplace/requests/:requestId/select-provider")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("SEEKER_SELECT_PROVIDER")
   selectProvider(
     @CurrentUser() user: AuthenticatedUser,
     @Param("requestId", new ParseUUIDPipe()) requestId: string,
