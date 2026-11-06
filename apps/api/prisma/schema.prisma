@@ -56,6 +56,7 @@ enum RequestMatchStatus {
 
 enum NotificationDeliveryStatus {
   PENDING
+  SENDING
   SENT
   IN_APP_ONLY
   FAILED
