@@ -172,7 +172,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={s.safe}>
-      <StatusBar barStyle="dark-content" backgroundColor={C.bg} />
+      <StatusBar barStyle="dark-content" />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
           <View style={s.brandRow}>
