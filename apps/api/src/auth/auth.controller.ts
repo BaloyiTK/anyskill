@@ -13,6 +13,7 @@ import { TokenDto } from "./dto/token.dto";
 class RefreshDto {
   @IsString()
   @MinLength(32)
+  @MaxLength(128)
   refreshToken!: string;
 }
 
