@@ -7,6 +7,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum RegistrationMode {
+  SEEKER
+  PROVIDER
+}
+
 enum IdentityVerificationStatus {
   NOT_STARTED
   PENDING
@@ -96,6 +101,7 @@ model User {
   email                    String                      @unique @db.VarChar(320)
   phone                    String?                     @unique @db.VarChar(32)
   googleSubject            String?                     @unique @map("google_subject") @db.VarChar(255)
+  initialMode              RegistrationMode            @default(SEEKER) @map("initial_mode")
   passwordHash             String                      @map("password_hash")
   emailVerifiedAt          DateTime?                   @map("email_verified_at")
   identityVerification     IdentityVerificationStatus  @default(NOT_STARTED) @map("identity_verification_status")
@@ -369,4 +375,22 @@ model MediaAsset {
   @@index([userId, status, expiresAt])
   @@index([completionSubmissionId])
   @@map("media_assets")
+}
+
+
+model PendingRegistration {
+ id String @id @default(uuid()) @db.Uuid
+ email String @unique @db.VarChar(320)
+ mode RegistrationMode
+ otpHash String @map("otp_hash") @db.VarChar(64)
+ attempts Int @default(0)
+ expiresAt DateTime @map("expires_at")
+ resendAvailableAt DateTime @map("resend_available_at")
+ verifiedAt DateTime? @map("verified_at")
+ registrationTokenHash String? @unique @map("registration_token_hash") @db.VarChar(64)
+ registrationTokenExpiresAt DateTime? @map("registration_token_expires_at")
+ createdAt DateTime @default(now()) @map("created_at")
+ updatedAt DateTime @updatedAt @map("updated_at")
+ @@index([expiresAt])
+ @@map("pending_registrations")
 }
