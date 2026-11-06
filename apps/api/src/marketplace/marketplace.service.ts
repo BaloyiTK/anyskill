@@ -497,7 +497,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (request.deliveryMode !== "REMOTE" && request.latitude != null && request.longitude != null) {
-      const geo = await this.prisma.$queryRaw<Array<{ userId: string; distanceKm: number }>>`
+      const geo = await this.prisma.$queryRaw(Prisma.sql`
         SELECT pp.user_id AS "userId",
           ST_Distance(
             ST_SetSRID(ST_MakePoint(pp.live_longitude, pp.live_latitude), 4326)::geography,
