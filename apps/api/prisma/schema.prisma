@@ -102,6 +102,9 @@ model User {
   phone                    String?                     @unique @db.VarChar(32)
   googleSubject            String?                     @unique @map("google_subject") @db.VarChar(255)
   initialMode              RegistrationMode            @default(SEEKER) @map("initial_mode")
+  homeLocationLabel         String?                      @map("home_location_label") @db.VarChar(500)
+  homeLatitude              Float?                       @map("home_latitude")
+  homeLongitude             Float?                       @map("home_longitude")
   passwordHash             String                      @map("password_hash")
   emailVerifiedAt          DateTime?                   @map("email_verified_at")
   identityVerification     IdentityVerificationStatus  @default(NOT_STARTED) @map("identity_verification_status")
@@ -191,6 +194,8 @@ model ServiceRequest {
   description        String                @db.VarChar(5000)
   imageUrls          String[]              @default([]) @map("image_urls")
   location           String?               @db.VarChar(500)
+  latitude           Float?
+  longitude          Float?
   deliveryMode       ServiceDeliveryMode   @map("delivery_mode")
   preferredStartAt   DateTime?             @map("preferred_start_at")
   instructions       String?               @db.VarChar(2000)
@@ -241,6 +246,11 @@ model ProviderProfile {
   serviceAreas    String[] @default([]) @map("service_areas")
   deliveryModes   String[] @default(["ONSITE"]) @map("delivery_modes")
   isAvailable     Boolean  @default(false) @map("is_available")
+  liveLatitude    Float?   @map("live_latitude")
+  liveLongitude   Float?   @map("live_longitude")
+  liveAccuracyM   Float?   @map("live_accuracy_m")
+  liveLocationUpdatedAt DateTime? @map("live_location_updated_at")
+  maxTravelDistanceKm Float @default(25) @map("max_travel_distance_km")
   updatedAt       DateTime @updatedAt @map("updated_at")
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
