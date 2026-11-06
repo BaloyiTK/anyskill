@@ -292,7 +292,7 @@ export function MarketplaceScreen(p: Props) {
       setError("Save a Home Location with GPS coordinates in your Profile first."); return;
     }
     setRequestLatitude(savedHomeLocation.homeLatitude); setRequestLongitude(savedHomeLocation.homeLongitude);
-    if (savedHomeLocation.homeLocationLabel) setLocation(savedHomeLocation.homeLocationLabel);
+    setLocation("On-site job location");
     setNotice("Saved Home Location selected as this job's location.");
   };
 
