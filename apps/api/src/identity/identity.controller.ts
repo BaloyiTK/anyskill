@@ -1,15 +1,14 @@
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
-import { IsOptional, IsString, MaxLength } from "class-validator";
+import {
+  ConflictException,
+  Controller,
+  ForbiddenException,
+  Get,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PrismaService } from "../database/prisma.service";
-
-class SubmitIdentityVerificationDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  providerReference?: string;
-}
 
 @Controller("identity-verification")
 @UseGuards(JwtAuthGuard)
@@ -26,7 +25,13 @@ export class IdentityController {
       this.prisma.identityVerificationCase.findFirst({
         where: { userId: user.id },
         orderBy: { submittedAt: "desc" },
-        select: { id: true, status: true, submittedAt: true, reviewedAt: true, decisionReason: true },
+        select: {
+          id: true,
+          status: true,
+          submittedAt: true,
+          reviewedAt: true,
+          decisionReason: true,
+        },
       }),
     ]);
 
@@ -38,26 +43,39 @@ export class IdentityController {
   }
 
   @Post("submit")
-  async submit(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: SubmitIdentityVerificationDto,
-  ) {
+  async submit(@CurrentUser() user: AuthenticatedUser) {
+    const account = await this.prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: { identityVerification: true },
+    });
+
+    if (account.identityVerification === "VERIFIED") {
+      return { status: "verified", message: "Your identity is already verified." };
+    }
+
+    if (account.identityVerification === "SUSPENDED" || account.identityVerification === "REVOKED") {
+      throw new ForbiddenException("Identity verification is suspended. Contact AnySkill support.");
+    }
+
     const existingPending = await this.prisma.identityVerificationCase.findFirst({
       where: {
         userId: user.id,
         status: { in: ["SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION"] },
       },
+      select: { id: true, status: true, submittedAt: true },
     });
 
-    if (existingPending) return { caseId: existingPending.id, status: existingPending.status.toLowerCase() };
+    if (existingPending) {
+      return {
+        caseId: existingPending.id,
+        status: existingPending.status.toLowerCase(),
+        submittedAt: existingPending.submittedAt,
+      };
+    }
 
     const verificationCase = await this.prisma.$transaction(async (tx) => {
       const created = await tx.identityVerificationCase.create({
-        data: {
-          userId: user.id,
-          providerReference: dto.providerReference,
-          status: "SUBMITTED",
-        },
+        data: { userId: user.id, status: "SUBMITTED" },
         select: { id: true, status: true, submittedAt: true },
       });
 
@@ -73,6 +91,7 @@ export class IdentityController {
       caseId: verificationCase.id,
       status: verificationCase.status.toLowerCase(),
       submittedAt: verificationCase.submittedAt,
+      message: "Your verification request has been recorded. Marketplace access remains locked until verification is approved.",
     };
   }
 }
