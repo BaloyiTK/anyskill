@@ -112,3 +112,47 @@ export class SelectProviderDto {
   @MaxLength(64)
   responseId!: string;
 }
+
+export class SubmitEstimateDto {
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.25)
+  @Max(10000)
+  estimatedHours!: number;
+
+  @IsString()
+  @MinLength(10)
+  @MaxLength(2000)
+  notes!: string;
+}
+
+export class DecideEstimateDto {
+  @IsIn([true, false])
+  approved!: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+}
+
+export class RequestAdditionalHoursDto {
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.25)
+  @Max(10000)
+  additionalHours!: number;
+
+  @IsString()
+  @MinLength(10)
+  @MaxLength(1000)
+  reason!: string;
+}
+
+export class DecideAdditionalHoursDto {
+  @IsIn([true, false])
+  approved!: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+}
