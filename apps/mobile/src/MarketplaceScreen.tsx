@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import * as Notifications from "expo-notifications";
+import * as ImagePicker from "expo-image-picker";
 import { Platform } from "react-native";
 import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
@@ -23,7 +24,7 @@ type RequestItem = {
   myResponse: { id: string; status: string } | null;
 };
 type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
-type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
+type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
 type JobEngagement = { id: string; status: string; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
@@ -56,7 +57,8 @@ export function MarketplaceScreen(p: Props) {
   const [extraHours, setExtraHours] = useState("1");
   const [extraReason, setExtraReason] = useState("");
   const [completionNotes, setCompletionNotes] = useState("");
-  const [completionEvidenceUrls, setCompletionEvidenceUrls] = useState("");
+  const [completionEvidenceAssets, setCompletionEvidenceAssets] = useState<Array<{id:string;name:string;uri:string;contentType:string;sizeBytes:number}>>([]);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [completionReviewNote, setCompletionReviewNote] = useState("");
   const [jobActionBusy, setJobActionBusy] = useState(false);
   const [title, setTitle] = useState("");
@@ -164,15 +166,45 @@ export function MarketplaceScreen(p: Props) {
   };
 
 
+  const pickCompletionEvidence = async () => {
+    if (completionEvidenceAssets.length >= 8) { setError("You can attach up to 8 photos."); return; }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) { setError("Allow photo-library access to attach completion evidence."); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: 8 - completionEvidenceAssets.length, quality: 0.85 });
+    if (result.canceled) return;
+    setUploadingEvidence(true); setError(""); setNotice("");
+    try {
+      for (const file of result.assets) {
+        const mime = file.mimeType ?? "image/jpeg";
+        if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) throw new Error("Only JPEG, PNG and WebP photos are supported.");
+        const size = file.fileSize ?? 0;
+        if (!size || size > 10 * 1024 * 1024) throw new Error("Each photo must be no larger than 10 MB.");
+        const reservation = await apiRequest<{assetId:string;cloudName:string;apiKey:string;timestamp:number;signature:string;publicId:string;folder:string;type:string}>("/marketplace/media/uploads", {
+          method: "POST", body: JSON.stringify({ fileName: file.fileName ?? "completion-photo", contentType: mime, sizeBytes: size }),
+        }, true);
+        const body = new FormData();
+        body.append("file", { uri: file.uri, name: file.fileName ?? "completion-photo", type: mime } as unknown as Blob);
+        body.append("api_key", reservation.apiKey); body.append("timestamp", String(reservation.timestamp)); body.append("signature", reservation.signature);
+        body.append("public_id", reservation.publicId); body.append("folder", reservation.folder); body.append("type", reservation.type);
+        body.append("overwrite", "false"); body.append("unique_filename", "false"); body.append("use_filename", "false");
+        const uploaded = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/upload", { method: "POST", body });
+        if (!uploaded.ok) { const detail = await uploaded.json().catch(() => ({})); throw new Error(detail.error?.message ?? "Cloudinary upload failed."); }
+        await apiRequest("/marketplace/media/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
+        setCompletionEvidenceAssets((current) => [...current, { id: reservation.assetId, name: file.fileName ?? "Completion photo", uri: file.uri, contentType: mime, sizeBytes: size }]);
+      }
+      setNotice("Photo upload complete. Images are securely stored in Cloudinary.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not upload evidence photos."); }
+    finally { setUploadingEvidence(false); }
+  };
+
   const submitCompletion = async (requestId: string) => {
-    const evidenceUrls = completionEvidenceUrls.split(/\\n/).map((url) => url.trim()).filter(Boolean);
     setJobActionBusy(true); setError(""); setNotice("");
     try {
-      await apiRequest(`/marketplace/requests/${requestId}/completion`, {
-        method: "POST", body: JSON.stringify({ notes: completionNotes.trim(), evidenceUrls }),
+      await apiRequest("/marketplace/requests/" + requestId + "/completion", {
+        method: "POST", body: JSON.stringify({ notes: completionNotes.trim(), evidenceAssetIds: completionEvidenceAssets.map((asset) => asset.id) }),
       }, true);
-      setNotice("Completion submitted. The Seeker must review and approve it.");
-      setCompletionNotes(""); setCompletionEvidenceUrls(""); await loadMyJobs();
+      setNotice("Completion submitted with uploaded photo evidence. The Seeker must review and approve it.");
+      setCompletionNotes(""); setCompletionEvidenceAssets([]); await loadMyJobs();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit job completion."); }
     finally { setJobActionBusy(false); }
   };
@@ -323,7 +355,8 @@ export function MarketplaceScreen(p: Props) {
               <Text style={s.offerTitle}>Provider completion submitted</Text>
               <Text style={s.meta}>Submitted {new Date(submission.submittedAt).toLocaleString()}</Text>
               <Text style={s.body}>{submission.notes}</Text>
-              {submission.evidenceUrls.map((url, index) => <Text key={url} style={s.meta}>Photo evidence {index + 1}: {url}</Text>)}
+              {submission.evidenceAssets?.map((asset, index) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); const { Linking } = await import("react-native"); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open evidence photo."); } }}><Text style={s.response}>View photo evidence {index + 1} · {asset.originalName}</Text></Pressable>)}
+              {submission.evidenceUrls.map((url, index) => <Text key={url} style={s.meta}>Legacy evidence link {index + 1}: {url}</Text>)}
               <Text style={s.label}>If rejecting, explain what needs correction</Text>
               <TextInput value={completionReviewNote} onChangeText={setCompletionReviewNote} placeholder="Describe the work that still needs attention..." multiline style={[s.input, s.multiline]} />
               <View style={s.choiceRow}>
@@ -423,15 +456,17 @@ export function MarketplaceScreen(p: Props) {
             <Text style={s.helper}>When the agreed work is finished, submit completion notes and photo evidence. The Seeker must approve before the job is marked completed.</Text>
             <Text style={s.label}>Completion notes</Text>
             <TextInput value={completionNotes} onChangeText={setCompletionNotes} placeholder="Summarise the work completed, tests performed and any handover details..." multiline style={[s.input, s.multiline]} />
-            <Text style={s.label}>Photo evidence image links (one HTTPS link per line)</Text>
-            <TextInput value={completionEvidenceUrls} onChangeText={setCompletionEvidenceUrls} placeholder={"https://.../before-after-1.jpg\\nhttps://.../completed-work.jpg"} multiline style={[s.input, s.multiline]} />
-            <Primary label="Submit job completion" onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || completionNotes.trim().length < 20 || !completionEvidenceUrls.split(/\\n/).some((url) => url.trim().startsWith("https://"))} />
+            <Text style={s.label}>Photo evidence (up to 8 photos, 10 MB each)</Text>
+            <Secondary label={uploadingEvidence ? "Uploading photos..." : "Choose photos"} onPress={() => void pickCompletionEvidence()} />
+            {completionEvidenceAssets.map((asset) => <Text key={asset.id} style={s.meta}>✓ {asset.name} · {(asset.sizeBytes / 1024 / 1024).toFixed(1)} MB</Text>)}
+            <Primary label="Submit job completion" onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 || completionEvidenceAssets.length < 1} />
           </> : null}
           {job.status === "COMPLETION_PENDING" ? <Text style={s.helper}>Completion submitted. Wait for the Seeker to review it. Do not mark the job complete yourself.</Text> : null}
           {job.status === "COMPLETED" ? <Text style={s.response}>The Seeker approved this job's completion.</Text> : null}
           {job.completionSubmissions.map((submission) => <View key={submission.id} style={s.offerCard}>
             <Text style={s.meta}>Completion submission · {submission.status} · {new Date(submission.submittedAt).toLocaleString()}</Text>
             <Text style={s.body}>{submission.notes}</Text>
+            {submission.evidenceAssets?.map((asset, index) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); const { Linking } = await import("react-native"); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open evidence photo."); } }}><Text style={s.response}>View submitted photo {index + 1} · {asset.originalName}</Text></Pressable>)}
             {submission.reviewNote ? <Text style={s.meta}>Seeker feedback: {submission.reviewNote}</Text> : null}
           </View>)}
         </View>)}
