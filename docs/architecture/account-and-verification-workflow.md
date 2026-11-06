@@ -21,6 +21,17 @@
 - Auth routes have per-IP throttles and the API has a global in-memory request limit. Production must use shared rate-limit storage (for multiple API instances), add account-based throttles, abuse monitoring, TLS, secret management and operational alerting.
 - The mobile app stores access and refresh tokens using Expo SecureStore rather than ordinary application storage.
 
+## Google sign-in
+
+- Mobile sign-in uses Expo AuthSession to obtain a Google OpenID Connect ID token.
+- The API verifies the token signature, issuer, expiry and audience using Google's supported Node.js authentication library. Only configured OAuth client IDs are accepted.
+- A new Google account is created with the Google-verified email already marked as verified. It still starts with identity verification set to `NOT_STARTED`.
+- Existing AnySkill accounts are never silently linked just because the email addresses match. The user signs in to the existing account first, then explicitly connects Google from the authenticated account screen. The Google email must match the AnySkill account email.
+- A Google identity can only be linked to one AnySkill account.
+- Google sign-in issues the same AnySkill access and refresh tokens as password sign-in. Google tokens are not used as AnySkill API access tokens.
+- Google OAuth client IDs are public identifiers and are configured per mobile platform. No Google client secret is embedded in the mobile app.
+- Huawei Android-compatible devices use the browser-based OAuth flow; availability depends on the device being able to reach Google's sign-in service. Native HarmonyOS NEXT remains a separate client integration.
+
 ## Identity verification
 
 - Every Skill Seeker and Skill Provider must complete identity verification before marketplace access.
@@ -42,6 +53,8 @@ Email verification proves control of an email inbox. It does not prove a person'
 |---|---|---|
 | POST | `/api/v1/auth/register` | Create account and send email verification |
 | POST | `/api/v1/auth/login` | Sign in after email verification |
+| POST | `/api/v1/auth/google` | Verify Google ID token and sign in or create account |
+| POST | `/api/v1/auth/google/link` | Link Google to the currently authenticated account |
 | POST | `/api/v1/auth/verify-email` | Consume email verification token |
 | POST | `/api/v1/auth/resend-verification` | Resend email verification link |
 | POST | `/api/v1/auth/refresh` | Rotate refresh token |
