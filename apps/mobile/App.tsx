@@ -8,8 +8,9 @@ import {
   AccountSummary, apiRequest, clearTokens, IdentitySummary, saveTokens, signOut,
 } from "./src/api";
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
+import { OnboardingScreen } from "./src/OnboardingScreen";
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password" | "dashboard" | "marketplace";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password" | "dashboard" | "marketplace" | "onboarding";
 type UserMode = "seeker" | "provider";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
 
@@ -368,6 +369,12 @@ export default function App() {
             <Primary label="Update password" onPress={completePasswordReset} disabled={busy || newPassword.length < 12 || !resetToken} />
           </View>}
 
+          {screen === "onboarding" && account && <OnboardingScreen
+            identityStatus={identityStatus}
+            onBack={() => goTo("dashboard")}
+            onStartVerification={() => { void startIdentityVerification(); }}
+          />}
+
           {screen === "marketplace" && account && <MarketplaceScreen
         mode={mode}
         verified={verified}
@@ -403,6 +410,7 @@ export default function App() {
               {["not_started", "failed", "requires_information"].includes(identityStatus) && <Primary label="Start identity verification request" onPress={startIdentityVerification} disabled={busy} />}
             </View>}
             {!account.googleLinked && <Secondary label="Connect Google account" onPress={connectGoogle} />}
+            <Secondary label="Complete or update profile" onPress={() => goTo("onboarding")} />
             <Secondary label="Open marketplace" onPress={() => goTo("marketplace")} />
             <Secondary label="Refresh identity-verification status" onPress={refreshIdentityStatus} />
             {pendingAcceptRequestId && verified && <Primary label="Return to incoming request" onPress={() => { setMode("provider"); goTo("marketplace"); }} />}
