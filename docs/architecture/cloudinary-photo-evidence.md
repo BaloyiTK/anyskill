@@ -1,6 +1,6 @@
 # Cloudinary photo evidence
 
-Completion evidence is uploaded as authenticated Cloudinary image assets. The API issues a short-lived upload signature and records a user-owned pending asset before the mobile client uploads directly to Cloudinary. The API confirms each upload by querying Cloudinary's authenticated image resource and checking the detected format, byte size and delivery type.
+Completion evidence is uploaded as authenticated Cloudinary image assets. The integration uses Cloudinary's dynamic-folder `asset_folder` parameter, so the Cloudinary product environment should use Dynamic Folders mode. The API issues a short-lived upload signature and records a user-owned pending asset before the mobile client uploads directly to Cloudinary. The API confirms each upload by querying Cloudinary's authenticated image resource and checking the detected format, byte size and delivery type.
 
 Completion submission accepts asset IDs only. The API attaches only READY, unexpired assets owned by the submitting Provider. Evidence viewing requires the authenticated Seeker or Provider on the associated engagement; the API returns a five-minute private-download URL.
 
