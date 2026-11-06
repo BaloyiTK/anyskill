@@ -62,7 +62,7 @@ pnpm dev:mobile
 
 - A single account can use both Skill Seeker and Skill Provider modes.
 - Email verification is required before login.
-- Both user roles must complete identity verification before marketplace access.
+- Skill Seekers must be verified before publishing a service request. Skill Providers may view incoming requests while unverified, but must be verified before responding/accepting.
 - Email verification is not identity verification.
 - The API creates and tracks identity-verification cases, but no identity provider or approval process has been selected or integrated yet.
 - Never mark a user verified from a mobile client or an untrusted request.
