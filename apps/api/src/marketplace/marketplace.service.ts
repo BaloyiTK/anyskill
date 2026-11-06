@@ -68,7 +68,6 @@ export class MarketplaceService {
       ...request,
       alreadyResponded: providerResponses.length > 0,
       myResponse: providerResponses[0] ?? null,
-      seekerId: seeker.id,
     }));
     return { items, nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null };
   }
