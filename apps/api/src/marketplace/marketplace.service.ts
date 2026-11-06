@@ -67,8 +67,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         description: input.description.trim(),
         imageUrls: input.imageUrls ?? [],
         location: input.location?.trim() || null,
-        latitude: input.latitude ?? null,
-        longitude: input.longitude ?? null,
+        // Remote-only requests must never retain a physical location, even if a
+        // client accidentally includes stale coordinates in its payload.
+        latitude: input.deliveryMode === "REMOTE" ? null : input.latitude ?? null,
+        longitude: input.deliveryMode === "REMOTE" ? null : input.longitude ?? null,
         deliveryMode: input.deliveryMode,
         preferredStartAt: input.preferredStartAt ? new Date(input.preferredStartAt) : null,
         instructions: input.instructions?.trim() || null,
