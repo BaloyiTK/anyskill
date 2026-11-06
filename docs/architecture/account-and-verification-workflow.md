@@ -13,12 +13,13 @@
 
 ## Authentication
 
-- Short-lived signed access tokens are used for API authentication.
-- Refresh tokens are opaque, random, rotated on use and stored only as hashes.
-- Logout revokes the refresh session.
-- Password reset tokens are random, single-use, short-lived and stored only as hashes.
+- Signed access tokens expire after 15 minutes.
+- Opaque refresh tokens expire after 30 days, rotate on use and are stored only as SHA-256 hashes.
+- Logout revokes the refresh session; password reset revokes all active refresh sessions.
+- Passwords are hashed with Argon2id. Email verification tokens expire after 24 hours; password reset tokens expire after 30 minutes. Both are single-use and stored only as hashes.
 - Validation rejects unexpected request fields.
-- Production deployment must add rate limits, abuse monitoring, TLS, secret management and operational alerting.
+- Auth routes have per-IP throttles and the API has a global in-memory request limit. Production must use shared rate-limit storage (for multiple API instances), add account-based throttles, abuse monitoring, TLS, secret management and operational alerting.
+- The mobile app stores access and refresh tokens using Expo SecureStore rather than ordinary application storage.
 
 ## Identity verification
 
@@ -50,6 +51,12 @@ Email verification proves control of an email inbox. It does not prove a person'
 | GET | `/api/v1/auth/me` | Return authenticated account summary |
 | GET | `/api/v1/identity-verification/status` | Read identity-verification status |
 | POST | `/api/v1/identity-verification/submit` | Create a verification case |
+
+## Local development
+
+- PostgreSQL and Mailpit are available through the repository Docker Compose file.
+- Mailpit captures verification and password-reset messages at `http://localhost:8025`.
+- Mailpit is development-only. Production must use a real SMTP provider and verified sender domain.
 
 ## Production requirements still outstanding
 
