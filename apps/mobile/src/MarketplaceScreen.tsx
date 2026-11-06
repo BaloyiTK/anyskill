@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
 import {
   ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
@@ -43,6 +45,13 @@ export function MarketplaceScreen(p: Props) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [verificationPrompt, setVerificationPrompt] = useState(false);
+  const [providerSkills, setProviderSkills] = useState("");
+  const [providerAreas, setProviderAreas] = useState("");
+  const [providerModes, setProviderModes] = useState("ONSITE");
+  const [providerAvailable, setProviderAvailable] = useState(false);
+  const [providerProfileLoaded, setProviderProfileLoaded] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [notifications, setNotifications] = useState<Array<{id:string;title:string;body:string;readAt:string|null;createdAt:string}>>([]);
 
   const loadRequests = useCallback(async () => {
     setBusy(true); setError("");
@@ -74,6 +83,23 @@ export function MarketplaceScreen(p: Props) {
       setError(message);
       if (message.toLowerCase().includes("identity verification")) setVerificationPrompt(true);
     } finally { setBusy(false); }
+  };
+
+  const saveProviderProfile = async () => {
+    setSavingProfile(true); setError(""); setNotice("");
+    try {
+      const profile = await apiRequest<{isAvailable:boolean}>("/marketplace/provider-profile", {
+        method: "POST",
+        body: JSON.stringify({
+          skillCategories: providerSkills.split(",").map((v) => v.trim()).filter(Boolean),
+          serviceAreas: providerAreas.split(",").map((v) => v.trim()).filter(Boolean),
+          deliveryModes: providerModes.split(",").map((v) => v.trim()).filter(Boolean),
+          isAvailable: providerAvailable,
+        }),
+      }, true);
+      setNotice(profile.isAvailable ? "Provider profile saved. You are available for matching." : "Provider profile saved. You are currently unavailable for matching.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not save Provider profile."); }
+    finally { setSavingProfile(false); }
   };
 
   const acceptRequest = async (request: RequestItem) => {
@@ -125,6 +151,22 @@ export function MarketplaceScreen(p: Props) {
         <Primary label="Publish service request" onPress={submitRequest} disabled={busy || title.trim().length < 5 || category.trim().length < 2 || description.trim().length < 20} />
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
       </> : <>
+        <Text style={s.section}>Your Provider profile</Text>
+        <Text style={s.helper}>Tell AnySkill what work you do and where you can do it. Matching uses these details and your availability.</Text>
+        <Text style={s.label}>Skill categories (comma-separated)</Text>
+        <TextInput value={providerSkills} onChangeText={setProviderSkills} placeholder="e.g. Plumbing, Electrical, Painting" style={s.input} />
+        <Text style={s.label}>Service areas (comma-separated)</Text>
+        <TextInput value={providerAreas} onChangeText={setProviderAreas} placeholder="e.g. Rosebank, Sandton, Johannesburg" style={s.input} />
+        <Text style={s.label}>Delivery modes (ONSITE, REMOTE, EITHER)</Text>
+        <TextInput value={providerModes} onChangeText={setProviderModes} placeholder="ONSITE, REMOTE" style={s.input} />
+        <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
+          <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
+        </Pressable>
+        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim()} />
+        <Text style={s.section}>Notifications</Text>
+        {notifications.slice(0,4).map((item) => <View key={item.id} style={s.notificationCard}>
+          <Text style={s.cardTitle}>{item.title}</Text><Text style={s.meta}>{item.body}</Text>
+        </View>)}
         <Text style={s.section}>Incoming service requests</Text>
         <Text style={s.helper}>You can view requests before verification. You must be verified before sending an offer.</Text>
         {!p.verified && <View style={s.notice}><Text style={s.noticeTitle}>You can explore available work</Text><Text style={s.noticeText}>When you tap Accept, AnySkill will ask you to verify your identity first. The request can be reopened after approval if it is still available.</Text></View>}
@@ -175,6 +217,9 @@ const s = StyleSheet.create({
   choiceActive: { borderColor: C.primary, backgroundColor: "#E7F2EE" },
   choiceText: { color: C.muted, fontWeight: "700", fontSize: 11 },
   choiceTextActive: { color: C.primary },
+  availability: { borderWidth: 1, borderColor: C.border, borderRadius: 11, padding: 13, marginTop: 12, backgroundColor: C.surface },
+  availabilityText: { color: C.primary, fontWeight: "800", fontSize: 12 },
+  notificationCard: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 12, marginTop: 8 },
   notice: { backgroundColor: C.warning, borderRadius: 13, padding: 13, marginVertical: 12 },
   noticeTitle: { color: C.warningInk, fontWeight: "800", fontSize: 13, marginBottom: 4 },
   noticeText: { color: C.warningInk, fontSize: 12, lineHeight: 18 },
