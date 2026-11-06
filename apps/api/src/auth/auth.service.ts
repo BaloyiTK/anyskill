@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
@@ -24,6 +25,8 @@ function tokenHash(token: string): string {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -60,7 +63,11 @@ export class AuthService {
       },
     });
 
-    await this.mail.sendVerificationEmail(user.email, token);
+    try {
+      await this.mail.sendVerificationEmail(user.email, token);
+    } catch (error) {
+      this.logger.error("Verification email delivery failed; user can request a resend.", error);
+    }
 
     return {
       user,
@@ -211,7 +218,11 @@ export class AuthService {
           expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
         },
       });
-      await this.mail.sendPasswordResetEmail(user.email, token);
+      try {
+        await this.mail.sendPasswordResetEmail(user.email, token);
+      } catch (error) {
+        this.logger.error("Password reset email delivery failed.", error);
+      }
     }
 
     return { message: "If an account exists for that email, password reset instructions have been sent." };
