@@ -117,8 +117,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }
     return this.prisma.providerProfile.upsert({
       where: { userId },
-      create: { userId, publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable },
-      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, ...(!input.isAvailable ? { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null } : {}) },
+      create: { userId, publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, maxTravelDistanceKm: input.maxTravelDistanceKm ?? 25 },
+      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, maxTravelDistanceKm: input.maxTravelDistanceKm ?? 25, ...(!input.isAvailable || (!deliveryModes.includes("ONSITE") && !deliveryModes.includes("EITHER")) ? { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null } : {}) },
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
     });
   }
@@ -126,7 +126,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async getProviderProfile(userId: string) {
     return this.prisma.providerProfile.findUnique({
       where: { userId },
-      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, updatedAt: true },
+      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, updatedAt: true },
     });
   }
 
