@@ -298,7 +298,7 @@ export function MarketplaceScreen(p: Props) {
 
   const loadMyJobs = useCallback(async () => {
     try {
-      const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null } }>>("/marketplace/my-jobs", {}, true);
+      const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>("/marketplace/my-jobs", {}, true);
       setMyJobs(result);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load selected jobs."); }
   }, []);
