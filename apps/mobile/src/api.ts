@@ -92,6 +92,8 @@ export async function signOut(): Promise<void> {
         method: "POST",
         body: JSON.stringify({ refreshToken }),
       });
+    } catch {
+      // Local credentials must still be cleared when the device is offline.
     } finally {
       await clearTokens();
     }
