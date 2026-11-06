@@ -29,12 +29,12 @@ export class MediaService {
     const id = randomUUID();
     const publicId = `${userId}/${id}`;
     const timestamp = Math.floor(Date.now() / 1000);
-    const params = { timestamp, public_id: publicId, folder: FOLDER, type: "authenticated", overwrite: false, unique_filename: false, use_filename: false };
+    const params = { timestamp, public_id: publicId, folder: FOLDER, overwrite: false, unique_filename: false, use_filename: false };
     const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET!);
     const asset = await this.prisma.mediaAsset.create({
       data: { userId, objectKey: `${FOLDER}/${publicId}`, originalName: input.fileName.slice(0, 255), contentType: input.contentType, sizeBytes: input.sizeBytes, purpose: "JOB_COMPLETION_EVIDENCE", expiresAt: new Date(Date.now() + 30 * 60_000) },
     });
-    return { assetId: asset.id, cloudName: process.env.CLOUDINARY_CLOUD_NAME, apiKey: process.env.CLOUDINARY_API_KEY, timestamp, signature, publicId, folder: FOLDER, type: "authenticated", maxBytes: MAX_BYTES };
+    return { assetId: asset.id, cloudName: process.env.CLOUDINARY_CLOUD_NAME, apiKey: process.env.CLOUDINARY_API_KEY, timestamp, signature, publicId, folder: FOLDER, maxBytes: MAX_BYTES };
   }
 
   async confirmUpload(userId: string, assetId: string) {
