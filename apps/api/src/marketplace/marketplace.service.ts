@@ -14,7 +14,7 @@ import {
   ProviderResponseDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
-  SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto,
+  SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
 } from "./dto/service-request.dto";
 
 type RankedProvider = { userId: string; score: number };
@@ -169,7 +169,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { seekerId },
       orderBy: { createdAt: "desc" },
       include: {
-        jobEngagement: { include: { adjustments: { orderBy: { createdAt: "desc" } } } },
+        jobEngagement: { include: { adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { orderBy: { submittedAt: "desc" } } } },
         providerResponses: {
           orderBy: { createdAt: "asc" },
           select: {
@@ -243,7 +243,65 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async listMyJobs(providerId: string) {
     return this.prisma.jobEngagement.findMany({
       where: { providerId }, orderBy: { updatedAt: "desc" },
-      include: { request: { select: { id: true, title: true, description: true, location: true } }, adjustments: { orderBy: { createdAt: "desc" } } },
+      include: { request: { select: { id: true, title: true, description: true, location: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { orderBy: { submittedAt: "desc" } } },
+    });
+  }
+
+
+  async submitJobCompletion(providerId: string, requestId: string, input: SubmitJobCompletionDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit completion.");
+      if (job.status !== "IN_PROGRESS") throw new ConflictException("The job must be in progress before completion can be submitted.");
+      const pendingAdjustments = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
+      if (pendingAdjustments > 0) throw new ConflictException("Resolve pending additional-hours approvals before submitting completion.");
+      const pendingSubmission = await tx.jobCompletionSubmission.count({ where: { engagementId: job.id, status: "PENDING" } });
+      if (pendingSubmission > 0) throw new ConflictException("A completion submission is already awaiting the Seeker's review.");
+      const submission = await tx.jobCompletionSubmission.create({
+        data: { engagementId: job.id, providerId, notes: input.notes.trim(), evidenceUrls: input.evidenceUrls },
+      });
+      const claimed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "IN_PROGRESS" },
+        data: { status: "COMPLETION_PENDING" },
+      });
+      if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
+      await tx.appNotification.create({
+        data: { userId: job.seekerId, title: "Job completion submitted", body: "Your Provider submitted completion notes and photo evidence. Review the work in AnySkill.", data: { type: "JOB_COMPLETION_SUBMITTED", requestId, submissionId: submission.id } },
+      });
+      return submission;
+    });
+  }
+
+  async decideJobCompletion(seekerId: string, requestId: string, submissionId: string, input: DecideJobCompletionDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can review completion.");
+      if (job.status !== "COMPLETION_PENDING") throw new ConflictException("There is no completion awaiting your review.");
+      const submission = await tx.jobCompletionSubmission.findFirst({ where: { id: submissionId, engagementId: job.id, status: "PENDING" } });
+      if (!submission) throw new NotFoundException("Pending completion submission not found.");
+      if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain what needs to be corrected before rejecting completion.");
+      const updatedSubmission = await tx.jobCompletionSubmission.update({
+        where: { id: submission.id },
+        data: { status: input.approved ? "APPROVED" : "REJECTED", reviewNote: input.note?.trim() || null, reviewedAt: new Date() },
+      });
+      await tx.jobEngagement.update({
+        where: { id: job.id },
+        data: { status: input.approved ? "COMPLETED" : "IN_PROGRESS" },
+      });
+      if (input.approved) {
+        await tx.serviceRequest.update({ where: { id: requestId }, data: { status: "COMPLETED" } });
+      }
+      await tx.appNotification.create({
+        data: {
+          userId: job.providerId,
+          title: input.approved ? "Job completion approved" : "Corrections requested",
+          body: input.approved ? "The Skill Seeker approved the completed job." : `The Skill Seeker requested corrections: ${input.note}`,
+          data: { type: input.approved ? "JOB_COMPLETION_APPROVED" : "JOB_COMPLETION_REJECTED", requestId, submissionId },
+        },
+      });
+      return { submission: updatedSubmission, jobStatus: input.approved ? "COMPLETED" : "IN_PROGRESS" };
     });
   }
 
