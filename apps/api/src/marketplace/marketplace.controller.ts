@@ -13,6 +13,15 @@ import {
   SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
 } from "./dto/service-request.dto";
 import { MarketplaceService } from "./marketplace.service";
+import { MediaService } from "./media.service";
+import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
+
+class CreateMediaUploadDto {
+  @IsString() @MaxLength(255) fileName!: string;
+  @IsString() @MaxLength(100) contentType!: string;
+  @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
+}
+class ConfirmMediaUploadDto { @IsString() @MaxLength(64) assetId!: string; }
 
 class CursorQuery {
   @IsOptional()
@@ -23,7 +32,16 @@ class CursorQuery {
 @Controller()
 @UseGuards(JwtAuthGuard)
 export class MarketplaceController {
-  constructor(private readonly marketplace: MarketplaceService) {}
+  constructor(private readonly marketplace: MarketplaceService, private readonly media: MediaService) {}
+
+  @Post("marketplace/media/uploads")
+  createMediaUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateMediaUploadDto) { return this.media.createUpload(user.id, dto); }
+
+  @Post("marketplace/media/uploads/confirm")
+  confirmMediaUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: ConfirmMediaUploadDto) { return this.media.confirmUpload(user.id, dto.assetId); }
+
+  @Get("marketplace/media/:assetId/url")
+  getEvidenceUrl(@CurrentUser() user: AuthenticatedUser, @Param("assetId") assetId: string) { return this.media.getEvidenceUrl(user.id, assetId); }
 
   @Post("marketplace/requests")
   @UseGuards(MarketplaceAccessGuard)
