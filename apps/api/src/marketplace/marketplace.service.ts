@@ -169,7 +169,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { seekerId },
       orderBy: { createdAt: "desc" },
       include: {
-        jobEngagement: { include: { adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { orderBy: { submittedAt: "desc" } } } },
+        jobEngagement: { include: { adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } } },
         providerResponses: {
           orderBy: { createdAt: "asc" },
           select: {
@@ -258,8 +258,19 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (pendingAdjustments > 0) throw new ConflictException("Resolve pending additional-hours approvals before submitting completion.");
       const pendingSubmission = await tx.jobCompletionSubmission.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pendingSubmission > 0) throw new ConflictException("A completion submission is already awaiting the Seeker's review.");
+      const evidenceIds = [...new Set(input.evidenceAssetIds)];
+      if (evidenceIds.length !== input.evidenceAssetIds.length) throw new ConflictException("Duplicate evidence files are not allowed.");
+      const assets = await tx.mediaAsset.findMany({
+        where: { id: { in: evidenceIds }, userId: providerId, status: "READY", purpose: "JOB_COMPLETION_EVIDENCE", completionSubmissionId: null, expiresAt: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more evidence files are unavailable, expired, or do not belong to you. Upload them again.");
       const submission = await tx.jobCompletionSubmission.create({
-        data: { engagementId: job.id, providerId, notes: input.notes.trim(), evidenceUrls: input.evidenceUrls },
+        data: {
+          engagementId: job.id, providerId, notes: input.notes.trim(), evidenceUrls: [],
+          evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) },
+        },
+        include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } },
       });
       const claimed = await tx.jobEngagement.updateMany({
         where: { id: job.id, status: "IN_PROGRESS" },
