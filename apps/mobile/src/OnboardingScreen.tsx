@@ -69,7 +69,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
       setData(result);
       if (section === "profile" && homeLatitude.trim() && homeLongitude.trim()) {
-        await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: address.trim() || [suburb, city, province, country].filter(Boolean).join(", "), latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
+        await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: [suburb, city, province, country].filter(Boolean).join(", ") || "Saved Home Location", latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
       }
       setMessage("Your changes have been saved as a draft.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save this section."); }
