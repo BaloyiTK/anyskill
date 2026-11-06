@@ -48,7 +48,7 @@ export class MediaService {
     try { remote = await cloudinary.api.resource(publicId, { resource_type: "image", type: "authenticated" }); }
     catch { throw new BadRequestException("Cloudinary has not received this image. Upload it and try again."); }
     const mime = remote.format === "jpg" ? "image/jpeg" : `image/${remote.format}`;
-    if (!ALLOWED.has(mime) || remote.bytes !== asset.sizeBytes || remote.bytes > MAX_BYTES || remote.resource_type !== "image" || remote.type !== "authenticated") {
+    if (!ALLOWED.has(mime) || mime !== asset.contentType || remote.bytes !== asset.sizeBytes || remote.bytes > MAX_BYTES || remote.resource_type !== "image" || remote.type !== "authenticated") {
       try { await cloudinary.uploader.destroy(publicId, { resource_type: "image", type: "authenticated", invalidate: true }); } catch {}
       throw new BadRequestException("Uploaded image failed file validation.");
     }
