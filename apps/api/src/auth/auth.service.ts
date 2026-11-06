@@ -7,6 +7,7 @@ import {
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
 import { createHash, randomBytes } from "node:crypto";
+import { OAuth2Client } from "google-auth-library";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
 
@@ -14,6 +15,7 @@ const ACCESS_TOKEN_TTL = "15m";
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EMAIL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
+const googleOAuthClient = new OAuth2Client();
 
 function opaqueToken(): string {
   return randomBytes(48).toString("base64url");
@@ -103,6 +105,111 @@ export class AuthService {
     });
 
     return { emailVerified: true };
+  }
+
+  private async verifyGoogleIdToken(idToken: string) {
+    const audiences = (process.env.GOOGLE_OAUTH_CLIENT_IDS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (audiences.length === 0) {
+      throw new Error("Google sign-in is not configured. Set GOOGLE_OAUTH_CLIENT_IDS.");
+    }
+
+    try {
+      const ticket = await googleOAuthClient.verifyIdToken({
+        idToken,
+        audience: audiences,
+      });
+      const payload = ticket.getPayload();
+
+      if (!payload?.sub || !payload.email || payload.email_verified !== true) {
+        throw new UnauthorizedException("Google did not provide a verified email address");
+      }
+
+      return {
+        subject: payload.sub,
+        email: payload.email.trim().toLowerCase(),
+      };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new UnauthorizedException("Google sign-in token is invalid or expired");
+    }
+  }
+
+  async googleSignIn(idToken: string) {
+    const google = await this.verifyGoogleIdToken(idToken);
+    const linkedUser = await this.prisma.user.findUnique({
+      where: { googleSubject: google.subject },
+    });
+
+    if (linkedUser) {
+      return this.issueTokens(linkedUser.id, linkedUser.email);
+    }
+
+    const existingEmail = await this.prisma.user.findUnique({
+      where: { email: google.email },
+    });
+
+    if (existingEmail) {
+      throw new ConflictException(
+        "An account already uses this email. Sign in with that account first, then connect Google from account settings.",
+      );
+    }
+
+    const generatedPassword = randomBytes(48).toString("base64url");
+    const passwordHash = await argon2.hash(generatedPassword, {
+      type: argon2.argon2id,
+      memoryCost: 19456,
+      timeCost: 2,
+      parallelism: 1,
+    });
+
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          email: google.email,
+          passwordHash,
+          googleSubject: google.subject,
+          emailVerifiedAt: new Date(),
+        },
+        select: { id: true, email: true },
+      });
+
+      return this.issueTokens(user.id, user.email);
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+        throw new ConflictException("This Google account or email is already registered. Sign in instead.");
+      }
+      throw error;
+    }
+  }
+
+  async linkGoogleAccount(userId: string, idToken: string) {
+    const google = await this.verifyGoogleIdToken(idToken);
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+
+    if (!user || !user.emailVerifiedAt) {
+      throw new UnauthorizedException("A verified AnySkill account is required");
+    }
+    if (user.email.toLowerCase() !== google.email) {
+      throw new ConflictException("The Google email must match your AnySkill account email");
+    }
+
+    const existingGoogleAccount = await this.prisma.user.findUnique({
+      where: { googleSubject: google.subject },
+    });
+    if (existingGoogleAccount && existingGoogleAccount.id !== userId) {
+      throw new ConflictException("This Google account is already linked to another AnySkill account");
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { googleSubject: google.subject },
+    });
+
+    return { linked: true };
   }
 
   async login(emailInput: string, password: string) {
