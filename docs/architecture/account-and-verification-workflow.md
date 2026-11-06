@@ -42,6 +42,7 @@ Email verification proves control of an email inbox. It does not prove a person'
 | POST | `/api/v1/auth/register` | Create account and send email verification |
 | POST | `/api/v1/auth/login` | Sign in after email verification |
 | POST | `/api/v1/auth/verify-email` | Consume email verification token |
+| POST | `/api/v1/auth/resend-verification` | Resend email verification link |
 | POST | `/api/v1/auth/refresh` | Rotate refresh token |
 | POST | `/api/v1/auth/logout` | Revoke refresh session |
 | POST | `/api/v1/auth/forgot-password` | Request password reset |
