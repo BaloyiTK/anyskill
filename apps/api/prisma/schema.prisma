@@ -77,6 +77,12 @@ enum JobCompletionSubmissionStatus {
   REJECTED
 }
 
+enum MediaAssetStatus {
+  PENDING
+  READY
+  EXPIRED
+}
+
 enum NotificationDeliveryStatus {
   PENDING
   SENDING
@@ -105,6 +111,7 @@ model User {
   providerProfile          ProviderProfile?
   pushDevices              PushDevice[]
   notifications            AppNotification[]
+  mediaAssets              MediaAsset[]
 
   @@index([identityVerification])
   @@map("users")
@@ -332,7 +339,8 @@ model JobCompletionSubmission {
   engagementId   String                           @db.Uuid @map("engagement_id")
   providerId     String                           @db.Uuid @map("provider_id")
   notes          String                           @db.VarChar(3000)
-  evidenceUrls   String[]                         @map("evidence_urls")
+  evidenceUrls   String[]                         @default([]) @map("evidence_urls")
+  evidenceAssets MediaAsset[]
   status         JobCompletionSubmissionStatus    @default(PENDING)
   reviewNote     String?                          @map("review_note") @db.VarChar(1000)
   submittedAt    DateTime                         @default(now()) @map("submitted_at")
@@ -340,4 +348,25 @@ model JobCompletionSubmission {
   engagement     JobEngagement                    @relation(fields: [engagementId], references: [id], onDelete: Cascade)
   @@index([engagementId, status, submittedAt])
   @@map("job_completion_submissions")
+}
+
+
+model MediaAsset {
+  id                     String                       @id @default(uuid()) @db.Uuid
+  userId                 String                       @db.Uuid @map("user_id")
+  objectKey              String                       @unique @map("object_key") @db.VarChar(512)
+  originalName            String                       @map("original_name") @db.VarChar(255)
+  contentType             String                       @map("content_type") @db.VarChar(100)
+  sizeBytes               Int                          @map("size_bytes")
+  purpose                 String                       @db.VarChar(50)
+  status                  MediaAssetStatus             @default(PENDING)
+  expiresAt               DateTime                     @map("expires_at")
+  uploadedAt              DateTime?                    @map("uploaded_at")
+  completionSubmissionId  String?                      @db.Uuid @map("completion_submission_id")
+  createdAt               DateTime                     @default(now()) @map("created_at")
+  user                    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  completionSubmission    JobCompletionSubmission?     @relation(fields: [completionSubmissionId], references: [id], onDelete: SetNull)
+  @@index([userId, status, expiresAt])
+  @@index([completionSubmissionId])
+  @@map("media_assets")
 }
