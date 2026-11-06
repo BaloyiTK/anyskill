@@ -56,3 +56,33 @@ export class ProviderResponseDto {
   @MaxLength(2000)
   message?: string;
 }
+
+ 
+export class UpdateProviderProfileDto {
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  skillCategories!: string[];
+
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  serviceAreas!: string[];
+
+  @IsArray()
+  @ArrayMaxSize(3)
+  @IsIn(["ONSITE", "REMOTE", "EITHER"], { each: true })
+  deliveryModes!: string[];
+
+  @IsIn([true, false])
+  isAvailable!: boolean;
+}
+
+export class RegisterPushDeviceDto {
+  @IsString()
+  @MaxLength(255)
+  expoPushToken!: string;
+
+  @IsIn(["ios", "android", "huawei-android"])
+  platform!: string;
+}
