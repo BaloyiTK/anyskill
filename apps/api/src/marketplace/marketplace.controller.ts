@@ -8,6 +8,7 @@ import { MarketplaceAccessGuard, RequireIdentityFor } from "../identity/marketpl
 import {
   CreateServiceRequestDto,
   ProviderResponseDto,
+  UpdateHomeLocationDto, UpdateLiveLocationDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
   SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
@@ -33,6 +34,15 @@ class CursorQuery {
 @UseGuards(JwtAuthGuard)
 export class MarketplaceController {
   constructor(private readonly marketplace: MarketplaceService, private readonly media: MediaService) {}
+
+  @Get("profile/location/home")
+  getHomeLocation(@CurrentUser() user: AuthenticatedUser) { return this.marketplace.getHomeLocation(user.id); }
+
+  @Patch("profile/location/home")
+  updateHomeLocation(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateHomeLocationDto) { return this.marketplace.updateHomeLocation(user.id, dto); }
+
+  @Post("marketplace/provider-location/live")
+  updateProviderLiveLocation(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateLiveLocationDto) { return this.marketplace.updateProviderLiveLocation(user.id, dto); }
 
   @Post("marketplace/media/uploads")
   createMediaUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateMediaUploadDto) { return this.media.createUpload(user.id, dto); }
