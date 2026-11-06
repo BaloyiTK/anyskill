@@ -211,7 +211,7 @@ export default function App() {
 }
 
 function formatStatus(status: string) {
-  return status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function ModeCard(p: { title: string; description: string; selected: boolean; onPress: () => void }) {
