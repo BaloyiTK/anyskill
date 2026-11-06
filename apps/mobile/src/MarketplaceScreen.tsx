@@ -22,10 +22,12 @@ type RequestItem = {
   alreadyResponded: boolean;
   myResponse: { id: string; status: string } | null;
 };
+type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
+type JobEngagement = { id: string; status: string; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; adjustments: JobAdjustment[] };
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
-  status: string; createdAt: string;
+  status: string; createdAt: string; jobEngagement: JobEngagement | null;
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
     hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null;
@@ -47,6 +49,12 @@ export function MarketplaceScreen(p: Props) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [myRequests, setMyRequests] = useState<SeekerRequest[]>([]);
   const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
+  const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null } }>>([]);
+  const [estimateHours, setEstimateHours] = useState("2");
+  const [estimateNotes, setEstimateNotes] = useState("");
+  const [extraHours, setExtraHours] = useState("1");
+  const [extraReason, setExtraReason] = useState("");
+  const [jobActionBusy, setJobActionBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
@@ -104,6 +112,53 @@ export function MarketplaceScreen(p: Props) {
     } finally { setSelectingOfferId(null); }
   };
 
+  const submitEstimate = async (requestId: string) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/estimate`, { method: "POST", body: JSON.stringify({ estimatedHours: Number(estimateHours), notes: estimateNotes.trim() }) }, true);
+      setNotice("Estimate submitted. Work cannot start until the Seeker approves it.");
+      setEstimateNotes(""); await loadMyJobs();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit estimate."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const startWork = async (requestId: string) => {
+    setJobActionBusy(true); setError("");
+    try { await apiRequest(`/marketplace/requests/${requestId}/start-work`, { method: "POST" }, true); setNotice("Work marked as started."); await loadMyJobs(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not start work."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const requestExtraHours = async (requestId: string) => {
+    setJobActionBusy(true); setError("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/additional-hours`, { method: "POST", body: JSON.stringify({ additionalHours: Number(extraHours), reason: extraReason.trim() }) }, true);
+      setNotice("Additional-hours request sent. Do not perform the extra work until approved.");
+      setExtraReason(""); await loadMyJobs();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not request additional hours."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const decideEstimate = async (requestId: string, approved: boolean) => {
+    setJobActionBusy(true); setError("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/estimate-decision`, { method: "POST", body: JSON.stringify({ approved, note: approved ? undefined : "The estimate needs revision. Please review the hours and explanation." }) }, true);
+      setNotice(approved ? "Estimate approved. The Provider may now start work." : "Estimate rejected. The Provider must submit a revised estimate.");
+      await loadMyRequests();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your decision."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const decideExtraHours = async (requestId: string, adjustmentId: string, approved: boolean) => {
+    setJobActionBusy(true); setError("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/additional-hours/${adjustmentId}/decision`, { method: "POST", body: JSON.stringify({ approved, note: approved ? undefined : "Additional hours not approved." }) }, true);
+      setNotice(approved ? "Additional hours approved." : "Additional hours rejected.");
+      await loadMyRequests();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not decide additional hours."); }
+    finally { setJobActionBusy(false); }
+  };
+
   const submitRequest = async () => {
     setBusy(true); setError(""); setNotice(""); setVerificationPrompt(false);
     try {
@@ -143,9 +198,16 @@ export function MarketplaceScreen(p: Props) {
     finally { setProviderProfileLoaded(true); }
   }, []);
 
+  const loadMyJobs = useCallback(async () => {
+    try {
+      const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null } }>>("/marketplace/my-jobs", {}, true);
+      setMyJobs(result);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load selected jobs."); }
+  }, []);
+
   useEffect(() => {
-    if (p.mode === "provider") { void loadRequests(); void loadProviderProfile(); }
-  }, [p.mode, loadRequests, loadProviderProfile]);
+    if (p.mode === "provider") { void loadRequests(); void loadProviderProfile(); void loadMyJobs(); }
+  }, [p.mode, loadRequests, loadProviderProfile, loadMyJobs]);
 
   const saveProviderProfile = async () => {
     setSavingProfile(true); setError(""); setNotice("");
@@ -227,6 +289,29 @@ export function MarketplaceScreen(p: Props) {
             <Text style={s.meta}>{request.skillCategory} · {request.status === "OPEN" ? "Open" : request.status}</Text>
             <Text style={s.body}>{request.description}</Text>
             {selected ? <Text style={s.response}>Selected Provider: {selected.providerId.slice(0, 8)} · {new Date(selected.createdAt).toLocaleString()}</Text> : null}
+            {request.jobEngagement ? <View style={s.offerCard}>
+              <Text style={s.offerTitle}>Assessment and job-cost approval</Text>
+              <Text style={s.meta}>Status: {request.jobEngagement.status.replaceAll("_", " ")}</Text>
+              <Text style={s.meta}>Agreed hourly rate: R {Number(request.jobEngagement.hourlyRate).toFixed(2)}</Text>
+              <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee).toFixed(2)}</Text>
+              {request.jobEngagement.estimatedHours != null ? <Text style={s.meta}>Estimated hours: {Number(request.jobEngagement.estimatedHours).toFixed(2)}</Text> : null}
+              {request.jobEngagement.estimatedTotal != null ? <Text style={s.cardTitle}>Estimated job cost: R {Number(request.jobEngagement.estimatedTotal).toFixed(2)}</Text> : null}
+              {request.jobEngagement.estimateNotes ? <Text style={s.body}>Provider explanation: {request.jobEngagement.estimateNotes}</Text> : null}
+              {request.jobEngagement.status === "ESTIMATE_SUBMITTED" ? <View style={s.choiceRow}>
+                <Primary label="Approve estimate" onPress={() => void decideEstimate(request.id, true)} disabled={jobActionBusy} />
+                <Secondary label="Reject / request revision" onPress={() => void decideEstimate(request.id, false)} />
+              </View> : null}
+              {request.jobEngagement.status === "ESTIMATE_REJECTED" ? <Text style={s.meta}>You rejected the estimate. The Provider can submit a revised estimate.</Text> : null}
+              {request.jobEngagement.adjustments.map((adjustment) => <View key={adjustment.id} style={s.offerCard}>
+                <Text style={s.offerTitle}>Additional hours: {Number(adjustment.requestedHours).toFixed(2)}</Text>
+                <Text style={s.meta}>Additional cost: R {Number(adjustment.requestedAmount).toFixed(2)} · {adjustment.status}</Text>
+                <Text style={s.body}>{adjustment.reason}</Text>
+                {adjustment.status === "PENDING" ? <View style={s.choiceRow}>
+                  <Primary label="Approve extra hours" onPress={() => void decideExtraHours(request.id, adjustment.id, true)} disabled={jobActionBusy} />
+                  <Secondary label="Reject" onPress={() => void decideExtraHours(request.id, adjustment.id, false)} />
+                </View> : null}
+              </View>)}
+            </View> : null}
             <Text style={s.sectionSmall}>Offers received ({offers.length})</Text>
             {offers.map((offer, index) => <View key={offer.id} style={s.offerCard}>
               <Text style={s.offerTitle}>{offer.provider.providerProfile?.publicName || "Skill Provider"}</Text>
@@ -267,6 +352,29 @@ export function MarketplaceScreen(p: Props) {
           <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
         </Pressable>
         <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim() || providerPublicName.trim().length < 2 || !(Number(providerHourlyRate) > 0) || !Number.isFinite(Number(providerAssessmentFee)) || Number(providerAssessmentFee) < 0} />
+        <Text style={s.section}>Selected jobs and assessments</Text>
+        <Secondary label="Refresh selected jobs" onPress={() => void loadMyJobs()} />
+        {myJobs.map((job) => <View key={job.id} style={s.card}>
+          <Text style={s.cardTitle}>{job.request.title}</Text>
+          <Text style={s.meta}>Status: {job.status.replaceAll("_", " ")}</Text>
+          <Text style={s.meta}>Agreed rate: R {Number(job.hourlyRate).toFixed(2)} / hour · Assessment fee: R {Number(job.assessmentFee).toFixed(2)}</Text>
+          {job.status === "ASSESSMENT_PENDING" || job.status === "ESTIMATE_REJECTED" ? <>
+            <Text style={s.helper}>Complete the assessment, then submit the estimated hours and a clear explanation. The Seeker must approve before work begins.</Text>
+            <TextInput value={estimateHours} onChangeText={setEstimateHours} keyboardType="decimal-pad" placeholder="Estimated hours" style={s.input} />
+            <TextInput value={estimateNotes} onChangeText={setEstimateNotes} placeholder="Explain the assessment and work required..." multiline style={[s.input, s.multiline]} />
+            <Primary label="Submit job estimate" onPress={() => void submitEstimate(job.request.id)} disabled={jobActionBusy || !(Number(estimateHours) > 0) || estimateNotes.trim().length < 10} />
+          </> : null}
+          {job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
+          {job.status === "ESTIMATE_APPROVED" ? <Primary label="Start approved work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
+          {job.status === "IN_PROGRESS" ? <>
+            <Text style={s.helper}>Need more time? Explain why and request approval before doing the extra work.</Text>
+            <TextInput value={extraHours} onChangeText={setExtraHours} keyboardType="decimal-pad" placeholder="Additional hours" style={s.input} />
+            <TextInput value={extraReason} onChangeText={setExtraReason} placeholder="Explain why extra hours are required..." multiline style={[s.input, s.multiline]} />
+            <Primary label="Request additional hours" onPress={() => void requestExtraHours(job.request.id)} disabled={jobActionBusy || !(Number(extraHours) > 0) || extraReason.trim().length < 10} />
+          </> : null}
+          {job.adjustments.map((adjustment) => <Text key={adjustment.id} style={s.meta}>Extra hours request: {Number(adjustment.requestedHours).toFixed(2)} · R {Number(adjustment.requestedAmount).toFixed(2)} · {adjustment.status}</Text>)}
+        </View>)}
+        {!myJobs.length ? <Text style={s.helper}>No selected jobs yet. When a Seeker selects your offer, the assessment will appear here.</Text> : null}
         <Text style={s.section}>Notifications</Text>
         {notifications.slice(0,4).map((item) => <View key={item.id} style={s.notificationCard}>
           <Text style={s.cardTitle}>{item.title}</Text><Text style={s.meta}>{item.body}</Text>
