@@ -48,7 +48,9 @@ export class MarketplaceAccessGuard implements CanActivate {
         action,
         message: action === "SEEKER_SUBMIT_REQUEST"
           ? "Complete identity verification before submitting your service request."
-          : "You can view this request, but you must complete identity verification before accepting it.",
+          : action === "SEEKER_SELECT_PROVIDER"
+            ? "Complete identity verification before selecting a Provider for your request."
+            : "You can view this request, but you must complete identity verification before accepting it.",
       });
     }
     return true;
