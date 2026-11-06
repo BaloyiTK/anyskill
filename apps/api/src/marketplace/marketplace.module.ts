@@ -5,10 +5,11 @@ import { IdentityModule } from "../identity/identity.module";
 import { DatabaseModule } from "../database/database.module";
 import { MarketplaceController } from "./marketplace.controller";
 import { MarketplaceService } from "./marketplace.service";
+import { MediaService } from "./media.service";
 
 @Module({
   imports: [DatabaseModule, IdentityModule, PassportModule],
   controllers: [MarketplaceController],
-  providers: [MarketplaceService, JwtAuthGuard],
+  providers: [MarketplaceService, MediaService, JwtAuthGuard],
 })
 export class MarketplaceModule {}
