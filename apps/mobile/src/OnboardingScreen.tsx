@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import * as Location from "expo-location";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
 
@@ -26,6 +27,9 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [city, setCity] = useState("");
   const [suburb, setSuburb] = useState("");
   const [address, setAddress] = useState("");
+  const [homeLatitude, setHomeLatitude] = useState("");
+  const [homeLongitude, setHomeLongitude] = useState("");
+  const [homeLocationBusy, setHomeLocationBusy] = useState(false);
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [documentName, setDocumentName] = useState("");
@@ -40,11 +44,14 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     setBusy(true); setError("");
     try {
       const result = await apiRequest<Payload>("/profile/onboarding", {}, true);
+      const home = await apiRequest<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null}>("/profile/location/home", {}, true).catch(() => null);
       setData(result);
       const profile = result.profile ?? {};
       setFirstName(profile.firstName ?? ""); setLastName(profile.lastName ?? ""); setPhone(profile.phone ?? "");
       setCountry(profile.country ?? "South Africa"); setProvince(profile.province ?? ""); setCity(profile.city ?? "");
       setSuburb(profile.suburb ?? ""); setAddress(profile.address ?? "");
+      setHomeLatitude(home?.homeLatitude == null ? "" : String(home.homeLatitude));
+      setHomeLongitude(home?.homeLongitude == null ? "" : String(home.homeLongitude));
       const skill = result.skills?.[0]; setCategory(skill?.category ?? ""); setDescription(skill?.description ?? "");
       const document = skill?.supportingDocuments?.[0]; setDocumentName(document?.name ?? ""); setDocumentUrl(document?.url ?? "");
       const item = result.portfolio?.[0]; setPortfolioTitle(item?.title ?? ""); setPortfolioDescription(item?.description ?? "");
@@ -60,9 +67,26 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         : section === "skills" ? { skills: category.trim() ? [{ category: category.trim(), description, supportingDocuments: documentName.trim() && documentUrl.trim() ? [{ name: documentName.trim(), url: documentUrl.trim() }] : [] }] : [] }
         : { portfolio: portfolioTitle.trim() ? [{ title: portfolioTitle.trim(), description: portfolioDescription }] : [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
-      setData(result); setMessage("Your changes have been saved as a draft.");
+      setData(result);
+      if (section === "profile" && homeLatitude.trim() && homeLongitude.trim()) {
+        await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: address.trim() || [suburb, city, province, country].filter(Boolean).join(", "), latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
+      }
+      setMessage("Your changes have been saved as a draft.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save this section."); }
     finally { setBusy(false); }
+  };
+
+  const useCurrentHomeLocation = async () => {
+    setHomeLocationBusy(true); setError(""); setMessage("");
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) throw new Error("Location permission was not granted. You can enter coordinates manually instead.");
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setHomeLatitude(String(current.coords.latitude));
+      setHomeLongitude(String(current.coords.longitude));
+      setMessage("Current coordinates added. Save Profile Draft to store this as your Home Location.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not read your current location."); }
+    finally { setHomeLocationBusy(false); }
   };
 
   const submit = async () => {
@@ -94,6 +118,9 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         <Text style={st.help}>Save what you have now. You can leave fields incomplete and return later.</Text>
         {Field("First name", firstName, setFirstName)}{Field("Last name", lastName, setLastName)}{Field("Contact number", phone, setPhone)}
         {Field("Country", country, setCountry)}{Field("Province", province, setProvince)}{Field("City", city, setCity)}{Field("Suburb", suburb, setSuburb)}{Field("Home address", address, setAddress, true)}
+        {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
+        <Action label={homeLocationBusy ? "Getting location..." : "Use current GPS for Home Location"} onPress={() => void useCurrentHomeLocation()} disabled={busy || homeLocationBusy} />
+        <Text style={st.help}>Home Location is saved to your profile and used as a default. It is not continuous live tracking.</Text>
         <Text style={st.status}>Section: {status("profile")}</Text>
         <Action label="Save Profile Draft" onPress={() => void save("profile")} disabled={busy} />
       </>}
