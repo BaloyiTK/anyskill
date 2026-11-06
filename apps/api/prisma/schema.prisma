@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum IdentityVerificationStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  FAILED
+  REQUIRES_INFORMATION
+  UNDER_REVIEW
+  SUSPENDED
+  REVOKED
+}
+
+enum VerificationCaseStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  NEEDS_INFORMATION
+  CANCELLED
+}
+
+model User {
+  id                       String                      @id @default(uuid()) @db.Uuid
+  email                    String                      @unique @db.VarChar(320)
+  phone                    String?                     @unique @db.VarChar(32)
+  passwordHash             String                      @map("password_hash")
+  emailVerifiedAt          DateTime?                   @map("email_verified_at")
+  identityVerification     IdentityVerificationStatus  @default(NOT_STARTED) @map("identity_verification_status")
+  identityVerifiedAt       DateTime?                   @map("identity_verified_at")
+  createdAt                DateTime                    @default(now()) @map("created_at")
+  updatedAt                DateTime                    @updatedAt @map("updated_at")
+  refreshSessions          RefreshSession[]
+  emailVerificationTokens  EmailVerificationToken[]
+  passwordResetTokens      PasswordResetToken[]
+  identityCases            IdentityVerificationCase[]
+
+  @@index([identityVerification])
+  @@map("users")
+}
+
+model RefreshSession {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid @map("user_id")
+  tokenHash   String   @unique @map("token_hash")
+  expiresAt   DateTime @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("refresh_sessions")
+}
+
+model EmailVerificationToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid @map("user_id")
+  tokenHash  String   @unique @map("token_hash")
+  expiresAt  DateTime @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid @map("user_id")
+  tokenHash  String   @unique @map("token_hash")
+  expiresAt  DateTime @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("password_reset_tokens")
+}
+
+model IdentityVerificationCase {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  userId                String                 @db.Uuid @map("user_id")
+  status                VerificationCaseStatus @default(SUBMITTED)
+  provider              String?                @db.VarChar(80)
+  providerReference     String?                @map("provider_reference") @db.VarChar(255)
+  submittedAt           DateTime               @default(now()) @map("submitted_at")
+  reviewedAt            DateTime?              @map("reviewed_at")
+  reviewerId            String?                @db.Uuid @map("reviewer_id")
+  decisionReason        String?                @map("decision_reason") @db.VarChar(1000)
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status, submittedAt])
+  @@map("identity_verification_cases")
+}
