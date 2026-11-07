@@ -15,7 +15,7 @@ type Payload = {
 
 const tabs: Section[] = ["Profile", "Verification", "Skills", "Portfolio", "Submit"];
 const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, sections: { profile: false, skills: false, portfolio: false } };
-const colors = { ink: "#17231F", muted: "#68766F", primary: "#176B5B", border: "#DCE5E0", surface: "#FFFFFF", bg: "#F6F8F7" };
+const colors = { ink: "#15251E", muted: "#66756D", primary: "#176B55", border: "#E1E8E3", surface: "#FFFFFF", bg: "#F5F7F5" };
 
 export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void }) {
   const [active, setActive] = useState<Section>("Profile");
@@ -164,22 +164,22 @@ function Action(p: { label: string; onPress: () => void; disabled?: boolean }) {
 }
 const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, paddingTop: 8 },
-  top: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 18, paddingBottom: 8 },
-  title: { color: colors.ink, fontSize: 25, fontWeight: "800" }, back: { color: colors.primary, fontWeight: "800" },
-  percent: { color: colors.muted, paddingHorizontal: 18, fontSize: 12, fontWeight: "700" },
-  track: { height: 7, marginHorizontal: 18, marginTop: 8, borderRadius: 8, backgroundColor: colors.border, overflow: "hidden" },
-  fill: { height: 7, backgroundColor: colors.primary },
-  tabs: { gap: 7, paddingHorizontal: 18, paddingVertical: 14 },
-  tab: { paddingVertical: 9, paddingHorizontal: 13, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  activeTab: { backgroundColor: colors.primary, borderColor: colors.primary }, tabText: { color: colors.muted, fontSize: 12, fontWeight: "700" }, activeTabText: { color: "#FFF" },
-  body: { flex: 1, paddingHorizontal: 18 }, heading: { color: colors.ink, fontSize: 19, fontWeight: "800", marginBottom: 7 },
-  help: { color: colors.muted, fontSize: 12, lineHeight: 18, marginBottom: 12 },
-  field: { marginBottom: 12 }, label: { color: colors.ink, fontSize: 12, fontWeight: "700", marginBottom: 6 },
-  input: { minHeight: 48, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: colors.surface, paddingHorizontal: 12, color: colors.ink },
+  top: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
+  title: { color: colors.ink, fontSize: 26, fontWeight: "900", letterSpacing: -0.6 }, back: { color: colors.primary, fontWeight: "800", padding: 8 },
+  percent: { color: colors.muted, paddingHorizontal: 20, fontSize: 12, fontWeight: "800" },
+  track: { height: 8, marginHorizontal: 20, marginTop: 9, borderRadius: 8, backgroundColor: colors.border, overflow: "hidden" },
+  fill: { height: 8, backgroundColor: colors.primary, borderRadius: 8 },
+  tabs: { gap: 8, paddingHorizontal: 20, paddingVertical: 15 },
+  tab: { paddingVertical: 10, paddingHorizontal: 15, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  activeTab: { backgroundColor: colors.primary, borderColor: colors.primary }, tabText: { color: colors.muted, fontSize: 12, fontWeight: "800" }, activeTabText: { color: "#FFF" },
+  body: { flex: 1, paddingHorizontal: 20 }, heading: { color: colors.ink, fontSize: 20, fontWeight: "900", letterSpacing: -0.35, marginBottom: 8 },
+  help: { color: colors.muted, fontSize: 13, lineHeight: 20, marginBottom: 14 },
+  field: { marginBottom: 14 }, label: { color: colors.ink, fontSize: 12, fontWeight: "800", marginBottom: 7 },
+  input: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 13, backgroundColor: "#FBFCFB", paddingHorizontal: 14, color: colors.ink, fontSize: 14 },
   multiline: { minHeight: 88, paddingTop: 12, textAlignVertical: "top" },
   status: { color: colors.muted, fontSize: 12, marginVertical: 6 }, statusValue: { color: colors.ink, fontWeight: "800", marginTop: 6, textTransform: "capitalize" },
-  card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 13, padding: 14, marginVertical: 12 },
-  action: { backgroundColor: colors.primary, borderRadius: 11, minHeight: 46, alignItems: "center", justifyContent: "center", paddingHorizontal: 15, marginTop: 9 },
+  card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 17, padding: 17, marginVertical: 13, shadowColor: "#173B2C", shadowOpacity: 0.035, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  action: { backgroundColor: colors.primary, borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, marginTop: 10 },
   actionText: { color: "#FFF", fontWeight: "800", fontSize: 13 }, nav: { marginTop: 12, marginBottom: 25 },
   success: { color: colors.primary, marginTop: 12, fontSize: 12 }, error: { color: "#A12D2D", marginTop: 12, fontSize: 12 },
 });
