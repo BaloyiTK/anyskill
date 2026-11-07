@@ -15,9 +15,9 @@ type UserMode = "seeker" | "provider";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
 
 const C = {
-  bg: "#F6F8F7", surface: "#FFFFFF", ink: "#17231F", muted: "#68766F",
-  primary: "#176B5B", border: "#DCE5E0", soft: "#E7F2EE",
-  warning: "#FFF3D8", warningInk: "#79540B", danger: "#A12D2D",
+  bg: "#F5F7F5", surface: "#FFFFFF", ink: "#15251E", muted: "#66756D",
+  primary: "#176B55", border: "#E1E8E3", soft: "#E8F4ED",
+  warning: "#FFF6E4", warningInk: "#78551A", danger: "#A12D2D",
 };
 
 export default function App() {
@@ -288,22 +288,23 @@ export default function App() {
             <View style={s.brandMark}><Text style={s.brandMarkText}>A</Text></View>
             <Text style={s.brandName}>AnySkill</Text>
             <View style={s.spacer} />
-            <Text style={s.early}>EARLY BUILD</Text>
+            <Text style={s.brandTag}>SKILLS MADE SIMPLE</Text>
           </View>
 
           {screen === "welcome" && <>
             <View style={s.hero}>
-              <Text style={s.kicker}>SKILLS, WHEN YOU NEED THEM</Text>
-              <Text style={s.heading}>The right skills.{"\n"}Right when you need them.</Text>
-              <Text style={s.subtitle}>A real-time marketplace connecting people who need work done with people who can do it.</Text>
+              <View style={s.heroPill}><View style={s.heroDot} /><Text style={s.heroPillText}>YOUR LOCAL SKILLS MARKETPLACE</Text></View>
+              <Text style={s.heading}>Find the right person.{"\n"}Get it done.</Text>
+              <Text style={s.heroSubtitle}>Discover skilled people, agree on the work, and get things moving — all in one place.</Text>
+              <View style={s.heroFoot}><Text style={s.heroFootText}>FIND</Text><Text style={s.heroFootDivider}>·</Text><Text style={s.heroFootText}>HIRE</Text><Text style={s.heroFootDivider}>·</Text><Text style={s.heroFootText}>GET IT DONE</Text></View>
             </View>
-            <Text style={s.sectionTitle}>One account. Two modes.</Text>
+            <View style={s.sectionHeadingRow}><Text style={s.sectionTitle}>How will you use AnySkill?</Text><Text style={s.optional}>YOU CAN SWITCH LATER</Text></View>
             <View style={s.modeList}>
               <ModeCard title="Skill Seeker" description="Find available people with the skills you need." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
               <ModeCard title="Skill Provider" description="Offer your skills, set your rate and receive work requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
             </View>
-            <Text style={s.helper}>You can use both modes with the same account.</Text>
-            <Primary label="Create an account" onPress={() => goTo("register")} />
+            <Text style={s.helper}>One account gives you access to both modes.</Text>
+            <Primary label="Create your free account" onPress={() => goTo("register")} />
             <Secondary label="I already have an account" onPress={() => goTo("login")} />
           </>}
 
@@ -470,28 +471,39 @@ function TextButton(p: { label: string; onPress: () => void }) {
 
 const s = StyleSheet.create({
   flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
-  content: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 36 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 30 },
-  brandMark: { width: 38, height: 38, borderRadius: 12, backgroundColor: C.primary, alignItems: "center", justifyContent: "center" },
-  brandMarkText: { color: "#FFF", fontSize: 23, fontWeight: "800" }, brandName: { color: C.ink, fontSize: 20, fontWeight: "800" },
-  spacer: { flex: 1 }, early: { color: C.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1 },
-  hero: { marginTop: 25, marginBottom: 36 }, kicker: { color: C.primary, fontSize: 10, fontWeight: "800", letterSpacing: 1.5, marginBottom: 12 },
-  heading: { color: C.ink, fontSize: 37, lineHeight: 43, fontWeight: "800", letterSpacing: -1.3 },
-  formTitle: { color: C.ink, fontSize: 29, lineHeight: 35, fontWeight: "800", letterSpacing: -0.8 },
+  content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 32 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 20, paddingHorizontal: 2 },
+  brandMark: { width: 42, height: 42, borderRadius: 14, backgroundColor: C.primary, alignItems: "center", justifyContent: "center", shadowColor: "#123D2E", shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  brandMarkText: { color: "#FFF", fontSize: 25, fontWeight: "900" }, brandName: { color: C.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.5 },
+  spacer: { flex: 1 }, brandTag: { color: C.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.15 },
+  hero: { marginTop: 4, marginBottom: 28, backgroundColor: "#123F32", borderRadius: 26, paddingHorizontal: 23, paddingTop: 23, paddingBottom: 20, overflow: "hidden" },
+  heroPill: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.12)", marginBottom: 21 },
+  heroDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#9EE2BD" },
+  heroPillText: { color: "#CDEBDD", fontSize: 9, fontWeight: "800", letterSpacing: 1.05 },
+  kicker: { color: C.primary, fontSize: 10, fontWeight: "800", letterSpacing: 1.5, marginBottom: 12 },
+  heading: { color: "#FFFFFF", fontSize: 34, lineHeight: 40, fontWeight: "900", letterSpacing: -1.15 },
+  heroSubtitle: { color: "#D8E8DF", fontSize: 14, lineHeight: 22, marginTop: 13, maxWidth: 300 },
+  heroFoot: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 22, paddingTop: 15, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.18)" },
+  heroFootText: { color: "#D3E9DD", fontSize: 9, fontWeight: "900", letterSpacing: 1.2 },
+  heroFootDivider: { color: "#85B69D", fontSize: 14 },
+  sectionHeadingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 3 },
+  optional: { color: C.muted, fontSize: 8, fontWeight: "800", letterSpacing: 0.8 },
+  formTitle: { color: C.ink, fontSize: 28, lineHeight: 34, fontWeight: "900", letterSpacing: -0.8 },
   subtitle: { color: C.muted, fontSize: 15, lineHeight: 23, marginTop: 12, marginBottom: 22 },
   sectionTitle: { color: C.ink, fontSize: 18, fontWeight: "800", marginBottom: 13, marginTop: 18 },
-  modeList: { gap: 11, marginBottom: 18 }, modeCard: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 16, padding: 16 },
-  modeCardSelected: { borderColor: C.primary, borderWidth: 2, padding: 15, backgroundColor: "#F5FBF8" },
+  modeList: { gap: 10, marginBottom: 14 }, modeCard: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 18, padding: 17, shadowColor: "#1D3528", shadowOpacity: 0.035, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  modeCardSelected: { borderColor: C.primary, borderWidth: 1.7, padding: 16.3, backgroundColor: "#EFF7F1" },
   modeCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  modeTitle: { color: C.ink, fontSize: 16, fontWeight: "800" }, modeDescription: { color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 6 },
+  modeTitle: { color: C.ink, fontSize: 16, fontWeight: "800", letterSpacing: -0.2 }, modeDescription: { color: C.muted, fontSize: 13, lineHeight: 19, marginTop: 7 },
   radio: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: C.border }, radioSelected: { borderWidth: 6, borderColor: C.primary },
-  form: { marginTop: 12 }, field: { marginBottom: 16 }, fieldLabel: { color: C.ink, fontSize: 12, fontWeight: "700", marginBottom: 7 },
-  input: { minHeight: 52, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, color: C.ink, backgroundColor: C.surface, fontSize: 15 },
+  form: { marginTop: 5, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 24, padding: 20, paddingTop: 23, shadowColor: "#173B2C", shadowOpacity: 0.045, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
+  field: { marginBottom: 17 }, fieldLabel: { color: C.ink, fontSize: 12, fontWeight: "800", marginBottom: 8, letterSpacing: 0.1 },
+  input: { minHeight: 54, borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 15, color: C.ink, backgroundColor: "#FBFCFB", fontSize: 15 },
   helper: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 7, marginBottom: 14 },
-  primary: { minHeight: 52, borderRadius: 13, backgroundColor: C.primary, alignItems: "center", justifyContent: "center", marginTop: 8, paddingHorizontal: 18 },
-  primaryText: { color: "#FFF", fontSize: 14, fontWeight: "800" }, disabled: { opacity: 0.45 },
-  secondary: { minHeight: 50, borderRadius: 13, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 10, backgroundColor: C.surface },
-  secondaryText: { color: C.primary, fontSize: 13, fontWeight: "800" }, textButton: { alignItems: "center", paddingVertical: 16 },
+  primary: { minHeight: 55, borderRadius: 15, backgroundColor: C.primary, alignItems: "center", justifyContent: "center", marginTop: 9, paddingHorizontal: 18, shadowColor: "#124331", shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  primaryText: { color: "#FFF", fontSize: 14, fontWeight: "900", letterSpacing: 0.1 }, disabled: { opacity: 0.45, shadowOpacity: 0 },
+  secondary: { minHeight: 53, borderRadius: 15, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 10, backgroundColor: C.surface, paddingHorizontal: 12 },
+  secondaryText: { color: C.primary, fontSize: 13, fontWeight: "800" }, textButton: { alignItems: "center", paddingVertical: 15 },
   textButtonText: { color: C.muted, fontSize: 13, fontWeight: "700" },
   notice: { backgroundColor: C.warning, borderRadius: 14, padding: 15, marginVertical: 14 },
   noticeTitle: { color: C.warningInk, fontSize: 13, fontWeight: "800", marginBottom: 5 }, noticeText: { color: C.warningInk, fontSize: 12, lineHeight: 18 },
@@ -502,5 +514,5 @@ const s = StyleSheet.create({
   statusLabel: { color: C.muted, fontSize: 10, fontWeight: "800", letterSpacing: 1.1 },
   statusValue: { color: C.ink, fontSize: 16, fontWeight: "800", marginTop: 5, marginBottom: 14 },
   divider: { height: 1, backgroundColor: C.border, marginVertical: 8 }, loader: { marginTop: 15 },
-  footer: { color: C.muted, fontSize: 11, textAlign: "center", marginTop: 30 },
+  footer: { color: C.muted, fontSize: 11, textAlign: "center", marginTop: 24, letterSpacing: 0.15 },
 });
