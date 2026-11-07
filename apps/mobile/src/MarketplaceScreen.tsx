@@ -47,7 +47,7 @@ type Props = {
   onIdentityRequired: (requestId: string) => void;
   onStartVerification: () => void;
 };
-const C = { ink: "#17231F", muted: "#68766F", primary: "#176B5B", border: "#DCE5E0", surface: "#FFFFFF", warning: "#FFF3D8", warningInk: "#79540B", bg: "#F6F8F7" };
+const C = { ink: "#15251E", muted: "#66756D", primary: "#176B55", border: "#E1E8E3", surface: "#FFFFFF", warning: "#FFF6E4", warningInk: "#78551A", bg: "#F5F7F5" };
 
 export function MarketplaceScreen(p: Props) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
@@ -604,23 +604,23 @@ function Secondary(p: { label: string; onPress: () => void }) {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 22, paddingTop: 12, paddingBottom: 14 },
-  back: { color: C.primary, fontWeight: "800", fontSize: 14, marginBottom: 16 },
-  heading: { color: C.ink, fontSize: 28, fontWeight: "800" },
-  subheading: { color: C.muted, marginTop: 5, fontSize: 13 },
-  modeRow: { flexDirection: "row", gap: 8, paddingHorizontal: 22, paddingBottom: 12 },
-  modeButton: { flex: 1, borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 12, alignItems: "center", backgroundColor: C.surface },
-  modeActive: { borderColor: C.primary, backgroundColor: "#E7F2EE" },
+  header: { paddingHorizontal: 20, paddingTop: 15, paddingBottom: 18, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
+  back: { color: C.primary, fontWeight: "800", fontSize: 13, marginBottom: 14 },
+  heading: { color: C.ink, fontSize: 29, fontWeight: "900", letterSpacing: -0.8 },
+  subheading: { color: C.muted, marginTop: 6, fontSize: 13, lineHeight: 19 },
+  modeRow: { flexDirection: "row", gap: 9, paddingHorizontal: 20, paddingVertical: 13, backgroundColor: C.surface },
+  modeButton: { flex: 1, borderRadius: 13, borderWidth: 1, borderColor: C.border, paddingVertical: 13, paddingHorizontal: 9, alignItems: "center", backgroundColor: "#FAFCFA" },
+  modeActive: { borderColor: C.primary, backgroundColor: "#EAF4ED" },
   modeText: { color: C.muted, fontWeight: "700", fontSize: 12 },
   modeTextActive: { color: C.primary },
-  content: { paddingHorizontal: 22, paddingBottom: 36 },
-  section: { color: C.ink, fontSize: 19, fontWeight: "800", marginTop: 8 },
+  content: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 36 },
+  section: { color: C.ink, fontSize: 19, fontWeight: "900", letterSpacing: -0.35, marginTop: 12 },
   sectionSmall: { color: C.ink, fontSize: 14, fontWeight: "800", marginTop: 15 },
   offerCard: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 11, padding: 12, marginTop: 10 },
   offerTitle: { color: C.ink, fontSize: 13, fontWeight: "800" },
   helper: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 8, marginBottom: 14 },
   label: { color: C.ink, fontSize: 12, fontWeight: "800", marginTop: 13, marginBottom: 6 },
-  input: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 11, minHeight: 48, paddingHorizontal: 12, color: C.ink },
+  input: { backgroundColor: "#FBFCFB", borderWidth: 1, borderColor: C.border, borderRadius: 13, minHeight: 52, paddingHorizontal: 14, color: C.ink, fontSize: 14 },
   multiline: { minHeight: 110, paddingTop: 12, textAlignVertical: "top" },
   choiceRow: { flexDirection: "row", gap: 7, marginTop: 6, marginBottom: 12 },
   choice: { flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 10, alignItems: "center", backgroundColor: C.surface },
@@ -633,15 +633,15 @@ const s = StyleSheet.create({
   notice: { backgroundColor: C.warning, borderRadius: 13, padding: 13, marginVertical: 12 },
   noticeTitle: { color: C.warningInk, fontWeight: "800", fontSize: 13, marginBottom: 4 },
   noticeText: { color: C.warningInk, fontSize: 12, lineHeight: 18 },
-  card: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 15, marginTop: 13 },
+  card: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 17, marginTop: 13, shadowColor: "#173B2C", shadowOpacity: 0.035, shadowRadius: 9, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   highlight: { borderColor: C.primary, borderWidth: 2 },
   cardTitle: { color: C.ink, fontSize: 16, fontWeight: "800" },
   meta: { color: C.muted, fontSize: 11, marginTop: 6 },
   body: { color: C.ink, fontSize: 13, lineHeight: 19, marginTop: 10 },
   response: { color: C.primary, fontSize: 12, fontWeight: "700", marginTop: 12 },
-  primary: { backgroundColor: C.primary, borderRadius: 11, minHeight: 48, alignItems: "center", justifyContent: "center", paddingHorizontal: 14, marginTop: 12 },
+  primary: { backgroundColor: C.primary, borderRadius: 14, minHeight: 53, alignItems: "center", justifyContent: "center", paddingHorizontal: 15, marginTop: 12, shadowColor: "#124331", shadowOpacity: 0.12, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   primaryText: { color: "#FFF", fontSize: 13, fontWeight: "800" },
-  secondary: { borderColor: C.border, borderWidth: 1, borderRadius: 11, minHeight: 45, alignItems: "center", justifyContent: "center", marginTop: 10, paddingHorizontal: 12, backgroundColor: C.surface },
+  secondary: { borderColor: C.border, borderWidth: 1, borderRadius: 13, minHeight: 49, alignItems: "center", justifyContent: "center", marginTop: 10, paddingHorizontal: 13, backgroundColor: C.surface },
   secondaryText: { color: C.primary, fontWeight: "800", fontSize: 12 },
   success: { color: C.primary, fontWeight: "700", fontSize: 12, marginTop: 15 },
   error: { color: "#A12D2D", fontWeight: "700", fontSize: 12, marginTop: 15 },
