@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useIdTokenAuthRequest } from "expo-auth-session/providers/google";
-import * as WebBrowser from "expo-web-browser";
+import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
+import { useAuthRequest } from "expo-auth-session/providers/google";
 import {
   ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable,
   SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
@@ -11,11 +11,21 @@ import {
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
 
-WebBrowser.maybeCompleteAuthSession();
 
 type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password" | "dashboard" | "marketplace" | "onboarding";
 type UserMode = "seeker" | "provider";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
+
+const GOOGLE_DISCOVERY = {
+  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenEndpoint: "https://oauth2.googleapis.com/token",
+};
+const GOOGLE_WEB_AUTH_KEYS = {
+  state: "anyskill.google.oauth.state",
+  verifier: "anyskill.google.oauth.verifier",
+  redirectUri: "anyskill.google.oauth.redirect-uri",
+  flow: "anyskill.google.oauth.flow",
+};
 
 const C = {
   bg: "#F5F7F5", surface: "#FFFFFF", ink: "#15251E", muted: "#66756D",
@@ -49,11 +59,14 @@ export default function App() {
     : Platform.OS === "ios"
       ? Boolean(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID)
       : Boolean(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID);
-  const [googleRequest, , promptGoogle] = useIdTokenAuthRequest(
+  const [googleRequest, , promptGoogle] = useAuthRequest(
     {
       webClientId: googleWebClientId,
       iosClientId: googleIosClientId,
       androidClientId: googleAndroidClientId,
+      responseType: ResponseType.Code,
+      usePKCE: true,
+      shouldAutoExchangeCode: true,
       selectAccount: true,
     },
     {
@@ -106,6 +119,106 @@ export default function App() {
     const subscription = Linking.addEventListener("url", ({ url }) => { void verifyEmailFromLink(url); });
     return () => subscription.remove();
   }, []);
+
+  // A full-page redirect avoids the cross-origin popup/opener checks that were
+  // dismissing the previous web AuthSession before it returned an ID token.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const returnedState = params.get("state");
+    const providerError = params.get("error");
+    if (!code && !providerError) return;
+
+    const expectedState = window.sessionStorage.getItem(GOOGLE_WEB_AUTH_KEYS.state);
+    const codeVerifier = window.sessionStorage.getItem(GOOGLE_WEB_AUTH_KEYS.verifier);
+    const redirectUri = window.sessionStorage.getItem(GOOGLE_WEB_AUTH_KEYS.redirectUri);
+    const flow = window.sessionStorage.getItem(GOOGLE_WEB_AUTH_KEYS.flow);
+
+    // Remove the authorization response from the address bar before making
+    // any API calls, and consume the one-time browser state.
+    window.history.replaceState(
+      {},
+      document.title,
+      window.location.pathname + window.location.hash,
+    );
+    Object.values(GOOGLE_WEB_AUTH_KEYS).forEach((key) => window.sessionStorage.removeItem(key));
+
+    if (providerError) {
+      setError(providerError === "access_denied"
+        ? "Google sign-in was cancelled."
+        : `Google sign-in failed: ${providerError}`);
+      return;
+    }
+    if (!code || !returnedState || !expectedState || returnedState !== expectedState || !codeVerifier || !redirectUri) {
+      setError("Google sign-in could not be verified. Please try again.");
+      return;
+    }
+
+    const completeWebGoogleSignIn = async () => {
+      setBusy(true);
+      try {
+        const tokenResponse = await exchangeCodeAsync(
+          {
+            clientId: googleWebClientId,
+            code,
+            redirectUri,
+            extraParams: { code_verifier: codeVerifier },
+          },
+          { tokenEndpoint: GOOGLE_DISCOVERY.tokenEndpoint },
+        );
+        const idToken = tokenResponse.idToken;
+        if (!idToken) throw new Error("Google did not return an ID token.");
+
+        if (flow === "link") {
+          await apiRequest("/auth/google/link", {
+            method: "POST",
+            body: JSON.stringify({ idToken }),
+          }, true);
+          const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
+          setAccount(me);
+          setMessage("Google account connected successfully.");
+        } else {
+          const tokens = await apiRequest<Tokens>("/auth/google", {
+            method: "POST",
+            body: JSON.stringify({ idToken }),
+          });
+          await saveTokens(tokens);
+          await loadAccount();
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Google sign-in failed.");
+      } finally {
+        setBusy(false);
+      }
+    };
+
+    void completeWebGoogleSignIn();
+  }, []);
+
+  const startWebGoogleRedirect = async (flow: "signin" | "link") => {
+    if (Platform.OS !== "web" || !googleRequest) return;
+    if (!googleRequest.codeVerifier || !googleRequest.state || !googleRequest.redirectUri) {
+      setError("Google sign-in is still preparing its secure request. Please try again.");
+      return;
+    }
+
+    googleAuthInProgress.current = true;
+    setBusy(true);
+    try {
+      const authorizationUrl = await googleRequest.makeAuthUrlAsync(GOOGLE_DISCOVERY);
+      window.sessionStorage.setItem(GOOGLE_WEB_AUTH_KEYS.state, googleRequest.state);
+      window.sessionStorage.setItem(GOOGLE_WEB_AUTH_KEYS.verifier, googleRequest.codeVerifier);
+      window.sessionStorage.setItem(GOOGLE_WEB_AUTH_KEYS.redirectUri, googleRequest.redirectUri);
+      window.sessionStorage.setItem(GOOGLE_WEB_AUTH_KEYS.flow, flow);
+      window.location.assign(authorizationUrl);
+    } catch (e) {
+      googleAuthInProgress.current = false;
+      setBusy(false);
+      setError(e instanceof Error ? e.message : "Could not start Google sign-in.");
+    }
+  };
 
   const register = async () => {
     feedback(); setBusy(true);
@@ -182,6 +295,10 @@ export default function App() {
       setError("Google sign-in is still initializing. Please try again in a moment.");
       return;
     }
+    if (Platform.OS === "web") {
+      await startWebGoogleRedirect("signin");
+      return;
+    }
     googleAuthInProgress.current = true;
     setBusy(true);
     try {
@@ -231,6 +348,10 @@ export default function App() {
     }
     if (!googleRequest) {
       setError("Google sign-in is still initializing. Please try again in a moment.");
+      return;
+    }
+    if (Platform.OS === "web") {
+      await startWebGoogleRedirect("link");
       return;
     }
     googleAuthInProgress.current = true;
