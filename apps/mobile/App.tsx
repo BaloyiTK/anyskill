@@ -47,12 +47,19 @@ export default function App() {
     : Platform.OS === "ios"
       ? Boolean(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID)
       : Boolean(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID);
-  const [googleRequest, , promptGoogle] = useIdTokenAuthRequest({
-    webClientId: googleWebClientId,
-    iosClientId: googleIosClientId,
-    androidClientId: googleAndroidClientId,
-    selectAccount: true,
-  });
+  const [googleRequest, , promptGoogle] = useIdTokenAuthRequest(
+    {
+      webClientId: googleWebClientId,
+      iosClientId: googleIosClientId,
+      androidClientId: googleAndroidClientId,
+      selectAccount: true,
+    },
+    {
+      // Google Android OAuth uses this exact single-slash custom-scheme callback.
+      // The native option is ignored on web, where AuthSession uses window.location.
+      native: "com.anyskill.mobile:/oauthredirect",
+    },
+  );
 
   const feedback = () => { setMessage(""); setError(""); };
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
@@ -180,6 +187,7 @@ export default function App() {
         type: result.type,
         error: result.type === "error" ? result.error?.message ?? null : null,
         returnedIdToken: result.type === "success" ? Boolean(result.params.id_token) : false,
+        callbackUrl: result.type === "success" ? result.url : null,
       });
       if (result.type !== "success") {
         if (result.type === "error") throw new Error(result.error?.message ?? "Google sign-in failed.");
@@ -227,6 +235,7 @@ export default function App() {
         type: result.type,
         error: result.type === "error" ? result.error?.message ?? null : null,
         returnedIdToken: result.type === "success" ? Boolean(result.params.id_token) : false,
+        callbackUrl: result.type === "success" ? result.url : null,
       });
       if (result.type !== "success") {
         if (result.type === "error") throw new Error(result.error?.message ?? "Google account linking failed.");
