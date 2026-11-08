@@ -68,7 +68,9 @@ export default function App() {
       usePKCE: true,
       // Web callback exchanges the authorization code manually below. Keep the hook
       // from attempting a second redemption if it also observes a successful response.
-      shouldAutoExchangeCode: false,
+      // The web callback redeems its code manually; native relies on the hook
+      // to exchange its code and expose params.id_token to the native handlers.
+      shouldAutoExchangeCode: Platform.OS !== "web",
       selectAccount: true,
     },
     {
