@@ -2,7 +2,7 @@
   "expo": {
     "name": "AnySkill",
     "slug": "anyskill",
-    "scheme": "anyskill",
+    "scheme": ["anyskill", "com.anyskill.mobile"],
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
