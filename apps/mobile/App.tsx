@@ -39,11 +39,11 @@ export default function App() {
   const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? "not-configured.apps.googleusercontent.com";
   const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? "not-configured.apps.googleusercontent.com";
   const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ?? "not-configured.apps.googleusercontent.com";
-  const googleConfigured = Boolean(
-    process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID &&
-    process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID &&
-    process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID
-  );
+  const googleConfigured = Platform.OS === "android"
+    ? Boolean(process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID)
+    : Platform.OS === "ios"
+      ? Boolean(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID)
+      : Boolean(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID);
   const [googleRequest, , promptGoogle] = useIdTokenAuthRequest({
     webClientId: googleWebClientId,
     iosClientId: googleIosClientId,
@@ -154,8 +154,19 @@ export default function App() {
 
   const continueWithGoogle = async () => {
     feedback();
+    console.warn("[AnySkill Google OAuth] sign-in request", {
+      platform: Platform.OS,
+      requestReady: Boolean(googleRequest),
+      clientId: googleRequest?.clientId ?? null,
+      redirectUri: googleRequest?.redirectUri ?? null,
+      responseType: googleRequest?.responseType ?? null,
+    });
     if (!googleConfigured) {
-      setError("Google sign-in is not configured yet. Add the Google OAuth client IDs to the mobile and API environment files.");
+      setError("Google sign-in is not configured for this platform. Check its OAuth client ID in the mobile environment.");
+      return;
+    }
+    if (!googleRequest) {
+      setError("Google sign-in is still initializing. Please try again in a moment.");
       return;
     }
     setBusy(true);
@@ -180,8 +191,19 @@ export default function App() {
 
   const connectGoogle = async () => {
     feedback();
+    console.warn("[AnySkill Google OAuth] link request", {
+      platform: Platform.OS,
+      requestReady: Boolean(googleRequest),
+      clientId: googleRequest?.clientId ?? null,
+      redirectUri: googleRequest?.redirectUri ?? null,
+      responseType: googleRequest?.responseType ?? null,
+    });
     if (!googleConfigured) {
-      setError("Google sign-in is not configured yet. Add the Google OAuth client IDs to the mobile and API environment files.");
+      setError("Google sign-in is not configured for this platform. Check its OAuth client ID in the mobile environment.");
+      return;
+    }
+    if (!googleRequest) {
+      setError("Google sign-in is still initializing. Please try again in a moment.");
       return;
     }
     setBusy(true);
