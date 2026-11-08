@@ -1,9 +1,33 @@
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL ?? "http://10.0.2.2:3000/api/v1";
 const ACCESS_TOKEN_KEY = "anyskill.access-token";
 const REFRESH_TOKEN_KEY = "anyskill.refresh-token";
+
+function getStoredItem(key: string): Promise<string | null> {
+  if (Platform.OS === "web") {
+    return Promise.resolve(typeof window === "undefined" ? null : window.sessionStorage.getItem(key));
+  }
+  return SecureStore.getItemAsync(key);
+}
+
+function setStoredItem(key: string, value: string): Promise<void> {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined") window.sessionStorage.setItem(key, value);
+    return Promise.resolve();
+  }
+  return SecureStore.setItemAsync(key, value);
+}
+
+function removeStoredItem(key: string): Promise<void> {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined") window.sessionStorage.removeItem(key);
+    return Promise.resolve();
+  }
+  return SecureStore.deleteItemAsync(key);
+}
 
 type TokenResponse = {
   accessToken: string;
@@ -28,15 +52,15 @@ async function readJson(response: Response) {
 
 export async function saveTokens(tokens: TokenResponse): Promise<void> {
   await Promise.all([
-    SecureStore.setItemAsync(ACCESS_TOKEN_KEY, tokens.accessToken),
-    SecureStore.setItemAsync(REFRESH_TOKEN_KEY, tokens.refreshToken),
+    setStoredItem(ACCESS_TOKEN_KEY, tokens.accessToken),
+    setStoredItem(REFRESH_TOKEN_KEY, tokens.refreshToken),
   ]);
 }
 
 export async function clearTokens(): Promise<void> {
   await Promise.all([
-    SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
-    SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+    removeStoredItem(ACCESS_TOKEN_KEY),
+    removeStoredItem(REFRESH_TOKEN_KEY),
   ]);
 }
 
@@ -49,7 +73,7 @@ export async function apiRequest<T>(
   headers.set("Content-Type", "application/json");
 
   if (authenticated) {
-    const accessToken = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+    const accessToken = await getStoredItem(ACCESS_TOKEN_KEY);
     if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
@@ -59,7 +83,7 @@ export async function apiRequest<T>(
   });
 
   if (authenticated && response.status === 401) {
-    const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+    const refreshToken = await getStoredItem(REFRESH_TOKEN_KEY);
     if (refreshToken) {
       const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
         method: "POST",
