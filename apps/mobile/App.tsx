@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useIdTokenAuthRequest } from "expo-auth-session/providers/google";
+import * as WebBrowser from "expo-web-browser";
 import {
   ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable,
   SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
@@ -9,6 +10,8 @@ import {
 } from "./src/api";
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
+
+WebBrowser.maybeCompleteAuthSession();
 
 type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password" | "dashboard" | "marketplace" | "onboarding";
 type UserMode = "seeker" | "provider";
@@ -172,7 +175,17 @@ export default function App() {
     setBusy(true);
     try {
       const result = await promptGoogle();
-      if (result.type !== "success") return;
+      console.info("[AnySkill Google OAuth] sign-in response", {
+        platform: Platform.OS,
+        type: result.type,
+        error: result.type === "error" ? result.error?.message ?? null : null,
+        returnedIdToken: result.type === "success" ? Boolean(result.params.id_token) : false,
+      });
+      if (result.type !== "success") {
+        if (result.type === "error") throw new Error(result.error?.message ?? "Google sign-in failed.");
+        setError(`Google sign-in was ${result.type}. Please try again.`);
+        return;
+      }
       const idToken = result.params.id_token;
       if (!idToken) throw new Error("Google did not return an ID token. Please try again.");
 
@@ -209,7 +222,17 @@ export default function App() {
     setBusy(true);
     try {
       const result = await promptGoogle();
-      if (result.type !== "success") return;
+      console.info("[AnySkill Google OAuth] link response", {
+        platform: Platform.OS,
+        type: result.type,
+        error: result.type === "error" ? result.error?.message ?? null : null,
+        returnedIdToken: result.type === "success" ? Boolean(result.params.id_token) : false,
+      });
+      if (result.type !== "success") {
+        if (result.type === "error") throw new Error(result.error?.message ?? "Google account linking failed.");
+        setError(`Google account linking was ${result.type}. Please try again.`);
+        return;
+      }
       const idToken = result.params.id_token;
       if (!idToken) throw new Error("Google did not return an ID token. Please try again.");
       await apiRequest("/auth/google/link", {
