@@ -2,14 +2,19 @@ const { getDefaultConfig } = require("expo/metro-config");
 
 const config = getDefaultConfig(__dirname);
 
-// Apply the COOP header before Metro handles every request, including the
-// web document used to open the Google OAuth popup.
-config.server.unstable_priorityMiddleware = [
-  ...(config.server.unstable_priorityMiddleware ?? []),
-  (req, res, next) => {
+// Metro 0.87.1 supports enhanceMiddleware. The priority middleware API
+// was introduced in Metro 0.87.2, so use the compatible hook here.
+const enhanceMiddleware = config.server.enhanceMiddleware;
+
+config.server.enhanceMiddleware = (middleware, metroServer) => {
+  const enhancedMiddleware = enhanceMiddleware
+    ? enhanceMiddleware(middleware, metroServer)
+    : middleware;
+
+  return (req, res, next) => {
     res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
-    next();
-  },
-];
+    return enhancedMiddleware(req, res, next);
+  };
+};
 
 module.exports = config;
