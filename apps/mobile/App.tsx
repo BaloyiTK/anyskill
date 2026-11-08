@@ -66,7 +66,9 @@ export default function App() {
       androidClientId: googleAndroidClientId,
       responseType: ResponseType.Code,
       usePKCE: true,
-      shouldAutoExchangeCode: true,
+      // Web callback exchanges the authorization code manually below. Keep the hook
+      // from attempting a second redemption if it also observes a successful response.
+      shouldAutoExchangeCode: false,
       selectAccount: true,
     },
     {
