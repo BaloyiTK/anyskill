@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useIdTokenAuthRequest } from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
 import {
@@ -37,6 +37,8 @@ export default function App() {
   const [identity, setIdentity] = useState<IdentitySummary | null>(null);
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // AuthSession is global: prevent sign-in and account-link flows from overlapping.
+  const googleAuthInProgress = useRef(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? "not-configured.apps.googleusercontent.com";
@@ -163,6 +165,7 @@ export default function App() {
   };
 
   const continueWithGoogle = async () => {
+    if (googleAuthInProgress.current) return;
     feedback();
     console.warn("[AnySkill Google OAuth] sign-in request", {
       platform: Platform.OS,
@@ -179,6 +182,7 @@ export default function App() {
       setError("Google sign-in is still initializing. Please try again in a moment.");
       return;
     }
+    googleAuthInProgress.current = true;
     setBusy(true);
     try {
       const result = await promptGoogle();
@@ -206,11 +210,13 @@ export default function App() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Google sign-in failed.");
     } finally {
+      googleAuthInProgress.current = false;
       setBusy(false);
     }
   };
 
   const connectGoogle = async () => {
+    if (googleAuthInProgress.current) return;
     feedback();
     console.warn("[AnySkill Google OAuth] link request", {
       platform: Platform.OS,
@@ -227,6 +233,7 @@ export default function App() {
       setError("Google sign-in is still initializing. Please try again in a moment.");
       return;
     }
+    googleAuthInProgress.current = true;
     setBusy(true);
     try {
       const result = await promptGoogle();
@@ -254,6 +261,7 @@ export default function App() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not connect Google account.");
     } finally {
+      googleAuthInProgress.current = false;
       setBusy(false);
     }
   };
