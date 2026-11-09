@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
+import { CameraView, useCameraPermissions } from "expo-camera";
 type CountryOption = { name: string; code: string; dialCode: string };
 type AddressSuggestion = { label: string; latitude: number; longitude: number };
 import { MapPinPicker } from "./MapPinPicker";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
 
 type Section = "Profile" | "Verification" | "Skills" | "Portfolio" | "Submit";
@@ -55,6 +56,10 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [bookPage1Ready, setBookPage1Ready] = useState(false);
   const [bookPage2Ready, setBookPage2Ready] = useState(false);
   const [selfieReady, setSelfieReady] = useState(false);
+  const [identityPreviews, setIdentityPreviews] = useState<Record<string, string>>({});
+  const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const selfieCameraRef = useRef<CameraView>(null);
   const [homeLatitude, setHomeLatitude] = useState("");
   const [homeLongitude, setHomeLongitude] = useState("");
   const [homeLocationBusy, setHomeLocationBusy] = useState(false);
@@ -228,22 +233,20 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   };
 
 
-  const uploadIdentityImage = async (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE", source: "camera" | "gallery" = "camera") => {
+  const uploadIdentityAsset = async (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE", uri: string, mimeType?: string | null, fileSize?: number | null, originalFileName?: string | null) => {
     setBusy(true); setError(""); setMessage("");
     try {
-      const picked = source === "gallery" ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 }) : await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85, cameraType: purpose === "ID_SELFIE" ? ImagePicker.CameraType.front : ImagePicker.CameraType.back });
-      if (picked.canceled || !picked.assets[0]) return;
-      const asset = picked.assets[0];
-      const contentType = asset.mimeType ?? "image/jpeg";
+      const contentType = mimeType ?? "image/jpeg";
       if (!["image/jpeg", "image/png", "image/webp"].includes(contentType)) throw new Error("Please use a JPEG, PNG or WebP image.");
-      const blob = await (await fetch(asset.uri)).blob();
-      const fileName = asset.fileName ?? (purpose === "ID_SELFIE" ? "identity-selfie.jpg" : purpose.toLowerCase().replaceAll("_", "-") + ".jpg");
-      const reservation = await apiRequest<{assetId:string;cloudName:string;apiKey:string;timestamp:number;signature:string;publicId:string;assetFolder:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: asset.fileSize ?? blob.size, purpose }) }, true);
+      const blob = await (await fetch(uri)).blob();
+      const fileName = originalFileName ?? (purpose === "ID_SELFIE" ? "identity-selfie.jpg" : purpose.toLowerCase().replaceAll("_", "-") + ".jpg");
+      const reservation = await apiRequest<{assetId:string;cloudName:string;apiKey:string;timestamp:number;signature:string;publicId:string;assetFolder:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: fileSize ?? blob.size, purpose }) }, true);
       const form = new FormData();
       form.append("file", blob, fileName); form.append("api_key", reservation.apiKey); form.append("timestamp", String(reservation.timestamp)); form.append("signature", reservation.signature); form.append("public_id", reservation.publicId); form.append("asset_folder", reservation.assetFolder); form.append("overwrite", "false"); form.append("unique_filename", "false"); form.append("use_filename", "false");
       const response = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated/upload", { method: "POST", body: form });
       if (!response.ok) throw new Error("Secure image upload failed. Please try again.");
       await apiRequest("/identity-verification/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
+      setIdentityPreviews((current) => ({ ...current, [purpose]: uri }));
       if (purpose === "ID_DOCUMENT_FRONT") setIdFrontReady(true);
       if (purpose === "ID_DOCUMENT_BACK") setIdBackReady(true);
       if (purpose === "ID_BOOK_PAGE_1") setBookPage1Ready(true);
@@ -253,6 +256,40 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       setMessage(purpose === "ID_SELFIE" ? "Live selfie captured and uploaded securely." : "ID image uploaded securely.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not upload verification image."); }
     finally { setBusy(false); }
+  };
+
+  const uploadIdentityImage = async (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2", source: "camera" | "gallery" = "camera") => {
+    try {
+      const picked = source === "gallery"
+        ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 })
+        : await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85, cameraType: ImagePicker.CameraType.back });
+      if (picked.canceled || !picked.assets[0]) return;
+      const asset = picked.assets[0];
+      await uploadIdentityAsset(purpose, asset.uri, asset.mimeType, asset.fileSize, asset.fileName);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not select the ID image."); }
+  };
+
+  const openSelfieCamera = async () => {
+    setError(""); setMessage("");
+    if (!cameraPermission?.granted) {
+      const permission = await requestCameraPermission();
+      if (!permission.granted) { setError("Camera permission is required to take your live selfie."); return; }
+    }
+    setSelfieCameraOpen(true);
+  };
+
+  const captureSelfie = async () => {
+    if (!selfieCameraRef.current) { setError("The front camera is not ready yet. Please try again."); return; }
+    setBusy(true); setError("");
+    try {
+      const photo = await selfieCameraRef.current.takePictureAsync({ quality: 0.85 });
+      if (!photo?.uri) throw new Error("The selfie could not be captured. Please try again.");
+      setSelfieCameraOpen(false);
+      await uploadIdentityAsset("ID_SELFIE", photo.uri, "image/jpeg", photo.fileSize, "identity-selfie.jpg");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not capture your selfie.");
+      setBusy(false);
+    }
   };
 
   const submitIdentityVerification = async () => {
@@ -402,6 +439,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           { purpose: "ID_BOOK_PAGE_2" as const, label: "ID book: second identity page", ready: bookPage2Ready },
         ]).map((item) => <View key={item.purpose} style={st.card}>
           <Text style={st.label}>{item.label}</Text>
+          {identityPreviews[item.purpose] ? <Image source={{ uri: identityPreviews[item.purpose] }} style={st.imagePreview} resizeMode="contain" /> : null}
           <Text style={st.status}>{item.ready ? "Image saved securely" : "Image required"}</Text>
           <View style={st.choiceRow}>
             <View style={{ flex: 1 }}><Action label="Upload from gallery" onPress={() => void uploadIdentityImage(item.purpose, "gallery")} disabled={busy} /></View>
@@ -410,7 +448,19 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         </View>)}
         <Text style={st.label}>2. Live selfie</Text>
         <Text style={st.help}>Your front-facing camera will open. Take a fresh selfie now; selecting a selfie from your gallery is not allowed.</Text>
-        <Action label={selfieReady ? "Retake live selfie" : "Open front camera and take selfie"} onPress={() => void uploadIdentityImage("ID_SELFIE", "camera")} disabled={busy} />
+        {selfieCameraOpen ? <View style={st.cameraFrame}>
+          <CameraView ref={selfieCameraRef} style={StyleSheet.absoluteFill} facing="front" />
+          <View pointerEvents="none" style={st.cameraOverlay}>
+            <Text style={st.cameraHint}>Position your face inside the oval</Text>
+            <View style={st.headGuide} />
+            <Text style={st.cameraHint}>Keep your head straight and look at the camera</Text>
+          </View>
+          <View style={st.cameraControls}>
+            <Pressable style={[st.cameraButton, st.cameraCancel]} onPress={() => setSelfieCameraOpen(false)} disabled={busy}><Text style={st.cameraButtonText}>Cancel</Text></Pressable>
+            <Pressable style={st.cameraButton} onPress={() => void captureSelfie()} disabled={busy}><Text style={st.cameraButtonText}>{busy ? "Please wait..." : "Take selfie"}</Text></Pressable>
+          </View>
+        </View> : <Action label={selfieReady ? "Retake live selfie" : "Open front camera and take selfie"} onPress={() => void openSelfieCamera()} disabled={busy} />}
+        {identityPreviews.ID_SELFIE ? <Image source={{ uri: identityPreviews.ID_SELFIE }} style={st.imagePreview} resizeMode="contain" /> : null}
         <Text style={st.status}>{selfieReady ? "Live selfie captured and uploaded" : "Live selfie required"}</Text>
         <Text style={st.help}>Images are stored privately. An administrator will review them later; uploading does not automatically verify your identity.</Text>
       </>}
@@ -494,6 +544,15 @@ const st = StyleSheet.create({
   multiline: { minHeight: 88, paddingTop: 12, textAlignVertical: "top" },
   status: { color: colors.muted, fontSize: 12, marginVertical: 6 }, statusValue: { color: colors.ink, fontWeight: "800", marginTop: 6, textTransform: "capitalize" },
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 17, padding: 17, marginVertical: 13, shadowColor: "#173B2C", shadowOpacity: 0.035, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  imagePreview: { width: "100%", height: 190, backgroundColor: "#EEF1F6", borderRadius: 12, marginTop: 10 },
+  cameraFrame: { height: 440, overflow: "hidden", borderRadius: 18, backgroundColor: "#101827", marginVertical: 12 },
+  cameraOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", paddingVertical: 20 },
+  headGuide: { width: 218, height: 286, borderWidth: 3, borderColor: "#FFFFFF", borderRadius: 140, backgroundColor: "transparent", marginVertical: 14 },
+  cameraHint: { color: "#FFFFFF", fontSize: 13, fontWeight: "800", textAlign: "center", paddingHorizontal: 18, textShadowColor: "#000000", textShadowRadius: 5 },
+  cameraControls: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", gap: 10 },
+  cameraButton: { flex: 1, minHeight: 48, borderRadius: 12, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  cameraCancel: { backgroundColor: "#495469" },
+  cameraButtonText: { color: "#FFFFFF", fontWeight: "800", fontSize: 13 },
   action: { backgroundColor: colors.primary, borderRadius: 11, minHeight: 52, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, marginTop: 10 },
   actionText: { color: "#FFF", fontWeight: "800", fontSize: 13 }, nav: { marginTop: 12, marginBottom: 25 },
   success: { color: colors.primary, marginTop: 12, fontSize: 12 }, error: { color: "#A12D2D", marginTop: 12, fontSize: 12 },
