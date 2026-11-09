@@ -9,7 +9,7 @@ export class OnboardingService {
   constructor(private readonly prisma: PrismaService) {}
 
   private validatePayload(input: SectionInput) {
-    const allowed = new Set(["accountType","marketplaceRole","firstName","lastName","phone","profilePhotoUrl","country","province","city","suburb","address"]);
+    const allowed = new Set(["accountType","marketplaceRole","firstName","lastName","phone","phoneDialCode","profilePhotoUrl","country","countryCode","province","city","suburb","address"]);
     if (input.profile) {
       for (const [key,value] of Object.entries(input.profile)) {
         if (!allowed.has(key) || typeof value !== "string" || value.length > 1000) {
