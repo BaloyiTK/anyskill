@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import * as Location from "expo-location";
+import * as ImagePicker from "expo-image-picker";
 type CountryOption = { name: string; code: string; dialCode: string };
 type AddressSuggestion = { label: string; latitude: number; longitude: number };
 import { MapPinPicker } from "./MapPinPicker";
@@ -45,6 +46,10 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [city, setCity] = useState("");
   const [suburb, setSuburb] = useState("");
   const [address, setAddress] = useState("");
+  const [houseNumber, setHouseNumber] = useState("");
+  const [identityStatus, setIdentityStatus] = useState(p.identityStatus);
+  const [idDocumentReady, setIdDocumentReady] = useState(false);
+  const [selfieReady, setSelfieReady] = useState(false);
   const [homeLatitude, setHomeLatitude] = useState("");
   const [homeLongitude, setHomeLongitude] = useState("");
   const [homeLocationBusy, setHomeLocationBusy] = useState(false);
@@ -65,6 +70,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     try {
       const result = await apiRequest<Payload>("/profile/onboarding", {}, true);
       const home = await apiRequest<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null}>("/profile/location/home", {}, true).catch(() => null);
+      const verification = await apiRequest<{status:string;latestCase:{status:string}|null}>("/identity-verification/status", {}, true).catch(() => null);
+      if (verification) setIdentityStatus(verification.latestCase?.status ?? verification.status);
       setData(result);
       const profile = result.profile ?? {};
       setAccountType(profile.accountType === "INDIVIDUAL" || profile.accountType === "BUSINESS" ? profile.accountType : "");
@@ -72,7 +79,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       setFirstName(profile.firstName ?? ""); setLastName(profile.lastName ?? ""); setPhone(profile.phone ?? "");
       setPhoneDialCode(profile.phoneDialCode ?? "+27");
       setCountry(profile.country ?? "South Africa"); setCountryCode(profile.countryCode ?? "ZA"); setProvince(profile.province ?? ""); setCity(profile.city ?? "");
-      setSuburb(profile.suburb ?? ""); setAddress(profile.address ?? "");
+      setSuburb(profile.suburb ?? ""); setAddress(profile.address ?? ""); setHouseNumber(profile.houseNumber ?? "");
       setHomeLatitude(home?.homeLatitude == null ? "" : String(home.homeLatitude));
       setHomeLongitude(home?.homeLongitude == null ? "" : String(home.homeLongitude));
       const skill = result.skills?.[0]; setCategory(skill?.category ?? ""); setDescription(skill?.description ?? "");
@@ -125,7 +132,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const save = async (section: "profile" | "skills" | "portfolio"): Promise<boolean> => {
     setBusy(true); setError(""); setMessage("");
     try {
-      const body = section === "profile" ? { profile: { accountType, marketplaceRole, firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address } }
+      const body = section === "profile" ? { profile: { accountType, marketplaceRole, firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address: [houseNumber, address].filter(Boolean).join(" "), houseNumber } }
         : section === "skills" ? { skills: category.trim() ? [{ category: category.trim(), description, supportingDocuments: documentName.trim() && documentUrl.trim() ? [{ name: documentName.trim(), url: documentUrl.trim() }] : [] }] : [] }
         : { portfolio: portfolioTitle.trim() ? [{ title: portfolioTitle.trim(), description: portfolioDescription }] : [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
@@ -175,7 +182,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     if (query.trim().length < 3) { setAddressSuggestions([]); return; }
     setAddressSearchBusy(true);
     try {
-      const response = await fetch("https://photon.komoot.io/api/?limit=6&q=" + encodeURIComponent(query.trim()));
+      const response = await fetch("https://photon.komoot.io/api/?limit=10&lang=en&q=" + encodeURIComponent(query.trim() + ", " + country));
       if (!response.ok) throw new Error("Address search is temporarily unavailable.");
       const result = await response.json() as { features?: Array<{ properties?: { name?: string; street?: string; housenumber?: string; district?: string; city?: string; state?: string; country?: string; postcode?: string }; geometry?: { coordinates?: number[] } }> };
       const options: AddressSuggestion[] = (result.features ?? []).flatMap((feature) => {
@@ -184,8 +191,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         const latitude = coordinates?.[1];
         if (typeof latitude !== "number" || typeof longitude !== "number" || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
         const props = feature.properties ?? {};
-        const label = [props.housenumber, props.street ?? props.name, props.district, props.city, props.state, props.postcode, props.country].filter(Boolean).join(", ");
-        return label ? [{ label, latitude, longitude }] : [];
+        const label = [props.street ?? props.name, props.district, props.city, props.state, props.postcode, props.country].filter(Boolean).join(", ");
+        return label ? [{ label: [props.housenumber, label].filter(Boolean).join(" "), latitude, longitude }] : [];
       });
       setAddressSuggestions(options);
     } catch (e) {
@@ -305,6 +312,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         </View>}
         {Field("Province / State (manual entry)", province, setProvince)}
         {Field("City", city, setCity)}{Field("Suburb / District", suburb, setSuburb)}
+        {Field("House / Building number", houseNumber, setHouseNumber)}
         <Text style={st.label}>Search home address</Text>
         <TextInput value={address} onChangeText={(value) => void searchHomeAddress(value)} placeholder="Start typing street, suburb or postcode" placeholderTextColor="#93A099" style={st.input} />
         {addressSearchBusy && <ActivityIndicator color={colors.primary} />}
@@ -314,7 +322,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           </Pressable>)}
         </View>}
         <Action label={homeLocationBusy ? "Getting location..." : "Use current GPS for Home Location"} onPress={() => void useCurrentHomeLocation()} disabled={busy || homeLocationBusy} />
-        <Text style={st.help}>Address search uses OpenStreetMap-based Photon results. Review the suggested address and adjust the pin if needed.</Text>
+        <Text style={st.help}>Search includes your selected country. Some map records only contain street names; enter the house or building number above when it is missing. Review the address and adjust the pin.</Text>
         <Text style={st.label}>Choose Home Location on the map</Text>
         <MapPinPicker latitude={homeLatitude.trim() && Number.isFinite(Number(homeLatitude)) ? Number(homeLatitude) : -26.2041} longitude={homeLongitude.trim() && Number.isFinite(Number(homeLongitude)) ? Number(homeLongitude) : 28.0473} selectedLatitude={homeLatitude.trim() ? Number(homeLatitude) : null} selectedLongitude={homeLongitude.trim() ? Number(homeLongitude) : null} onSelect={(lat, lon) => { void updatePin(lat, lon); }} />
         {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
