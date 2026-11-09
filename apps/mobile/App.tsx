@@ -83,10 +83,18 @@ export default function App() {
 
   const loadAccount = async () => {
     const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
-    const verification = await apiRequest<IdentitySummary>("/identity-verification/status", {}, true);
     setAccount(me);
-    setIdentity(verification);
+    setIdentity(null);
     setScreen("dashboard");
+
+    // Identity-verification status is supplementary account data. A failure
+    // here must not turn a successful authentication into a failed login.
+    try {
+      const verification = await apiRequest<IdentitySummary>("/identity-verification/status", {}, true);
+      setIdentity(verification);
+    } catch {
+      setMessage("You are signed in, but identity-verification status could not be loaded. You can refresh it from your dashboard.");
+    }
   };
 
   const verifyEmailFromLink = async (url: string) => {
