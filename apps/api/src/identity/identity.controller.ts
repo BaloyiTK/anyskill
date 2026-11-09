@@ -6,9 +6,8 @@ import {
   UseGuards,
   Body,
   BadRequestException,
-  IsString,
-  MaxLength,
 } from "@nestjs/common";
+import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PrismaService } from "../database/prisma.service";
@@ -17,7 +16,7 @@ import { MediaService } from "../marketplace/media.service";
 class CreateIdentityUploadDto {
   @IsString() @MaxLength(255) fileName!: string;
   @IsString() @MaxLength(100) contentType!: string;
-  sizeBytes!: number;
+  @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
   @IsString() purpose!: "ID_DOCUMENT" | "ID_SELFIE";
 }
 class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
