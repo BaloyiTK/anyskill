@@ -133,6 +133,29 @@ export class MediaService {
     return { id: asset.id, status: "READY" };
   }
 
+  async getIdentityPreviewUrl(userId: string, purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE") {
+    this.ensureConfigured();
+    const asset = await this.prisma.mediaAsset.findFirst({
+      where: { userId, purpose, status: "READY" },
+      orderBy: { uploadedAt: "desc" },
+      select: { objectKey: true, contentType: true },
+    });
+    if (!asset) return null;
+    const formatByMime: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+    const format = formatByMime[asset.contentType];
+    const folder = FOLDERS[purpose];
+    if (!format || !folder) throw new BadRequestException("Identity image has an unsupported format.");
+    const publicId = asset.objectKey.slice((folder + "/").length);
+    const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
+    const url = cloudinary.utils.private_download_url(publicId, format, {
+      resource_type: "image",
+      type: "authenticated",
+      expires_at: expiresAt,
+      attachment: false,
+    });
+    return { url, expiresAt: new Date(expiresAt * 1000).toISOString() };
+  }
+
   async getEvidenceUrl(userId: string, assetId: string) {
     this.ensureConfigured();
     const asset = await this.prisma.mediaAsset.findFirst({
