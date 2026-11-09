@@ -256,8 +256,42 @@ export class AuthService {
     });
 
     if (existingEmail) {
+      // Google has already verified ownership of this exact email address.
+      // Attach the Google subject to the existing account instead of creating
+      // a duplicate or forcing the user through a separate password login.
+      if (existingEmail.googleSubject === google.subject) {
+        return this.issueTokens(existingEmail.id, existingEmail.email);
+      }
+
+      if (existingEmail.googleSubject) {
+        throw new ConflictException(
+          "This Google account is already linked to another AnySkill account.",
+        );
+      }
+
+      const linked = await this.prisma.user.updateMany({
+        where: { id: existingEmail.id, googleSubject: null },
+        data: {
+          googleSubject: google.subject,
+          emailVerifiedAt: existingEmail.emailVerifiedAt ?? new Date(),
+        },
+      });
+
+      if (linked.count === 1) {
+        return this.issueTokens(existingEmail.id, existingEmail.email);
+      }
+
+      // Handle a concurrent sign-in/link attempt without overwriting another
+      // Google identity or creating a second user for the same email.
+      const refreshedUser = await this.prisma.user.findUnique({
+        where: { id: existingEmail.id },
+      });
+      if (refreshedUser?.googleSubject === google.subject) {
+        return this.issueTokens(refreshedUser.id, refreshedUser.email);
+      }
+
       throw new ConflictException(
-        "An account already uses this email. Sign in with that account first, then connect Google from account settings.",
+        "This Google account is already linked to another AnySkill account.",
       );
     }
 
