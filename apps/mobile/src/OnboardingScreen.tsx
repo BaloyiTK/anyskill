@@ -17,7 +17,7 @@ type Payload = {
 
 const tabs: Section[] = ["Profile", "Verification", "Skills", "Portfolio", "Submit"];
 const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, sections: { profile: false, skills: false, portfolio: false } };
-const colors = { ink: "#15251E", muted: "#66756D", primary: "#176B55", border: "#E1E8E3", surface: "#FFFFFF", bg: "#F5F7F5" };
+const colors = { ink: "#182238", muted: "#778198", primary: "#294FC5", border: "#E2E7F0", surface: "#FFFFFF", bg: "#F7F8FC", hero: "#111D36", soft: "#F0F4FF" };
 
 export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void }) {
   const [active, setActive] = useState<Section>("Profile");
@@ -114,12 +114,24 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   );
 
   return <View style={st.container}>
-    <View style={st.top}><Text style={st.title}>Your profile</Text><Pressable onPress={p.onBack}><Text style={st.back}>Back</Text></Pressable></View>
-    <Text style={st.percent}>{data.percentage}% profile information complete</Text>
-    <View style={st.track}><View style={[st.fill, { width: `${data.percentage}%` }]} /></View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.tabs}>
-      {tabs.map(tab => <Pressable key={tab} onPress={() => setActive(tab)} style={[st.tab, active === tab && st.activeTab]}><Text style={[st.tabText, active === tab && st.activeTabText]}>{tab}</Text></Pressable>)}
-    </ScrollView>
+    <View style={st.hero}>
+      <View style={st.heroTop}>
+        <Text style={st.brand}>anyskill<Text style={st.brandAccent}>.</Text></Text>
+        <Pressable onPress={p.onBack} accessibilityRole="button" style={st.backButton}><Text style={st.back}>Back</Text></Pressable>
+      </View>
+      <Text style={st.heroTitle}>Let's build your profile.</Text>
+      <Text style={st.heroSubtitle}>Tell us a little about yourself so we can create the right AnySkill experience.</Text>
+    </View>
+    <View style={st.progressWrap}>
+      <View style={st.progressMeta}>
+        <View><Text style={st.stepCount}>Step {tabs.indexOf(active) + 1} of 5</Text><Text style={st.percent}>{active} information</Text></View>
+        <Text style={st.percentStrong}>{data.percentage}% complete</Text>
+      </View>
+      <View style={st.track}><View style={[st.fill, { width: `${data.percentage}%` }]} /></View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.tabs}>
+        {tabs.map((tab, index) => <Pressable key={tab} onPress={() => setActive(tab)} style={[st.tab, active === tab && st.activeTab, tabs.indexOf(active) > index && st.doneTab]}><View style={[st.stepDot, active === tab && st.activeDot, tabs.indexOf(active) > index && st.doneDot]}><Text style={[st.stepDotText, (active === tab || tabs.indexOf(active) > index) && st.activeDotText]}>{tabs.indexOf(active) > index ? "✓" : index + 1}</Text></View><Text style={[st.tabText, active === tab && st.activeTabText]}>{tab}</Text></Pressable>)}
+      </ScrollView>
+    </View>
     <ScrollView style={st.body} contentContainerStyle={{ paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
       {busy && <ActivityIndicator color={colors.primary} />}
       {active === "Profile" && <>
@@ -189,31 +201,41 @@ function Choice(p: { label: string; description: string; selected: boolean; onPr
   </Pressable>;
 }
 const st = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg, paddingTop: 8 },
-  top: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
-  title: { color: colors.ink, fontSize: 26, fontWeight: "900", letterSpacing: -0.6 }, back: { color: colors.primary, fontWeight: "800", padding: 8 },
-  percent: { color: colors.muted, paddingHorizontal: 20, fontSize: 12, fontWeight: "800" },
-  track: { height: 8, marginHorizontal: 20, marginTop: 9, borderRadius: 8, backgroundColor: colors.border, overflow: "hidden" },
-  fill: { height: 8, backgroundColor: colors.primary, borderRadius: 8 },
-  tabs: { gap: 8, paddingHorizontal: 20, paddingVertical: 15 },
-  tab: { paddingVertical: 10, paddingHorizontal: 15, borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  activeTab: { backgroundColor: colors.primary, borderColor: colors.primary }, tabText: { color: colors.muted, fontSize: 12, fontWeight: "800" }, activeTabText: { color: "#FFF" },
-  body: { flex: 1, paddingHorizontal: 20 }, heading: { color: colors.ink, fontSize: 20, fontWeight: "900", letterSpacing: -0.35, marginBottom: 8 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  hero: { backgroundColor: colors.hero, paddingHorizontal: 22, paddingTop: 18, paddingBottom: 25, borderBottomLeftRadius: 22, borderBottomRightRadius: 22 },
+  heroTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 25 },
+  brand: { color: "#FFFFFF", fontSize: 19, fontWeight: "900", letterSpacing: 0.2 }, brandAccent: { color: "#83A4FF" },
+  backButton: { borderRadius: 20, paddingHorizontal: 13, paddingVertical: 7, backgroundColor: "#263655" }, back: { color: "#E3EAFF", fontSize: 12, fontWeight: "800" },
+  heroTitle: { color: "#FFFFFF", fontSize: 26, lineHeight: 32, fontWeight: "900", letterSpacing: -0.6 },
+  heroSubtitle: { color: "#C3CDE0", fontSize: 13, lineHeight: 19, marginTop: 8, maxWidth: 340 },
+  progressWrap: { paddingTop: 18 }, progressMeta: { paddingHorizontal: 20, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  stepCount: { color: colors.ink, fontSize: 13, fontWeight: "900" },
+  percent: { color: colors.muted, fontSize: 11, marginTop: 3 }, percentStrong: { color: colors.primary, fontSize: 12, fontWeight: "900" },
+  track: { height: 6, marginHorizontal: 20, marginTop: 10, borderRadius: 8, backgroundColor: colors.border, overflow: "hidden" },
+  fill: { height: 6, backgroundColor: colors.primary, borderRadius: 8 },
+  tabs: { gap: 8, paddingHorizontal: 20, paddingVertical: 14 },
+  tab: { minWidth: 76, flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  activeTab: { backgroundColor: colors.soft, borderColor: colors.primary }, doneTab: { borderColor: "#C9D8FF" },
+  stepDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#E8EBF2" },
+  activeDot: { backgroundColor: colors.primary }, doneDot: { backgroundColor: "#DCE7FF" },
+  stepDotText: { color: colors.muted, fontSize: 10, fontWeight: "900" }, activeDotText: { color: colors.primary },
+  tabText: { color: colors.muted, fontSize: 10, fontWeight: "800" }, activeTabText: { color: colors.primary },
+  body: { flex: 1, paddingHorizontal: 20 }, heading: { color: colors.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.45, marginBottom: 8 },
   help: { color: colors.muted, fontSize: 13, lineHeight: 20, marginBottom: 14 },
   choiceRow: { flexDirection: "row", gap: 10, marginBottom: 15 },
-  choice: { flex: 1, minHeight: 94, borderWidth: 1, borderColor: colors.border, borderRadius: 14, backgroundColor: colors.surface, padding: 12 },
-  choiceSelected: { borderColor: colors.primary, borderWidth: 2, backgroundColor: "#EFF7F1", padding: 11 },
+  choice: { flex: 1, minHeight: 104, borderWidth: 1.5, borderColor: colors.border, borderRadius: 15, backgroundColor: colors.surface, padding: 13 },
+  choiceSelected: { borderColor: colors.primary, borderWidth: 1.8, backgroundColor: colors.soft, padding: 12.7 },
   choiceTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
   choiceTitle: { color: colors.ink, fontSize: 13, fontWeight: "800", flexShrink: 1 },
   choiceDescription: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 8 },
   choiceRadio: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: colors.border },
   choiceRadioSelected: { borderWidth: 5, borderColor: colors.primary },
   field: { marginBottom: 14 }, label: { color: colors.ink, fontSize: 12, fontWeight: "800", marginBottom: 7 },
-  input: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 13, backgroundColor: "#FBFCFB", paddingHorizontal: 14, color: colors.ink, fontSize: 14 },
+  input: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: "#FFFFFF", paddingHorizontal: 14, color: colors.ink, fontSize: 14 },
   multiline: { minHeight: 88, paddingTop: 12, textAlignVertical: "top" },
   status: { color: colors.muted, fontSize: 12, marginVertical: 6 }, statusValue: { color: colors.ink, fontWeight: "800", marginTop: 6, textTransform: "capitalize" },
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 17, padding: 17, marginVertical: 13, shadowColor: "#173B2C", shadowOpacity: 0.035, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  action: { backgroundColor: colors.primary, borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, marginTop: 10 },
+  action: { backgroundColor: colors.primary, borderRadius: 11, minHeight: 52, alignItems: "center", justifyContent: "center", paddingHorizontal: 16, marginTop: 10 },
   actionText: { color: "#FFF", fontWeight: "800", fontSize: 13 }, nav: { marginTop: 12, marginBottom: 25 },
   success: { color: colors.primary, marginTop: 12, fontSize: 12 }, error: { color: "#A12D2D", marginTop: 12, fontSize: 12 },
 });
