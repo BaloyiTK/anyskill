@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ResponseType } from "expo-auth-session";
+import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
 import {
   ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable,
@@ -66,11 +66,9 @@ export default function App() {
       androidClientId: googleAndroidClientId,
       responseType: ResponseType.Code,
       usePKCE: true,
-      // Web callback exchanges the authorization code manually below. Keep the hook
-      // from attempting a second redemption if it also observes a successful response.
-      // The web callback redeems its code manually; native relies on the hook
-      // to exchange its code and expose params.id_token to the native handlers.
-      shouldAutoExchangeCode: Platform.OS !== "web",
+      // Both web and native redeem the authorization code explicitly:
+      // web on the callback, native with PKCE immediately after the browser returns.
+      shouldAutoExchangeCode: false,
       selectAccount: true,
     },
     {
@@ -313,8 +311,20 @@ export default function App() {
         setError(`Google sign-in was ${result.type}. Please try again.`);
         return;
       }
-      const idToken = result.params.id_token;
-      if (!idToken) throw new Error("Google did not return an ID token. Please try again.");
+      const code = result.params.code;
+      const codeVerifier = googleRequest.codeVerifier;
+      const redirectUri = googleRequest.redirectUri;
+      if (!code || !codeVerifier || !redirectUri) {
+        throw new Error("Google sign-in did not return the required secure authorization details. Please try again.");
+      }
+      const googleTokens = await exchangeCodeAsync({
+        clientId: googleRequest.clientId,
+        code,
+        redirectUri,
+        extraParams: { code_verifier: codeVerifier },
+      }, GOOGLE_DISCOVERY);
+      const idToken = googleTokens.idToken;
+      if (!idToken) throw new Error("Google's token exchange did not return an ID token. Please try again.");
 
       const tokens = await apiRequest<Tokens>("/auth/google", {
         method: "POST",
@@ -368,8 +378,20 @@ export default function App() {
         setError(`Google account linking was ${result.type}. Please try again.`);
         return;
       }
-      const idToken = result.params.id_token;
-      if (!idToken) throw new Error("Google did not return an ID token. Please try again.");
+      const code = result.params.code;
+      const codeVerifier = googleRequest.codeVerifier;
+      const redirectUri = googleRequest.redirectUri;
+      if (!code || !codeVerifier || !redirectUri) {
+        throw new Error("Google account linking did not return the required secure authorization details. Please try again.");
+      }
+      const googleTokens = await exchangeCodeAsync({
+        clientId: googleRequest.clientId,
+        code,
+        redirectUri,
+        extraParams: { code_verifier: codeVerifier },
+      }, GOOGLE_DISCOVERY);
+      const idToken = googleTokens.idToken;
+      if (!idToken) throw new Error("Google's token exchange did not return an ID token. Please try again.");
       await apiRequest("/auth/google/link", {
         method: "POST",
         body: JSON.stringify({ idToken }),
