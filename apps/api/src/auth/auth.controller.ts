@@ -19,6 +19,23 @@ class GoogleIdTokenDto {
   idToken!: string;
 }
 
+class GoogleAuthorizationCodeDto {
+  @IsString()
+  @MinLength(10)
+  @MaxLength(2048)
+  code!: string;
+
+  @IsString()
+  @MinLength(43)
+  @MaxLength(128)
+  codeVerifier!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(2048)
+  redirectUri!: string;
+}
+
 class RefreshDto {
   @IsString()
   @MinLength(32)
@@ -55,6 +72,22 @@ export class AuthController {
   @Post("google")
   googleSignIn(@Body() dto: GoogleIdTokenDto) {
     return this.auth.googleSignIn(dto.idToken);
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post("google/exchange")
+  googleSignInWithAuthorizationCode(@Body() dto: GoogleAuthorizationCodeDto) {
+    return this.auth.googleSignInWithAuthorizationCode(dto.code, dto.codeVerifier, dto.redirectUri);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("google/link/exchange")
+  @UseGuards(JwtAuthGuard)
+  linkGoogleAccountWithAuthorizationCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: GoogleAuthorizationCodeDto,
+  ) {
+    return this.auth.linkGoogleAccountWithAuthorizationCode(user.id, dto.code, dto.codeVerifier, dto.redirectUri);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
