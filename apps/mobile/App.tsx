@@ -668,6 +668,15 @@ function Secondary(p: { label: string; onPress: () => void }) {
 function TextButton(p: { label: string; onPress: () => void }) {
   return <Pressable onPress={p.onPress} style={s.textButton}><Text style={s.textButtonText}>{p.label}</Text></Pressable>;
 }
+function ModeCard(p: { title: string; description: string; selected: boolean; onPress: () => void }) {
+  return <Pressable onPress={p.onPress} style={[s.modeCard, p.selected && s.modeCardSelected]}>
+    <View style={s.modeCardTop}>
+      <Text style={s.modeTitle}>{p.title}</Text>
+      <View style={[s.radio, p.selected && s.radioSelected]} />
+    </View>
+    <Text style={s.modeDescription}>{p.description}</Text>
+  </Pressable>;
+}
 
 const s = StyleSheet.create({
   flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
