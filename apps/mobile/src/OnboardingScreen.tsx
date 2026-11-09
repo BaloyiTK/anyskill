@@ -284,7 +284,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   };
 
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Draft / not complete";
-  const next = () => setActive(tabs[Math.min(tabs.indexOf(active) + 1, tabs.length - 1)] ?? "Submit");
   const Field = (label: string, value: string, change: (v: string) => void, multiline = false) => (
     <View style={st.field} key={label}><Text style={st.label}>{label}</Text><TextInput value={value} onChangeText={change} multiline={multiline} placeholder={label} placeholderTextColor="#93A099" style={[st.input, multiline && st.multiline]} /></View>
   );
@@ -376,7 +375,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
         <Text style={st.help}>Home Location is saved to your profile and used as a default. It is not continuous live tracking. You can also type coordinates if map tiles are unavailable.</Text>
         <Text style={st.status}>Section: {status("profile")}</Text>
-        <View style={st.saveButtons}><View style={st.saveButtonHalf}><Action label="Save" onPress={() => void save("profile")} disabled={busy} /></View><View style={st.saveButtonHalf}><Action label="Save & Continue" onPress={() => void saveAndContinue()} disabled={busy} /></View></View>
       </>}
       {active === "Verification" && <>
         <Text style={st.heading}>Identity verification</Text>
