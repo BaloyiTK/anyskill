@@ -15,14 +15,14 @@ const REFRESH_TOKEN_KEY = "anyskill.refresh-token";
 
 function getStoredItem(key: string): Promise<string | null> {
   if (Platform.OS === "web") {
-    return Promise.resolve(typeof window === "undefined" ? null : window.sessionStorage.getItem(key));
+    return Promise.resolve(typeof window === "undefined" ? null : window.localStorage.getItem(key));
   }
   return SecureStore.getItemAsync(key);
 }
 
 function setStoredItem(key: string, value: string): Promise<void> {
   if (Platform.OS === "web") {
-    if (typeof window !== "undefined") window.sessionStorage.setItem(key, value);
+    if (typeof window !== "undefined") window.localStorage.setItem(key, value);
     return Promise.resolve();
   }
   return SecureStore.setItemAsync(key, value);
@@ -30,7 +30,7 @@ function setStoredItem(key: string, value: string): Promise<void> {
 
 function removeStoredItem(key: string): Promise<void> {
   if (Platform.OS === "web") {
-    if (typeof window !== "undefined") window.sessionStorage.removeItem(key);
+    if (typeof window !== "undefined") window.localStorage.removeItem(key);
     return Promise.resolve();
   }
   return SecureStore.deleteItemAsync(key);
@@ -116,7 +116,7 @@ export async function apiRequest<T>(
 }
 
 export async function signOut(): Promise<void> {
-  const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+  const refreshToken = await getStoredItem(REFRESH_TOKEN_KEY);
   if (refreshToken) {
     try {
       await apiRequest("/auth/logout", {
