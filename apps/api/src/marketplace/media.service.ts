@@ -150,7 +150,9 @@ export class MediaService {
     const formatByMime: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
     const format = formatByMime[asset.contentType];
     if (!format) throw new BadRequestException("Evidence image has an unsupported content type.");
-    const publicId = asset.objectKey.slice((FOLDER + "/").length);
+    const folder = FOLDERS[asset.purpose];
+    if (!folder) throw new BadRequestException("Evidence image has an unsupported purpose.");
+    const publicId = asset.objectKey.slice((folder + "/").length);
     const url = cloudinary.utils.private_download_url(publicId, format, {
       resource_type: "image",
       type: "authenticated",
