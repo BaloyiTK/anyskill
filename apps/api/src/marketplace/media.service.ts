@@ -6,7 +6,7 @@ import { PrismaService } from "../database/prisma.service";
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 const FORMAT_MIME: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
-const FOLDERS: Record<string, string> = { JOB_COMPLETION_EVIDENCE: "anyskill/job-completion-evidence", ID_DOCUMENT: "anyskill/identity-verification", ID_SELFIE: "anyskill/identity-verification" };
+const FOLDERS: Record<string, string> = { JOB_COMPLETION_EVIDENCE: "anyskill/job-completion-evidence", ID_DOCUMENT: "anyskill/identity-verification", ID_DOCUMENT_FRONT: "anyskill/identity-verification", ID_DOCUMENT_BACK: "anyskill/identity-verification", ID_BOOK_PAGE_1: "anyskill/identity-verification", ID_BOOK_PAGE_2: "anyskill/identity-verification", ID_SELFIE: "anyskill/identity-verification" };
 
 @Injectable()
 export class MediaService {
@@ -24,7 +24,7 @@ export class MediaService {
     if (!this.configured) throw new ServiceUnavailableException("Photo uploads are not configured yet. Contact support.");
   }
 
-  async createUpload(userId: string, input: { fileName: string; contentType: string; sizeBytes: number; purpose?: "JOB_COMPLETION_EVIDENCE" | "ID_DOCUMENT" | "ID_SELFIE" }) {
+  async createUpload(userId: string, input: { fileName: string; contentType: string; sizeBytes: number; purpose?: "JOB_COMPLETION_EVIDENCE" | "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE" }) {
     this.ensureConfigured();
     const purpose = input.purpose ?? "JOB_COMPLETION_EVIDENCE";
     const folder = FOLDERS[purpose];
@@ -75,7 +75,7 @@ export class MediaService {
   async confirmUpload(userId: string, assetId: string) {
     this.ensureConfigured();
     const asset = await this.prisma.mediaAsset.findFirst({
-      where: { id: assetId, userId, purpose: { in: ["JOB_COMPLETION_EVIDENCE", "ID_DOCUMENT", "ID_SELFIE"] } },
+      where: { id: assetId, userId, purpose: { in: ["JOB_COMPLETION_EVIDENCE", "ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] } },
     });
     if (!asset) throw new NotFoundException("Upload reservation not found.");
     if (asset.status === "READY") return { id: asset.id, status: asset.status };
