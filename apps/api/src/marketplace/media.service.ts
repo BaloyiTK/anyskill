@@ -6,7 +6,7 @@ import { PrismaService } from "../database/prisma.service";
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 const FORMAT_MIME: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
-const FOLDER = "anyskill/job-completion-evidence";
+const FOLDERS: Record<string, string> = { JOB_COMPLETION_EVIDENCE: "anyskill/job-completion-evidence", ID_DOCUMENT: "anyskill/identity-verification", ID_SELFIE: "anyskill/identity-verification" };
 
 @Injectable()
 export class MediaService {
@@ -24,8 +24,11 @@ export class MediaService {
     if (!this.configured) throw new ServiceUnavailableException("Photo uploads are not configured yet. Contact support.");
   }
 
-  async createUpload(userId: string, input: { fileName: string; contentType: string; sizeBytes: number }) {
+  async createUpload(userId: string, input: { fileName: string; contentType: string; sizeBytes: number; purpose?: "JOB_COMPLETION_EVIDENCE" | "ID_DOCUMENT" | "ID_SELFIE" }) {
     this.ensureConfigured();
+    const purpose = input.purpose ?? "JOB_COMPLETION_EVIDENCE";
+    const folder = FOLDERS[purpose];
+    if (!folder) throw new BadRequestException("Unsupported upload purpose.");
     if (!ALLOWED.has(input.contentType)) throw new BadRequestException("Only JPEG, PNG and WebP images are accepted.");
     if (!Number.isInteger(input.sizeBytes) || input.sizeBytes < 1 || input.sizeBytes > MAX_BYTES) {
       throw new BadRequestException("Each image must be between 1 byte and 10 MB.");
@@ -39,7 +42,7 @@ export class MediaService {
     const params = {
       timestamp,
       public_id: publicId,
-      asset_folder: FOLDER,
+      asset_folder: folder,
       overwrite: false,
       unique_filename: false,
       use_filename: false,
@@ -48,11 +51,11 @@ export class MediaService {
     const asset = await this.prisma.mediaAsset.create({
       data: {
         userId,
-        objectKey: `${FOLDER}/${publicId}`,
+        objectKey: `${folder}/${publicId}`,
         originalName: input.fileName.slice(0, 255),
         contentType: input.contentType,
         sizeBytes: input.sizeBytes,
-        purpose: "JOB_COMPLETION_EVIDENCE",
+        purpose,
         expiresAt: new Date(Date.now() + 30 * 60_000),
       },
     });
@@ -64,7 +67,7 @@ export class MediaService {
       timestamp,
       signature,
       publicId,
-      assetFolder: FOLDER,
+      assetFolder: folder,
       maxBytes: MAX_BYTES,
     };
   }
@@ -72,7 +75,7 @@ export class MediaService {
   async confirmUpload(userId: string, assetId: string) {
     this.ensureConfigured();
     const asset = await this.prisma.mediaAsset.findFirst({
-      where: { id: assetId, userId, purpose: "JOB_COMPLETION_EVIDENCE" },
+      where: { id: assetId, userId, purpose: { in: ["JOB_COMPLETION_EVIDENCE", "ID_DOCUMENT", "ID_SELFIE"] } },
     });
     if (!asset) throw new NotFoundException("Upload reservation not found.");
     if (asset.status === "READY") return { id: asset.id, status: asset.status };
@@ -82,7 +85,9 @@ export class MediaService {
       throw new ConflictException("Upload reservation expired. Please upload the image again.");
     }
 
-    const expectedPublicId = asset.objectKey.slice((FOLDER + "/").length);
+    const folder = FOLDERS[asset.purpose];
+    if (!folder) throw new BadRequestException("Unsupported upload purpose.");
+    const expectedPublicId = asset.objectKey.slice((folder + "/").length);
     let remote: any;
     try {
       remote = await cloudinary.api.resource(expectedPublicId, { resource_type: "image", type: "authenticated" });
@@ -93,7 +98,7 @@ export class MediaService {
     const remoteMime = FORMAT_MIME[String(remote.format ?? "").toLowerCase()];
     const valid =
       remote.public_id === expectedPublicId &&
-      remote.asset_folder === FOLDER &&
+      remote.asset_folder === folder &&
       remoteMime === asset.contentType &&
       ALLOWED.has(remoteMime) &&
       remote.bytes === asset.sizeBytes &&
