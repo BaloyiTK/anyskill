@@ -64,6 +64,14 @@ export class IdentityController {
       this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_SELFIE", status: "READY" }, select: { id: true } }),
     ]);
 
+    const [idFrontPreview, idBackPreview, bookPage1Preview, bookPage2Preview, selfiePreview] = await Promise.all([
+      this.media.getIdentityPreviewUrl(user.id, "ID_DOCUMENT_FRONT"),
+      this.media.getIdentityPreviewUrl(user.id, "ID_DOCUMENT_BACK"),
+      this.media.getIdentityPreviewUrl(user.id, "ID_BOOK_PAGE_1"),
+      this.media.getIdentityPreviewUrl(user.id, "ID_BOOK_PAGE_2"),
+      this.media.getIdentityPreviewUrl(user.id, "ID_SELFIE"),
+    ]);
+
     return {
       status: account.identityVerification.toLowerCase(),
       verifiedAt: account.identityVerifiedAt,
@@ -73,6 +81,13 @@ export class IdentityController {
       idFrontUploaded: Boolean(idFront), idBackUploaded: Boolean(idBack),
       bookPage1Uploaded: Boolean(bookPage1), bookPage2Uploaded: Boolean(bookPage2),
       selfieUploaded: Boolean(selfie),
+      previews: {
+        ID_DOCUMENT_FRONT: idFrontPreview?.url ?? null,
+        ID_DOCUMENT_BACK: idBackPreview?.url ?? null,
+        ID_BOOK_PAGE_1: bookPage1Preview?.url ?? null,
+        ID_BOOK_PAGE_2: bookPage2Preview?.url ?? null,
+        ID_SELFIE: selfiePreview?.url ?? null,
+      },
     };
   }
 
