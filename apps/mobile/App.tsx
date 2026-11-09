@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
+import { ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
 import {
   ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable,
@@ -163,30 +163,24 @@ export default function App() {
     const completeWebGoogleSignIn = async () => {
       setBusy(true);
       try {
-        const tokenResponse = await exchangeCodeAsync(
-          {
-            clientId: googleWebClientId,
-            code,
-            redirectUri,
-            extraParams: { code_verifier: codeVerifier },
-          },
-          { tokenEndpoint: GOOGLE_DISCOVERY.tokenEndpoint },
-        );
-        const idToken = tokenResponse.idToken;
-        if (!idToken) throw new Error("Google did not return an ID token.");
+        const authorizationCode = {
+          code,
+          codeVerifier,
+          redirectUri,
+        };
 
         if (flow === "link") {
-          await apiRequest("/auth/google/link", {
+          await apiRequest("/auth/google/link/exchange", {
             method: "POST",
-            body: JSON.stringify({ idToken }),
+            body: JSON.stringify(authorizationCode),
           }, true);
           const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
           setAccount(me);
           setMessage("Google account connected successfully.");
         } else {
-          const tokens = await apiRequest<Tokens>("/auth/google", {
+          const tokens = await apiRequest<Tokens>("/auth/google/exchange", {
             method: "POST",
-            body: JSON.stringify({ idToken }),
+            body: JSON.stringify(authorizationCode),
           });
           await saveTokens(tokens);
           await loadAccount();
