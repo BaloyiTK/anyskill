@@ -124,8 +124,8 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
-  // A full-page redirect avoids the cross-origin popup/opener checks that were
-  // dismissing the previous web AuthSession before it returned an ID token.
+  // A full-page redirect avoids popup/opener issues. The callback sends the
+  // one-time code and PKCE verifier to the API for a server-side token exchange.
   useEffect(() => {
     if (Platform.OS !== "web") return;
 
