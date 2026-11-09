@@ -194,8 +194,26 @@ export class AuthService {
       return tokens.id_token;
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
-      this.logger.warn("Google authorization-code exchange failed.");
-      throw new UnauthorizedException("Google sign-in could not be completed. Please try again.");
+
+      // Log only Google's structured error metadata. Never log the authorization
+      // code, PKCE verifier, tokens, client secret, or the full request object.
+      const providerResponse = (error as {
+        response?: { status?: number; data?: unknown };
+      }).response;
+      const providerData = providerResponse?.data;
+      const providerError = typeof providerData === "object" && providerData !== null
+        ? providerData as { error?: unknown; error_description?: unknown }
+        : undefined;
+      const providerCode = typeof providerError?.error === "string"
+        ? providerError.error
+        : "unknown";
+      const providerDescription = typeof providerError?.error_description === "string"
+        ? providerError.error_description.slice(0, 240)
+        : "No provider description";
+      this.logger.warn(
+        `Google authorization-code exchange failed (HTTP ${providerResponse?.status ?? "unknown"}; ${providerCode}): ${providerDescription}`,
+      );
+      throw new UnauthorizedException("Google sign-in could not be completed. Check the API log for the provider error and try again.");
     }
   }
 
