@@ -40,7 +40,7 @@ export class IdentityController {
 
   @Get("status")
   async status(@CurrentUser() user: AuthenticatedUser) {
-    const [account, latestCase] = await Promise.all([
+    const [account, latestCase, idDocument, selfie] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: user.id },
         select: { identityVerification: true, identityVerifiedAt: true },
@@ -56,12 +56,16 @@ export class IdentityController {
           decisionReason: true,
         },
       }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT", status: "READY" }, select: { id: true } }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_SELFIE", status: "READY" }, select: { id: true } }),
     ]);
 
     return {
       status: account.identityVerification.toLowerCase(),
       verifiedAt: account.identityVerifiedAt,
       latestCase,
+      idDocumentUploaded: Boolean(idDocument),
+      selfieUploaded: Boolean(selfie),
     };
   }
 
