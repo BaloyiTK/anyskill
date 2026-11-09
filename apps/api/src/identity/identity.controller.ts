@@ -17,7 +17,7 @@ class CreateIdentityUploadDto {
   @IsString() @MaxLength(255) fileName!: string;
   @IsString() @MaxLength(100) contentType!: string;
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
-  @IsString() purpose!: "ID_DOCUMENT" | "ID_SELFIE";
+  @IsString() purpose!: "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE";
 }
 class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
 
@@ -28,7 +28,7 @@ export class IdentityController {
 
   @Post("uploads")
   createUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateIdentityUploadDto) {
-    if (dto.purpose !== "ID_DOCUMENT" && dto.purpose !== "ID_SELFIE") throw new BadRequestException("Upload purpose must be ID_DOCUMENT or ID_SELFIE.");
+    if (!["ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"].includes(dto.purpose)) throw new BadRequestException("Unsupported identity upload purpose.");
     if (!Number.isInteger(dto.sizeBytes) || dto.sizeBytes < 1 || dto.sizeBytes > 10 * 1024 * 1024) throw new BadRequestException("Each image must be between 1 byte and 10 MB.");
     return this.media.createUpload(user.id, dto);
   }
@@ -40,7 +40,7 @@ export class IdentityController {
 
   @Get("status")
   async status(@CurrentUser() user: AuthenticatedUser) {
-    const [account, latestCase, idDocument, selfie] = await Promise.all([
+    const [account, latestCase, idFront, idBack, bookPage1, bookPage2, legacyId, selfie] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: user.id },
         select: { identityVerification: true, identityVerifiedAt: true },
@@ -56,7 +56,11 @@ export class IdentityController {
           decisionReason: true,
         },
       }),
-      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT", status: "READY" }, select: { id: true } }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT_FRONT", status: "READY" }, orderBy: { uploadedAt: "desc" }, select: { id: true } }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT_BACK", status: "READY" }, orderBy: { uploadedAt: "desc" }, select: { id: true } }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_BOOK_PAGE_1", status: "READY" }, orderBy: { uploadedAt: "desc" }, select: { id: true } }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_BOOK_PAGE_2", status: "READY" }, orderBy: { uploadedAt: "desc" }, select: { id: true } }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT", status: "READY" }, orderBy: { uploadedAt: "desc" }, select: { id: true } }),
       this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_SELFIE", status: "READY" }, select: { id: true } }),
     ]);
 
@@ -64,13 +68,15 @@ export class IdentityController {
       status: account.identityVerification.toLowerCase(),
       verifiedAt: account.identityVerifiedAt,
       latestCase,
-      idDocumentUploaded: Boolean(idDocument),
+      idDocumentUploaded: Boolean(idFront || idBack || bookPage1 || bookPage2 || legacyId),
+      idFrontUploaded: Boolean(idFront), idBackUploaded: Boolean(idBack),
+      bookPage1Uploaded: Boolean(bookPage1), bookPage2Uploaded: Boolean(bookPage2),
       selfieUploaded: Boolean(selfie),
     };
   }
 
   @Post("submit")
-  async submit(@CurrentUser() user: AuthenticatedUser) {
+  async submit(@CurrentUser() user: AuthenticatedUser, @Body() body: { idType?: string }) {
     const account = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       select: { identityVerification: true },
@@ -84,11 +90,16 @@ export class IdentityController {
       throw new ForbiddenException("Identity verification is suspended. Contact AnySkill support.");
     }
 
-    const [idDocument, selfie] = await Promise.all([
+    const [front, back, page1, page2, legacy, selfie] = await Promise.all([
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT_FRONT", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT_BACK", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_BOOK_PAGE_1", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
+      this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_BOOK_PAGE_2", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
       this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
       this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_SELFIE", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
     ]);
-    if (!idDocument || !selfie) throw new BadRequestException("Upload your ID document and take a selfie before submitting verification.");
+    const validId = body.idType === "SMART_ID_CARD" ? Boolean(front && back) : body.idType === "GREEN_ID_BOOK" ? Boolean(page1 && page2) : false;
+    if (!validId || !selfie) throw new BadRequestException("Capture both sides/pages of your selected ID document and take a live selfie before submitting verification.");
 
     const existingPending = await this.prisma.identityVerificationCase.findFirst({
       where: {
@@ -108,7 +119,7 @@ export class IdentityController {
 
     const verificationCase = await this.prisma.$transaction(async (tx) => {
       const created = await tx.identityVerificationCase.create({
-        data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW", providerReference: "id:" + idDocument.id + ";selfie:" + selfie.id },
+        data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW", providerReference: (body.idType === "SMART_ID_CARD" ? "type:SMART_ID_CARD;front:" + front!.id + ";back:" + back!.id : "type:GREEN_ID_BOOK;page1:" + page1!.id + ";page2:" + page2!.id) + ";selfie:" + selfie.id },
         select: { id: true, status: true, submittedAt: true },
       });
 
