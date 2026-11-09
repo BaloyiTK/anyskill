@@ -178,12 +178,14 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const response = await fetch("https://photon.komoot.io/api/?limit=6&q=" + encodeURIComponent(query.trim()));
       if (!response.ok) throw new Error("Address search is temporarily unavailable.");
       const result = await response.json() as { features?: Array<{ properties?: { name?: string; street?: string; housenumber?: string; district?: string; city?: string; state?: string; country?: string; postcode?: string }; geometry?: { coordinates?: number[] } }> };
-      const options = (result.features ?? []).flatMap((feature) => {
+      const options: AddressSuggestion[] = (result.features ?? []).flatMap((feature) => {
         const coordinates = feature.geometry?.coordinates;
-        if (!coordinates || coordinates.length < 2) return [];
+        const longitude = coordinates?.[0];
+        const latitude = coordinates?.[1];
+        if (typeof latitude !== "number" || typeof longitude !== "number" || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return [];
         const props = feature.properties ?? {};
         const label = [props.housenumber, props.street ?? props.name, props.district, props.city, props.state, props.postcode, props.country].filter(Boolean).join(", ");
-        return label ? [{ label, latitude: coordinates[1], longitude: coordinates[0] }] : [];
+        return label ? [{ label, latitude, longitude }] : [];
       });
       setAddressSuggestions(options);
     } catch (e) {
