@@ -229,7 +229,7 @@ export default function App() {
     try {
       const result = await apiRequest<{ message: string }>("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ email: email.trim(), mode: mode === "provider" ? "PROVIDER" : "SEEKER" }),
+        body: JSON.stringify({ email: email.trim() }),
       });
       setMessage(result.message);
       setOtp("");
@@ -504,19 +504,17 @@ export default function App() {
 
           {screen === "welcome" && <>
             <View style={s.hero}>
-              <View style={s.heroPill}><View style={s.heroDot} /><Text style={s.heroPillText}>YOUR LOCAL SKILLS MARKETPLACE</Text></View>
-              <Text style={s.heading}>Find the right person.{"\n"}Get it done.</Text>
-              <Text style={s.heroSubtitle}>Discover skilled people, agree on the work, and get things moving — all in one place.</Text>
-              <View style={s.heroFoot}><Text style={s.heroFootText}>FIND</Text><Text style={s.heroFootDivider}>·</Text><Text style={s.heroFootText}>HIRE</Text><Text style={s.heroFootDivider}>·</Text><Text style={s.heroFootText}>GET IT DONE</Text></View>
+              <Text style={s.heading}>Find skills.{"\n"}Get things done.</Text>
+              <Text style={s.heroSubtitle}>For skilled and unskilled individuals, and businesses looking for the right people or services.</Text>
             </View>
-            <View style={s.sectionHeadingRow}><Text style={s.sectionTitle}>How will you use AnySkill?</Text><Text style={s.optional}>YOU CAN SWITCH LATER</Text></View>
-            <View style={s.modeList}>
-              <ModeCard title="Skill Seeker" description="Find available people with the skills you need." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
-              <ModeCard title="Skill Provider" description="Offer your skills, set your rate and receive work requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
+            <Primary label="Sign In" onPress={() => goTo("login")} />
+            <Secondary label="Sign Up" onPress={() => goTo("register")} />
+            <View style={s.googleDivider}>
+              <View style={s.googleDividerLine} />
+              <Text style={s.helper}>OR</Text>
+              <View style={s.googleDividerLine} />
             </View>
-            <Text style={s.helper}>One account gives you access to both modes.</Text>
-            <Primary label="Create your free account" onPress={() => goTo("register")} />
-            <Secondary label="I already have an account" onPress={() => goTo("login")} />
+            <Secondary label="Continue with Google" onPress={continueWithGoogle} />
           </>}
 
           {(screen === "register" || screen === "login") && <View style={s.form}>
@@ -527,8 +525,6 @@ export default function App() {
             {screen === "login" && <Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry />}
             {screen === "register" && <Text style={s.helper}>First, enter only your email address. We will send a six-digit code before asking for any other details.</Text>}
             <Primary label={screen === "register" ? "Send verification code" : "Sign in"} onPress={screen === "register" ? register : login} disabled={busy || !email.trim() || (screen === "login" && password.length < 12)} />
-            <Text style={s.helper}>OR</Text>
-            <Secondary label="Continue with Google" onPress={continueWithGoogle} />
             <Secondary label={screen === "register" ? "I already have an account" : "Create a new account"} onPress={() => goTo(screen === "register" ? "login" : "register")} />
             {screen === "login" && <TextButton label="Forgot password?" onPress={() => goTo("forgot-password")} />}
             <TextButton label="Back" onPress={() => goTo("welcome")} />
@@ -687,6 +683,8 @@ const s = StyleSheet.create({
   brandMark: { width: 42, height: 42, borderRadius: 14, backgroundColor: C.primary, alignItems: "center", justifyContent: "center", shadowColor: "#123D2E", shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   brandMarkText: { color: "#FFF", fontSize: 25, fontWeight: "900" }, brandName: { color: C.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.5 },
   spacer: { flex: 1 }, brandTag: { color: C.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.15 },
+  googleDivider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 18 },
+  googleDividerLine: { flex: 1, height: 1, backgroundColor: C.border },
   hero: { marginTop: 4, marginBottom: 28, backgroundColor: "#123F32", borderRadius: 26, paddingHorizontal: 23, paddingTop: 23, paddingBottom: 20, overflow: "hidden" },
   heroPill: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.12)", marginBottom: 21 },
   heroDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#9EE2BD" },
