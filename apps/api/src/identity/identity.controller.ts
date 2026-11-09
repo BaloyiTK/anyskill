@@ -108,7 +108,7 @@ export class IdentityController {
 
     const verificationCase = await this.prisma.$transaction(async (tx) => {
       const created = await tx.identityVerificationCase.create({
-        data: { userId: user.id, status: "SUBMITTED" },
+        data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW", providerReference: "id:" + idDocument.id + ";selfie:" + selfie.id },
         select: { id: true, status: true, submittedAt: true },
       });
 
