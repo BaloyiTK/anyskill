@@ -23,8 +23,8 @@
 
 ## Google sign-in
 
-- Mobile sign-in uses Expo AuthSession to obtain a Google OpenID Connect ID token.
-- The API verifies the token signature, issuer, expiry and audience using Google's supported Node.js authentication library. Only configured OAuth client IDs are accepted.
+- Native mobile sign-in uses Expo AuthSession to obtain a Google OpenID Connect ID token. Browser sign-in uses the authorization-code flow with PKCE; the browser sends the one-time code and verifier to the API, and the API redeems the code using the configured Web OAuth client credentials. The browser never calls Google's token endpoint directly.
+- The API verifies the resulting ID token's signature, issuer, expiry and audience using Google's supported Node.js authentication library. Only configured OAuth client IDs are accepted. Configure `GOOGLE_WEB_CLIENT_ID`, optional server-only `GOOGLE_WEB_CLIENT_SECRET`, and the exact `GOOGLE_WEB_REDIRECT_URIS` allowlist.
 - A new Google account is created with the Google-verified email already marked as verified. It still starts with identity verification set to `NOT_STARTED`.
 - Existing AnySkill accounts are never silently linked just because the email addresses match. The user signs in to the existing account first, then explicitly connects Google from the authenticated account screen. The Google email must match the AnySkill account email.
 - A Google identity can only be linked to one AnySkill account.
