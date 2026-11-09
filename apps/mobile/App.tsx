@@ -634,7 +634,7 @@ export default function App() {
           {message ? <View style={s.successNotice}><Text style={s.successText}>{message}</Text></View> : null}
           {error ? <View style={s.errorNotice}><Text style={s.errorText}>{error}</Text></View> : null}
           {busy ? <ActivityIndicator color={C.primary} style={s.loader} /> : null}
-          <Text style={s.footer}>One account. Two ways to use AnySkill.</Text>
+          <Text style={s.footer}>Connecting individuals and businesses through skills.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -643,13 +643,6 @@ export default function App() {
 
 function formatStatus(status: string) {
   return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function ModeCard(p: { title: string; description: string; selected: boolean; onPress: () => void }) {
-  return <Pressable onPress={p.onPress} style={[s.modeCard, p.selected && s.modeCardSelected]}>
-    <View style={s.modeCardTop}><Text style={s.modeTitle}>{p.title}</Text><View style={[s.radio, p.selected && s.radioSelected]} /></View>
-    <Text style={s.modeDescription}>{p.description}</Text>
-  </Pressable>;
 }
 
 function Field(p: {
