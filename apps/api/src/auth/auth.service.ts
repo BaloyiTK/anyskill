@@ -119,10 +119,15 @@ export class AuthService {
   }
 
   private async verifyGoogleIdToken(idToken: string) {
-    const audiences = (process.env.GOOGLE_OAUTH_CLIENT_IDS ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean);
+    // Always trust the configured web client used for the authorization-code
+    // exchange, even when the optional multi-client allowlist is not populated.
+    const audiences = [...new Set([
+      ...(process.env.GOOGLE_OAUTH_CLIENT_IDS ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+      process.env.GOOGLE_WEB_CLIENT_ID?.trim(),
+    ].filter((value): value is string => Boolean(value)))];
 
     if (audiences.length === 0) {
       throw new Error("Google sign-in is not configured. Set GOOGLE_OAUTH_CLIENT_IDS.");
