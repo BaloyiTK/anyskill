@@ -5,6 +5,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 import { apiRequest } from "./api";
 
 type Section = "Profile" | "Verification" | "Skills" | "Portfolio" | "Submit";
+type AccountType = "INDIVIDUAL" | "BUSINESS";
+type MarketplaceRole = "SEEKER" | "PROVIDER";
 type Payload = {
   profile: Record<string, string>;
   skills: Array<{ category: string; description: string; supportingDocuments: Array<{ name: string; url: string }> }>;
@@ -20,6 +22,8 @@ const colors = { ink: "#15251E", muted: "#66756D", primary: "#176B55", border: "
 export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void }) {
   const [active, setActive] = useState<Section>("Profile");
   const [data, setData] = useState<Payload>(empty);
+  const [accountType, setAccountType] = useState<AccountType | "">("");
+  const [marketplaceRole, setMarketplaceRole] = useState<MarketplaceRole | "">("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -48,6 +52,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const home = await apiRequest<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null}>("/profile/location/home", {}, true).catch(() => null);
       setData(result);
       const profile = result.profile ?? {};
+      setAccountType(profile.accountType === "INDIVIDUAL" || profile.accountType === "BUSINESS" ? profile.accountType : "");
+      setMarketplaceRole(profile.marketplaceRole === "SEEKER" || profile.marketplaceRole === "PROVIDER" ? profile.marketplaceRole : "");
       setFirstName(profile.firstName ?? ""); setLastName(profile.lastName ?? ""); setPhone(profile.phone ?? "");
       setCountry(profile.country ?? "South Africa"); setProvince(profile.province ?? ""); setCity(profile.city ?? "");
       setSuburb(profile.suburb ?? ""); setAddress(profile.address ?? "");
@@ -64,7 +70,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const save = async (section: "profile" | "skills" | "portfolio") => {
     setBusy(true); setError(""); setMessage("");
     try {
-      const body = section === "profile" ? { profile: { firstName, lastName, phone, country, province, city, suburb, address } }
+      const body = section === "profile" ? { profile: { accountType, marketplaceRole, firstName, lastName, phone, country, province, city, suburb, address } }
         : section === "skills" ? { skills: category.trim() ? [{ category: category.trim(), description, supportingDocuments: documentName.trim() && documentUrl.trim() ? [{ name: documentName.trim(), url: documentUrl.trim() }] : [] }] : [] }
         : { portfolio: portfolioTitle.trim() ? [{ title: portfolioTitle.trim(), description: portfolioDescription }] : [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
@@ -117,8 +123,19 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     <ScrollView style={st.body} contentContainerStyle={{ paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
       {busy && <ActivityIndicator color={colors.primary} />}
       {active === "Profile" && <>
-        <Text style={st.heading}>Personal details and Home Location</Text>
-        <Text style={st.help}>Save what you have now. You can leave fields incomplete and return later.</Text>
+        <Text style={st.heading}>Set up your profile</Text>
+        <Text style={st.help}>First choose whether this profile represents you as an individual or a business, then choose how you want to participate in AnySkill. You can save a draft and finish later.</Text>
+        <Text style={st.label}>Account type</Text>
+        <View style={st.choiceRow}>
+          <Choice label="Individual" description="A personal profile" selected={accountType === "INDIVIDUAL"} onPress={() => setAccountType("INDIVIDUAL")} />
+          <Choice label="Business" description="A company or organisation" selected={accountType === "BUSINESS"} onPress={() => setAccountType("BUSINESS")} />
+        </View>
+        <Text style={st.label}>Marketplace role</Text>
+        <View style={st.choiceRow}>
+          <Choice label="Skill Seeker" description="Find people, skills or services" selected={marketplaceRole === "SEEKER"} onPress={() => setMarketplaceRole("SEEKER")} />
+          <Choice label="Skill Provider" description="Offer skills, services or capabilities" selected={marketplaceRole === "PROVIDER"} onPress={() => setMarketplaceRole("PROVIDER")} />
+        </View>
+        <Text style={st.help}>You can use AnySkill to seek and provide through one account. This selection sets your current profile role; it does not prevent you from using the other mode later.</Text>
         {Field("First name", firstName, setFirstName)}{Field("Last name", lastName, setLastName)}{Field("Contact number", phone, setPhone)}
         {Field("Country", country, setCountry)}{Field("Province", province, setProvince)}{Field("City", city, setCity)}{Field("Suburb", suburb, setSuburb)}{Field("Home address", address, setAddress, true)}
         <Action label={homeLocationBusy ? "Getting location..." : "Use current GPS for Home Location"} onPress={() => void useCurrentHomeLocation()} disabled={busy || homeLocationBusy} />
@@ -162,6 +179,15 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
 function Action(p: { label: string; onPress: () => void; disabled?: boolean }) {
   return <Pressable onPress={p.onPress} disabled={p.disabled} style={[st.action, p.disabled && { opacity: 0.45 }]}><Text style={st.actionText}>{p.label}</Text></Pressable>;
 }
+function Choice(p: { label: string; description: string; selected: boolean; onPress: () => void }) {
+  return <Pressable accessibilityRole="radio" accessibilityState={{ selected: p.selected }} onPress={p.onPress} style={[st.choice, p.selected && st.choiceSelected]}>
+    <View style={st.choiceTop}>
+      <Text style={st.choiceTitle}>{p.label}</Text>
+      <View style={[st.choiceRadio, p.selected && st.choiceRadioSelected]} />
+    </View>
+    <Text style={st.choiceDescription}>{p.description}</Text>
+  </Pressable>;
+}
 const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, paddingTop: 8 },
   top: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
@@ -174,6 +200,14 @@ const st = StyleSheet.create({
   activeTab: { backgroundColor: colors.primary, borderColor: colors.primary }, tabText: { color: colors.muted, fontSize: 12, fontWeight: "800" }, activeTabText: { color: "#FFF" },
   body: { flex: 1, paddingHorizontal: 20 }, heading: { color: colors.ink, fontSize: 20, fontWeight: "900", letterSpacing: -0.35, marginBottom: 8 },
   help: { color: colors.muted, fontSize: 13, lineHeight: 20, marginBottom: 14 },
+  choiceRow: { flexDirection: "row", gap: 10, marginBottom: 15 },
+  choice: { flex: 1, minHeight: 94, borderWidth: 1, borderColor: colors.border, borderRadius: 14, backgroundColor: colors.surface, padding: 12 },
+  choiceSelected: { borderColor: colors.primary, borderWidth: 2, backgroundColor: "#EFF7F1", padding: 11 },
+  choiceTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
+  choiceTitle: { color: colors.ink, fontSize: 13, fontWeight: "800", flexShrink: 1 },
+  choiceDescription: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 8 },
+  choiceRadio: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: colors.border },
+  choiceRadioSelected: { borderWidth: 5, borderColor: colors.primary },
   field: { marginBottom: 14 }, label: { color: colors.ink, fontSize: 12, fontWeight: "800", marginBottom: 7 },
   input: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 13, backgroundColor: "#FBFCFB", paddingHorizontal: 14, color: colors.ink, fontSize: 14 },
   multiline: { minHeight: 88, paddingTop: 12, textAlignVertical: "top" },
