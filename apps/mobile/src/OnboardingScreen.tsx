@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+type CountryOption = { name: string; code: string; dialCode: string };
+type AddressSuggestion = { label: string; latitude: number; longitude: number };
 import * as Location from "expo-location";
 import { MapPinPicker } from "./MapPinPicker";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -27,7 +29,18 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [phoneDialCode, setPhoneDialCode] = useState("+27");
+  const [phoneCountrySearch, setPhoneCountrySearch] = useState("");
+  const [showPhoneCountries, setShowPhoneCountries] = useState(false);
+  const [countries, setCountries] = useState<CountryOption[]>([{ name: "South Africa", code: "ZA", dialCode: "+27" }]);
+  const [countrySearch, setCountrySearch] = useState("");
+  const [showCountries, setShowCountries] = useState(false);
   const [country, setCountry] = useState("South Africa");
+  const [countryCode, setCountryCode] = useState("ZA");
+  const [regions, setRegions] = useState<string[]>([]);
+  const [regionSearch, setRegionSearch] = useState("");
+  const [showRegions, setShowRegions] = useState(false);
+  const [regionsBusy, setRegionsBusy] = useState(false);
   const [province, setProvince] = useState("");
   const [city, setCity] = useState("");
   const [suburb, setSuburb] = useState("");
@@ -35,6 +48,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [homeLatitude, setHomeLatitude] = useState("");
   const [homeLongitude, setHomeLongitude] = useState("");
   const [homeLocationBusy, setHomeLocationBusy] = useState(false);
+  const [addressSearchBusy, setAddressSearchBusy] = useState(false);
+  const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [documentName, setDocumentName] = useState("");
@@ -55,7 +70,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       setAccountType(profile.accountType === "INDIVIDUAL" || profile.accountType === "BUSINESS" ? profile.accountType : "");
       setMarketplaceRole(profile.marketplaceRole === "SEEKER" || profile.marketplaceRole === "PROVIDER" ? profile.marketplaceRole : "");
       setFirstName(profile.firstName ?? ""); setLastName(profile.lastName ?? ""); setPhone(profile.phone ?? "");
-      setCountry(profile.country ?? "South Africa"); setProvince(profile.province ?? ""); setCity(profile.city ?? "");
+      setPhoneDialCode(profile.phoneDialCode ?? "+27");
+      setCountry(profile.country ?? "South Africa"); setCountryCode(profile.countryCode ?? "ZA"); setProvince(profile.province ?? ""); setCity(profile.city ?? "");
       setSuburb(profile.suburb ?? ""); setAddress(profile.address ?? "");
       setHomeLatitude(home?.homeLatitude == null ? "" : String(home.homeLatitude));
       setHomeLongitude(home?.homeLongitude == null ? "" : String(home.homeLongitude));
@@ -67,10 +83,50 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   };
   useEffect(() => { void load(); }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch("https://restcountries.com/v3.1/all?fields=name,cca2,idd")
+      .then((response) => { if (!response.ok) throw new Error("Country list unavailable"); return response.json(); })
+      .then((items: Array<{ name?: { common?: string }; cca2?: string; idd?: { root?: string; suffixes?: string[] } }>) => {
+        const parsed = items.map((item) => {
+          const root = item.idd?.root ?? "";
+          const suffix = item.idd?.suffixes?.length === 1 ? item.idd.suffixes[0] : "";
+          return { name: item.name?.common ?? "", code: item.cca2 ?? "", dialCode: root + suffix };
+        }).filter((item) => item.name && item.code && item.dialCode)
+          .sort((a, b) => a.name.localeCompare(b.name));
+        if (!cancelled && parsed.length) {
+          setCountries(parsed);
+          const selected = parsed.find((item) => item.code === countryCode || item.name === country) ?? parsed.find((item) => item.code === "ZA");
+          if (selected) { setCountry(selected.name); setCountryCode(selected.code); }
+        }
+      })
+      .catch(() => { /* Keep South Africa available as the offline-safe default. */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRegions([]);
+    setProvince("");
+    if (!country) return;
+    setRegionsBusy(true);
+    fetch("https://countriesnow.space/api/v0.1/countries/states", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ country }),
+    })
+      .then((response) => { if (!response.ok) throw new Error("Regions unavailable"); return response.json(); })
+      .then((result: { data?: { states?: Array<{ name?: string }> } }) => {
+        if (!cancelled) setRegions((result.data?.states ?? []).map((item) => item.name ?? "").filter(Boolean).sort());
+      })
+      .catch(() => { if (!cancelled) setRegions([]); })
+      .finally(() => { if (!cancelled) setRegionsBusy(false); });
+    return () => { cancelled = true; };
+  }, [country]);
+
   const save = async (section: "profile" | "skills" | "portfolio") => {
     setBusy(true); setError(""); setMessage("");
     try {
-      const body = section === "profile" ? { profile: { accountType, marketplaceRole, firstName, lastName, phone, country, province, city, suburb, address } }
+      const body = section === "profile" ? { profile: { accountType, marketplaceRole, firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address } }
         : section === "skills" ? { skills: category.trim() ? [{ category: category.trim(), description, supportingDocuments: documentName.trim() && documentUrl.trim() ? [{ name: documentName.trim(), url: documentUrl.trim() }] : [] }] : [] }
         : { portfolio: portfolioTitle.trim() ? [{ title: portfolioTitle.trim(), description: portfolioDescription }] : [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
@@ -89,13 +145,73 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     setHomeLocationBusy(true); setError(""); setMessage("");
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
-      if (!permission.granted) throw new Error("Location permission was not granted. You can enter coordinates manually instead.");
+      if (!permission.granted) throw new Error("Location permission was not granted. You can search for or enter your home address manually.");
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       setHomeLatitude(String(current.coords.latitude));
       setHomeLongitude(String(current.coords.longitude));
-      setMessage("Current coordinates added. Save Profile Draft to store this as your Home Location.");
+      const places = await Location.reverseGeocodeAsync({ latitude: current.coords.latitude, longitude: current.coords.longitude });
+      const place = places[0];
+      if (place) {
+        if (place.country) setCountry(place.country);
+        if (place.region) setProvince(place.region);
+        if (place.city || place.subregion) setCity(place.city ?? place.subregion ?? "");
+        if (place.district) setSuburb(place.district);
+        const readable = [place.name, place.street, place.district, place.city ?? place.subregion, place.region, place.postalCode, place.country].filter(Boolean);
+        if (readable.length) setAddress([...new Set(readable)].join(", "));
+        setMessage("Your current address and map pin were added. Review the address, then save your profile.");
+      } else {
+        setMessage("Current map pin added. Add or search for a readable home address before saving.");
+      }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not read your current location."); }
     finally { setHomeLocationBusy(false); }
+  };
+
+  const searchHomeAddress = async (query: string) => {
+    setAddress(query);
+    if (query.trim().length < 3) { setAddressSuggestions([]); return; }
+    setAddressSearchBusy(true);
+    try {
+      const response = await fetch("https://photon.komoot.io/api/?limit=6&q=" + encodeURIComponent(query.trim()));
+      if (!response.ok) throw new Error("Address search is temporarily unavailable.");
+      const result = await response.json() as { features?: Array<{ properties?: { name?: string; street?: string; housenumber?: string; district?: string; city?: string; state?: string; country?: string; postcode?: string }; geometry?: { coordinates?: number[] } }> };
+      const options = (result.features ?? []).flatMap((feature) => {
+        const coordinates = feature.geometry?.coordinates;
+        if (!coordinates || coordinates.length < 2) return [];
+        const props = feature.properties ?? {};
+        const label = [props.housenumber, props.street ?? props.name, props.district, props.city, props.state, props.postcode, props.country].filter(Boolean).join(", ");
+        return label ? [{ label, latitude: coordinates[1], longitude: coordinates[0] }] : [];
+      });
+      setAddressSuggestions(options);
+    } catch (e) {
+      setAddressSuggestions([]);
+      setError(e instanceof Error ? e.message : "Could not search for this address.");
+    } finally { setAddressSearchBusy(false); }
+  };
+
+  const selectAddress = (item: AddressSuggestion) => {
+    setAddress(item.label);
+    setHomeLatitude(String(item.latitude));
+    setHomeLongitude(String(item.longitude));
+    setAddressSuggestions([]);
+    setMessage("Address selected and map pin updated. You can fine-tune the pin on the map.");
+  };
+
+  const updatePin = async (latitude: number, longitude: number) => {
+    setHomeLatitude(String(latitude));
+    setHomeLongitude(String(longitude));
+    try {
+      const places = await Location.reverseGeocodeAsync({ latitude, longitude });
+      const place = places[0];
+      if (place) {
+        const readable = [place.name, place.street, place.district, place.city ?? place.subregion, place.region, place.postalCode, place.country].filter(Boolean);
+        if (readable.length) setAddress([...new Set(readable)].join(", "));
+      }
+    } catch { /* Keep the manually entered address if reverse geocoding is unavailable. */ }
+  };
+
+  const saveAndContinue = async () => {
+    await save("profile");
+    setActive("Verification");
   };
 
   const submit = async () => {
@@ -148,15 +264,57 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           <Choice label="Skill Provider" description="Offer skills, services or capabilities" selected={marketplaceRole === "PROVIDER"} onPress={() => setMarketplaceRole("PROVIDER")} />
         </View>
         <Text style={st.help}>You can use AnySkill to seek and provide through one account. This selection sets your current profile role; it does not prevent you from using the other mode later.</Text>
-        {Field("First name", firstName, setFirstName)}{Field("Last name", lastName, setLastName)}{Field("Contact number", phone, setPhone)}
-        {Field("Country", country, setCountry)}{Field("Province", province, setProvince)}{Field("City", city, setCity)}{Field("Suburb", suburb, setSuburb)}{Field("Home address", address, setAddress, true)}
+        {Field("First name", firstName, setFirstName)}{Field("Last name", lastName, setLastName)}
+        <Text style={st.label}>Contact number</Text>
+        <View style={st.inlineFields}>
+          <View style={st.codeField}>
+            <Pressable style={st.selectInput} onPress={() => setShowPhoneCountries((value) => !value)}><Text style={st.selectText}>{phoneDialCode} ▾</Text></Pressable>
+          </View>
+          <View style={st.phoneField}><TextInput value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="Phone number" placeholderTextColor="#93A099" style={st.input} /></View>
+        </View>
+        {showPhoneCountries && <View style={st.optionPanel}>
+          <TextInput value={phoneCountrySearch} onChangeText={setPhoneCountrySearch} placeholder="Search calling code or country" style={st.searchInput} />
+          {countries.filter((item) => (item.name + " " + item.dialCode).toLowerCase().includes(phoneCountrySearch.toLowerCase())).slice(0, 12).map((item) =>
+            <Pressable key={item.code} style={st.option} onPress={() => { setPhoneDialCode(item.dialCode); setShowPhoneCountries(false); setPhoneCountrySearch(""); }}>
+              <Text style={st.optionText}>{item.name} ({item.dialCode})</Text>
+            </Pressable>)}
+        </View>}
+        <Text style={st.label}>Country</Text>
+        <Pressable style={st.selectInput} onPress={() => setShowCountries((value) => !value)}><Text style={st.selectText}>{country} ▾</Text></Pressable>
+        {showCountries && <View style={st.optionPanel}>
+          <TextInput value={countrySearch} onChangeText={setCountrySearch} placeholder="Search country" style={st.searchInput} />
+          {countries.filter((item) => item.name.toLowerCase().includes(countrySearch.toLowerCase())).slice(0, 14).map((item) =>
+            <Pressable key={item.code} style={st.option} onPress={() => { setCountry(item.name); setCountryCode(item.code); setShowCountries(false); setCountrySearch(""); }}>
+              <Text style={st.optionText}>{item.name}</Text>
+            </Pressable>)}
+        </View>}
+        <Text style={st.label}>Province / State</Text>
+        <Pressable style={st.selectInput} onPress={() => setShowRegions((value) => !value)}><Text style={st.selectText}>{regionsBusy ? "Loading regions..." : province || "Select province / state"} ▾</Text></Pressable>
+        {showRegions && <View style={st.optionPanel}>
+          <TextInput value={regionSearch} onChangeText={setRegionSearch} placeholder="Search province / state" style={st.searchInput} />
+          {regions.filter((item) => item.toLowerCase().includes(regionSearch.toLowerCase())).slice(0, 14).map((item) =>
+            <Pressable key={item} style={st.option} onPress={() => { setProvince(item); setShowRegions(false); setRegionSearch(""); }}>
+              <Text style={st.optionText}>{item}</Text>
+            </Pressable>)}
+          {!regionsBusy && regions.length === 0 && <Text style={st.optionHint}>No region list available for this country. You can type it below.</Text>}
+        </View>}
+        {Field("Province / State (manual entry)", province, setProvince)}
+        {Field("City", city, setCity)}{Field("Suburb / District", suburb, setSuburb)}
+        <Text style={st.label}>Search home address</Text>
+        <TextInput value={address} onChangeText={(value) => void searchHomeAddress(value)} placeholder="Start typing street, suburb or postcode" placeholderTextColor="#93A099" style={st.input} />
+        {addressSearchBusy && <ActivityIndicator color={colors.primary} />}
+        {addressSuggestions.length > 0 && <View style={st.optionPanel}>
+          {addressSuggestions.map((item, index) => <Pressable key={item.label + index} style={st.option} onPress={() => selectAddress(item)}>
+            <Text style={st.optionText}>{item.label}</Text>
+          </Pressable>)}
+        </View>}
         <Action label={homeLocationBusy ? "Getting location..." : "Use current GPS for Home Location"} onPress={() => void useCurrentHomeLocation()} disabled={busy || homeLocationBusy} />
         <Text style={st.label}>Choose Home Location on the map</Text>
-        <MapPinPicker latitude={homeLatitude.trim() && Number.isFinite(Number(homeLatitude)) ? Number(homeLatitude) : -26.2041} longitude={homeLongitude.trim() && Number.isFinite(Number(homeLongitude)) ? Number(homeLongitude) : 28.0473} selectedLatitude={homeLatitude.trim() ? Number(homeLatitude) : null} selectedLongitude={homeLongitude.trim() ? Number(homeLongitude) : null} onSelect={(lat, lon) => { setHomeLatitude(String(lat)); setHomeLongitude(String(lon)); }} />
+        <MapPinPicker latitude={homeLatitude.trim() && Number.isFinite(Number(homeLatitude)) ? Number(homeLatitude) : -26.2041} longitude={homeLongitude.trim() && Number.isFinite(Number(homeLongitude)) ? Number(homeLongitude) : 28.0473} selectedLatitude={homeLatitude.trim() ? Number(homeLatitude) : null} selectedLongitude={homeLongitude.trim() ? Number(homeLongitude) : null} onSelect={(lat, lon) => { void updatePin(lat, lon); }} />
         {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
         <Text style={st.help}>Home Location is saved to your profile and used as a default. It is not continuous live tracking. You can also type coordinates if map tiles are unavailable.</Text>
         <Text style={st.status}>Section: {status("profile")}</Text>
-        <Action label="Save Profile Draft" onPress={() => void save("profile")} disabled={busy} />
+        <View style={st.saveButtons}><View style={st.saveButtonHalf}><Action label="Save" onPress={() => void save("profile")} disabled={busy} /></View><View style={st.saveButtonHalf}><Action label="Save & Continue" onPress={() => void saveAndContinue()} disabled={busy} /></View></View>
       </>}
       {active === "Verification" && <>
         <Text style={st.heading}>Identity verification</Text>
@@ -231,6 +389,12 @@ const st = StyleSheet.create({
   choiceRadio: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: colors.border },
   choiceRadioSelected: { borderWidth: 5, borderColor: colors.primary },
   field: { marginBottom: 14 }, label: { color: colors.ink, fontSize: 12, fontWeight: "800", marginBottom: 7 },
+  inlineFields: { flexDirection: "row", gap: 8, marginBottom: 14 }, codeField: { width: 104 }, phoneField: { flex: 1 },
+  selectInput: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: "#FFFFFF", paddingHorizontal: 14, justifyContent: "center", marginBottom: 12 },
+  selectText: { color: colors.ink, fontSize: 14 }, optionPanel: { borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: "#FFFFFF", marginBottom: 14, maxHeight: 230, overflow: "hidden" },
+  searchInput: { minHeight: 44, borderBottomWidth: 1, borderBottomColor: colors.border, paddingHorizontal: 12, color: colors.ink },
+  option: { paddingHorizontal: 13, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "#EEF1F6" }, optionText: { color: colors.ink, fontSize: 13 }, optionHint: { color: colors.muted, padding: 12, fontSize: 12 },
+  saveButtons: { flexDirection: "row", gap: 9 }, saveButtonHalf: { flex: 1 },
   input: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: "#FFFFFF", paddingHorizontal: 14, color: colors.ink, fontSize: 14 },
   multiline: { minHeight: 88, paddingTop: 12, textAlignVertical: "top" },
   status: { color: colors.muted, fontSize: 12, marginVertical: 6 }, statusValue: { color: colors.ink, fontWeight: "800", marginTop: 6, textTransform: "capitalize" },
