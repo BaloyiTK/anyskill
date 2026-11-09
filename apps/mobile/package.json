@@ -7,7 +7,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "web": "node scripts/start-web-oauth.mjs"
   },
   "dependencies": {
     "expo": "^58.0.23",
