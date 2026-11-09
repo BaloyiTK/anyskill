@@ -312,7 +312,7 @@ export default function App() {
         type: result.type,
         error: result.type === "error" ? result.error?.message ?? null : null,
         returnedIdToken: result.type === "success" ? Boolean(result.params.id_token) : false,
-        callbackUrl: result.type === "success" ? result.url : null,
+        returnedAuthorizationCode: result.type === "success" ? Boolean(result.params.code) : false,
       });
       if (result.type !== "success") {
         if (result.type === "error") throw new Error(result.error?.message ?? "Google sign-in failed.");
