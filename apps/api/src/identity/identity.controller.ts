@@ -69,6 +69,7 @@ export class IdentityController {
       verifiedAt: account.identityVerifiedAt,
       latestCase,
       idDocumentUploaded: Boolean(idFront || idBack || bookPage1 || bookPage2 || legacyId),
+      idType: bookPage1 || bookPage2 ? "GREEN_ID_BOOK" : idFront || idBack ? "SMART_ID_CARD" : null,
       idFrontUploaded: Boolean(idFront), idBackUploaded: Boolean(idBack),
       bookPage1Uploaded: Boolean(bookPage1), bookPage2Uploaded: Boolean(bookPage2),
       selfieUploaded: Boolean(selfie),
