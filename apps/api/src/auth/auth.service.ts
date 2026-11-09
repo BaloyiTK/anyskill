@@ -177,7 +177,10 @@ export class AuthService {
     try {
       // Exchange the PKCE authorization code on the server, not in the browser.
       // The verifier is short-lived and is never persisted by the API.
-      const oauthClient = new OAuth2Client(webClientId);
+      const oauthClient = new OAuth2Client(
+        webClientId,
+        process.env.GOOGLE_WEB_CLIENT_SECRET?.trim() || undefined,
+      );
       const { tokens } = await oauthClient.getToken({
         code,
         codeVerifier,
