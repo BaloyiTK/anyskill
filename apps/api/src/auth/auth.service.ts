@@ -149,6 +149,72 @@ export class AuthService {
     }
   }
 
+  private async exchangeGoogleAuthorizationCode(
+    code: string,
+    codeVerifier: string,
+    redirectUri: string,
+  ): Promise<string> {
+    const configuredWebClientId = process.env.GOOGLE_WEB_CLIENT_ID?.trim();
+    const firstAllowedClientId = (process.env.GOOGLE_OAUTH_CLIENT_IDS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .find(Boolean);
+    const webClientId = configuredWebClientId || firstAllowedClientId;
+
+    if (!webClientId) {
+      throw new Error("Google web sign-in is not configured. Set GOOGLE_WEB_CLIENT_ID.");
+    }
+
+    const allowedRedirectUris = (process.env.GOOGLE_WEB_REDIRECT_URIS ?? "http://localhost:8081")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (!allowedRedirectUris.includes(redirectUri)) {
+      throw new UnauthorizedException("Google sign-in redirect URI is not allowed.");
+    }
+
+    try {
+      // Exchange the PKCE authorization code on the server, not in the browser.
+      // The verifier is short-lived and is never persisted by the API.
+      const oauthClient = new OAuth2Client(webClientId);
+      const { tokens } = await oauthClient.getToken({
+        code,
+        codeVerifier,
+        redirect_uri: redirectUri,
+      });
+
+      if (!tokens.id_token) {
+        throw new UnauthorizedException("Google did not return an ID token.");
+      }
+
+      return tokens.id_token;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      this.logger.warn("Google authorization-code exchange failed.");
+      throw new UnauthorizedException("Google sign-in could not be completed. Please try again.");
+    }
+  }
+
+  async googleSignInWithAuthorizationCode(
+    code: string,
+    codeVerifier: string,
+    redirectUri: string,
+  ) {
+    const idToken = await this.exchangeGoogleAuthorizationCode(code, codeVerifier, redirectUri);
+    return this.googleSignIn(idToken);
+  }
+
+  async linkGoogleAccountWithAuthorizationCode(
+    userId: string,
+    code: string,
+    codeVerifier: string,
+    redirectUri: string,
+  ) {
+    const idToken = await this.exchangeGoogleAuthorizationCode(code, codeVerifier, redirectUri);
+    return this.linkGoogleAccount(userId, idToken);
+  }
+
   async googleSignIn(idToken: string) {
     const google = await this.verifyGoogleIdToken(idToken);
     const linkedUser = await this.prisma.user.findUnique({
