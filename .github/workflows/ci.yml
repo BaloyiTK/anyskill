@@ -69,5 +69,5 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
 
-      - name: Type-check mobile app
-        run: pnpm --filter @anyskill/mobile typecheck
+      - name: Type-check all workspaces
+        run: pnpm typecheck
