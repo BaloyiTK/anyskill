@@ -226,6 +226,54 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     if (await save("profile")) setActive("Verification");
   };
 
+  const uploadIdentityImage = async (purpose: "ID_DOCUMENT" | "ID_SELFIE") => {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const picked = purpose === "ID_SELFIE" ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85 }) : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 });
+      if (picked.canceled || !picked.assets[0]) return;
+      const asset = picked.assets[0];
+      const contentType = asset.mimeType ?? "image/jpeg";
+      if (!["image/jpeg", "image/png", "image/webp"].includes(contentType)) throw new Error("Please use a JPEG, PNG or WebP image.");
+      const blob = await (await fetch(asset.uri)).blob();
+      const fileName = asset.fileName ?? (purpose === "ID_SELFIE" ? "identity-selfie.jpg" : "identity-document.jpg");
+      const reservation = await apiRequest<{assetId:string;cloudName:string;apiKey:string;timestamp:number;signature:string;publicId:string;assetFolder:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: asset.fileSize ?? blob.size, purpose }) }, true);
+      const form = new FormData();
+      form.append("file", blob, fileName); form.append("api_key", reservation.apiKey); form.append("timestamp", String(reservation.timestamp)); form.append("signature", reservation.signature); form.append("public_id", reservation.publicId); form.append("asset_folder", reservation.assetFolder); form.append("overwrite", "false"); form.append("unique_filename", "false"); form.append("use_filename", "false");
+      const response = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated/upload", { method: "POST", body: form });
+      if (!response.ok) throw new Error("Secure image upload failed. Please try again.");
+      await apiRequest("/identity-verification/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
+      if (purpose === "ID_DOCUMENT") setIdDocumentReady(true); else setSelfieReady(true);
+      setMessage(purpose === "ID_DOCUMENT" ? "ID document uploaded securely." : "Selfie captured and uploaded securely.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not upload verification image."); }
+    finally { setBusy(false); }
+  };
+
+  const submitIdentityVerification = async () => {
+    if (!idDocumentReady || !selfieReady) { setError("Upload your ID document and take a selfie before continuing."); return false; }
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const result = await apiRequest<{status:string;message?:string}>("/identity-verification/submit", { method: "POST", body: "{}" }, true);
+      setIdentityStatus(result.status); setMessage(result.message ?? "Your identity documents were submitted for administrator review."); return true;
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit identity verification."); return false; }
+    finally { setBusy(false); }
+  };
+
+  const saveCurrent = async () => {
+    if (active === "Profile") return save("profile");
+    if (active === "Skills") return save("skills");
+    if (active === "Portfolio") return save("portfolio");
+    if (active === "Verification") { setMessage("Uploaded verification images are saved securely."); return true; }
+    if (!await save("profile") || !await save("skills")) return false;
+    return save("portfolio");
+  };
+
+  const continueCurrent = async () => {
+    if (active === "Profile") { if (await save("profile")) setActive("Verification"); return; }
+    if (active === "Verification") { if (await submitIdentityVerification()) setActive("Skills"); return; }
+    if (active === "Skills") { if (await save("skills")) setActive("Portfolio"); return; }
+    if (active === "Portfolio") { if (await save("portfolio")) setActive("Submit"); return; }
+    if (await saveCurrent()) await submit();
+  };
   const submit = async () => {
     setBusy(true); setError(""); setMessage("");
     try {
