@@ -70,8 +70,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     try {
       const result = await apiRequest<Payload>("/profile/onboarding", {}, true);
       const home = await apiRequest<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null}>("/profile/location/home", {}, true).catch(() => null);
-      const verification = await apiRequest<{status:string;latestCase:{status:string}|null}>("/identity-verification/status", {}, true).catch(() => null);
-      if (verification) setIdentityStatus(verification.latestCase?.status ?? verification.status);
+      const verification = await apiRequest<{status:string;latestCase:{status:string}|null;idDocumentUploaded:boolean;selfieUploaded:boolean}>("/identity-verification/status", {}, true).catch(() => null);
+      if (verification) { setIdentityStatus(verification.latestCase?.status ?? verification.status); setIdDocumentReady(verification.idDocumentUploaded); setSelfieReady(verification.selfieUploaded); }
       setData(result);
       const profile = result.profile ?? {};
       setAccountType(profile.accountType === "INDIVIDUAL" || profile.accountType === "BUSINESS" ? profile.accountType : "");
@@ -132,7 +132,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const save = async (section: "profile" | "skills" | "portfolio"): Promise<boolean> => {
     setBusy(true); setError(""); setMessage("");
     try {
-      const body = section === "profile" ? { profile: { accountType, marketplaceRole, firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address: [houseNumber, address].filter(Boolean).join(" "), houseNumber } }
+      const body = section === "profile" ? { profile: { accountType, marketplaceRole, firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address, houseNumber } }
         : section === "skills" ? { skills: category.trim() ? [{ category: category.trim(), description, supportingDocuments: documentName.trim() && documentUrl.trim() ? [{ name: documentName.trim(), url: documentUrl.trim() }] : [] }] : [] }
         : { portfolio: portfolioTitle.trim() ? [{ title: portfolioTitle.trim(), description: portfolioDescription }] : [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
