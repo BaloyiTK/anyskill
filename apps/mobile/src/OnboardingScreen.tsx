@@ -381,29 +381,40 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       {active === "Verification" && <>
         <Text style={st.heading}>Identity verification</Text>
         <Text style={st.help}>Identity verification is separate from profile completion. You may continue building your profile, but verification is required before restricted marketplace actions.</Text>
-        <View style={st.card}><Text style={st.label}>Current identity status</Text><Text style={st.statusValue}>{p.identityStatus.replace(/_/g, " ")}</Text></View>
-        <Action label="Continue identity verification" onPress={p.onStartVerification} disabled={busy} />
+        <View style={st.card}><Text style={st.label}>Current identity status</Text><Text style={st.statusValue}>{identityStatus.replace(/_/g, " ")}</Text></View>
+        <Text style={st.label}>1. Upload ID document (front)</Text>
+        <Text style={st.help}>Upload a clear photo of your government-issued ID. JPEG, PNG or WebP; maximum 10 MB.</Text>
+        <Action label={idDocumentReady ? "Replace ID document" : "Upload ID document"} onPress={() => void uploadIdentityImage("ID_DOCUMENT")} disabled={busy} />
+        <Text style={st.status}>{idDocumentReady ? "ID document uploaded" : "ID document not uploaded"}</Text>
+        <Text style={st.label}>2. Take a selfie</Text>
+        <Text style={st.help}>Use your device camera to take a clear selfie for administrator review.</Text>
+        <Action label={selfieReady ? "Retake selfie" : "Take selfie"} onPress={() => void uploadIdentityImage("ID_SELFIE")} disabled={busy} />
+        <Text style={st.status}>{selfieReady ? "Selfie uploaded" : "Selfie not captured"}</Text>
+        <Text style={st.help}>Images are stored privately. An administrator will review them later; uploading does not automatically verify your identity.</Text>
       </>}
       {active === "Skills" && <>
         <Text style={st.heading}>Skills and experience</Text><Text style={st.help}>Add each skill and attach its supporting documents to that skill. You can skip this section and complete it later.</Text>
         {Field("Skill category", category, setCategory)}{Field("Experience and service description", description, setDescription, true)}
         {Field("Supporting document name", documentName, setDocumentName)}{Field("Supporting document URL (temporary)", documentUrl, setDocumentUrl)}
         <Text style={st.help}>Document upload to AnySkill-managed cloud storage will be connected separately; this field currently records a document reference only.</Text>
-        <Text style={st.status}>Section: {status("skills")}</Text><Action label="Save Skills Draft" onPress={() => void save("skills")} disabled={busy} />
+        <Text style={st.status}>Section: {status("skills")}</Text>
       </>}
       {active === "Portfolio" && <>
         <Text style={st.heading}>Portfolio</Text><Text style={st.help}>Add examples of previous work. This section is optional and can be completed later.</Text>
         {Field("Project or work title", portfolioTitle, setPortfolioTitle)}{Field("Description", portfolioDescription, setPortfolioDescription, true)}
-        <Text style={st.status}>Section: {status("portfolio")}</Text><Action label="Save Portfolio Draft" onPress={() => void save("portfolio")} disabled={busy} />
+        <Text style={st.status}>Section: {status("portfolio")}</Text>
       </>}
       {active === "Submit" && <>
         <Text style={st.heading}>Review and submit</Text><Text style={st.help}>Submitting saves the information currently available. It does not make your profile mandatory or grant identity-verified permissions. You can edit drafts later.</Text>
-        <View style={st.card}><Text style={st.status}>Profile: {status("profile")}</Text><Text style={st.status}>Skills: {status("skills")}</Text><Text style={st.status}>Portfolio: {status("portfolio")}</Text><Text style={st.status}>Identity: {p.identityStatus.replace(/_/g, " ")}</Text></View>
-        <Action label="Submit available information" onPress={() => void submit()} disabled={busy} />
+        <View style={st.card}><Text style={st.status}>Profile: {status("profile")}</Text><Text style={st.status}>Skills: {status("skills")}</Text><Text style={st.status}>Portfolio: {status("portfolio")}</Text><Text style={st.status}>Identity: {identityStatus.replace(/_/g, " ")}</Text></View>
+
       </>}
       {!!message && <Text style={st.success}>{message}</Text>}
       {!!error && <Text style={st.error}>{error}</Text>}
-      <View style={st.nav}><Action label="Skip / Continue" onPress={next} disabled={busy || active === "Submit"} /></View>
+      <View style={st.saveButtons}>
+        <View style={st.saveButtonHalf}><Action label="Save" onPress={() => void saveCurrent()} disabled={busy} /></View>
+        <View style={st.saveButtonHalf}><Action label="Save & Continue" onPress={() => void continueCurrent()} disabled={busy} /></View>
+      </View>
     </ScrollView>
   </View>;
 }
