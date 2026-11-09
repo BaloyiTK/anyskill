@@ -222,9 +222,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     } catch { /* Keep the manually entered address if reverse geocoding is unavailable. */ }
   };
 
-  const saveAndContinue = async () => {
-    if (await save("profile")) setActive("Verification");
-  };
 
   const uploadIdentityImage = async (purpose: "ID_DOCUMENT" | "ID_SELFIE") => {
     setBusy(true); setError(""); setMessage("");
