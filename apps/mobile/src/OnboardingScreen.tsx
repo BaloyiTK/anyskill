@@ -123,7 +123,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     return () => { cancelled = true; };
   }, [country]);
 
-  const save = async (section: "profile" | "skills" | "portfolio") => {
+  const save = async (section: "profile" | "skills" | "portfolio"): Promise<boolean> => {
     setBusy(true); setError(""); setMessage("");
     try {
       const body = section === "profile" ? { profile: { accountType, marketplaceRole, firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address } }
@@ -137,7 +137,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: [suburb, city, province, country].filter(Boolean).join(", ") || "Saved Home Location", latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
       }
       setMessage("Your changes have been saved as a draft.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not save this section."); }
+      return true;
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not save this section."); return false; }
     finally { setBusy(false); }
   };
 
@@ -210,8 +211,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   };
 
   const saveAndContinue = async () => {
-    await save("profile");
-    setActive("Verification");
+    if (await save("profile")) setActive("Verification");
   };
 
   const submit = async () => {
