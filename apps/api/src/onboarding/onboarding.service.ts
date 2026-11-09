@@ -9,11 +9,17 @@ export class OnboardingService {
   constructor(private readonly prisma: PrismaService) {}
 
   private validatePayload(input: SectionInput) {
-    const allowed = new Set(["firstName","lastName","phone","profilePhotoUrl","country","province","city","suburb","address"]);
+    const allowed = new Set(["accountType","marketplaceRole","firstName","lastName","phone","profilePhotoUrl","country","province","city","suburb","address"]);
     if (input.profile) {
       for (const [key,value] of Object.entries(input.profile)) {
         if (!allowed.has(key) || typeof value !== "string" || value.length > 1000) {
           throw new BadRequestException(`Invalid profile field: ${key}`);
+        }
+        if (key === "accountType" && !["INDIVIDUAL","BUSINESS"].includes(value)) {
+          throw new BadRequestException("Account type must be INDIVIDUAL or BUSINESS.");
+        }
+        if (key === "marketplaceRole" && !["SEEKER","PROVIDER"].includes(value)) {
+          throw new BadRequestException("Marketplace role must be SEEKER or PROVIDER.");
         }
       }
     }
@@ -39,7 +45,7 @@ export class OnboardingService {
     const skills = Array.isArray(data.skills) ? data.skills : [];
     const portfolio = Array.isArray(data.portfolio) ? data.portfolio : [];
     const sections = {
-      profile: Boolean(p.firstName?.trim() && p.lastName?.trim() && p.phone?.trim()),
+      profile: Boolean(p.accountType && p.marketplaceRole && p.firstName?.trim() && p.lastName?.trim() && p.phone?.trim()),
       skills: skills.some((s) => typeof s?.category === "string" && s.category.trim() && typeof s?.description === "string" && s.description.trim()),
       portfolio: portfolio.some((item) => typeof item?.title === "string" && item.title.trim()),
     };
