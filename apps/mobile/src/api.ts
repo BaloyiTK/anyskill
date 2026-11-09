@@ -5,7 +5,11 @@ import { Platform } from "react-native";
 const DEFAULT_API_BASE_URL = Platform.OS === "android"
   ? "http://10.0.2.2:3000/api/v1"
   : "http://localhost:3000/api/v1";
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? DEFAULT_API_BASE_URL;
+const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_URL;
+// The Android emulator host is not reachable from a desktop browser.
+const API_BASE_URL = Platform.OS === "web" && configuredApiBaseUrl?.includes("10.0.2.2")
+  ? "http://localhost:3000/api/v1"
+  : configuredApiBaseUrl ?? DEFAULT_API_BASE_URL;
 const ACCESS_TOKEN_KEY = "anyskill.access-token";
 const REFRESH_TOKEN_KEY = "anyskill.refresh-token";
 
