@@ -285,7 +285,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const photo = await selfieCameraRef.current.takePictureAsync({ quality: 0.85 });
       if (!photo?.uri) throw new Error("The selfie could not be captured. Please try again.");
       setSelfieCameraOpen(false);
-      await uploadIdentityAsset("ID_SELFIE", photo.uri, "image/jpeg", photo.fileSize, "identity-selfie.jpg");
+      await uploadIdentityAsset("ID_SELFIE", photo.uri, "image/jpeg", undefined, "identity-selfie.jpg");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not capture your selfie.");
       setBusy(false);
@@ -546,7 +546,7 @@ const st = StyleSheet.create({
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 17, padding: 17, marginVertical: 13, shadowColor: "#173B2C", shadowOpacity: 0.035, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   imagePreview: { width: "100%", height: 190, backgroundColor: "#EEF1F6", borderRadius: 12, marginTop: 10 },
   cameraFrame: { height: 440, overflow: "hidden", borderRadius: 18, backgroundColor: "#101827", marginVertical: 12 },
-  cameraOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", paddingVertical: 20 },
+  cameraOverlay: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", paddingVertical: 20 },
   headGuide: { width: 218, height: 286, borderWidth: 3, borderColor: "#FFFFFF", borderRadius: 140, backgroundColor: "transparent", marginVertical: 14 },
   cameraHint: { color: "#FFFFFF", fontSize: 13, fontWeight: "800", textAlign: "center", paddingHorizontal: 18, textShadowColor: "#000000", textShadowRadius: 5 },
   cameraControls: { position: "absolute", left: 14, right: 14, bottom: 14, flexDirection: "row", gap: 10 },
