@@ -20,6 +20,7 @@ import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
 class CreateMediaUploadDto {
   @IsString() @MaxLength(255) fileName!: string;
   @IsString() @MaxLength(100) contentType!: string;
+  @IsOptional() @IsString() purpose?: "JOB_COMPLETION_EVIDENCE";
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
 }
 class ConfirmMediaUploadDto { @IsString() @MaxLength(64) assetId!: string; }
