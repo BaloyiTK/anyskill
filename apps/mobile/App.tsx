@@ -85,7 +85,21 @@ export default function App() {
     const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
     setAccount(me);
     setIdentity(null);
-    setScreen("dashboard");
+
+    // First-time users and users with an incomplete required profile go
+    // straight to Profile Setup. Returning users with a completed profile
+    // continue to the dashboard. Verification remains a separate requirement
+    // for restricted marketplace actions.
+    let profileComplete = false;
+    try {
+      const onboarding = await apiRequest<{ sections?: { profile?: boolean } }>(
+        "/profile/onboarding", {}, true,
+      );
+      profileComplete = onboarding.sections?.profile === true;
+    } catch {
+      setMessage("You are signed in, but your profile setup status could not be loaded. You can open Profile Setup from your dashboard.");
+    }
+    setScreen(profileComplete ? "dashboard" : "onboarding");
 
     // Identity-verification status is supplementary account data. A failure
     // here must not turn a successful authentication into a failed login.
@@ -177,8 +191,7 @@ export default function App() {
 
         if (flow === "link") {
           await apiRequest("/auth/google/link/exchange", {
-            method: "POST",
-            body: JSON.stringify(authorizationCode),
+            method: "POST",            body: JSON.stringify(authorizationCode),
           }, true);
           const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
           setAccount(me);
@@ -357,8 +370,7 @@ export default function App() {
       clientId: googleRequest?.clientId ?? null,
       redirectUri: googleRequest?.redirectUri ?? null,
       responseType: googleRequest?.responseType ?? null,
-    });
-    if (!googleConfigured) {
+    });    if (!googleConfigured) {
       setError("Google sign-in is not configured for this platform. Check its OAuth client ID in the mobile environment.");
       return;
     }
@@ -538,7 +550,6 @@ export default function App() {
             <Primary label="Verify email" onPress={verifyRegistrationOtp} disabled={busy || !/^\d{6}$/.test(otp)} />
             <TextButton label="Back" onPress={() => goTo("register")} />
           </View>}
-
           {screen === "complete-registration" && <View style={s.form}>
             <Text style={s.kicker}>EMAIL VERIFIED</Text>
             <Text style={s.formTitle}>Finish your account</Text>
