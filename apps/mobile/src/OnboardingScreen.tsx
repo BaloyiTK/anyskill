@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
+import * as Location from "expo-location";
 type CountryOption = { name: string; code: string; dialCode: string };
 type AddressSuggestion = { label: string; latitude: number; longitude: number };
-import * as Location from "expo-location";
 import { MapPinPicker } from "./MapPinPicker";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
@@ -107,7 +107,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   useEffect(() => {
     let cancelled = false;
     setRegions([]);
-    setProvince("");
     if (!country) return;
     setRegionsBusy(true);
     fetch("https://countriesnow.space/api/v0.1/countries/states", {
@@ -134,7 +133,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       if (section === "profile" && (homeLatitude.trim() || homeLongitude.trim())) {
         if (!homeLatitude.trim() || !homeLongitude.trim()) throw new Error("Choose both latitude and longitude for your Home Location.");
         if (!Number.isFinite(Number(homeLatitude)) || !Number.isFinite(Number(homeLongitude)) || Number(homeLatitude) < -90 || Number(homeLatitude) > 90 || Number(homeLongitude) < -180 || Number(homeLongitude) > 180) throw new Error("Enter valid Home Location coordinates.");
-        await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: [suburb, city, province, country].filter(Boolean).join(", ") || "Saved Home Location", latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
+        await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: [address, suburb, city, province, country].filter(Boolean).join(", ") || "Saved Home Location", latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
       }
       setMessage("Your changes have been saved as a draft.");
       return true;
@@ -153,7 +152,11 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const places = await Location.reverseGeocodeAsync({ latitude: current.coords.latitude, longitude: current.coords.longitude });
       const place = places[0];
       if (place) {
-        if (place.country) setCountry(place.country);
+        if (place.country) {
+          setCountry(place.country);
+          const matchedCountry = countries.find((item) => item.name.toLowerCase() === place.country?.toLowerCase());
+          if (matchedCountry) setCountryCode(matchedCountry.code);
+        }
         if (place.region) setProvince(place.region);
         if (place.city || place.subregion) setCity(place.city ?? place.subregion ?? "");
         if (place.district) setSuburb(place.district);
@@ -284,7 +287,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         {showCountries && <View style={st.optionPanel}>
           <TextInput value={countrySearch} onChangeText={setCountrySearch} placeholder="Search country" style={st.searchInput} />
           {countries.filter((item) => item.name.toLowerCase().includes(countrySearch.toLowerCase())).slice(0, 14).map((item) =>
-            <Pressable key={item.code} style={st.option} onPress={() => { setCountry(item.name); setCountryCode(item.code); setShowCountries(false); setCountrySearch(""); }}>
+            <Pressable key={item.code} style={st.option} onPress={() => { setCountry(item.name); setCountryCode(item.code); setProvince(""); setShowCountries(false); setCountrySearch(""); }}>
               <Text style={st.optionText}>{item.name}</Text>
             </Pressable>)}
         </View>}
@@ -309,6 +312,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           </Pressable>)}
         </View>}
         <Action label={homeLocationBusy ? "Getting location..." : "Use current GPS for Home Location"} onPress={() => void useCurrentHomeLocation()} disabled={busy || homeLocationBusy} />
+        <Text style={st.help}>Address search uses OpenStreetMap-based Photon results. Review the suggested address and adjust the pin if needed.</Text>
         <Text style={st.label}>Choose Home Location on the map</Text>
         <MapPinPicker latitude={homeLatitude.trim() && Number.isFinite(Number(homeLatitude)) ? Number(homeLatitude) : -26.2041} longitude={homeLongitude.trim() && Number.isFinite(Number(homeLongitude)) ? Number(homeLongitude) : 28.0473} selectedLatitude={homeLatitude.trim() ? Number(homeLatitude) : null} selectedLongitude={homeLongitude.trim() ? Number(homeLongitude) : null} onSelect={(lat, lon) => { void updatePin(lat, lon); }} />
         {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
