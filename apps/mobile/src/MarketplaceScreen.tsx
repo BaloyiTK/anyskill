@@ -675,8 +675,8 @@ export function MarketplaceScreen(p: Props) {
 function Primary(p: { label: string; onPress: () => void; disabled?: boolean }) {
   return <Pressable onPress={p.onPress} disabled={p.disabled} style={[s.primary, p.disabled && { opacity: 0.45 }]}><Text style={s.primaryText}>{p.label}</Text></Pressable>;
 }
-function Secondary(p: { label: string; onPress: () => void }) {
-  return <Pressable onPress={p.onPress} style={s.secondary}><Text style={s.secondaryText}>{p.label}</Text></Pressable>;
+function Secondary(p: { label: string; onPress: () => void; disabled?: boolean }) {
+  return <Pressable onPress={p.onPress} disabled={p.disabled} style={[s.secondary, p.disabled && { opacity: 0.45 }]}><Text style={s.secondaryText}>{p.label}</Text></Pressable>;
 }
 
 const s = StyleSheet.create({
