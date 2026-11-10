@@ -134,6 +134,20 @@ export class MarketplaceController {
     return this.marketplace.startWork(user.id, requestId);
   }
 
+  @Post("marketplace/requests/:requestId/work-break")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_START_WORK")
+  pauseWork(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.pauseWork(user.id, requestId);
+  }
+
+  @Post("marketplace/requests/:requestId/resume-work")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_START_WORK")
+  resumeWork(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.resumeWork(user.id, requestId);
+  }
+
   @Post("marketplace/requests/:requestId/additional-hours")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("PROVIDER_REQUEST_EXTRA_HOURS")
