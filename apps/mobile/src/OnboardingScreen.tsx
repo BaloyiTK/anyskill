@@ -12,7 +12,7 @@ type Section = "Profile" | "Verification" | "Skills" | "Portfolio" | "Submit";
 type AccountType = "INDIVIDUAL" | "BUSINESS";
 type MarketplaceRole = "SEEKER" | "PROVIDER";
 type Payload = {
-  profile: Record<string, string>;
+  profile: Record<string, string> & { marketplaceRoles?: MarketplaceRole[] };
   skills: Array<{ category: string; description: string; supportingDocuments: Array<{ name: string; url: string }> }>;
   portfolio: Array<{ title: string; description: string }>;
   percentage: number;
@@ -339,7 +339,12 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   };
 
   const continueCurrent = async () => {
-    if (active === "Profile") { if (await save("profile")) setActive("Verification"); return; }
+    if (active === "Profile") {
+      if (!accountType) { setError("Choose Individual or Business before continuing."); return; }
+      if (marketplaceRoles.length === 0) { setError("Select Skill Seeker, Skill Provider, or both before continuing."); return; }
+      if (await save("profile")) setActive("Verification");
+      return;
+    }
     if (active === "Verification") { if (await submitIdentityVerification()) setActive("Skills"); return; }
     if (active === "Skills") { if (await save("skills")) setActive("Portfolio"); return; }
     if (active === "Portfolio") { if (await save("portfolio")) setActive("Submit"); return; }
