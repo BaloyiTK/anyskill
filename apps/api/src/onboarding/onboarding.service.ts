@@ -9,12 +9,22 @@ export class OnboardingService {
   constructor(private readonly prisma: PrismaService) {}
 
   private validatePayload(input: SectionInput) {
-    const allowed = new Set(["accountType","marketplaceRole","firstName","lastName","phone","phoneDialCode","profilePhotoUrl","country","countryCode","province","city","suburb","address","houseNumber"]);
+    const allowed = new Set([
+      "accountType","marketplaceRole","marketplaceRoles","firstName","lastName","phone","phoneDialCode","profilePhotoUrl",
+      "country","countryCode","province","city","suburb","address","houseNumber",
+      "businessName","businessRegistrationNumber","businessType","businessEmail","businessPhone","businessCountry","businessProvince","businessCity","businessAddress",
+      "contactFirstName","contactLastName","contactJobTitle","contactEmail","contactPhone",
+    ]);
     if (input.profile) {
       for (const [key,value] of Object.entries(input.profile)) {
-        if (!allowed.has(key) || typeof value !== "string" || value.length > 1000) {
-          throw new BadRequestException(`Invalid profile field: ${key}`);
+        if (!allowed.has(key)) throw new BadRequestException(`Invalid profile field: ${key}`);
+        if (key === "marketplaceRoles") {
+          if (!Array.isArray(value) || value.length < 1 || value.length > 2 || value.some((role) => role !== "SEEKER" && role !== "PROVIDER") || new Set(value).size !== value.length) {
+            throw new BadRequestException("Select Skill Seeker, Skill Provider, or both.");
+          }
+          continue;
         }
+        if (typeof value !== "string" || value.length > 1000) throw new BadRequestException(`Invalid profile field: ${key}`);
         if (key === "accountType" && !["INDIVIDUAL","BUSINESS"].includes(value)) {
           throw new BadRequestException("Account type must be INDIVIDUAL or BUSINESS.");
         }
@@ -44,8 +54,16 @@ export class OnboardingService {
     const p = data.profile && typeof data.profile === "object" ? data.profile : {};
     const skills = Array.isArray(data.skills) ? data.skills : [];
     const portfolio = Array.isArray(data.portfolio) ? data.portfolio : [];
+    const roles = Array.isArray(p.marketplaceRoles) ? p.marketplaceRoles : p.marketplaceRole ? [p.marketplaceRole] : [];
+    const hasRole = roles.some((role: unknown) => role === "SEEKER" || role === "PROVIDER");
+    const individualComplete = Boolean(p.firstName?.trim() && p.lastName?.trim() && p.phone?.trim());
+    const businessComplete = Boolean(
+      p.businessName?.trim() && p.businessType?.trim() && p.businessEmail?.trim() && p.businessPhone?.trim() &&
+      p.businessCountry?.trim() && p.businessProvince?.trim() && p.businessAddress?.trim() &&
+      p.contactFirstName?.trim() && p.contactLastName?.trim() && p.contactJobTitle?.trim() && p.contactEmail?.trim() && p.contactPhone?.trim()
+    );
     const sections = {
-      profile: Boolean(p.accountType && p.marketplaceRole && p.firstName?.trim() && p.lastName?.trim() && p.phone?.trim()),
+      profile: Boolean(p.accountType && hasRole && (p.accountType === "BUSINESS" ? businessComplete : individualComplete)),
       skills: skills.some((s) => typeof s?.category === "string" && s.category.trim() && typeof s?.description === "string" && s.description.trim()),
       portfolio: portfolio.some((item) => typeof item?.title === "string" && item.title.trim()),
     };
