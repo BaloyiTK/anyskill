@@ -89,20 +89,10 @@ export default function App() {
     setAccount(me);
     setIdentity(null);
 
-    // First-time users and users with an incomplete required profile go
-    // straight to Profile Setup. Returning users with a completed profile
-    // continue to the dashboard. Verification remains a separate requirement
-    // for restricted marketplace actions.
-    let profileComplete = false;
-    try {
-      const onboarding = await apiRequest<{ sections?: { profile?: boolean } }>(
-        "/profile/onboarding", {}, true,
-      );
-      profileComplete = onboarding.sections?.profile === true;
-    } catch {
-      setMessage("You are signed in, but your profile setup status could not be loaded. You can open Profile Setup from your dashboard.");
-    }
-    setScreen(profileComplete ? "dashboard" : "onboarding");
+    // Profile Setup is the first authenticated destination. The four
+    // persistent app tabs remain available while the user completes setup.
+    setActiveTab("home");
+    setScreen("onboarding");
 
     // Identity-verification status is supplementary account data. A failure
     // here must not turn a successful authentication into a failed login.
@@ -685,7 +675,7 @@ export default function App() {
           <Text style={s.footer}>Connecting individuals and businesses through skills.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
-      {account && (screen === "dashboard" || screen === "marketplace") && <View style={s.bottomTabBar}>
+      {account && (screen === "dashboard" || screen === "marketplace" || screen === "onboarding") && <View style={s.bottomTabBar}>
         <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { setActiveTab("home"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Activities" icon="▤" selected={activeTab === "activities"} onPress={() => { setActiveTab("activities"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
