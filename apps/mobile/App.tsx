@@ -14,6 +14,7 @@ import { OnboardingScreen } from "./src/OnboardingScreen";
 
 type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password" | "dashboard" | "marketplace" | "onboarding";
 type UserMode = "seeker" | "provider";
+type AppTab = "home" | "activities" | "notifications" | "account";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
 
 const GOOGLE_DISCOVERY = {
@@ -35,6 +36,7 @@ const C = {
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
+  const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [mode, setMode] = useState<UserMode>("seeker");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -608,9 +610,52 @@ export default function App() {
         onStartVerification={() => { void startIdentityVerification(); }}
       />}
 
-      {screen === "dashboard" && account && <View style={s.form}>
-            <Text style={s.kicker}>YOUR ACCOUNT</Text>
-            <Text style={s.formTitle}>You're signed in</Text>
+      {screen === "dashboard" && account && activeTab === "home" && <View style={s.form}>
+            <Text style={s.kicker}>YOUR WORKSPACE</Text>
+            <Text style={s.formTitle}>Welcome to AnySkill</Text>
+            <Text style={s.subtitle}>{account.email}</Text>
+            <View style={s.statusCard}>
+              <Text style={s.statusLabel}>IDENTITY VERIFICATION</Text>
+              <Text style={s.statusValue}>{formatStatus(identityStatus)}</Text>
+              {identity?.latestCase && <Text style={s.helper}>Request submitted {new Date(identity.latestCase.submittedAt).toLocaleString()}.</Text>}
+              {!verified && <Text style={s.helper}>Verification is required before restricted marketplace actions. You can complete it from your Account tab.</Text>}
+            </View>
+            <Primary label={mode === "seeker" ? "Find a service" : "View service requests"} onPress={() => goTo("marketplace")} />
+            <Secondary label="Complete or update profile" onPress={() => goTo("onboarding")} />
+            <Text style={s.sectionTitle}>Current mode</Text>
+            <View style={s.modeList}>
+              <ModeCard title="Skill Seeker" description="Request skills and compare provider offers." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
+              <ModeCard title="Skill Provider" description="Offer skills and respond to suitable requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
+            </View>
+            <Text style={s.helper}>One account supports both modes.</Text>
+          </View>}
+
+          {screen === "dashboard" && account && activeTab === "activities" && <View style={s.form}>
+            <Text style={s.kicker}>YOUR WORK</Text>
+            <Text style={s.formTitle}>Activities</Text>
+            <Text style={s.subtitle}>Your service requests, accepted jobs and completed activity will appear here.</Text>
+            <View style={s.emptyState}>
+              <Text style={s.emptyStateIcon}>▤</Text>
+              <Text style={s.emptyStateTitle}>No activities yet</Text>
+              <Text style={s.emptyStateText}>{mode === "seeker" ? "When you request a service, you will be able to follow its progress here." : "When you receive or accept a service request, it will appear here."}</Text>
+            </View>
+            <Primary label={mode === "seeker" ? "Explore services" : "View available requests"} onPress={() => goTo("marketplace")} />
+          </View>}
+
+          {screen === "dashboard" && account && activeTab === "notifications" && <View style={s.form}>
+            <Text style={s.kicker}>UPDATES</Text>
+            <Text style={s.formTitle}>Notifications</Text>
+            <Text style={s.subtitle}>Important request updates, account alerts and messages will appear here.</Text>
+            <View style={s.emptyState}>
+              <Text style={s.emptyStateIcon}>♧</Text>
+              <Text style={s.emptyStateTitle}>You're all caught up</Text>
+              <Text style={s.emptyStateText}>There are no notifications to show right now.</Text>
+            </View>
+          </View>}
+
+          {screen === "dashboard" && account && activeTab === "account" && <View style={s.form}>
+            <Text style={s.kicker}>ACCOUNT SETTINGS</Text>
+            <Text style={s.formTitle}>Your account</Text>
             <Text style={s.subtitle}>{account.email}</Text>
             <View style={s.statusCard}>
               <Text style={s.statusLabel}>EMAIL</Text>
@@ -620,25 +665,19 @@ export default function App() {
               <Text style={s.statusValue}>{formatStatus(identityStatus)}</Text>
               {identity?.latestCase && <Text style={s.helper}>Request submitted {new Date(identity.latestCase.submittedAt).toLocaleString()}.</Text>}
             </View>
-            {verified ? <View style={s.successNotice}>
-              <Text style={s.successTitle}>Identity verified</Text>
-              <Text style={s.successText}>You are verified and can complete actions that require identity verification as those marketplace features become available.</Text>
-            </View> : <View style={s.notice}>
+            {!verified && <View style={s.notice}>
               <Text style={s.noticeTitle}>Identity verification required for key actions</Text>
-              <Text style={s.noticeText}>You can explore AnySkill before verifying. Skill Seekers must verify before submitting a request. Skill Providers can still receive and view incoming requests, but must verify before accepting one. Identity checks are not yet connected to a verification provider in this build.</Text>
+              <Text style={s.noticeText}>You can explore AnySkill before verifying. Skill Seekers must verify before submitting a request. Skill Providers must verify before accepting one.</Text>
               {["not_started", "failed", "requires_information"].includes(identityStatus) && <Primary label="Start identity verification request" onPress={startIdentityVerification} disabled={busy} />}
             </View>}
-            {!account.googleLinked && <Secondary label="Connect Google account" onPress={connectGoogle} />}
             <Secondary label="Complete or update profile" onPress={() => goTo("onboarding")} />
-            <Secondary label="Open marketplace" onPress={() => goTo("marketplace")} />
             <Secondary label="Refresh identity-verification status" onPress={refreshIdentityStatus} />
-            {pendingAcceptRequestId && verified && <Primary label="Return to incoming request" onPress={() => { setMode("provider"); goTo("marketplace"); }} />}
-            <Text style={s.sectionTitle}>Current mode</Text>
+            {!account.googleLinked && <Secondary label="Connect Google account" onPress={connectGoogle} />}
+            <Text style={s.sectionTitle}>Marketplace mode</Text>
             <View style={s.modeList}>
               <ModeCard title="Skill Seeker" description="Request skills and compare provider offers." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
               <ModeCard title="Skill Provider" description="Offer skills and respond to suitable requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
             </View>
-            <Text style={s.helper}>One account supports both modes.</Text>
             <Secondary label="Sign out" onPress={logout} />
           </View>}
 
@@ -648,8 +687,21 @@ export default function App() {
           <Text style={s.footer}>Connecting individuals and businesses through skills.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
+      {account && (screen === "dashboard" || screen === "marketplace") && <View style={s.bottomTabBar}>
+        <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { setActiveTab("home"); setScreen("dashboard"); feedback(); }} />
+        <BottomTab label="Activities" icon="▤" selected={activeTab === "activities"} onPress={() => { setActiveTab("activities"); setScreen("dashboard"); feedback(); }} />
+        <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
+        <BottomTab label="Account" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }} />
+      </View>}
     </SafeAreaView>
   );
+}
+
+function BottomTab(p: { label: string; icon: string; selected: boolean; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" accessibilityState={{ selected: p.selected }} onPress={p.onPress} style={s.bottomTab}>
+    <Text style={[s.bottomTabIcon, p.selected && s.bottomTabIconSelected]}>{p.icon}</Text>
+    <Text style={[s.bottomTabLabel, p.selected && s.bottomTabLabelSelected]}>{p.label}</Text>
+  </Pressable>;
 }
 
 function formatStatus(status: string) {
@@ -736,5 +788,12 @@ const s = StyleSheet.create({
   statusLabel: { color: C.muted, fontSize: 10, fontWeight: "800", letterSpacing: 1.1 },
   statusValue: { color: C.ink, fontSize: 16, fontWeight: "800", marginTop: 5, marginBottom: 14 },
   divider: { height: 1, backgroundColor: C.border, marginVertical: 8 }, loader: { marginTop: 15 },
+  emptyState: { alignItems: "center", justifyContent: "center", backgroundColor: "#F8FAF8", borderWidth: 1, borderColor: C.border, borderRadius: 18, paddingHorizontal: 22, paddingVertical: 34, marginTop: 8, marginBottom: 12 },
+  emptyStateIcon: { color: C.primary, fontSize: 32, marginBottom: 12 }, emptyStateTitle: { color: C.ink, fontSize: 16, fontWeight: "900", marginBottom: 7 },
+  emptyStateText: { color: C.muted, fontSize: 12, lineHeight: 19, textAlign: "center" },
+  bottomTabBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-around", backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border, paddingTop: 9, paddingBottom: Platform.OS === "ios" ? 20 : 10, paddingHorizontal: 5 },
+  bottomTab: { flex: 1, minHeight: 48, alignItems: "center", justifyContent: "center", gap: 3 },
+  bottomTabIcon: { color: C.muted, fontSize: 21, lineHeight: 24, fontWeight: "700" }, bottomTabIconSelected: { color: C.primary },
+  bottomTabLabel: { color: C.muted, fontSize: 10, fontWeight: "700" }, bottomTabLabelSelected: { color: C.primary, fontWeight: "900" },
   footer: { color: C.muted, fontSize: 11, textAlign: "center", marginTop: 24, letterSpacing: 0.15 },
 });
