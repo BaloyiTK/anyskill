@@ -30,7 +30,7 @@ const GOOGLE_WEB_AUTH_KEYS = {
 };
 
 const C = {
-  bg: "#F5F7F5", surface: "#FFFFFF", ink: "#15251E", muted: "#66756D",
+  bg: "#F6F8FA", surface: "#FFFFFF", ink: "#15251E", muted: "#66756D",
   primary: "#176B55", border: "#E1E8E3", soft: "#E8F4ED",
   warning: "#FFF6E4", warningInk: "#78551A", danger: "#A12D2D",
 };
