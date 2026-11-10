@@ -218,7 +218,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
     <View style={styles.actions}>
       <Pressable accessibilityRole="button" onPress={onSignUp} style={styles.primaryButton}><Text style={styles.primaryText}>Get started</Text></Pressable>
       <Pressable accessibilityRole="button" onPress={onSignIn} style={styles.secondaryButton}><Text style={styles.secondaryText}>Sign in</Text></Pressable>
-      <Pressable accessibilityRole="button" onPress={onGoogle} style={styles.googleButton}><Text style={styles.googleText}>Continue with Google</Text></Pressable>
+      <Pressable accessibilityRole="button" onPress={onGoogle} style={styles.googleButton}><Image source={require("../assets/branding/google-sign-in.png")} style={styles.googleIcon} resizeMode="contain" accessibilityLabel="Google" /><Text style={styles.googleText}>Continue with Google</Text></Pressable>
     </View>
     <Text style={styles.footer}>Connecting people through skills and opportunity.</Text>
   </View>;
@@ -280,7 +280,8 @@ const styles = StyleSheet.create({
   primaryText: { color: THEME.surface, fontSize: 13, fontWeight: "900" },
   secondaryButton: { minHeight: 46, borderRadius: 13, borderWidth: 1, borderColor: "#D8E5F2", backgroundColor: THEME.surface, alignItems: "center", justifyContent: "center", marginTop: 8 },
   secondaryText: { color: THEME.blue, fontSize: 12, fontWeight: "900" },
-  googleButton: { minHeight: 42, alignItems: "center", justifyContent: "center", marginTop: 3 },
-  googleText: { color: THEME.muted, fontSize: 11, fontWeight: "700" },
+  googleButton: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginTop: 3, borderWidth: 1, borderColor: THEME.border, borderRadius: 12, backgroundColor: THEME.surface },
+  googleIcon: { width: 20, height: 20 },
+  googleText: { color: THEME.navy, fontSize: 12, fontWeight: "800" },
   footer: { color: THEME.muted, fontSize: 10, textAlign: "center", marginTop: 4, marginBottom: 8 },
 });
