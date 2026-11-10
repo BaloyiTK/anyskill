@@ -52,6 +52,7 @@ function worldPoint(latitude: number, longitude: number) {
 
 export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
   const [radiusKm, setRadiusKm] = useState<number>(5);
+  const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [areaLabel, setAreaLabel] = useState("Choose your location");
   const [providers, setProviders] = useState<ProviderPin[]>([]);
@@ -166,11 +167,15 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
       <Text style={styles.radiusLabel}>SEARCH RADIUS</Text>
       <Text style={styles.radiusValue}>{radiusKm} km</Text>
     </View>
-    <View style={styles.radiusOptions}>
-      {RADII.map((radius) => <Pressable key={radius} accessibilityRole="button" accessibilityState={{ selected: radiusKm === radius }} onPress={() => setRadiusKm(radius)} style={[styles.radiusOption, radiusKm === radius && styles.radiusOptionSelected]}>
-        <Text style={[styles.radiusOptionText, radiusKm === radius && styles.radiusOptionTextSelected]}>{radius}</Text>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: radiusOpen }} onPress={() => setRadiusOpen((open) => !open)} style={styles.radiusDropdown}>
+      <Text style={styles.radiusDropdownValue}>{radiusKm} km</Text>
+      <Text style={styles.radiusDropdownChevron}>{radiusOpen ? "▲" : "▼"}</Text>
+    </Pressable>
+    {radiusOpen ? <View style={styles.radiusDropdownOptions}>
+      {RADII.map((radius) => <Pressable key={radius} accessibilityRole="button" accessibilityState={{ selected: radiusKm === radius }} onPress={() => { setRadiusKm(radius); setRadiusOpen(false); }} style={[styles.radiusDropdownOption, radiusKm === radius && styles.radiusDropdownOptionSelected]}>
+        <Text style={[styles.radiusDropdownOptionText, radiusKm === radius && styles.radiusDropdownOptionTextSelected]}>{radius} km</Text>
       </Pressable>)}
-    </View>
+    </View> : null}
 
     <View style={styles.mapFrame}>
       <View style={styles.mapHeader}>
@@ -239,11 +244,14 @@ const styles = StyleSheet.create({
   radiusHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 2 },
   radiusLabel: { color: THEME.muted, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
   radiusValue: { color: THEME.blue, fontSize: 12, fontWeight: "900" },
-  radiusOptions: { flexDirection: "row", gap: 8 },
-  radiusOption: { flex: 1, height: 39, borderRadius: 11, borderWidth: 1, borderColor: THEME.border, backgroundColor: THEME.surface, alignItems: "center", justifyContent: "center" },
-  radiusOptionSelected: { backgroundColor: THEME.blue, borderColor: THEME.blue },
-  radiusOptionText: { color: THEME.muted, fontSize: 12, fontWeight: "800" },
-  radiusOptionTextSelected: { color: THEME.surface },
+  radiusDropdown: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, borderRadius: 11, borderWidth: 1, borderColor: THEME.border, backgroundColor: THEME.surface },
+  radiusDropdownValue: { color: THEME.navy, fontSize: 13, fontWeight: "800" },
+  radiusDropdownChevron: { color: THEME.blue, fontSize: 11, fontWeight: "900" },
+  radiusDropdownOptions: { backgroundColor: THEME.surface, borderColor: THEME.border, borderWidth: 1, borderRadius: 11, overflow: "hidden", marginTop: -5 },
+  radiusDropdownOption: { minHeight: 38, justifyContent: "center", paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: THEME.border },
+  radiusDropdownOptionSelected: { backgroundColor: THEME.softBlue },
+  radiusDropdownOptionText: { color: THEME.navy, fontSize: 12, fontWeight: "700" },
+  radiusDropdownOptionTextSelected: { color: THEME.blue, fontWeight: "900" },
   mapFrame: { backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.border, borderRadius: 18, padding: 10 },
   mapHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 9 },
   mapTitle: { color: THEME.ink, fontSize: 14, fontWeight: "900" },
