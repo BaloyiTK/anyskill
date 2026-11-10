@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
 import {
-  ActivityIndicator, KeyboardAvoidingView, Linking, Platform, Pressable,
+  ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, Pressable,
   SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import {
@@ -510,12 +510,12 @@ export default function App() {
       <StatusBar barStyle="dark-content" />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-          <View style={s.brandRow}>
-            <View style={s.brandMark}><Text style={s.brandMarkText}>A</Text></View>
+          {screen !== "welcome" && <View style={s.brandRow}>
+            <Image source={require("./assets/branding/anyskill-logo.png")} style={s.brandLogo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
             <Text style={s.brandName}>AnySkill</Text>
             <View style={s.spacer} />
-            {screen !== "welcome" ? <Text style={s.brandTag}>SKILLS MADE SIMPLE</Text> : null}
-          </View>
+            <Text style={s.brandTag}>SKILLS MADE SIMPLE</Text>
+          </View>}
 
           {screen === "welcome" && <WelcomeScreen
             onSignIn={() => goTo("login")}
@@ -746,8 +746,8 @@ const s = StyleSheet.create({
   flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 32 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 20, paddingHorizontal: 2 },
-  brandMark: { width: 42, height: 42, borderRadius: 14, backgroundColor: C.primary, alignItems: "center", justifyContent: "center", shadowColor: "#123D2E", shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
-  brandMarkText: { color: "#FFF", fontSize: 25, fontWeight: "900" }, brandName: { color: C.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.5 },
+  brandLogo: { width: 44, height: 44 },
+  brandName: { color: C.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.5 },
   spacer: { flex: 1 }, brandTag: { color: C.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.15 },
   googleDivider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 18 },
   googleDividerLine: { flex: 1, height: 1, backgroundColor: C.border },
