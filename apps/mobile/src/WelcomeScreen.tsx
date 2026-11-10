@@ -214,8 +214,8 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
         placeholderTextColor={THEME.muted}
         style={styles.locationSearchInput}
       />
-      <Pressable accessibilityRole="button" onPress={searchLocation} disabled={searchingLocation || !manualLocation.trim()} style={styles.locationSearchButton}>
-        {searchingLocation ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.locationButtonText}>Search</Text>}
+      <Pressable accessibilityRole="button" accessibilityLabel="Search location" onPress={searchLocation} disabled={searchingLocation || !manualLocation.trim()} style={styles.locationSearchButton}>
+        {searchingLocation ? <ActivityIndicator color="#FFFFFF" size="small" /> : <View style={styles.searchIcon}><View style={styles.searchIconLens} /><View style={styles.searchIconHandle} /></View>}
       </Pressable>
     </View>
     {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
@@ -298,7 +298,10 @@ const styles = StyleSheet.create({
   locationDetected: { color: THEME.green, fontSize: 10, fontWeight: "900" },
   locationSearchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   locationSearchInput: { flex: 1, minHeight: 43, borderWidth: 1, borderColor: THEME.border, borderRadius: 11, backgroundColor: THEME.surface, paddingHorizontal: 12, color: THEME.navy, fontSize: 12 },
-  locationSearchButton: { minWidth: 76, minHeight: 43, backgroundColor: THEME.forest, borderRadius: 11, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  locationSearchButton: { width: 43, height: 43, backgroundColor: THEME.forest, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+  searchIcon: { width: 22, height: 22, alignItems: "flex-start", justifyContent: "flex-start" },
+  searchIconLens: { width: 15, height: 15, borderWidth: 2, borderColor: THEME.surface, borderRadius: 8 },
+  searchIconHandle: { position: "absolute", width: 9, height: 2, backgroundColor: THEME.surface, borderRadius: 1, left: 12, top: 14, transform: [{ rotate: "45deg" }] },
   error: { color: THEME.danger, fontSize: 11, lineHeight: 16 },
   radiusHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 2 },
   radiusLabel: { color: THEME.muted, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
