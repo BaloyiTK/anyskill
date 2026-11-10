@@ -205,7 +205,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listMyRequests(seekerId: string) {
-    return this.prisma.serviceRequest.findMany({
+    const requests = await this.prisma.serviceRequest.findMany({
       where: { seekerId },
       orderBy: { createdAt: "desc" },
       include: {
@@ -226,6 +226,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         },
       },
     });
+    const serverNow = new Date().toISOString();
+    return requests.map((request) => ({
+      ...request,
+      jobEngagement: request.jobEngagement ? { ...request.jobEngagement, serverNow } : null,
+    }));
   }
 
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
@@ -281,10 +286,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
 
   async listMyJobs(providerId: string) {
-    return this.prisma.jobEngagement.findMany({
+    const jobs = await this.prisma.jobEngagement.findMany({
       where: { providerId }, orderBy: { updatedAt: "desc" },
       include: { request: { select: { id: true, title: true, description: true, location: true, latitude: true, longitude: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
     });
+    const serverNow = new Date().toISOString();
+    return jobs.map((job) => ({ ...job, serverNow }));
   }
 
 
