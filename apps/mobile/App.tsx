@@ -10,6 +10,7 @@ import {
 } from "./src/api";
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
+import { WelcomeScreen } from "./src/WelcomeScreen";
 
 
 type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password" | "dashboard" | "marketplace" | "onboarding";
@@ -513,23 +514,14 @@ export default function App() {
             <View style={s.brandMark}><Text style={s.brandMarkText}>A</Text></View>
             <Text style={s.brandName}>AnySkill</Text>
             <View style={s.spacer} />
-            <Text style={s.brandTag}>SKILLS MADE SIMPLE</Text>
+            {screen !== "welcome" ? <Text style={s.brandTag}>SKILLS MADE SIMPLE</Text> : null}
           </View>
 
-          {screen === "welcome" && <>
-            <View style={s.hero}>
-              <Text style={s.heading}>Find skills.{"\n"}Get things done.</Text>
-              <Text style={s.heroSubtitle}>For skilled and unskilled individuals, and businesses looking for the right people or services.</Text>
-            </View>
-            <Primary label="Sign In" onPress={() => goTo("login")} />
-            <Secondary label="Sign Up" onPress={() => goTo("register")} />
-            <View style={s.googleDivider}>
-              <View style={s.googleDividerLine} />
-              <Text style={s.helper}>OR</Text>
-              <View style={s.googleDividerLine} />
-            </View>
-            <Secondary label="Continue with Google" onPress={continueWithGoogle} />
-          </>}
+          {screen === "welcome" && <WelcomeScreen
+            onSignIn={() => goTo("login")}
+            onSignUp={() => goTo("register")}
+            onGoogle={() => { void continueWithGoogle(); }}
+          />}
 
           {(screen === "register" || screen === "login") && <View style={s.form}>
             <Text style={s.kicker}>{screen === "register" ? "GET STARTED" : "WELCOME BACK"}</Text>
