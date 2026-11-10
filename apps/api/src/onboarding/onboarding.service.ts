@@ -19,8 +19,8 @@ export class OnboardingService {
       for (const [key,value] of Object.entries(input.profile)) {
         if (!allowed.has(key)) throw new BadRequestException(`Invalid profile field: ${key}`);
         if (key === "marketplaceRoles") {
-          if (!Array.isArray(value) || value.length < 1 || value.length > 2 || value.some((role) => role !== "SEEKER" && role !== "PROVIDER") || new Set(value).size !== value.length) {
-            throw new BadRequestException("Select Skill Seeker, Skill Provider, or both.");
+          if (!Array.isArray(value) || value.length > 2 || value.some((role) => role !== "SEEKER" && role !== "PROVIDER") || new Set(value).size !== value.length) {
+            throw new BadRequestException("Marketplace roles must be Skill Seeker, Skill Provider, or both.");
           }
           continue;
         }
