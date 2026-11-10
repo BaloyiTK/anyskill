@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Location from "expo-location";
 import { apiRequest } from "./api";
 
@@ -54,7 +54,9 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
   const [radiusKm, setRadiusKm] = useState<number>(5);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [areaLabel, setAreaLabel] = useState("Choose your location");
+  const [areaLabel, setAreaLabel] = useState("Detecting your location…");
+  const [manualLocation, setManualLocation] = useState("");
+  const [searchingLocation, setSearchingLocation] = useState(false);
   const [providers, setProviders] = useState<ProviderPin[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
   const [mapSize, setMapSize] = useState({ width: 340, height: 330 });
@@ -127,6 +129,48 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
     }
   };
 
+  const searchLocation = async () => {
+    const query = manualLocation.trim();
+    if (!query) {
+      setLocationError("Enter a suburb, city or address to search.");
+      return;
+    }
+    setSearchingLocation(true);
+    setLocationError("");
+    try {
+      const matches = await Location.geocodeAsync(query);
+      if (!matches.length) {
+        setLocationError("We couldn't find that location. Try a nearby suburb or city.");
+        return;
+      }
+      const next = { latitude: matches[0].latitude, longitude: matches[0].longitude };
+      setCoordinates(next);
+      setAreaLabel(query);
+      try {
+        const places = await Location.reverseGeocodeAsync(next);
+        const place = places[0];
+        const label = place
+          ? [place.subregion, place.city, place.region].filter(Boolean).filter((value, index, all) => all.indexOf(value) === index).join(", ")
+          : "";
+        if (label) setAreaLabel(label);
+      } catch {
+        // Keep the user's search text if reverse geocoding is unavailable.
+      }
+      setManualLocation("");
+    } catch (error) {
+      setLocationError(error instanceof Error ? error.message : "Location search failed. Please try again.");
+    } finally {
+      setSearchingLocation(false);
+    }
+  };
+
+  // Detect the device location automatically when the welcome screen opens.
+  useEffect(() => {
+    void chooseLocation();
+    // Run once on mount; manual search remains available to correct the detected area.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
   const tileImages = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].flatMap((dy) => {
     const rawX = centerTileX + dx;
@@ -159,6 +203,21 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
       </View>
       <Pressable accessibilityRole="button" onPress={chooseLocation} disabled={locating} style={styles.locationButton}>
         {locating ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.locationButtonText}>{coordinates ? "Update" : "Use my location"}</Text>}
+      </Pressable>
+    </View>
+    <View style={styles.locationSearchRow}>
+      <TextInput
+        accessibilityLabel="Search for a location"
+        value={manualLocation}
+        onChangeText={setManualLocation}
+        onSubmitEditing={searchLocation}
+        returnKeyType="search"
+        placeholder="Search suburb, city or address"
+        placeholderTextColor={THEME.muted}
+        style={styles.locationSearchInput}
+      />
+      <Pressable accessibilityRole="button" onPress={searchLocation} disabled={searchingLocation || !manualLocation.trim()} style={styles.locationSearchButton}>
+        {searchingLocation ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.locationButtonText}>Search</Text>}
       </Pressable>
     </View>
     {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
@@ -240,6 +299,9 @@ const styles = StyleSheet.create({
   locationValue: { color: THEME.ink, fontSize: 13, fontWeight: "800", marginTop: 3 },
   locationButton: { minHeight: 40, backgroundColor: THEME.blue, borderRadius: 11, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   locationButtonText: { color: THEME.surface, fontSize: 11, fontWeight: "800" },
+  locationSearchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  locationSearchInput: { flex: 1, minHeight: 43, borderWidth: 1, borderColor: THEME.border, borderRadius: 11, backgroundColor: THEME.surface, paddingHorizontal: 12, color: THEME.navy, fontSize: 12 },
+  locationSearchButton: { minWidth: 76, minHeight: 43, backgroundColor: THEME.forest, borderRadius: 11, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
   error: { color: THEME.danger, fontSize: 11, lineHeight: 16 },
   radiusHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 2 },
   radiusLabel: { color: THEME.muted, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
