@@ -163,7 +163,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         liveLatitude: { not: null },
         liveLongitude: { not: null },
         liveLocationUpdatedAt: { gte: cutoff },
-        user: { identityVerification: "VERIFIED" },
+        user: { is: { identityVerification: "VERIFIED" } },
       },
       select: {
         id: true,
@@ -173,6 +173,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         liveLongitude: true,
         maxTravelDistanceKm: true,
       },
+      orderBy: { liveLocationUpdatedAt: "desc" },
       take: 500,
     });
 
