@@ -168,8 +168,9 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
           const top = point.y - center.y + mapSize.height / 2;
           if (left < -20 || top < -35 || left > mapSize.width + 20 || top > mapSize.height + 20) return null;
           const selected = selectedProviderId === provider.id;
-          return <Pressable key={provider.id} accessibilityRole="button" accessibilityLabel={`${provider.skill}, ${provider.distanceKm} kilometres away`} onPress={() => setSelectedProviderId(selected ? null : provider.id)} style={[styles.providerMarker, { left: left - 13, top: top - 13 }]}>
+          return <Pressable key={provider.id} accessibilityRole="button" accessibilityLabel={`${provider.skill}, ${provider.distanceKm} kilometres away`} onPress={() => setSelectedProviderId(selected ? null : provider.id)} style={[styles.providerMarker, { left: left - 10, top: top - 10 }]}>
             <View style={[styles.markerDot, selected && styles.markerDotSelected]} />
+            <View style={styles.markerLabel}><Text numberOfLines={1} style={styles.markerLabelText}>{provider.skill} · {provider.distanceKm.toFixed(1)} km</Text></View>
           </Pressable>;
         })}
         {selectedProvider ? <View pointerEvents="none" style={styles.providerCallout}>
@@ -229,7 +230,9 @@ const styles = StyleSheet.create({
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#279767" },
   onlineText: { color: "#279767", fontSize: 9, fontWeight: "800" },
   map: { height: 330, borderRadius: 13, overflow: "hidden", backgroundColor: "#E8EDE9" },
-  providerMarker: { position: "absolute", width: 27, height: 27, borderRadius: 14, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", elevation: 4, shadowColor: "#000000", shadowOpacity: 0.18, shadowRadius: 4 },
+  providerMarker: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 4, zIndex: 2, elevation: 4 },
+  markerLabel: { maxWidth: 150, backgroundColor: "#FFFFFF", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 5, shadowColor: "#000000", shadowOpacity: 0.16, shadowRadius: 3, elevation: 3 },
+  markerLabelText: { color: "#15251E", fontSize: 9, fontWeight: "900" },
   markerDot: { width: 17, height: 17, borderRadius: 9, backgroundColor: "#176B55", borderWidth: 2, borderColor: "#FFFFFF" },
   markerDotSelected: { backgroundColor: "#E69B36", width: 20, height: 20, borderRadius: 10 },
   providerCallout: { position: "absolute", top: 10, left: 10, right: 10, backgroundColor: "#FFFFFF", borderRadius: 12, padding: 10, elevation: 5 },
