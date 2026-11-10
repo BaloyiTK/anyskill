@@ -294,6 +294,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit completion.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("The job must be in progress before completion can be submitted.");
+      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Resume the work timer before submitting completion.");
+      const completionTime = new Date();
+      const accumulatedWorkMs = job.workAccumulatedMs + Math.max(0, completionTime.getTime() - job.workSegmentStartedAt.getTime());
       const pendingAdjustments = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pendingAdjustments > 0) throw new ConflictException("Resolve pending additional-hours approvals before submitting completion.");
       const pendingSubmission = await tx.jobCompletionSubmission.count({ where: { engagementId: job.id, status: "PENDING" } });
@@ -313,8 +316,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } },
       });
       const claimed = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: "IN_PROGRESS" },
-        data: { status: "COMPLETION_PENDING" },
+        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        data: {
+          status: "COMPLETION_PENDING",
+          workAccumulatedMs: accumulatedWorkMs,
+          workSegmentStartedAt: null,
+          workPausedAt: null,
+          workEndedAt: completionTime,
+        },
       });
       if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
       await tx.appNotification.create({
@@ -337,10 +346,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { id: submission.id },
         data: { status: input.approved ? "APPROVED" : "REJECTED", reviewNote: input.note?.trim() || null, reviewedAt: new Date() },
       });
-      await tx.jobEngagement.update({
-        where: { id: job.id },
-        data: { status: input.approved ? "COMPLETED" : "IN_PROGRESS" },
+      const reviewTime = new Date();
+      const jobUpdate = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "COMPLETION_PENDING" },
+        data: input.approved
+          ? { status: "COMPLETED", workSegmentStartedAt: null, workPausedAt: null }
+          : { status: "IN_PROGRESS", workSegmentStartedAt: reviewTime, workPausedAt: null, workEndedAt: null },
       });
+      if (jobUpdate.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
       if (input.approved) {
         await tx.serviceRequest.update({ where: { id: requestId }, data: { status: "COMPLETED" } });
       }
@@ -388,7 +401,48 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (!job) throw new NotFoundException("Selected job not found.");
     if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
     if (job.status !== "ESTIMATE_APPROVED") throw new ConflictException("The Seeker must approve the estimate before work can start.");
-    return this.prisma.jobEngagement.update({ where: { id: job.id }, data: { status: "IN_PROGRESS", workStartedAt: new Date() } });
+    const now = new Date();
+    const claimed = await this.prisma.jobEngagement.updateMany({
+      where: { id: job.id, status: "ESTIMATE_APPROVED" },
+      data: { status: "IN_PROGRESS", workStartedAt: now, workAccumulatedMs: 0, workSegmentStartedAt: now, workPausedAt: null, workEndedAt: null },
+    });
+    if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
+    return this.prisma.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
+  }
+
+  async pauseWork(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can pause this job.");
+      if (job.status !== "IN_PROGRESS") throw new ConflictException("Only an active job can be paused.");
+      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("The work timer is already paused or not running.");
+      const now = new Date();
+      const accumulated = job.workAccumulatedMs + Math.max(0, now.getTime() - job.workSegmentStartedAt.getTime());
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        data: { workAccumulatedMs: accumulated, workSegmentStartedAt: null, workPausedAt: now },
+      });
+      if (changed.count !== 1) throw new ConflictException("The job changed. Refresh before trying again.");
+      return tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
+    });
+  }
+
+  async resumeWork(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can resume this job.");
+      if (job.status !== "IN_PROGRESS") throw new ConflictException("Only an active job can be resumed.");
+      if (!job.workPausedAt || job.workSegmentStartedAt) throw new ConflictException("The work timer is not paused.");
+      const now = new Date();
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "IN_PROGRESS", workPausedAt: job.workPausedAt, workSegmentStartedAt: null },
+        data: { workSegmentStartedAt: now, workPausedAt: null },
+      });
+      if (changed.count !== 1) throw new ConflictException("The job changed. Refresh before trying again.");
+      return tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
+    });
   }
 
   async requestAdditionalHours(providerId: string, requestId: string, input: RequestAdditionalHoursDto) {
@@ -397,6 +451,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("Extra hours can only be requested while work is in progress.");
+      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Additional hours can only be requested while the work timer is running.");
       const pending = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pending) throw new ConflictException("An additional-hours request is already awaiting the Seeker's decision.");
       const hours = new Prisma.Decimal(input.additionalHours);
