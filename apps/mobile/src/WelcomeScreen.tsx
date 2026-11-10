@@ -201,9 +201,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
         <Text style={styles.locationLabel}>YOUR AREA</Text>
         <Text numberOfLines={2} style={styles.locationValue}>{areaLabel}</Text>
       </View>
-      <Pressable accessibilityRole="button" onPress={chooseLocation} disabled={locating} style={styles.locationButton}>
-        {locating ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.locationButtonText}>{coordinates ? "Update" : "Use my location"}</Text>}
-      </Pressable>
+      {locating ? <ActivityIndicator color={THEME.blue} size="small" /> : coordinates ? <Text style={styles.locationDetected}>Detected</Text> : null}
     </View>
     <View style={styles.locationSearchRow}>
       <TextInput
@@ -297,8 +295,7 @@ const styles = StyleSheet.create({
   locationCopy: { flex: 1 },
   locationLabel: { color: THEME.muted, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
   locationValue: { color: THEME.ink, fontSize: 13, fontWeight: "800", marginTop: 3 },
-  locationButton: { minHeight: 40, backgroundColor: THEME.blue, borderRadius: 11, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
-  locationButtonText: { color: THEME.surface, fontSize: 11, fontWeight: "800" },
+  locationDetected: { color: THEME.green, fontSize: 10, fontWeight: "900" },
   locationSearchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   locationSearchInput: { flex: 1, minHeight: 43, borderWidth: 1, borderColor: THEME.border, borderRadius: 11, backgroundColor: THEME.surface, paddingHorizontal: 12, color: THEME.navy, fontSize: 12 },
   locationSearchButton: { minWidth: 76, minHeight: 43, backgroundColor: THEME.forest, borderRadius: 11, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
