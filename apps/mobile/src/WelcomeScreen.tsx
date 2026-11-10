@@ -125,6 +125,9 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
   }));
 
   return <View style={styles.container}>
+    <View style={styles.branding}>
+      <Image source={require("../assets/branding/anyskill-logo.png")} style={styles.logo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
+    </View>
     <View style={styles.intro}>
       <Text style={styles.eyebrow}>LOCAL SKILLS. REAL PEOPLE.</Text>
       <Text style={styles.heading}>Find help nearby.</Text>
@@ -202,6 +205,8 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
 
 const styles = StyleSheet.create({
   container: { gap: 12 },
+  branding: { alignItems: "center", justifyContent: "center", paddingTop: 2, marginBottom: -4 },
+  logo: { width: 132, height: 132 },
   intro: { paddingTop: 4, paddingBottom: 3 },
   eyebrow: { color: "#176B55", fontSize: 10, fontWeight: "900", letterSpacing: 1.5, marginBottom: 9 },
   heading: { color: "#15251E", fontSize: 31, lineHeight: 37, fontWeight: "900", letterSpacing: -1 },
