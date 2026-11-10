@@ -400,7 +400,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       </View>
       <View style={st.track}><View style={[st.fill, { width: `${data.percentage}%` }]} /></View>
       <View style={st.tabs}>
-        {tabs.map((tab, index) => <Pressable key={tab} onPress={() => setActive(tab)} style={[st.tab, active === tab && st.activeTab, tabs.indexOf(active) > index && st.doneTab]}><View style={[st.stepDot, active === tab && st.activeDot, tabs.indexOf(active) > index && st.doneDot]}><Text style={[st.stepDotText, (active === tab || tabs.indexOf(active) > index) && st.activeDotText]}>{tabs.indexOf(active) > index ? "✓" : index + 1}</Text></View><Text style={[st.tabText, active === tab && st.activeTabText]}>{tab}</Text></Pressable>)}
+        {tabs.map((tab, index) => <Pressable key={tab} onPress={() => setActive(tab)} style={[st.tab, active === tab && st.activeTab, tabs.indexOf(active) > index && st.doneTab]}><View style={[st.stepDot, active === tab && st.activeDot, tabs.indexOf(active) > index && st.doneDot]}><Text style={[st.stepDotText, (active === tab || tabs.indexOf(active) > index) && st.activeDotText]}>{tabs.indexOf(active) > index ? "✓" : index + 1}</Text></View><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={[st.tabText, active === tab && st.activeTabText]}>{tab}</Text></Pressable>)}
       </View>
     </View>
     <ScrollView style={st.body} contentContainerStyle={{ paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
@@ -608,13 +608,13 @@ const st = StyleSheet.create({
   percent: { color: colors.muted, fontSize: 11, marginTop: 3 }, percentStrong: { color: colors.primary, fontSize: 12, fontWeight: "900" },
   track: { height: 6, marginHorizontal: 20, marginTop: 10, borderRadius: 8, backgroundColor: colors.border, overflow: "hidden" },
   fill: { height: 6, backgroundColor: colors.primary, borderRadius: 8 },
-  tabs: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 20, paddingVertical: 14 },
-  tab: { flexBasis: "47%", flexGrow: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 11, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  tabs: { flexDirection: "row", flexWrap: "nowrap", gap: 4, paddingHorizontal: 12, paddingVertical: 14, alignItems: "stretch" },
+  tab: { flex: 1, flexBasis: 0, minWidth: 0, flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 8, paddingHorizontal: 2, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   activeTab: { backgroundColor: colors.soft, borderColor: colors.primary }, doneTab: { borderColor: "#B9DFC0" },
   stepDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#E8EBF2" },
   activeDot: { backgroundColor: colors.primary }, doneDot: { backgroundColor: "#DDF2E1" },
   stepDotText: { color: colors.muted, fontSize: 10, fontWeight: "900" }, activeDotText: { color: colors.primary },
-  tabText: { color: colors.muted, fontSize: 10, fontWeight: "800" }, activeTabText: { color: colors.primary },
+  tabText: { color: colors.muted, fontSize: 9, fontWeight: "800", textAlign: "center", includeFontPadding: false, flexShrink: 1 }, activeTabText: { color: colors.primary },
   body: { flex: 1, paddingHorizontal: 20 }, heading: { color: colors.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.45, marginBottom: 8 },
   photoCard: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 14, marginBottom: 16 },
   avatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: colors.soft, alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 2, borderColor: "#D5E7FA" },
