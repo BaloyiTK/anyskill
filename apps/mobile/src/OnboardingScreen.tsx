@@ -341,7 +341,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   return <View style={st.container}>
     <View style={st.hero}>
       <View style={st.heroTop}>
-        <Text style={st.brand}>anyskill<Text style={st.brandAccent}>.</Text></Text>
         <Pressable onPress={p.onBack} accessibilityRole="button" style={st.backButton}><Text style={st.back}>Back</Text></Pressable>
       </View>
       <Text style={st.heroTitle}>Let's build your profile.</Text>
