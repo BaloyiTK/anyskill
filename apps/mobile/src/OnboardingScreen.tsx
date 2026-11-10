@@ -21,13 +21,13 @@ type Payload = {
 
 const tabs: Section[] = ["Profile", "Verification", "Skills", "Portfolio", "Submit"];
 const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, sections: { profile: false, skills: false, portfolio: false } };
-const colors = { ink: "#182238", muted: "#778198", primary: "#294FC5", border: "#E2E7F0", surface: "#FFFFFF", bg: "#F7F8FC", hero: "#111D36", soft: "#F0F4FF" };
+const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#4CAF50", forest: "#1B5E20", border: "#DCE5EF", surface: "#FFFFFF", bg: "#F6F8FA", hero: "#0B2545", soft: "#EAF3FF" };
 
 export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void }) {
   const [active, setActive] = useState<Section>("Profile");
   const [data, setData] = useState<Payload>(empty);
   const [accountType, setAccountType] = useState<AccountType | "">("");
-  const [marketplaceRole, setMarketplaceRole] = useState<MarketplaceRole | "">("");
+  const [marketplaceRoles, setMarketplaceRoles] = useState<MarketplaceRole[]>([]);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -48,6 +48,20 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [suburb, setSuburb] = useState("");
   const [address, setAddress] = useState("");
   const [houseNumber, setHouseNumber] = useState("");
+  const [businessName, setBusinessName] = useState("");
+  const [businessRegistrationNumber, setBusinessRegistrationNumber] = useState("");
+  const [businessType, setBusinessType] = useState("");
+  const [businessEmail, setBusinessEmail] = useState("");
+  const [businessPhone, setBusinessPhone] = useState("");
+  const [businessCountry, setBusinessCountry] = useState("South Africa");
+  const [businessProvince, setBusinessProvince] = useState("");
+  const [businessCity, setBusinessCity] = useState("");
+  const [businessAddress, setBusinessAddress] = useState("");
+  const [contactFirstName, setContactFirstName] = useState("");
+  const [contactLastName, setContactLastName] = useState("");
+  const [contactJobTitle, setContactJobTitle] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [identityStatus, setIdentityStatus] = useState(p.identityStatus);
   const [idDocumentReady, setIdDocumentReady] = useState(false);
   const [idType, setIdType] = useState<"SMART_ID_CARD" | "GREEN_ID_BOOK">("SMART_ID_CARD");
@@ -85,11 +99,19 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       setData(result);
       const profile = result.profile ?? {};
       setAccountType(profile.accountType === "INDIVIDUAL" || profile.accountType === "BUSINESS" ? profile.accountType : "");
-      setMarketplaceRole(profile.marketplaceRole === "SEEKER" || profile.marketplaceRole === "PROVIDER" ? profile.marketplaceRole : "");
+      setMarketplaceRoles(Array.isArray(profile.marketplaceRoles)
+        ? profile.marketplaceRoles.filter((role: unknown): role is MarketplaceRole => role === "SEEKER" || role === "PROVIDER")
+        : profile.marketplaceRole === "SEEKER" || profile.marketplaceRole === "PROVIDER" ? [profile.marketplaceRole] : []);
       setFirstName(profile.firstName ?? ""); setLastName(profile.lastName ?? ""); setPhone(profile.phone ?? "");
       setPhoneDialCode(profile.phoneDialCode ?? "+27");
       setCountry(profile.country ?? "South Africa"); setCountryCode(profile.countryCode ?? "ZA"); setProvince(profile.province ?? ""); setCity(profile.city ?? "");
       setSuburb(profile.suburb ?? ""); setAddress(profile.address ?? ""); setHouseNumber(profile.houseNumber ?? "");
+      setBusinessName(profile.businessName ?? ""); setBusinessRegistrationNumber(profile.businessRegistrationNumber ?? "");
+      setBusinessType(profile.businessType ?? ""); setBusinessEmail(profile.businessEmail ?? ""); setBusinessPhone(profile.businessPhone ?? "");
+      setBusinessCountry(profile.businessCountry ?? "South Africa"); setBusinessProvince(profile.businessProvince ?? "");
+      setBusinessCity(profile.businessCity ?? ""); setBusinessAddress(profile.businessAddress ?? "");
+      setContactFirstName(profile.contactFirstName ?? ""); setContactLastName(profile.contactLastName ?? "");
+      setContactJobTitle(profile.contactJobTitle ?? ""); setContactEmail(profile.contactEmail ?? ""); setContactPhone(profile.contactPhone ?? "");
       setHomeLatitude(home?.homeLatitude == null ? "" : String(home.homeLatitude));
       setHomeLongitude(home?.homeLongitude == null ? "" : String(home.homeLongitude));
       const skill = result.skills?.[0]; setCategory(skill?.category ?? ""); setDescription(skill?.description ?? "");
@@ -142,7 +164,11 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const save = async (section: "profile" | "skills" | "portfolio"): Promise<boolean> => {
     setBusy(true); setError(""); setMessage("");
     try {
-      const body = section === "profile" ? { profile: { accountType, marketplaceRole, firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address, houseNumber } }
+      const body = section === "profile" ? { profile: {
+        accountType, marketplaceRoles, firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address, houseNumber,
+        businessName, businessRegistrationNumber, businessType, businessEmail, businessPhone, businessCountry, businessProvince, businessCity, businessAddress,
+        contactFirstName, contactLastName, contactJobTitle, contactEmail, contactPhone,
+      } }
         : section === "skills" ? { skills: category.trim() ? [{ category: category.trim(), description, supportingDocuments: documentName.trim() && documentUrl.trim() ? [{ name: documentName.trim(), url: documentUrl.trim() }] : [] }] : [] }
         : { portfolio: portfolioTitle.trim() ? [{ title: portfolioTitle.trim(), description: portfolioDescription }] : [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
@@ -362,13 +388,34 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           <Choice label="Individual" description="A personal profile" selected={accountType === "INDIVIDUAL"} onPress={() => setAccountType("INDIVIDUAL")} />
           <Choice label="Business" description="A company or organisation" selected={accountType === "BUSINESS"} onPress={() => setAccountType("BUSINESS")} />
         </View>
-        <Text style={st.label}>Marketplace role</Text>
+        <Text style={st.label}>How will you use AnySkill?</Text>
+        <Text style={st.help}>Select one or both. You can change this later.</Text>
         <View style={st.choiceRow}>
-          <Choice label="Skill Seeker" description="Find people, skills or services" selected={marketplaceRole === "SEEKER"} onPress={() => setMarketplaceRole("SEEKER")} />
-          <Choice label="Skill Provider" description="Offer skills, services or capabilities" selected={marketplaceRole === "PROVIDER"} onPress={() => setMarketplaceRole("PROVIDER")} />
+          <RoleChoice label="Skill Seeker" description="Find and hire service providers." selected={marketplaceRoles.includes("SEEKER")} onPress={() => setMarketplaceRoles((current) => current.includes("SEEKER") ? current.filter((role) => role !== "SEEKER") : [...current, "SEEKER"])} />
+          <RoleChoice label="Skill Provider" description="Offer your skills and services." selected={marketplaceRoles.includes("PROVIDER")} onPress={() => setMarketplaceRoles((current) => current.includes("PROVIDER") ? current.filter((role) => role !== "PROVIDER") : [...current, "PROVIDER"])} />
         </View>
-        <Text style={st.help}>You can use AnySkill to seek and provide through one account. This selection sets your current profile role; it does not prevent you from using the other mode later.</Text>
-        {Field("First name", firstName, setFirstName)}{Field("Last name", lastName, setLastName)}
+        <Text style={st.roleHelp}>{marketplaceRoles.length === 0 ? "Select at least one role to continue." : "Selected: " + marketplaceRoles.map((role) => role === "SEEKER" ? "Skill Seeker" : "Skill Provider").join(" + ")}</Text>
+        {accountType === "BUSINESS" ? <>
+          <Text style={st.sectionHeading}>Business information</Text>
+          {Field("Business name", businessName, setBusinessName)}
+          {Field("Business registration number (optional)", businessRegistrationNumber, setBusinessRegistrationNumber)}
+          {Field("Business type", businessType, setBusinessType)}
+          {Field("Business email address", businessEmail, setBusinessEmail)}
+          {Field("Business contact number", businessPhone, setBusinessPhone)}
+          {Field("Business country", businessCountry, setBusinessCountry)}
+          {Field("Business province / state", businessProvince, setBusinessProvince)}
+          {Field("Business city", businessCity, setBusinessCity)}
+          {Field("Business physical address", businessAddress, setBusinessAddress)}
+          <Text style={st.sectionHeading}>Authorised contact person</Text>
+          <Text style={st.help}>Who should AnySkill contact about this business account?</Text>
+          {Field("Contact person's first name", contactFirstName, setContactFirstName)}
+          {Field("Contact person's last name", contactLastName, setContactLastName)}
+          {Field("Position / job title", contactJobTitle, setContactJobTitle)}
+          {Field("Contact person's email address", contactEmail, setContactEmail)}
+          {Field("Contact person's phone number", contactPhone, setContactPhone)}
+          <Text style={st.help}>The contact person will complete identity verification in the next step.</Text>
+        </> : <>
+          {Field("First name", firstName, setFirstName)}{Field("Last name", lastName, setLastName)}
         <Text style={st.label}>Contact number</Text>
         <View style={st.inlineFields}>
           <View style={st.codeField}>
@@ -419,6 +466,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         <MapPinPicker latitude={homeLatitude.trim() && Number.isFinite(Number(homeLatitude)) ? Number(homeLatitude) : -26.2041} longitude={homeLongitude.trim() && Number.isFinite(Number(homeLongitude)) ? Number(homeLongitude) : 28.0473} selectedLatitude={homeLatitude.trim() ? Number(homeLatitude) : null} selectedLongitude={homeLongitude.trim() ? Number(homeLongitude) : null} onSelect={(lat, lon) => { void updatePin(lat, lon); }} />
         {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
         <Text style={st.help}>Home Location is saved to your profile and used as a default. It is not continuous live tracking. You can also type coordinates if map tiles are unavailable.</Text>
+        </>}
         <Text style={st.status}>Section: {status("profile")}</Text>
       </>}
       {active === "Verification" && <>
@@ -503,11 +551,20 @@ function Choice(p: { label: string; description: string; selected: boolean; onPr
     <Text style={st.choiceDescription}>{p.description}</Text>
   </Pressable>;
 }
+function RoleChoice(p: { label: string; description: string; selected: boolean; onPress: () => void }) {
+  return <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: p.selected }} onPress={p.onPress} style={[st.choice, st.roleChoice, p.selected && st.choiceSelected]}>
+    <View style={st.choiceTop}>
+      <Text style={st.choiceTitle}>{p.label}</Text>
+      <View style={[st.roleCheck, p.selected && st.roleCheckSelected]}>{p.selected ? <Text style={st.roleCheckText}>✓</Text> : null}</View>
+    </View>
+    <Text style={st.choiceDescription}>{p.description}</Text>
+  </Pressable>;
+}
 const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   hero: { backgroundColor: colors.hero, paddingHorizontal: 22, paddingTop: 18, paddingBottom: 25, borderBottomLeftRadius: 22, borderBottomRightRadius: 22 },
   heroTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 25 },
-  brand: { color: "#FFFFFF", fontSize: 19, fontWeight: "900", letterSpacing: 0.2 }, brandAccent: { color: "#83A4FF" },
+  brand: { color: "#FFFFFF", fontSize: 19, fontWeight: "900", letterSpacing: 0.2 }, brandAccent: { color: colors.green },
   backButton: { borderRadius: 20, paddingHorizontal: 13, paddingVertical: 7, backgroundColor: "#263655" }, back: { color: "#E3EAFF", fontSize: 12, fontWeight: "800" },
   heroTitle: { color: "#FFFFFF", fontSize: 26, lineHeight: 32, fontWeight: "900", letterSpacing: -0.6 },
   heroSubtitle: { color: "#C3CDE0", fontSize: 13, lineHeight: 19, marginTop: 8, maxWidth: 340 },
@@ -518,9 +575,9 @@ const st = StyleSheet.create({
   fill: { height: 6, backgroundColor: colors.primary, borderRadius: 8 },
   tabs: { gap: 8, paddingHorizontal: 20, paddingVertical: 14 },
   tab: { minWidth: 76, flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  activeTab: { backgroundColor: colors.soft, borderColor: colors.primary }, doneTab: { borderColor: "#C9D8FF" },
+  activeTab: { backgroundColor: colors.soft, borderColor: colors.primary }, doneTab: { borderColor: "#B9DFC0" },
   stepDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#E8EBF2" },
-  activeDot: { backgroundColor: colors.primary }, doneDot: { backgroundColor: "#DCE7FF" },
+  activeDot: { backgroundColor: colors.primary }, doneDot: { backgroundColor: "#DDF2E1" },
   stepDotText: { color: colors.muted, fontSize: 10, fontWeight: "900" }, activeDotText: { color: colors.primary },
   tabText: { color: colors.muted, fontSize: 10, fontWeight: "800" }, activeTabText: { color: colors.primary },
   body: { flex: 1, paddingHorizontal: 20 }, heading: { color: colors.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.45, marginBottom: 8 },
@@ -533,6 +590,12 @@ const st = StyleSheet.create({
   choiceDescription: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 8 },
   choiceRadio: { width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: colors.border },
   choiceRadioSelected: { borderWidth: 5, borderColor: colors.primary },
+  roleChoice: { minHeight: 104 },
+  roleCheck: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  roleCheckSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+  roleCheckText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+  roleHelp: { color: colors.forest, backgroundColor: "#EDF7EF", borderRadius: 10, padding: 11, fontSize: 12, fontWeight: "700", marginBottom: 16 },
+  sectionHeading: { color: colors.ink, fontSize: 16, fontWeight: "900", marginTop: 16, marginBottom: 10 },
   field: { marginBottom: 14 }, label: { color: colors.ink, fontSize: 12, fontWeight: "800", marginBottom: 7 },
   inlineFields: { flexDirection: "row", gap: 8, marginBottom: 14 }, codeField: { width: 104 }, phoneField: { flex: 1 },
   selectInput: { minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: 11, backgroundColor: "#FFFFFF", paddingHorizontal: 14, justifyContent: "center", marginBottom: 12 },
