@@ -512,9 +512,6 @@ export default function App() {
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
           {screen !== "welcome" && <View style={s.brandRow}>
             <Image source={require("./assets/branding/anyskill-logo.png")} style={s.brandLogo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
-            <Text style={s.brandName}>AnySkill</Text>
-            <View style={s.spacer} />
-            <Text style={s.brandTag}>SKILLS MADE SIMPLE</Text>
           </View>}
 
           {screen === "welcome" && <WelcomeScreen
@@ -745,10 +742,8 @@ function ModeCard(p: { title: string; description: string; selected: boolean; on
 const s = StyleSheet.create({
   flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 32 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 20, paddingHorizontal: 2 },
-  brandLogo: { width: 44, height: 44 },
-  brandName: { color: C.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.5 },
-  spacer: { flex: 1 }, brandTag: { color: C.muted, fontSize: 9, fontWeight: "800", letterSpacing: 1.15 },
+  brandRow: { flexDirection: "row", alignItems: "center", marginBottom: 20, paddingHorizontal: 2 },
+  brandLogo: { width: 150, height: 52 },
   googleDivider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 18 },
   googleDividerLine: { flex: 1, height: 1, backgroundColor: C.border },
   hero: { marginTop: 4, marginBottom: 28, backgroundColor: "#123F32", borderRadius: 26, paddingHorizontal: 23, paddingTop: 23, paddingBottom: 20, overflow: "hidden" },
