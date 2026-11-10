@@ -459,6 +459,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("Extra hours can only be requested while work is in progress.");
       if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Additional hours can only be requested while the work timer is running.");
+      // Claim the active timer state before creating the request so a concurrent break cannot
+      // make an additional-hours request slip through after the timer has been paused.
+      const timerClaim = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        data: { workAccumulatedMs: job.workAccumulatedMs },
+      });
+      if (timerClaim.count !== 1) throw new ConflictException("The work timer changed. Refresh and try again.");
       const pending = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pending) throw new ConflictException("An additional-hours request is already awaiting the Seeker's decision.");
       const hours = new Prisma.Decimal(input.additionalHours);
