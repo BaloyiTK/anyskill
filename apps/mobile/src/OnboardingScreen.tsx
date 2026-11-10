@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import * as Location from "expo-location";
 import * as ImagePicker from "expo-image-picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
 type CountryOption = { name: string; code: string; dialCode: string };
@@ -76,7 +75,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const selfieCameraRef = useRef<CameraView>(null);
   const [homeLatitude, setHomeLatitude] = useState("");
   const [homeLongitude, setHomeLongitude] = useState("");
-  const [homeLocationBusy, setHomeLocationBusy] = useState(false);
   const [addressSearchBusy, setAddressSearchBusy] = useState(false);
   const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
   const [category, setCategory] = useState("");
@@ -203,35 +201,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     }
   };
 
-  const useCurrentHomeLocation = async () => {
-    setHomeLocationBusy(true); setError(""); setMessage("");
-    try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (!permission.granted) throw new Error("Location permission was not granted. You can search for or enter your home address manually.");
-      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setHomeLatitude(String(current.coords.latitude));
-      setHomeLongitude(String(current.coords.longitude));
-      const places = await Location.reverseGeocodeAsync({ latitude: current.coords.latitude, longitude: current.coords.longitude });
-      const place = places[0];
-      if (place) {
-        if (place.country) {
-          setCountry(place.country);
-          const matchedCountry = countries.find((item) => item.name.toLowerCase() === place.country?.toLowerCase());
-          if (matchedCountry) setCountryCode(matchedCountry.code);
-        }
-        if (place.region) setProvince(place.region);
-        if (place.city || place.subregion) setCity(place.city ?? place.subregion ?? "");
-        if (place.district) setSuburb(place.district);
-        const readable = [place.name, place.street, place.district, place.city ?? place.subregion, place.region, place.postalCode, place.country].filter(Boolean);
-        if (readable.length) setAddress([...new Set(readable)].join(", "));
-        setMessage("Your current address and map pin were added. Review the address, then save your profile.");
-      } else {
-        setMessage("Current map pin added. Add or search for a readable home address before saving.");
-      }
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not read your current location."); }
-    finally { setHomeLocationBusy(false); }
-  };
-
   const searchHomeAddress = async (query: string) => {
     setAddress(query);
     if (query.trim().length < 3) { setAddressSuggestions([]); return; }
@@ -261,7 +230,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     setHomeLatitude(String(item.latitude));
     setHomeLongitude(String(item.longitude));
     setAddressSuggestions([]);
-    setMessage("Address selected and map pin updated. You can fine-tune the pin on the map.");
+    setMessage("Address selected and saved as your Home Location.");
   };
 
   const uploadIdentityAsset = async (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE", uri: string, mimeType?: string | null, fileSize?: number | null, originalFileName?: string | null) => {
@@ -397,10 +366,9 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           </View>
           <View style={st.photoCopy}>
             <Text style={st.photoTitle}>Profile picture</Text>
-            <Pressable onPress={() => void chooseProfilePhoto()} style={st.photoButton}><Text style={st.photoButtonText}>{profilePhotoUri ? "Change picture" : "Upload picture"}</Text></Pressable>
+            <Pressable onPress={() => void chooseProfilePhoto()} style={st.photoButton}><Text style={st.photoButtonText}>Upload picture</Text></Pressable>
           </View>
         </View>
-        <Text style={st.help}>First choose whether this profile represents you as an individual or a business, then choose how you want to participate in AnySkill. You can save a draft and finish later.</Text>
         <Text style={st.label}>Account type</Text>
         <View style={st.choiceRow}>
           <Choice label="Individual" description="A personal profile" selected={accountType === "INDIVIDUAL"} onPress={() => setAccountType("INDIVIDUAL")} />
@@ -478,9 +446,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
             <Text style={st.optionText}>{item.label}</Text>
           </Pressable>)}
         </View>}
-        <Action label={homeLocationBusy ? "Getting location..." : "Use current GPS for Home Location"} onPress={() => void useCurrentHomeLocation()} disabled={busy || homeLocationBusy} />
         <Text style={st.help}>Start typing your street address, suburb or postcode and choose a matching suggestion. Your selected country is included in the search.</Text>
-        <Text style={st.help}>Your selected address is saved as your default Home Location. You can also use your device location to fill it in.</Text>
         </>}
         <Text style={st.status}>Section: {status("profile")}</Text>
       </>}
