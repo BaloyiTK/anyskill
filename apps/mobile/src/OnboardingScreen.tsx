@@ -28,6 +28,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [data, setData] = useState<Payload>(empty);
   const [accountType, setAccountType] = useState<AccountType | "">("");
   const [marketplaceRoles, setMarketplaceRoles] = useState<MarketplaceRole[]>([]);
+  const [profilePhotoUri, setProfilePhotoUri] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -182,6 +183,25 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       return true;
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save this section."); return false; }
     finally { setBusy(false); }
+  };
+
+  const chooseProfilePhoto = async () => {
+    setError(""); setMessage("");
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError("Allow photo-library access to choose a profile picture, or continue with your initials.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+    if (!result.canceled && result.assets[0]?.uri) {
+      setProfilePhotoUri(result.assets[0].uri);
+      setMessage("Profile picture selected. This preview is local until profile-photo storage is connected.");
+    }
   };
 
   const useCurrentHomeLocation = async () => {
@@ -379,14 +399,24 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         <Text style={st.percentStrong}>{data.percentage}% complete</Text>
       </View>
       <View style={st.track}><View style={[st.fill, { width: `${data.percentage}%` }]} /></View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={st.tabs}>
+      <View style={st.tabs}>
         {tabs.map((tab, index) => <Pressable key={tab} onPress={() => setActive(tab)} style={[st.tab, active === tab && st.activeTab, tabs.indexOf(active) > index && st.doneTab]}><View style={[st.stepDot, active === tab && st.activeDot, tabs.indexOf(active) > index && st.doneDot]}><Text style={[st.stepDotText, (active === tab || tabs.indexOf(active) > index) && st.activeDotText]}>{tabs.indexOf(active) > index ? "✓" : index + 1}</Text></View><Text style={[st.tabText, active === tab && st.activeTabText]}>{tab}</Text></Pressable>)}
-      </ScrollView>
+      </View>
     </View>
     <ScrollView style={st.body} contentContainerStyle={{ paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
       {busy && <ActivityIndicator color={colors.primary} />}
       {active === "Profile" && <>
         <Text style={st.heading}>Set up your profile</Text>
+        <View style={st.photoCard}>
+          <View style={st.avatar}>
+            {profilePhotoUri ? <Image source={{ uri: profilePhotoUri }} style={st.avatarImage} /> : <Text style={st.avatarInitials}>{[firstName.trim()[0], lastName.trim()[0]].filter(Boolean).join("").toUpperCase() || "AS"}</Text>}
+          </View>
+          <View style={st.photoCopy}>
+            <Text style={st.photoTitle}>Profile picture</Text>
+            <Text style={st.photoHelp}>Use your Google photo when available, or add a picture from your device. You can continue with your initials.</Text>
+            <Pressable onPress={() => void chooseProfilePhoto()} style={st.photoButton}><Text style={st.photoButtonText}>{profilePhotoUri ? "Change picture" : "Upload picture"}</Text></Pressable>
+          </View>
+        </View>
         <Text style={st.help}>First choose whether this profile represents you as an individual or a business, then choose how you want to participate in AnySkill. You can save a draft and finish later.</Text>
         <Text style={st.label}>Account type</Text>
         <View style={st.choiceRow}>
@@ -578,14 +608,21 @@ const st = StyleSheet.create({
   percent: { color: colors.muted, fontSize: 11, marginTop: 3 }, percentStrong: { color: colors.primary, fontSize: 12, fontWeight: "900" },
   track: { height: 6, marginHorizontal: 20, marginTop: 10, borderRadius: 8, backgroundColor: colors.border, overflow: "hidden" },
   fill: { height: 6, backgroundColor: colors.primary, borderRadius: 8 },
-  tabs: { gap: 8, paddingHorizontal: 20, paddingVertical: 14 },
-  tab: { minWidth: 76, flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  tabs: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 20, paddingVertical: 14 },
+  tab: { flexBasis: "47%", flexGrow: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 11, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   activeTab: { backgroundColor: colors.soft, borderColor: colors.primary }, doneTab: { borderColor: "#B9DFC0" },
   stepDot: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#E8EBF2" },
   activeDot: { backgroundColor: colors.primary }, doneDot: { backgroundColor: "#DDF2E1" },
   stepDotText: { color: colors.muted, fontSize: 10, fontWeight: "900" }, activeDotText: { color: colors.primary },
   tabText: { color: colors.muted, fontSize: 10, fontWeight: "800" }, activeTabText: { color: colors.primary },
   body: { flex: 1, paddingHorizontal: 20 }, heading: { color: colors.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.45, marginBottom: 8 },
+  photoCard: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 14, marginBottom: 16 },
+  avatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: colors.soft, alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 2, borderColor: "#D5E7FA" },
+  avatarImage: { width: "100%", height: "100%" }, avatarInitials: { color: colors.primary, fontSize: 24, fontWeight: "900" },
+  photoCopy: { flex: 1 }, photoTitle: { color: colors.ink, fontSize: 14, fontWeight: "900" },
+  photoHelp: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 4 },
+  photoButton: { alignSelf: "flex-start", backgroundColor: colors.soft, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 8, marginTop: 9 },
+  photoButtonText: { color: colors.primary, fontSize: 12, fontWeight: "900" },
   help: { color: colors.muted, fontSize: 13, lineHeight: 20, marginBottom: 14 },
   choiceRow: { flexDirection: "row", gap: 10, marginBottom: 15 },
   choice: { flex: 1, minHeight: 104, borderWidth: 1.5, borderColor: colors.border, borderRadius: 15, backgroundColor: colors.surface, padding: 13 },
