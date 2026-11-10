@@ -4,7 +4,6 @@ import * as ImagePicker from "expo-image-picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
 type CountryOption = { name: string; code: string; dialCode: string };
 type AddressSuggestion = { label: string; latitude: number; longitude: number };
-import { MapPinPicker } from "./MapPinPicker";
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
 
@@ -200,7 +199,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     });
     if (!result.canceled && result.assets[0]?.uri) {
       setProfilePhotoUri(result.assets[0].uri);
-      setMessage("Profile picture selected. This preview is local until profile-photo storage is connected.");
+      setMessage("Profile picture selected.");
     }
   };
 
@@ -264,20 +263,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     setAddressSuggestions([]);
     setMessage("Address selected and map pin updated. You can fine-tune the pin on the map.");
   };
-
-  const updatePin = async (latitude: number, longitude: number) => {
-    setHomeLatitude(String(latitude));
-    setHomeLongitude(String(longitude));
-    try {
-      const places = await Location.reverseGeocodeAsync({ latitude, longitude });
-      const place = places[0];
-      if (place) {
-        const readable = [place.name, place.street, place.district, place.city ?? place.subregion, place.region, place.postalCode, place.country].filter(Boolean);
-        if (readable.length) setAddress([...new Set(readable)].join(", "));
-      }
-    } catch { /* Keep the manually entered address if reverse geocoding is unavailable. */ }
-  };
-
 
   const uploadIdentityAsset = async (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE", uri: string, mimeType?: string | null, fileSize?: number | null, originalFileName?: string | null) => {
     setBusy(true); setError(""); setMessage("");
@@ -406,14 +391,12 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     <ScrollView style={st.body} contentContainerStyle={{ paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
       {busy && <ActivityIndicator color={colors.primary} />}
       {active === "Profile" && <>
-        <Text style={st.heading}>Set up your profile</Text>
         <View style={st.photoCard}>
           <View style={st.avatar}>
             {profilePhotoUri ? <Image source={{ uri: profilePhotoUri }} style={st.avatarImage} /> : <Text style={st.avatarInitials}>{[firstName.trim()[0], lastName.trim()[0]].filter(Boolean).join("").toUpperCase() || "AS"}</Text>}
           </View>
           <View style={st.photoCopy}>
             <Text style={st.photoTitle}>Profile picture</Text>
-            <Text style={st.photoHelp}>Use your Google photo when available, or add a picture from your device. You can continue with your initials.</Text>
             <Pressable onPress={() => void chooseProfilePhoto()} style={st.photoButton}><Text style={st.photoButtonText}>{profilePhotoUri ? "Change picture" : "Upload picture"}</Text></Pressable>
           </View>
         </View>
@@ -487,7 +470,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         {Field("Province / State (manual entry)", province, setProvince)}
         {Field("City", city, setCity)}{Field("Suburb / District", suburb, setSuburb)}
         {Field("House / Building number", houseNumber, setHouseNumber)}
-        <Text style={st.label}>Search home address</Text>
+        <Text style={st.label}>Home address</Text>
         <TextInput value={address} onChangeText={(value) => void searchHomeAddress(value)} placeholder="Start typing street, suburb or postcode" placeholderTextColor="#93A099" style={st.input} />
         {addressSearchBusy && <ActivityIndicator color={colors.primary} />}
         {addressSuggestions.length > 0 && <View style={st.optionPanel}>
@@ -496,11 +479,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           </Pressable>)}
         </View>}
         <Action label={homeLocationBusy ? "Getting location..." : "Use current GPS for Home Location"} onPress={() => void useCurrentHomeLocation()} disabled={busy || homeLocationBusy} />
-        <Text style={st.help}>Search includes your selected country. Some map records only contain street names; enter the house or building number above when it is missing. Review the address and adjust the pin.</Text>
-        <Text style={st.label}>Choose Home Location on the map</Text>
-        <MapPinPicker latitude={homeLatitude.trim() && Number.isFinite(Number(homeLatitude)) ? Number(homeLatitude) : -26.2041} longitude={homeLongitude.trim() && Number.isFinite(Number(homeLongitude)) ? Number(homeLongitude) : 28.0473} selectedLatitude={homeLatitude.trim() ? Number(homeLatitude) : null} selectedLongitude={homeLongitude.trim() ? Number(homeLongitude) : null} onSelect={(lat, lon) => { void updatePin(lat, lon); }} />
-        {Field("Home latitude", homeLatitude, setHomeLatitude)}{Field("Home longitude", homeLongitude, setHomeLongitude)}
-        <Text style={st.help}>Home Location is saved to your profile and used as a default. It is not continuous live tracking. You can also type coordinates if map tiles are unavailable.</Text>
+        <Text style={st.help}>Start typing your street address, suburb or postcode and choose a matching suggestion. Your selected country is included in the search.</Text>
+        <Text style={st.help}>Your selected address is saved as your default Home Location. You can also use your device location to fill it in.</Text>
         </>}
         <Text style={st.status}>Section: {status("profile")}</Text>
       </>}
