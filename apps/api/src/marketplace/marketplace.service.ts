@@ -146,6 +146,61 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async discoverNearbyProviders(latitude: number, longitude: number, radiusKm: number) {
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+        !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
+        ![1, 5, 10, 20, 50].includes(radiusKm)) {
+      throw new BadRequestException("Provide valid coordinates and a supported search radius.");
+    }
+
+    // Only show Providers who are explicitly Available and have sent a fresh
+    // foreground GPS fix. Never expose their exact live coordinates publicly.
+    const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+    const profiles = await this.prisma.providerProfile.findMany({
+      where: {
+        isAvailable: true,
+        deliveryModes: { hasSome: ["ONSITE", "EITHER"] },
+        liveLatitude: { not: null },
+        liveLongitude: { not: null },
+        liveLocationUpdatedAt: { gte: cutoff },
+        user: { identityVerification: "VERIFIED" },
+      },
+      select: {
+        id: true,
+        publicName: true,
+        skillCategories: true,
+        liveLatitude: true,
+        liveLongitude: true,
+        maxTravelDistanceKm: true,
+      },
+      take: 500,
+    });
+
+    const radians = (degrees: number) => degrees * Math.PI / 180;
+    const distanceKm = (lat: number, lon: number) => {
+      const dLat = radians(lat - latitude);
+      const dLon = radians(lon - longitude);
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(radians(latitude)) * Math.cos(radians(lat)) * Math.sin(dLon / 2) ** 2;
+      return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    return profiles.flatMap((profile) => {
+      if (profile.liveLatitude == null || profile.liveLongitude == null || !profile.skillCategories.length) return [];
+      const distance = distanceKm(profile.liveLatitude, profile.liveLongitude);
+      if (distance > radiusKm || distance > profile.maxTravelDistanceKm) return [];
+      return [{
+        id: profile.id,
+        name: profile.publicName || "Available Provider",
+        skill: profile.skillCategories[0],
+        distanceKm: Math.round(distance * 10) / 10,
+        // Approximately 100 m precision is sufficient for a discovery pin.
+        latitude: Math.round(profile.liveLatitude * 1000) / 1000,
+        longitude: Math.round(profile.liveLongitude * 1000) / 1000,
+      }];
+    }).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 100);
+  }
+
   async registerPushDevice(userId: string, input: RegisterPushDeviceDto) {
     if (!/^(Expo|Exponent)PushToken\[[^\]]+\]$/.test(input.expoPushToken)) {
       throw new ConflictException("The device did not provide a valid Expo push token.");
