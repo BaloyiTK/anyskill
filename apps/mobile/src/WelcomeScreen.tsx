@@ -3,6 +3,8 @@ import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View 
 import * as Location from "expo-location";
 import { apiRequest } from "./api";
 
+type LocationSuggestion = { label: string; latitude: number; longitude: number };
+
 type ProviderPin = {
   id: string;
   name: string;
@@ -56,6 +58,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [areaLabel, setAreaLabel] = useState("Detecting your location…");
   const [manualLocation, setManualLocation] = useState("");
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [searchingLocation, setSearchingLocation] = useState(false);
   const [providers, setProviders] = useState<ProviderPin[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
@@ -129,39 +132,59 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
     }
   };
 
-  const searchLocation = async () => {
+  // Look up matching places as the user types, with a short debounce.
+  useEffect(() => {
     const query = manualLocation.trim();
-    if (!query) {
-      setLocationError("Enter a suburb, city or address to search.");
+    if (query.length < 3) {
+      setLocationSuggestions([]);
+      setSearchingLocation(false);
       return;
     }
-    setSearchingLocation(true);
-    setLocationError("");
-    try {
-      const matches = await Location.geocodeAsync(query);
-      if (!matches.length) {
-        setLocationError("We couldn't find that location. Try a nearby suburb or city.");
-        return;
-      }
-      const next = { latitude: matches[0].latitude, longitude: matches[0].longitude };
-      setCoordinates(next);
-      setAreaLabel(query);
+    let active = true;
+    const timeout = setTimeout(async () => {
+      setSearchingLocation(true);
       try {
-        const places = await Location.reverseGeocodeAsync(next);
-        const place = places[0];
-        const label = place
-          ? [place.subregion, place.city, place.region].filter(Boolean).filter((value, index, all) => all.indexOf(value) === index).join(", ")
-          : "";
-        if (label) setAreaLabel(label);
+        const matches = await Location.geocodeAsync(query);
+        const suggestions: LocationSuggestion[] = [];
+        for (const match of matches.slice(0, 5)) {
+          if (!active) return;
+          let label = query;
+          try {
+            const places = await Location.reverseGeocodeAsync({
+              latitude: match.latitude,
+              longitude: match.longitude,
+            });
+            const place = places[0];
+            if (place) {
+              label = [place.name, place.street, place.subregion, place.city, place.region, place.country]
+                .filter(Boolean)
+                .filter((value, index, all) => all.indexOf(value) === index)
+                .join(", ");
+            }
+          } catch {
+            // Coordinates can still be selected if reverse geocoding is unavailable.
+          }
+          suggestions.push({ label, latitude: match.latitude, longitude: match.longitude });
+        }
+        if (active) setLocationSuggestions(suggestions);
       } catch {
-        // Keep the user's search text if reverse geocoding is unavailable.
+        if (active) setLocationSuggestions([]);
+      } finally {
+        if (active) setSearchingLocation(false);
       }
-      setManualLocation("");
-    } catch (error) {
-      setLocationError(error instanceof Error ? error.message : "Location search failed. Please try again.");
-    } finally {
-      setSearchingLocation(false);
-    }
+    }, 500);
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
+  }, [manualLocation]);
+
+  const selectLocation = (suggestion: LocationSuggestion) => {
+    setCoordinates({ latitude: suggestion.latitude, longitude: suggestion.longitude });
+    setAreaLabel(suggestion.label);
+    setManualLocation("");
+    setLocationSuggestions([]);
+    setLocationError("");
   };
 
   // Detect the device location automatically when the welcome screen opens.
@@ -208,16 +231,23 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
         accessibilityLabel="Search for a location"
         value={manualLocation}
         onChangeText={setManualLocation}
-        onSubmitEditing={searchLocation}
-        returnKeyType="search"
         placeholder="Search suburb, city or address"
         placeholderTextColor={THEME.muted}
         style={styles.locationSearchInput}
       />
-      <Pressable accessibilityRole="button" accessibilityLabel="Search location" onPress={searchLocation} disabled={searchingLocation || !manualLocation.trim()} style={styles.locationSearchButton}>
-        {searchingLocation ? <ActivityIndicator color="#FFFFFF" size="small" /> : <View style={styles.searchIcon}><View style={styles.searchIconLens} /><View style={styles.searchIconHandle} /></View>}
-      </Pressable>
+      {searchingLocation ? <ActivityIndicator color={THEME.blue} size="small" /> : null}
     </View>
+    {locationSuggestions.length > 0 ? <View style={styles.locationSuggestions}>
+      {locationSuggestions.map((suggestion, index) => <Pressable
+        key={`${suggestion.latitude}:${suggestion.longitude}:${index}`}
+        accessibilityRole="button"
+        onPress={() => selectLocation(suggestion)}
+        style={styles.locationSuggestion}
+      >
+        <View style={styles.suggestionPin}><Text style={styles.suggestionPinText}>⌖</Text></View>
+        <Text numberOfLines={2} style={styles.locationSuggestionText}>{suggestion.label}</Text>
+      </Pressable>)}
+    </View> : manualLocation.trim().length >= 3 && !searchingLocation ? <Text style={styles.locationHint}>No matching places found. Try a different spelling.</Text> : null}
     {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
 
     <View style={styles.radiusHeader}>
@@ -298,10 +328,12 @@ const styles = StyleSheet.create({
   locationDetected: { color: THEME.green, fontSize: 10, fontWeight: "900" },
   locationSearchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   locationSearchInput: { flex: 1, minHeight: 43, borderWidth: 1, borderColor: THEME.border, borderRadius: 11, backgroundColor: THEME.surface, paddingHorizontal: 12, color: THEME.navy, fontSize: 12 },
-  locationSearchButton: { width: 43, height: 43, backgroundColor: THEME.forest, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  searchIcon: { width: 22, height: 22, alignItems: "flex-start", justifyContent: "flex-start" },
-  searchIconLens: { width: 15, height: 15, borderWidth: 2, borderColor: THEME.surface, borderRadius: 8 },
-  searchIconHandle: { position: "absolute", width: 9, height: 2, backgroundColor: THEME.surface, borderRadius: 1, left: 12, top: 14, transform: [{ rotate: "45deg" }] },
+  locationSuggestions: { backgroundColor: THEME.surface, borderColor: THEME.border, borderWidth: 1, borderRadius: 11, overflow: "hidden", marginTop: -5 },
+  locationSuggestion: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 11, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: THEME.border },
+  suggestionPin: { width: 28, height: 28, borderRadius: 8, backgroundColor: THEME.softBlue, alignItems: "center", justifyContent: "center" },
+  suggestionPinText: { color: THEME.blue, fontSize: 18, fontWeight: "800" },
+  locationSuggestionText: { flex: 1, color: THEME.navy, fontSize: 11, fontWeight: "700" },
+  locationHint: { color: THEME.muted, fontSize: 10, paddingHorizontal: 3 },
   error: { color: THEME.danger, fontSize: 11, lineHeight: 16 },
   radiusHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 2 },
   radiusLabel: { color: THEME.muted, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
