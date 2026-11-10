@@ -614,6 +614,10 @@ export default function App() {
             <Text style={s.kicker}>YOUR WORKSPACE</Text>
             <Text style={s.formTitle}>Welcome to AnySkill</Text>
             <Text style={s.subtitle}>{account.email}</Text>
+            {verified && <View style={s.successNotice}>
+              <Text style={s.successTitle}>Identity verified</Text>
+              <Text style={s.successText}>You can use marketplace actions that require identity verification.</Text>
+            </View>}
             <View style={s.statusCard}>
               <Text style={s.statusLabel}>IDENTITY VERIFICATION</Text>
               <Text style={s.statusValue}>{formatStatus(identityStatus)}</Text>
@@ -628,6 +632,7 @@ export default function App() {
               <ModeCard title="Skill Provider" description="Offer skills and respond to suitable requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
             </View>
             <Text style={s.helper}>One account supports both modes.</Text>
+            {pendingAcceptRequestId && verified && <Primary label="Return to incoming request" onPress={() => { setMode("provider"); goTo("marketplace"); }} />}
           </View>}
 
           {screen === "dashboard" && account && activeTab === "activities" && <View style={s.form}>
@@ -665,6 +670,10 @@ export default function App() {
               <Text style={s.statusValue}>{formatStatus(identityStatus)}</Text>
               {identity?.latestCase && <Text style={s.helper}>Request submitted {new Date(identity.latestCase.submittedAt).toLocaleString()}.</Text>}
             </View>
+            {verified && <View style={s.successNotice}>
+              <Text style={s.successTitle}>Identity verified</Text>
+              <Text style={s.successText}>Your identity check is approved.</Text>
+            </View>}
             {!verified && <View style={s.notice}>
               <Text style={s.noticeTitle}>Identity verification required for key actions</Text>
               <Text style={s.noticeText}>You can explore AnySkill before verifying. Skill Seekers must verify before submitting a request. Skill Providers must verify before accepting one.</Text>
