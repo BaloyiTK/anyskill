@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
+  BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
 } from "@nestjs/common";
 import { IsOptional, IsUUID } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
@@ -188,5 +188,29 @@ export class MarketplaceController {
     @Param("notificationId", new ParseUUIDPipe()) notificationId: string,
   ) {
     return this.marketplace.markNotificationRead(user.id, notificationId);
+  }
+
+}
+
+// Public, privacy-preserving discovery used by the signed-out welcome map.
+@Controller()
+export class PublicProviderDiscoveryController {
+  constructor(private readonly marketplace: MarketplaceService) {}
+
+  @Get("marketplace/discover/providers")
+  discoverProviders(
+    @Query("latitude") latitudeValue: string,
+    @Query("longitude") longitudeValue: string,
+    @Query("radiusKm") radiusValue: string,
+  ) {
+    const latitude = Number(latitudeValue);
+    const longitude = Number(longitudeValue);
+    const radiusKm = Number(radiusValue);
+    if (!latitudeValue || !longitudeValue || !radiusValue ||
+        !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+        !Number.isFinite(radiusKm)) {
+      throw new BadRequestException("Latitude, longitude and radiusKm are required.");
+    }
+    return this.marketplace.discoverNearbyProviders(latitude, longitude, radiusKm);
   }
 }
