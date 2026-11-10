@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import * as Location from "expo-location";
 import { apiRequest } from "./api";
 
@@ -58,6 +58,8 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
     if (!coordinates) return;
     let active = true;
     setLoadingProviders(true);
+    setProviders([]);
+    setSelectedProviderId(null);
     setProviderError("");
     const query = new URLSearchParams({
       latitude: String(coordinates.latitude),
@@ -109,18 +111,18 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
   };
 
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
-  const tileImages = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].map((dy) => {
+  const tileImages = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].flatMap((dy) => {
     const rawX = centerTileX + dx;
     const x = (rawX + tileCount) % tileCount;
     const y = centerTileY + dy;
-    if (y < 0 || y >= tileCount) return null;
-    return {
+    if (y < 0 || y >= tileCount) return [];
+    return [{
       key: `${rawX}:${y}`,
       uri: TILE_URL.replace("{z}", String(ZOOM)).replace("{x}", String(x)).replace("{y}", String(y)),
       left: rawX * TILE - center.x + mapSize.width / 2,
       top: y * TILE - center.y + mapSize.height / 2,
-    };
-  })).filter((tile): tile is NonNullable<typeof tile> => tile !== null);
+    }];
+  }));
 
   return <View style={styles.container}>
     <View style={styles.intro}>
