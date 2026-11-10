@@ -27,7 +27,7 @@ type RequestItem = {
 };
 type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
-type JobEngagement = { id: string; status: string; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
+type JobEngagement = { id: string; status: string; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
@@ -49,11 +49,27 @@ type Props = {
 };
 const C = { ink: "#15251E", muted: "#66756D", primary: "#176B55", border: "#E1E8E3", surface: "#FFFFFF", warning: "#FFF6E4", warningInk: "#78551A", bg: "#F5F7F5" };
 
+function getWorkElapsedMs(job: JobEngagement, now: number) {
+  const accumulated = Math.max(0, Number(job.workAccumulatedMs ?? 0));
+  if (!job.workSegmentStartedAt || job.workPausedAt || job.status !== "IN_PROGRESS") return accumulated;
+  const startedAt = Date.parse(job.workSegmentStartedAt);
+  return accumulated + (Number.isFinite(startedAt) ? Math.max(0, now - startedAt) : 0);
+}
+
+function formatWorkDuration(milliseconds: number) {
+  const totalSeconds = Math.floor(Math.max(0, milliseconds) / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
 export function MarketplaceScreen(p: Props) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [myRequests, setMyRequests] = useState<SeekerRequest[]>([]);
   const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
   const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>([]);
+  const [clockNow, setClockNow] = useState(Date.now());
   const [estimateHours, setEstimateHours] = useState("2");
   const [estimateNotes, setEstimateNotes] = useState("");
   const [extraHours, setExtraHours] = useState("1");
@@ -112,6 +128,29 @@ export function MarketplaceScreen(p: Props) {
     if (p.mode === "seeker") { void loadMyRequests(); void loadHomeLocation(); }
   }, [p.mode, loadMyRequests]);
 
+  useEffect(() => {
+    const clock = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(clock);
+  }, []);
+
+  useEffect(() => {
+    const refreshJobState = async () => {
+      try {
+        if (p.mode === "provider") {
+          const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>("/marketplace/my-jobs", {}, true);
+          setMyJobs(result);
+        } else {
+          const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
+          setMyRequests(result);
+        }
+      } catch {
+        // Retain the last server-confirmed state during temporary network loss.
+      }
+    };
+    const refresh = setInterval(() => { void refreshJobState(); }, 12000);
+    return () => clearInterval(refresh);
+  }, [p.mode]);
+
   const selectProvider = async (requestId: string, responseId: string) => {
     setSelectingOfferId(responseId); setError(""); setNotice("");
     try {
@@ -141,6 +180,18 @@ export function MarketplaceScreen(p: Props) {
     try { await apiRequest(`/marketplace/requests/${requestId}/start-work`, { method: "POST" }, true); setNotice("Work marked as started."); await loadMyJobs(); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not start work."); }
     finally { setJobActionBusy(false); }
+  };
+
+  const changeWorkBreak = async (requestId: string, paused: boolean) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/${paused ? "work-break" : "resume-work"}`, { method: "POST" }, true);
+      setNotice(paused ? "Work timer paused. Break time will not be counted." : "Work timer resumed.");
+      await loadMyJobs();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update the work timer.");
+      await loadMyJobs();
+    } finally { setJobActionBusy(false); }
   };
 
   const requestExtraHours = async (requestId: string) => {
@@ -464,6 +515,10 @@ export function MarketplaceScreen(p: Props) {
             </View>)}            {request.jobEngagement ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Assessment and job-cost approval</Text>
               <Text style={s.meta}>Status: {request.jobEngagement.status.replaceAll("_", " ")}</Text>
+              {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(request.jobEngagement.status) ? <>
+                <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(request.jobEngagement, clockNow))}</Text>
+                <Text style={s.meta}>{request.jobEngagement.workPausedAt ? "Provider is on a break" : request.jobEngagement.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting your review" : request.jobEngagement.status === "COMPLETED" ? "Final recorded working time" : "Work timer running"}</Text>
+              </> : null}
               <Text style={s.meta}>Agreed hourly rate: R {Number(request.jobEngagement.hourlyRate).toFixed(2)}</Text>
               <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee).toFixed(2)}</Text>
               {request.jobEngagement.estimatedHours != null ? <Text style={s.meta}>Estimated hours: {Number(request.jobEngagement.estimatedHours).toFixed(2)}</Text> : null}
@@ -544,14 +599,19 @@ export function MarketplaceScreen(p: Props) {
           </> : null}
           {job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
           {job.status === "ESTIMATE_APPROVED" ? <Primary label="Start approved work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
-          {job.status === "IN_PROGRESS" ? <>
+          {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(job.status) ? <>
+            <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(job, clockNow))}</Text>
+            <Text style={s.meta}>{job.workPausedAt ? "ON BREAK · timer paused" : job.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting Seeker review" : job.status === "COMPLETED" ? "Final recorded working time" : "Work timer running"}</Text>
+          </> : null}
+          {job.status === "IN_PROGRESS" ? <Secondary label={job.workPausedAt ? "Resume work" : "Take a break"} onPress={() => void changeWorkBreak(job.request.id, !job.workPausedAt)} disabled={jobActionBusy} /> : null}
+          {job.status === "IN_PROGRESS" && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
             <Text style={s.helper}>Need more time? Explain why and request approval before doing the extra work.</Text>
             <TextInput value={extraHours} onChangeText={setExtraHours} keyboardType="decimal-pad" placeholder="Additional hours" style={s.input} />
             <TextInput value={extraReason} onChangeText={setExtraReason} placeholder="Explain why extra hours are required..." multiline style={[s.input, s.multiline]} />
             <Primary label="Request additional hours" onPress={() => void requestExtraHours(job.request.id)} disabled={jobActionBusy || !(Number(extraHours) > 0) || extraReason.trim().length < 10} />
           </> : null}
           {job.adjustments.map((adjustment) => <Text key={adjustment.id} style={s.meta}>Extra hours request: {Number(adjustment.requestedHours).toFixed(2)} · R {Number(adjustment.requestedAmount).toFixed(2)} · {adjustment.status}</Text>)}
-{job.status === "IN_PROGRESS" ? <>
+{job.status === "IN_PROGRESS" && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
             <Text style={s.helper}>When the agreed work is finished, submit completion notes and photo evidence. The Seeker must approve before the job is marked completed.</Text>
             <Text style={s.label}>Completion notes</Text>
             <TextInput value={completionNotes} onChangeText={setCompletionNotes} placeholder="Summarise the work completed, tests performed and any handover details..." multiline style={[s.input, s.multiline]} />
