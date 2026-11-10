@@ -144,31 +144,50 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
     const timeout = setTimeout(async () => {
       setSearchingLocation(true);
       try {
-        const matches = await Location.geocodeAsync(query);
-        const suggestions: LocationSuggestion[] = [];
-        for (const match of matches.slice(0, 5)) {
-          if (!active) return;
-          let label = query;
-          try {
-            const places = await Location.reverseGeocodeAsync({
-              latitude: match.latitude,
-              longitude: match.longitude,
-            });
-            const place = places[0];
-            if (place) {
-              label = [place.name, place.street, place.subregion, place.city, place.region, place.country]
-                .filter(Boolean)
-                .filter((value, index, all) => all.indexOf(value) === index)
-                .join(", ");
-            }
-          } catch {
-            // Coordinates can still be selected if reverse geocoding is unavailable.
-          }
-          suggestions.push({ label, latitude: match.latitude, longitude: match.longitude });
-        }
+        // Use a dedicated places autocomplete endpoint rather than the device
+        // geocoder, which is not consistently available across Android devices.
+        const response = await fetch(
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5&lang=en`,
+          { headers: { Accept: "application/json" } },
+        );
+        if (!response.ok) throw new Error(`Location search returned ${response.status}`);
+        const payload = await response.json() as {
+          features?: Array<{
+            geometry?: { coordinates?: [number, number] };
+            properties?: {
+              name?: string;
+              street?: string;
+              district?: string;
+              locality?: string;
+              city?: string;
+              county?: string;
+              state?: string;
+              country?: string;
+            };
+          }>;
+        };
+        const suggestions = (payload.features ?? []).flatMap((feature) => {
+          const coords = feature.geometry?.coordinates;
+          if (!coords || coords.length < 2) return [];
+          const place = feature.properties ?? {};
+          const label = [
+            place.name,
+            place.street,
+            place.district,
+            place.locality,
+            place.city,
+            place.county,
+            place.state,
+            place.country,
+          ].filter((value, index, all) => Boolean(value) && all.indexOf(value) === index).join(", ");
+          return [{ label: label || query, longitude: coords[0], latitude: coords[1] }];
+        });
         if (active) setLocationSuggestions(suggestions);
       } catch {
-        if (active) setLocationSuggestions([]);
+        if (active) {
+          setLocationSuggestions([]);
+          setLocationError("Location search is temporarily unavailable. Please try again.");
+        }
       } finally {
         if (active) setSearchingLocation(false);
       }
