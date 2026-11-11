@@ -149,7 +149,7 @@ export function MarketplaceScreen(p: Props) {
     setBusy(true); setError("");
     try {
       const result = await apiRequest<{ items: RequestItem[] }>("/marketplace/incoming-requests", {}, true);
-      const newlyMatched = result.items.filter((item) => !seenIncomingRequestIds.current.has(item.id));
+      const newlyMatched = result.items.filter((item) => !item.alreadyResponded && !seenIncomingRequestIds.current.has(item.id));
       result.items.forEach((item) => seenIncomingRequestIds.current.add(item.id));
       setRequests(result.items);
       if (newlyMatched.length > 0) setIncomingRequestId(newlyMatched[0].id);
