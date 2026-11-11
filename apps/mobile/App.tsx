@@ -42,6 +42,7 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
+  const otpInputRef = useRef<TextInput>(null);
   const [registrationToken, setRegistrationToken] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -536,7 +537,37 @@ export default function App() {
             <Text style={s.kicker}>CHECK YOUR INBOX</Text>
             <Text style={s.formTitle}>Enter your code</Text>
             <Text style={s.subtitle}>We sent a six-digit code to {email}. It expires in 10 minutes.</Text>
-            <Field label="Six-digit verification code" value={otp} onChangeText={setOtp} placeholder="000000" keyboardType="phone-pad" />
+            <View style={s.otpField}>
+              <Text style={s.fieldLabel}>Six-digit verification code</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Verification code, ${otp.length} of 6 digits entered. Tap to enter code.`}
+                onPress={() => otpInputRef.current?.focus()}
+                style={s.otpBoxes}
+              >
+                {Array.from({ length: 6 }, (_, index) => (
+                  <View key={index} style={[
+                    s.otpBox,
+                    index === otp.length && otp.length < 6 && s.otpBoxActive,
+                    otp.length === 6 && s.otpBoxFilled,
+                  ]}>
+                    <Text style={s.otpDigit}>{otp[index] ?? ""}</Text>
+                  </View>
+                ))}
+                <TextInput
+                  ref={otpInputRef}
+                  value={otp}
+                  onChangeText={(value) => setOtp(value.replace(/\\D/g, "").slice(0, 6))}
+                  keyboardType="number-pad"
+                  textContentType="oneTimeCode"
+                  autoComplete="sms-otp"
+                  maxLength={6}
+                  accessibilityLabel="Six-digit verification code"
+                  caretHidden
+                  style={s.otpInputOverlay}
+                />
+              </Pressable>
+            </View>
             <Primary label="Verify email" onPress={verifyRegistrationOtp} disabled={busy || !/^\d{6}$/.test(otp)} />
             <TextButton label="Back" onPress={() => goTo("register")} />
           </View>}
@@ -756,6 +787,13 @@ const s = StyleSheet.create({
   radio: { width: 19, height: 19, borderRadius: 10, borderWidth: 1.5, borderColor: C.border }, radioSelected: { borderWidth: 6, borderColor: C.primary },
   form: { marginTop: 5, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 24, padding: 20, paddingTop: 23, shadowColor: "#173B2C", shadowOpacity: 0.045, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
   field: { marginBottom: 17 }, fieldLabel: { color: C.ink, fontSize: 12, fontWeight: "800", marginBottom: 8, letterSpacing: 0.1 },
+  otpField: { marginBottom: 17 },
+  otpBoxes: { position: "relative", flexDirection: "row", justifyContent: "space-between", gap: 8, minHeight: 62 },
+  otpBox: { flex: 1, height: 62, alignItems: "center", justifyContent: "center", borderWidth: 1.4, borderColor: C.border, borderRadius: 14, backgroundColor: "#FBFCFB" },
+  otpBoxActive: { borderColor: C.primary, borderWidth: 2, backgroundColor: "#EFF7F1" },
+  otpBoxFilled: { borderColor: C.primary, backgroundColor: "#F1F8F3" },
+  otpDigit: { color: C.ink, fontSize: 25, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  otpInputOverlay: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%", opacity: 0, color: "transparent", backgroundColor: "transparent" },
   input: { minHeight: 54, borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 15, color: C.ink, backgroundColor: "#FBFCFB", fontSize: 15 },
   helper: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 7, marginBottom: 14 },
   primary: { minHeight: 55, borderRadius: 15, backgroundColor: C.primary, alignItems: "center", justifyContent: "center", marginTop: 9, paddingHorizontal: 18, shadowColor: "#124331", shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
