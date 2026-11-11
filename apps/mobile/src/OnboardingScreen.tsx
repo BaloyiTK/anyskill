@@ -307,7 +307,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     if (active === "Profile") return save("profile");
     if (active === "Skills") return save("skills");
     if (active === "Portfolio") return save("portfolio");
-    if (active === "Verification") { setMessage("Uploaded verification images are saved securely."); return true; }
+    if (active === "Verification") { setMessage("Identity verification is optional for now. Any images you have uploaded remain securely saved."); return true; }
     if (!await save("profile") || !await save("skills")) return false;
     return save("portfolio");
   };
@@ -319,7 +319,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       if (await save("profile")) setActive("Verification");
       return;
     }
-    if (active === "Verification") { if (await submitIdentityVerification()) setActive("Skills"); return; }
+    if (active === "Verification") { setError(""); setMessage("You can complete identity verification later. Continue building your profile."); setActive("Skills"); return; }
     if (active === "Skills") { if (await save("skills")) setActive("Portfolio"); return; }
     if (active === "Portfolio") { if (await save("portfolio")) setActive("Submit"); return; }
     if (await saveCurrent()) await submit();
@@ -348,7 +348,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     </View>
     <View style={st.progressWrap}>
       <View style={st.progressMeta}>
-        <View><Text style={st.stepCount}>Step {tabs.indexOf(active) + 1} of 5</Text><Text style={st.percent}>{active} information</Text></View>
+        <View><Text style={st.stepCount}>Step {tabs.indexOf(active) + 1} of 5</Text><Text style={st.percent}>Profile, Skills & Portfolio</Text></View>
         <Text style={st.percentStrong}>{data.percentage}% complete</Text>
       </View>
       <View style={st.tabs}>
@@ -474,8 +474,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         <Text style={st.status}>Section: {status("profile")}</Text>
       </>}
       {active === "Verification" && <>
-        <Text style={st.heading}>Identity verification</Text>
-        <Text style={st.help}>Identity verification is separate from profile completion. You may continue building your profile, but verification is required before restricted marketplace actions.</Text>
+        <Text style={st.heading}>Identity verification (optional)</Text>
+        <Text style={st.help}>You can skip this step and complete it later. Identity verification does not count toward your profile completion percentage, but it is required before using restricted marketplace actions.</Text>
         <View style={st.card}><Text style={st.label}>Current identity status</Text><Text style={st.statusValue}>{identityStatus.replace(/_/g, " ")}</Text></View>
         <Text style={st.label}>1. Choose your South African ID type</Text>
         <View style={st.choiceRow}>
@@ -515,6 +515,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         {identityPreviews.ID_SELFIE ? <Image source={{ uri: identityPreviews.ID_SELFIE }} style={st.imagePreview} resizeMode="contain" /> : null}
         <Text style={st.status}>{selfieReady ? "Live selfie captured and uploaded" : "Live selfie required"}</Text>
         <Text style={st.help}>Images are stored privately. An administrator will review them later; uploading does not automatically verify your identity.</Text>
+        <Action label="Submit identity verification" onPress={() => void submitIdentityVerification()} disabled={busy} />
       </>}
       {active === "Skills" && <>
         <Text style={st.heading}>Skills and experience</Text><Text style={st.help}>Add each skill and attach its supporting documents to that skill. You can skip this section and complete it later.</Text>
