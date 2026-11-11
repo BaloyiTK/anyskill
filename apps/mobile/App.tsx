@@ -589,32 +589,14 @@ export default function App() {
         onStartVerification={() => { void startIdentityVerification(); }}
       />}
 
-      {screen === "dashboard" && account && activeTab === "home" && <View style={s.form}>
-            <Text style={s.kicker}>YOUR WORKSPACE</Text>
-            <Text style={s.formTitle}>Welcome to AnySkill</Text>
-            <Text style={s.subtitle}>{account.email}</Text>
-            {verified && <View style={s.successNotice}>
-              <Text style={s.successTitle}>Identity verified</Text>
-              <Text style={s.successText}>You can use marketplace actions that require identity verification.</Text>
-            </View>}
-            <View style={s.statusCard}>
-              <Text style={s.statusLabel}>IDENTITY VERIFICATION</Text>
-              <Text style={s.statusValue}>{formatStatus(identityStatus)}</Text>
-              {identity?.latestCase && <Text style={s.helper}>Request submitted {new Date(identity.latestCase.submittedAt).toLocaleString()}.</Text>}
-              {!verified && <Text style={s.helper}>Verification is required before restricted marketplace actions. You can complete it from your Account tab.</Text>}
-            </View>
-            <Primary label={mode === "seeker" ? "Find a service" : "View service requests"} onPress={() => goTo("marketplace")} />
-            <Secondary label="Complete or update profile" onPress={() => goTo("onboarding")} />
-            <Text style={s.sectionTitle}>Current mode</Text>
-            <View style={s.modeList}>
-              <ModeCard title="Skill Seeker" description="Request skills and compare provider offers." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
-              <ModeCard title="Skill Provider" description="Offer skills and respond to suitable requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
-            </View>
-            <Text style={s.helper}>One account supports both modes.</Text>
-            {pendingAcceptRequestId && verified && <Primary label="Return to incoming request" onPress={() => { setMode("provider"); goTo("marketplace"); }} />}
-          </View>}
+      {screen === "dashboard" && account && activeTab === "home" && <WelcomeScreen
+        showAuthActions={false}
+        onSignIn={() => {}}
+        onSignUp={() => {}}
+        onGoogle={() => {}}
+      />}
 
-          {screen === "dashboard" && account && activeTab === "activities" && <View style={s.form}>
+          {screen === "dashboard" && account && activeTab === "activities"          {screen === "dashboard" && account && activeTab === "activities" && <View style={s.form}>
             <Text style={s.kicker}>YOUR WORK</Text>
             <Text style={s.formTitle}>Activities</Text>
             <Text style={s.subtitle}>Your service requests, accepted jobs and completed activity will appear here.</Text>
