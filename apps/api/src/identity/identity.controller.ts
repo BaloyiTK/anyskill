@@ -6,7 +6,11 @@ import {
   UseGuards,
   Body,
   BadRequestException,
+  Param,
+  UploadedFile,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -22,7 +26,7 @@ class CreateIdentityUploadDto {
 class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
 class IdentityUploadFailureDto {
   @IsString() @IsIn(["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"]) purpose!: string;
-  @IsString() @IsIn(["read_file", "reserve", "cloudinary", "confirm"]) stage!: string;
+  @IsString() @IsIn(["read_file", "reserve", "api_upload", "confirm"]) stage!: string;
   @IsOptional() @IsInt() @Min(100) @Max(599) httpStatus?: number;
   @IsOptional() @IsString() @MaxLength(80) errorCode?: string;
 }
@@ -37,6 +41,17 @@ export class IdentityController {
     if (!["ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"].includes(dto.purpose)) throw new BadRequestException("Unsupported identity upload purpose.");
     if (!Number.isInteger(dto.sizeBytes) || dto.sizeBytes < 1 || dto.sizeBytes > 10 * 1024 * 1024) throw new BadRequestException("Each image must be between 1 byte and 10 MB.");
     return this.media.createUpload(user.id, dto);
+  }
+
+  @Post("uploads/:assetId/file")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))
+  uploadFile(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("assetId") assetId: string,
+    @UploadedFile() file?: { buffer: Buffer; mimetype: string; size: number },
+  ) {
+    if (!file) throw new BadRequestException("Choose an image before uploading.");
+    return this.media.uploadIdentityFile(user.id, assetId, file);
   }
 
   @Post("uploads/confirm")
