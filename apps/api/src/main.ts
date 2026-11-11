@@ -2,7 +2,6 @@ import "dotenv/config";
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
 import { Logger, ValidationPipe } from "@nestjs/common";
-import type { NextFunction, Request, Response } from "express";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 
@@ -10,7 +9,15 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger("HTTP");
   const app = await NestFactory.create(AppModule);
 
-  app.use((request: Request, response: Response, next: NextFunction) => {
+  app.use((
+    request: { method: string; originalUrl?: string; url: string },
+    response: {
+      setHeader(name: string, value: string): void;
+      once(event: "finish", listener: () => void): void;
+      statusCode: number;
+    },
+    next: () => void,
+  ) => {
     const requestId = randomUUID();
     const startedAt = Date.now();
     const method = request.method;
