@@ -15,6 +15,8 @@ import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 
 const MAX_ERROR_LOG_BYTES = 5 * 1024 * 1024;
+const LOG_DIRECTORY = join(__dirname, "..", "logs");
+const ERROR_LOG_FILE = join(LOG_DIRECTORY, "error.log");
 
 function redactLogText(value: string): string {
   return value
@@ -23,8 +25,8 @@ function redactLogText(value: string): string {
 }
 
 function writeErrorLog(entry: Record<string, unknown>): void {
-  const logDirectory = join(process.cwd(), "logs");
-  const logFile = join(logDirectory, "error.log");
+  const logDirectory = LOG_DIRECTORY;
+  const logFile = ERROR_LOG_FILE;
   try {
     mkdirSync(logDirectory, { recursive: true });
     if (existsSync(logFile) && statSync(logFile).size >= MAX_ERROR_LOG_BYTES) {
@@ -98,6 +100,8 @@ class ApiExceptionFilter implements ExceptionFilter {
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger("HTTP");
+  mkdirSync(LOG_DIRECTORY, { recursive: true });
+  appendFileSync(ERROR_LOG_FILE, "", { encoding: "utf8", mode: 0o600 });
   const app = await NestFactory.create(AppModule);
 
   app.use((
@@ -174,7 +178,7 @@ async function bootstrap(): Promise<void> {
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, "0.0.0.0");
   logger.log(`API listening on http://0.0.0.0:${port}/api/v1`);
-  logger.log(`API error log file: ${join(process.cwd(), "logs", "error.log")}`);
+  logger.log(`API error log file: ${ERROR_LOG_FILE}`);
   logger.log(
     allowedOrigins.length > 0
       ? `CORS allowed origins: ${allowedOrigins.join(", ")}`
