@@ -89,7 +89,11 @@ export class MediaService {
         resource_type: "image",
         type: "authenticated",
         public_id: publicId,
-        asset_folder: folder,
+        // "folder" works in both Cloudinary folder modes. In fixed-folder
+        // mode, "asset_folder" is ignored; in dynamic-folder mode, "folder"
+        // also prefixes the public ID. Our database objectKey stores that
+        // resulting full public ID.
+        folder,
         overwrite: false,
         unique_filename: false,
         use_filename: false,
@@ -140,7 +144,9 @@ export class MediaService {
 
     const folder = FOLDERS[asset.purpose];
     if (!folder) throw new BadRequestException("Unsupported upload purpose.");
-    const expectedPublicId = asset.objectKey.slice((folder + "/").length);
+    // The upload uses Cloudinary's cross-mode "folder" parameter, so the
+    // resulting public ID is the complete stored objectKey in both folder modes.
+    const expectedPublicId = asset.objectKey;
     let remote: any;
     try {
       remote = await cloudinary.api.resource(expectedPublicId, { resource_type: "image", type: "authenticated" });
@@ -151,7 +157,7 @@ export class MediaService {
     const remoteMime = FORMAT_MIME[String(remote.format ?? "").toLowerCase()];
     const valid =
       remote.public_id === expectedPublicId &&
-      remote.asset_folder === folder &&
+      (remote.asset_folder ?? remote.folder) === folder &&
       remoteMime === asset.contentType &&
       ALLOWED.has(remoteMime) &&
       remote.bytes === asset.sizeBytes &&
@@ -198,7 +204,7 @@ export class MediaService {
     const format = formatByMime[asset.contentType];
     const folder = FOLDERS[purpose];
     if (!format || !folder) throw new BadRequestException("Identity image has an unsupported format.");
-    const publicId = asset.objectKey.slice((folder + "/").length);
+    const publicId = asset.objectKey;
     const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
     const url = cloudinary.utils.private_download_url(publicId, format, {
       resource_type: "image",
