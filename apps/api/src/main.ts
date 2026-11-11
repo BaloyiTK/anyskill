@@ -1,7 +1,7 @@
 import "dotenv/config";
 import "reflect-metadata";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import {
   ArgumentsHost,
@@ -29,10 +29,7 @@ function writeErrorLog(entry: Record<string, unknown>): void {
     mkdirSync(logDirectory, { recursive: true });
     if (existsSync(logFile) && statSync(logFile).size >= MAX_ERROR_LOG_BYTES) {
       const backupFile = `${logFile}.1`;
-      if (existsSync(backupFile)) {
-        const { unlinkSync } = require("node:fs") as typeof import("node:fs");
-        unlinkSync(backupFile);
-      }
+      if (existsSync(backupFile)) unlinkSync(backupFile);
       renameSync(logFile, backupFile);
     }
     appendFileSync(logFile, `${JSON.stringify(entry)}\\n`, { encoding: "utf8", mode: 0o600 });
