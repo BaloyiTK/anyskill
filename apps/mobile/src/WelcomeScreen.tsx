@@ -22,6 +22,7 @@ type Props = {
   accountEmail?: string;
   onAvatarPress?: () => void;
   onRequestSkill?: () => void;
+  canRequestSkill?: boolean;
 };
 
 const RADII = [1, 5, 10, 20, 50] as const;
@@ -56,7 +57,7 @@ function worldPoint(latitude: number, longitude: number) {
   };
 }
 
-export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true, accountEmail, onAvatarPress, onRequestSkill }: Props) {
+export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true, accountEmail, onAvatarPress, onRequestSkill, canRequestSkill = false }: Props) {
   const [radiusKm, setRadiusKm] = useState<number>(5);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -234,9 +235,12 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
   return <View style={styles.container}>
     <View style={styles.branding}>
       <Image source={require("../assets/branding/anyskill-logo.png")} style={styles.logo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
-      {!showAuthActions ? <Pressable accessibilityRole="button" accessibilityLabel="Open account" onPress={onAvatarPress} style={styles.avatarButton}>
-        <Text style={styles.avatarText}>{(accountEmail?.trim()?.[0] ?? "U").toUpperCase()}</Text>
-      </Pressable> : null}
+      {!showAuthActions ? <View style={styles.avatarWrap}>
+        <Pressable accessibilityRole="button" accessibilityLabel={canRequestSkill ? "Open account" : "Open account — unverified"} onPress={onAvatarPress} style={styles.avatarButton}>
+          <Text style={styles.avatarText}>{(accountEmail?.trim()?.[0] ?? "U").toUpperCase()}</Text>
+        </Pressable>
+        {!canRequestSkill ? <View style={styles.unverifiedBadge}><Text style={styles.unverifiedBadgeText}>UNVERIFIED</Text></View> : null}
+      </View> : null}
     </View>
     <View style={styles.intro}>
       <Text style={styles.eyebrow}>LOCAL SKILLS. REAL PEOPLE.</Text>
@@ -329,10 +333,10 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
     </View>
 
     {!showAuthActions ? <Pressable accessibilityRole="button" onPress={onRequestSkill} style={styles.requestSkillButton}>
-      <Text style={styles.requestSkillIcon}>＋</Text>
+      <Text style={styles.requestSkillIcon}>{canRequestSkill ? "＋" : "✓"}</Text>
       <View style={styles.requestSkillCopy}>
-        <Text style={styles.requestSkillTitle}>Request a Skill</Text>
-        <Text style={styles.requestSkillSubtitle}>Tell us what you need help with</Text>
+        <Text style={styles.requestSkillTitle}>{canRequestSkill ? "Request a Skill" : "Complete your profile"}</Text>
+        <Text style={styles.requestSkillSubtitle}>{canRequestSkill ? "Tell us what you need help with" : "Complete your profile to request a skill"}</Text>
       </View>
       <Text style={styles.requestSkillArrow}>›</Text>
     </Pressable> : null}
@@ -352,8 +356,11 @@ const styles = StyleSheet.create({
   container: { gap: 12 },
   branding: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 2, marginBottom: -4 },
   logo: { width: 164, height: 76 },
+  avatarWrap: { position: "relative", alignItems: "center", justifyContent: "center", paddingBottom: 3, paddingRight: 2 },
   avatarButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: THEME.softBlue, borderWidth: 2, borderColor: THEME.blue, alignItems: "center", justifyContent: "center" },
   avatarText: { color: THEME.navy, fontSize: 16, fontWeight: "900" },
+  unverifiedBadge: { position: "absolute", right: -5, bottom: -5, backgroundColor: "#C62828", borderWidth: 1.5, borderColor: "#FFFFFF", borderRadius: 8, paddingHorizontal: 5, paddingVertical: 3 },
+  unverifiedBadgeText: { color: "#FFFFFF", fontSize: 7, lineHeight: 9, fontWeight: "900", letterSpacing: 0.25 },
   intro: { paddingTop: 4, paddingBottom: 3 },
   eyebrow: { color: THEME.blue, fontSize: 10, fontWeight: "900", letterSpacing: 1.5, marginBottom: 9 },
   heading: { color: THEME.navy, fontSize: 31, lineHeight: 37, fontWeight: "900", letterSpacing: -1 },
