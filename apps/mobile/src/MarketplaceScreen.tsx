@@ -82,6 +82,10 @@ export function MarketplaceScreen(p: Props) {
   const [jobActionBusy, setJobActionBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
+  const [skillSuggestions, setSkillSuggestions] = useState<Array<{name:string;providerCount:number}>>([]);
+  const [skillQuery, setSkillQuery] = useState("");
+  const [skillBusy, setSkillBusy] = useState(false);
+  const [instructions, setInstructions] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [requestLatitude, setRequestLatitude] = useState<number | null>(null);
@@ -107,6 +111,32 @@ export function MarketplaceScreen(p: Props) {
   const [savingProfile, setSavingProfile] = useState(false);
   const [notifications, setNotifications] = useState<Array<{id:string;title:string;body:string;readAt:string|null;createdAt:string}>>([]);
 
+  const searchSkills = useCallback(async (query: string) => {
+    try {
+      const result = await apiRequest<{items:Array<{name:string;providerCount:number}>}>("/marketplace/skills" + (query.trim() ? "?q=" + encodeURIComponent(query.trim()) : ""), {}, true);
+      setSkillSuggestions(result.items);
+    } catch { setSkillSuggestions([]); }
+  }, []);
+
+  const addSkill = async () => {
+    const value = skillQuery.trim();
+    if (value.length < 2) { setError("Enter at least 2 characters for the skill."); return; }
+    setSkillBusy(true); setError(""); setNotice("");
+    try {
+      const result = await apiRequest<{items:Array<{name:string;providerCount:number}>}>("/marketplace/skills?q=" + encodeURIComponent(value), {}, true);
+      const match = result.items.find((item) => item.name.trim().toLocaleLowerCase("en-ZA") === value.toLocaleLowerCase("en-ZA"))
+        ?? result.items.find((item) => item.name.toLocaleLowerCase("en-ZA").includes(value.toLocaleLowerCase("en-ZA")) || value.toLocaleLowerCase("en-ZA").includes(item.name.toLocaleLowerCase("en-ZA")));
+      if (match) {
+        setCategory(match.name); setSkillQuery(match.name);
+        setNotice("This skill already exists in AnySkill. We selected the existing skill instead of creating a duplicate.");
+      } else {
+        setCategory(value); setSkillQuery(value);
+        setNotice("Skill added to this request. AnySkill will use the entered skill category for matching.");
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not check the skill catalogue."); }
+    finally { setSkillBusy(false); }
+  };
+
   const loadRequests = useCallback(async () => {
     setBusy(true); setError("");
     try {
@@ -130,8 +160,14 @@ export function MarketplaceScreen(p: Props) {
   }, []);
 
   useEffect(() => {
-    if (p.mode === "seeker") { void loadMyRequests(); void loadHomeLocation(); }
-  }, [p.mode, loadMyRequests]);
+    if (p.mode === "seeker") { void loadMyRequests(); void loadHomeLocation(); void searchSkills(""); }
+  }, [p.mode, loadMyRequests, searchSkills]);
+
+  useEffect(() => {
+    if (p.mode !== "seeker") return;
+    const timer = setTimeout(() => { void searchSkills(skillQuery); }, 220);
+    return () => clearTimeout(timer);
+  }, [skillQuery, p.mode, searchSkills]);
 
   useEffect(() => {
     const clock = setInterval(() => setClockNow(Date.now()), 1000);
@@ -300,12 +336,12 @@ export function MarketplaceScreen(p: Props) {
       await apiRequest("/marketplace/requests", {
         method: "POST",
         body: JSON.stringify({
-          title: title.trim(), skillCategory: category.trim(), description: description.trim(),
+          title: title.trim(), skillCategory: category.trim(), description: description.trim(), ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
           ...(location.trim() ? { location: location.trim() } : {}),
           ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude } : {}), deliveryMode,
         }),
       }, true);
-      setTitle(""); setCategory(""); setDescription(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
+      setTitle(""); setCategory(""); setSkillQuery(""); setDescription(""); setInstructions(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
       setNotice("Your service request has been published.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not submit your request.";
@@ -469,10 +505,21 @@ export function MarketplaceScreen(p: Props) {
         {!p.verified && <View style={s.notice}><Text style={s.noticeTitle}>Verification required to publish</Text><Text style={s.noticeText}>You can complete this request form now. AnySkill will only publish it after your identity is verified.</Text></View>}
         <Text style={s.label}>What do you need done?</Text>
         <TextInput value={title} onChangeText={setTitle} placeholder="e.g. Repair a leaking kitchen tap" style={s.input} />
-        <Text style={s.label}>Skill category</Text>
-        <TextInput value={category} onChangeText={setCategory} placeholder="e.g. Plumbing" style={s.input} />
+        <Text style={s.label}>Choose a skill</Text>
+        <TextInput value={skillQuery} onChangeText={(value) => { setSkillQuery(value); setCategory(""); }} placeholder="Search skills, e.g. Plumbing" style={s.input} />
+        <Text style={s.helper}>Popular skills are based on skills listed by AnySkill Providers.</Text>
+        <View style={s.skillChipRow}>
+          {skillSuggestions.slice(0, 8).map((skill) => <Pressable key={skill.name} onPress={() => { setCategory(skill.name); setSkillQuery(skill.name); }} style={[s.skillChip, category.toLowerCase() === skill.name.toLowerCase() && s.skillChipActive]}>
+            <Text style={[s.skillChipText, category.toLowerCase() === skill.name.toLowerCase() && s.skillChipTextActive]}>{skill.name}</Text>
+          </Pressable>)}
+        </View>
+        {skillQuery.trim().length >= 2 && !skillSuggestions.some((skill) => skill.name.toLowerCase() === skillQuery.trim().toLowerCase()) ?
+          <Pressable onPress={() => void addSkill()} disabled={skillBusy} style={s.addSkillButton}><Text style={s.addSkillText}>{skillBusy ? "Adding..." : "Add skill"}</Text></Pressable> : null}
+        {category ? <Text style={s.selectedSkill}>Selected skill: {category}</Text> : <Text style={s.helper}>Choose an existing skill or add a new one. AnySkill checks the catalogue automatically to avoid duplicates.</Text>}
         <Text style={s.label}>Describe the work</Text>
         <TextInput value={description} onChangeText={setDescription} placeholder="Explain what needs to be done..." multiline style={[s.input, s.multiline]} />
+        <Text style={s.label}>Special notes (optional)</Text>
+        <TextInput value={instructions} onChangeText={setInstructions} placeholder="Add access details, preferred times, materials, or anything else the Provider should know..." multiline style={[s.input, s.multiline]} />
         <Text style={s.label}>Service area (not your exact street address)</Text>
         <TextInput value={location} onChangeText={setLocation} placeholder="e.g. Rosebank, Johannesburg" style={s.input} />
         <View style={s.choiceRow}>
@@ -680,6 +727,14 @@ function Secondary(p: { label: string; onPress: () => void; disabled?: boolean }
 }
 
 const s = StyleSheet.create({
+  skillChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8, marginBottom: 8 },
+  skillChip: { borderWidth: 1, borderColor: "#D7E2EA", backgroundColor: "#FFFFFF", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
+  skillChipActive: { borderColor: "#0066CC", backgroundColor: "#EAF3FF" },
+  skillChipText: { color: "#27445D", fontSize: 12, fontWeight: "600" },
+  skillChipTextActive: { color: "#0066CC" },
+  addSkillButton: { alignSelf: "flex-start", backgroundColor: "#0B2545", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 9, marginTop: 4 },
+  addSkillText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
+  selectedSkill: { color: "#1B5E20", fontSize: 12, fontWeight: "700", marginTop: 6 },
   container: { flex: 1, backgroundColor: C.bg },
   header: { paddingHorizontal: 20, paddingTop: 15, paddingBottom: 18, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
   back: { color: C.primary, fontWeight: "800", fontSize: 13, marginBottom: 14 },
