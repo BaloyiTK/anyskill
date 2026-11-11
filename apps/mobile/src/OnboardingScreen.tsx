@@ -250,7 +250,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const form = new FormData();
       form.append("file", blob, fileName); form.append("api_key", reservation.apiKey); form.append("timestamp", String(reservation.timestamp)); form.append("signature", reservation.signature); form.append("public_id", reservation.publicId); form.append("asset_folder", reservation.assetFolder); form.append("overwrite", "false"); form.append("unique_filename", "false"); form.append("use_filename", "false");
       stage = "cloudinary";
-      const response = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated", { method: "POST", body: form });
+      form.append("type", "authenticated");
+      const response = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/upload", { method: "POST", body: form });
       cloudinaryStatus = response.status;
       const cloudinaryPayload = await response.json().catch(() => ({}));
       if (!response.ok) {
