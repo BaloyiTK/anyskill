@@ -53,10 +53,9 @@ export class MediaService {
     const id = randomUUID();
     const publicId = `${userId}/${id}`;
     const timestamp = Math.floor(Date.now() / 1000);
-    // Cloudinary uses /image/upload for uploads; the signed type parameter
-    // stores the asset with authenticated delivery. Never expose the API secret.
+    // Cloudinary REST uploads use /image/authenticated for authenticated delivery.
+    // The delivery type is expressed in the endpoint path, not the signed form fields.
     const params = {
-      type: "authenticated",
       timestamp,
       public_id: publicId,
       asset_folder: folder,
