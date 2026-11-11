@@ -50,16 +50,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
     const counts = new Map<string, number>();
     for (const profile of profiles) for (const skill of profile.skillCategories) {
-      const canonical = skill.trim().replace(/\\s+/g, " ");
+      const canonical = skill.trim().replace(/\s+/g, " ");
       if (!canonical) continue;
       const key = normalise(canonical);
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
-    const needle = normalise(query).replace(/[^\\p{L}\\p{N}]+/gu, "");
+    const needle = normalise(query).replace(/[^\p{L}\p{N}]+/gu, "");
     const ranked = [...counts.entries()].map(([key, count]) => {
-      const compact = key.replace(/[^\\p{L}\\p{N}]+/gu, "");
+      const compact = key.replace(/[^\p{L}\p{N}]+/gu, "");
       const score = !needle ? 0 : compact === needle ? 100 : compact.startsWith(needle) || needle.startsWith(compact) ? 70 : compact.includes(needle) || needle.includes(compact) ? 50 : 0;
-      return { name: key.replace(/(^|\\s)\\p{L}/gu, (letter) => letter.toLocaleUpperCase("en-ZA")), providerCount: count, score };
+      return { name: key.replace(/(^|\s)\p{L}/gu, (letter) => letter.toLocaleUpperCase("en-ZA")), providerCount: count, score };
     }).filter((skill) => !needle || skill.score > 0)
       .sort((a, b) => b.score - a.score || b.providerCount - a.providerCount || a.name.localeCompare(b.name))
       .slice(0, 12);
