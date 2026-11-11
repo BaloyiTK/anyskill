@@ -5,7 +5,7 @@ import * as Location from "expo-location";
 import { MapPinPicker } from "./MapPinPicker";
 import { Platform } from "react-native";
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { apiRequest } from "./api";
 
@@ -17,11 +17,16 @@ type RequestItem = {
   description: string;
   imageUrls: string[];
   location: string | null;
+  latitude: number | null;
+  longitude: number | null;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER";
   preferredStartAt: string | null;
   instructions: string | null;
   status: string;
   createdAt: string;
+  seeker: { firstName: string; lastName: string; profilePhotoUrl: string | null; identityVerified: boolean };
+  providerLocation: { latitude: number; longitude: number } | null;
+  distanceKm: number | null;
   alreadyResponded: boolean;
   myResponse: { id: string; status: string } | null;
 };
@@ -703,14 +708,46 @@ export function MarketplaceScreen(p: Props) {
         {!p.verified && <View style={s.notice}><Text style={s.noticeTitle}>You can explore available work</Text><Text style={s.noticeText}>When you tap Accept, AnySkill will ask you to verify your identity first. The request can be reopened after approval if it is still available.</Text></View>}
         <Secondary label="Refresh requests" onPress={() => void loadRequests()} />
         {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
-        {requests.map((request) => <View key={request.id} style={[s.card, request.id === p.pendingRequestId && s.highlight]}>
-          <Text style={s.cardTitle}>{request.title}</Text>
-          <Text style={s.meta}>{request.skillCategory} · {request.deliveryMode === "ONSITE" ? "On-site" : request.deliveryMode === "REMOTE" ? "Remote" : "On-site or remote"}</Text>
-          <Text style={s.body}>{request.description}</Text>
-          {request.location ? <Text style={s.meta}>Area: {request.location}</Text> : null}
-          {request.preferredStartAt ? <Text style={s.meta}>Preferred: {new Date(request.preferredStartAt).toLocaleString()}</Text> : null}
-          {request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
-        </View>)}
+        {requests.map((request) => {
+          const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
+          const initials = seekerName.split(/\\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "S";
+          const mapLatitude = request.providerLocation?.latitude ?? request.latitude;
+          const mapLongitude = request.providerLocation?.longitude ?? request.longitude;
+          const hasJobPin = request.latitude != null && request.longitude != null;
+          const hasMapCenter = mapLatitude != null && mapLongitude != null;
+          return <View key={request.id} style={[s.card, request.id === p.pendingRequestId && s.highlight]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 13 }}>
+              {request.seeker?.profilePhotoUrl
+                ? <Image source={{ uri: request.seeker.profilePhotoUrl }} style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: "#EAF3FF" }} />
+                : <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: "#DCEBFA", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#0B2545", fontSize: 19, fontWeight: "900" }}>{initials}</Text></View>}
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>{seekerName}</Text>
+                <Text style={s.meta}>Skill Seeker · Requesting your help</Text>
+                <Text style={{ color: request.seeker?.identityVerified ? "#1B5E20" : C.warningInk, fontSize: 11, fontWeight: "800", marginTop: 4 }}>
+                  {request.seeker?.identityVerified ? "✓ Identity verified" : "Identity not verified"}
+                </Text>
+              </View>
+            </View>
+            <Text style={s.cardTitle}>{request.title}</Text>
+            <Text style={s.meta}>{request.skillCategory} · {request.deliveryMode === "ONSITE" ? "On-site" : request.deliveryMode === "REMOTE" ? "Remote" : "On-site or remote"}</Text>
+            <Text style={s.body}>{request.description}</Text>
+            {request.instructions ? <View style={s.offerCard}><Text style={s.offerTitle}>Special notes</Text><Text style={s.body}>{request.instructions}</Text></View> : null}
+            {request.imageUrls?.length ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+              {request.imageUrls.slice(0, 4).map((uri, index) => <Image key={uri + index} source={{ uri }} style={{ width: 76, height: 76, borderRadius: 9, backgroundColor: "#E8EDF2" }} />)}
+            </View> : null}
+            {request.location ? <Text style={s.meta}>Job area: {request.location}</Text> : null}
+            {request.preferredStartAt ? <Text style={s.meta}>Preferred: {new Date(request.preferredStartAt).toLocaleString()}</Text> : null}
+            {request.deliveryMode !== "REMOTE" && hasJobPin && hasMapCenter ? <>
+              <Text style={s.sectionSmall}>Your location and job location</Text>
+              <MapPinPicker latitude={mapLatitude!} longitude={mapLongitude!} selectedLatitude={request.latitude} selectedLongitude={request.longitude} onSelect={() => undefined} readOnly showCenterMarker={!!request.providerLocation} />
+              <Text style={s.meta}>{request.providerLocation ? "Blue dot: your current location · Pin: Seeker's job location" : "Your live location is unavailable. Showing the job pin only."}</Text>
+              <Text style={{ color: C.primary, fontWeight: "900", fontSize: 14, marginTop: 5 }}>
+                {request.distanceKm != null ? `${request.distanceKm.toFixed(1)} km straight-line distance to the job` : "Distance unavailable — enable fresh location sharing while Available"}
+              </Text>
+            </> : request.deliveryMode !== "REMOTE" ? <Text style={s.meta}>Job map and distance will appear when location coordinates are available.</Text> : <Text style={s.meta}>Remote request · no travel required.</Text>}
+            {request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
+          </View>;
+        })}
         {!busy && requests.length === 0 && <Text style={s.helper}>No open requests are available right now. Pull to refresh or check again later.</Text>}
       </>}
       {notice ? <Text style={s.success}>{notice}</Text> : null}
