@@ -50,6 +50,7 @@ export default function App() {
   const [resetToken, setResetToken] = useState("");
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [identity, setIdentity] = useState<IdentitySummary | null>(null);
+  const [profileComplete, setProfileComplete] = useState(false);
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // AuthSession is global: prevent sign-in and account-link flows from overlapping.
@@ -86,24 +87,34 @@ export default function App() {
   const feedback = () => { setMessage(""); setError(""); };
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
 
+  const refreshHomeEligibility = async () => {
+    // Fail closed: Home only enables skill requests when both checks are confirmed.
+    const [profileResult, identityResult] = await Promise.allSettled([
+      apiRequest<{ sections?: { profile?: boolean } }>("/profile/onboarding", {}, true),
+      apiRequest<IdentitySummary>("/identity-verification/status", {}, true),
+    ]);
+    setProfileComplete(profileResult.status === "fulfilled" && profileResult.value.sections?.profile === true);
+    setIdentity(identityResult.status === "fulfilled" ? identityResult.value : null);
+    return profileResult.status === "fulfilled"
+      && profileResult.value.sections?.profile === true
+      && identityResult.status === "fulfilled"
+      && identityResult.value.status === "verified";
+  };
+
   const loadAccount = async () => {
     const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
     setAccount(me);
     setIdentity(null);
+    setProfileComplete(false);
 
     // Profile Setup is the first authenticated destination. Keep the app
     // tabs available so users can move to Home or other sections at any time.
     setActiveTab("home");
     setScreen("onboarding");
 
-    // Identity-verification status is supplementary account data. A failure
-    // here must not turn a successful authentication into a failed login.
-    try {
-      const verification = await apiRequest<IdentitySummary>("/identity-verification/status", {}, true);
-      setIdentity(verification);
-    } catch {
-      setMessage("You are signed in, but identity-verification status could not be loaded. You can refresh it from your dashboard.");
-    }
+    // Eligibility data is supplementary; a failure must not turn successful
+    // authentication into a failed login. Home will remain safely unverified.
+    await refreshHomeEligibility();
   };
 
   const verifyEmailFromLink = async (url: string) => {
@@ -511,6 +522,7 @@ export default function App() {
       const status = await apiRequest<IdentitySummary>("/identity-verification/status", {}, true);
       setIdentity(status);
       setMessage(status.status === "verified" ? "Identity verification is approved." : `Verification status: ${formatStatus(status.status)}.`);
+      await refreshHomeEligibility();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not refresh verification status."); }
     finally { setBusy(false); }
   };
@@ -525,6 +537,7 @@ export default function App() {
 
   const identityStatus = identity?.status ?? "not_started";
   const verified = identityStatus === "verified";
+  const canRequestSkill = profileComplete && verified;
 
   return (
     <SafeAreaView style={s.safe}>
@@ -654,7 +667,7 @@ export default function App() {
 
           {screen === "onboarding" && account && <OnboardingScreen
             identityStatus={identityStatus}
-            onBack={() => goTo("dashboard")}
+            onBack={() => { void (async () => { await refreshHomeEligibility(); goTo("dashboard"); })(); }}
             onStartVerification={() => { void startIdentityVerification(); }}
           />}
 
@@ -675,8 +688,17 @@ export default function App() {
       {screen === "dashboard" && account && activeTab === "home" && <WelcomeScreen
         showAuthActions={false}
         accountEmail={account.email}
+        canRequestSkill={canRequestSkill}
         onAvatarPress={() => { setActiveTab("account"); feedback(); }}
-        onRequestSkill={() => { setMode("seeker"); setScreen("marketplace"); feedback(); }}
+        onRequestSkill={() => {
+          feedback();
+          if (canRequestSkill) {
+            setMode("seeker");
+            setScreen("marketplace");
+          } else {
+            setScreen("onboarding");
+          }
+        }}
         onSignIn={() => {}}
         onSignUp={() => {}}
         onGoogle={() => {}}
@@ -744,7 +766,7 @@ export default function App() {
         </ScrollView>
       </KeyboardAvoidingView>
       {account && (screen === "dashboard" || screen === "marketplace" || screen === "onboarding") && <View style={s.bottomTabBar}>
-        <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { setActiveTab("home"); setScreen("dashboard"); feedback(); }} />
+        <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { void (async () => { await refreshHomeEligibility(); setActiveTab("home"); setScreen("dashboard"); feedback(); })(); }} />
         <BottomTab label="Activities" icon="▤" selected={activeTab === "activities"} onPress={() => { setActiveTab("activities"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Account" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }} />
