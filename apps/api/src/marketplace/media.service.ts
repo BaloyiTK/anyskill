@@ -158,7 +158,12 @@ export class MediaService {
     const remoteMime = FORMAT_MIME[String(remote.format ?? "").toLowerCase()];
     const checks = {
       publicIdMatches: remote.public_id === expectedPublicId,
-      folderMatches: (remote.asset_folder ?? remote.folder) === folder,
+      // Dynamic-folder accounts expose asset_folder as the configured folder.
+      // Fixed-folder accounts expose the legacy folder path, which can include
+      // the user-specific parent directory from the public ID.
+      folderMatches: remote.asset_folder != null
+        ? remote.asset_folder === folder
+        : remote.folder === folder || remote.folder === asset.objectKey.slice(0, asset.objectKey.lastIndexOf("/")),
       formatMatches: remoteMime === asset.contentType,
       formatAllowed: Boolean(remoteMime && ALLOWED.has(remoteMime)),
       sizeMatches: remote.bytes === asset.sizeBytes,
