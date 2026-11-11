@@ -5,7 +5,7 @@ import * as Location from "expo-location";
 import { MapPinPicker } from "./MapPinPicker";
 import { Platform } from "react-native";
 import {
-  ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { apiRequest } from "./api";
 
@@ -100,6 +100,7 @@ export function MarketplaceScreen(p: Props) {
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
   const [responseMessage, setResponseMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;notified:number;wave:number}|null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [verificationPrompt, setVerificationPrompt] = useState(false);
@@ -338,7 +339,10 @@ export function MarketplaceScreen(p: Props) {
     if (deliveryMode === "ONSITE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the on-site job location on the map or use GPS before publishing."); return; }
     setBusy(true); setError(""); setNotice(""); setVerificationPrompt(false);
     try {
-      await apiRequest("/marketplace/requests", {
+      const published = await apiRequest<{
+        id: string; title: string; skillCategory: string; location: string | null;
+        matching?: { notified?: number; wave?: number };
+      }>("/marketplace/requests", {
         method: "POST",
         body: JSON.stringify({
           title: title.trim(), skillCategory: category.trim(), description: description.trim(), ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
@@ -346,7 +350,12 @@ export function MarketplaceScreen(p: Props) {
           ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude } : {}), deliveryMode,
         }),
       }, true);
+      setMatchingRequest({
+        id: published.id, title: published.title, skillCategory: published.skillCategory,
+        location: published.location, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1,
+      });
       setTitle(""); setCategory(""); setSkillQuery(""); setDescription(""); setInstructions(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
+      await loadMyRequests();
       setNotice("Your service request has been published.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not submit your request.";
@@ -753,6 +762,36 @@ export function MarketplaceScreen(p: Props) {
       {notice ? <Text style={s.success}>{notice}</Text> : null}
       {error ? <Text style={s.error}>{error}</Text> : null}
     </ScrollView>
+    <Modal visible={p.mode === "seeker" && matchingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setMatchingRequest(null)}>
+      <View style={{ flex: 1, backgroundColor: "#F6F8FA", paddingHorizontal: 22, paddingTop: 54, paddingBottom: 28 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ color: "#0B2545", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
+          <Text style={{ color: "#1B5E20", fontSize: 11, fontWeight: "900" }}>REQUEST SUBMITTED</Text>
+        </View>
+        <View style={{ alignItems: "center", marginTop: 48 }}>
+          <ActivityIndicator size="large" color="#0066CC" />
+          <Text style={{ color: "#0B2545", fontSize: 27, lineHeight: 33, fontWeight: "900", textAlign: "center", marginTop: 24 }}>Finding the best Provider for you.</Text>
+          <Text style={{ color: "#66756D", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 10 }}>AnySkill is matching your request with available Providers who have the right skills and service coverage.</Text>
+        </View>
+        {matchingRequest ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 16, marginTop: 30 }}>
+          <Text style={{ color: "#66756D", fontSize: 11, fontWeight: "800" }}>YOUR REQUEST</Text>
+          <Text style={{ color: "#0B2545", fontSize: 17, fontWeight: "900", marginTop: 7 }}>{matchingRequest.title}</Text>
+          <Text style={{ color: "#0066CC", fontSize: 13, fontWeight: "800", marginTop: 5 }}>{matchingRequest.skillCategory}</Text>
+          {matchingRequest.location ? <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }}>📍 {matchingRequest.location}</Text> : null}
+        </View> : null}
+        <View style={{ marginTop: 28, gap: 19 }}>
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>01</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Matching skills and experience</Text><Text style={{ color: "#66756D", fontSize: 12 }}>Finding Providers suited to your job</Text></View></View>
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>02</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Checking availability and distance</Text><Text style={{ color: "#66756D", fontSize: 12 }}>Prioritising suitable nearby Providers</Text></View></View>
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>03</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Sending your request</Text><Text style={{ color: "#66756D", fontSize: 12 }}>{matchingRequest?.notified ? `Notified ${matchingRequest.notified} matched Provider(s) in wave ${matchingRequest.wave}` : "Waiting for matching Providers"}</Text></View></View>
+        </View>
+        <View style={{ marginTop: "auto", backgroundColor: "#EAF3FF", borderRadius: 14, padding: 14 }}>
+          <Text style={{ color: "#17446D", fontSize: 13, lineHeight: 19 }}>You can leave this screen. AnySkill will keep your request active and notify you when Providers respond.</Text>
+        </View>
+        <Pressable onPress={() => setMatchingRequest(null)} style={{ backgroundColor: "#0066CC", borderRadius: 13, padding: 15, alignItems: "center", marginTop: 14 }}>
+          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>View my requests</Text>
+        </Pressable>
+      </View>
+    </Modal>
   </View>;
 }
 
