@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, InternalServerErrorException, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { v2 as cloudinary } from "cloudinary";
 import { PrismaService } from "../database/prisma.service";
@@ -93,7 +93,33 @@ export class MediaService {
         overwrite: false,
         unique_filename: false,
         use_filename: false,
-      }, (error) => error ? reject(error) : resolve());
+      }, (error) => {
+        if (!error) {
+          resolve();
+          return;
+        }
+
+        // Cloudinary SDK errors are not always Error instances. Record only safe
+        // diagnostic fields so the API log exposes the real failure instead of
+        // the unhelpful "[object Object]" produced by generic exception logging.
+        const details = typeof error === "object" && error !== null
+          ? error as { message?: unknown; http_code?: unknown; code?: unknown; name?: unknown }
+          : undefined;
+        const errorMessage = typeof details?.message === "string"
+          ? details.message
+          : String(error);
+        const httpStatus = typeof details?.http_code === "number" ? details.http_code : undefined;
+        const errorCode = typeof details?.code === "string" ? details.code : undefined;
+        this.logger.error(
+          `[identity-upload] Cloudinary rejected upload purpose=${asset.purpose} httpStatus=${httpStatus ?? "unknown"} code=${errorCode ?? "unknown"} message=${errorMessage.slice(0, 500)}`,
+        );
+        reject(new InternalServerErrorException("The verification image could not be stored securely. Please try again."));
+      });
+      stream.on("error", (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(`[identity-upload] Cloudinary stream failed purpose=${asset.purpose} message=${message.slice(0, 500)}`);
+        reject(new InternalServerErrorException("The verification image could not be stored securely. Please try again."));
+      });
       stream.end(file.buffer);
     });
     return { received: true };
