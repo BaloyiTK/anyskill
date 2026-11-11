@@ -52,18 +52,6 @@ export class MediaService {
 
     const id = randomUUID();
     const publicId = `${userId}/${id}`;
-    const timestamp = Math.floor(Date.now() / 1000);
-    // Cloudinary REST uploads use /image/authenticated for authenticated delivery.
-    // The delivery type is expressed in the endpoint path, not the signed form fields.
-    const params = {
-      timestamp,
-      public_id: publicId,
-      asset_folder: folder,
-      overwrite: false,
-      unique_filename: false,
-      use_filename: false,
-    };
-    const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET!);
     const asset = await this.prisma.mediaAsset.create({
       data: {
         userId,
@@ -76,16 +64,39 @@ export class MediaService {
       },
     });
 
-    return {
-      assetId: asset.id,
-      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-      apiKey: process.env.CLOUDINARY_API_KEY,
-      timestamp,
-      signature,
-      publicId,
-      assetFolder: folder,
-      maxBytes: MAX_BYTES,
-    };
+    return { assetId: asset.id };
+  }
+
+  async uploadIdentityFile(userId: string, assetId: string, file: { buffer: Buffer; mimetype: string; size: number }) {
+    this.ensureConfigured();
+    const asset = await this.prisma.mediaAsset.findFirst({
+      where: {
+        id: assetId,
+        userId,
+        status: "PENDING",
+        purpose: { in: ["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] },
+      },
+    });
+    if (!asset) throw new NotFoundException("Identity upload reservation not found.");
+    if (!file?.buffer?.length) throw new BadRequestException("Choose an image before uploading.");
+    if (file.size > MAX_BYTES || file.size !== asset.sizeBytes) throw new BadRequestException("The selected image size does not match its upload reservation.");
+    if (!ALLOWED.has(file.mimetype) || file.mimetype !== asset.contentType) throw new BadRequestException("Only the reserved JPEG, PNG or WebP image can be uploaded.");
+
+    const folder = FOLDERS[asset.purpose];
+    const publicId = asset.objectKey.slice((folder + "/").length);
+    await new Promise<void>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream({
+        resource_type: "image",
+        type: "authenticated",
+        public_id: publicId,
+        asset_folder: folder,
+        overwrite: false,
+        unique_filename: false,
+        use_filename: false,
+      }, (error) => error ? reject(error) : resolve());
+      stream.end(file.buffer);
+    });
+    return { received: true };
   }
 
   async confirmUpload(userId: string, assetId: string) {
