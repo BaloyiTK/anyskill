@@ -235,16 +235,30 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
 
   const uploadIdentityAsset = async (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE", uri: string, mimeType?: string | null, fileSize?: number | null, originalFileName?: string | null) => {
     setBusy(true); setError(""); setMessage("");
+    let stage: "read_file" | "reserve" | "cloudinary" | "confirm" = "read_file";
+    let cloudinaryStatus: number | undefined;
+    let cloudinaryErrorCode: string | undefined;
     try {
       const contentType = mimeType ?? "image/jpeg";
       if (!["image/jpeg", "image/png", "image/webp"].includes(contentType)) throw new Error("Please use a JPEG, PNG or WebP image.");
-      const blob = await (await fetch(uri)).blob();
+      const fileResponse = await fetch(uri);
+      if (!fileResponse.ok) throw new Error(`Could not read the selected image (HTTP ${fileResponse.status}).`);
+      const blob = await fileResponse.blob();
       const fileName = originalFileName ?? (purpose === "ID_SELFIE" ? "identity-selfie.jpg" : purpose.toLowerCase().replaceAll("_", "-") + ".jpg");
+      stage = "reserve";
       const reservation = await apiRequest<{assetId:string;cloudName:string;apiKey:string;timestamp:number;signature:string;publicId:string;assetFolder:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: fileSize ?? blob.size, purpose }) }, true);
       const form = new FormData();
       form.append("file", blob, fileName); form.append("api_key", reservation.apiKey); form.append("timestamp", String(reservation.timestamp)); form.append("signature", reservation.signature); form.append("public_id", reservation.publicId); form.append("asset_folder", reservation.assetFolder); form.append("overwrite", "false"); form.append("unique_filename", "false"); form.append("use_filename", "false");
+      stage = "cloudinary";
       const response = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated/upload", { method: "POST", body: form });
-      if (!response.ok) throw new Error("Secure image upload failed. Please try again.");
+      cloudinaryStatus = response.status;
+      const cloudinaryPayload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const cloudinaryMessage = typeof cloudinaryPayload?.error?.message === "string" ? cloudinaryPayload.error.message : response.statusText;
+        cloudinaryErrorCode = "cloudinary_rejected_upload";
+        throw new Error(`Cloudinary rejected the image (HTTP ${response.status})${cloudinaryMessage ? `: ${cloudinaryMessage}` : "."}`);
+      }
+      stage = "confirm";
       await apiRequest("/identity-verification/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
       setIdentityPreviews((current) => ({ ...current, [purpose]: uri }));
       if (purpose === "ID_DOCUMENT_FRONT") setIdFrontReady(true);
@@ -254,7 +268,18 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       if (purpose === "ID_SELFIE") setSelfieReady(true);
       setIdDocumentReady(idType === "SMART_ID_CARD" ? (purpose === "ID_DOCUMENT_FRONT" || idFrontReady) && (purpose === "ID_DOCUMENT_BACK" || idBackReady) : (purpose === "ID_BOOK_PAGE_1" || bookPage1Ready) && (purpose === "ID_BOOK_PAGE_2" || bookPage2Ready));
       setMessage(purpose === "ID_SELFIE" ? "Live selfie captured and uploaded securely." : "ID image uploaded securely.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not upload verification image."); }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not upload verification image.";
+      const errorCode = cloudinaryErrorCode ?? (message.toLowerCase().includes("network") || message.toLowerCase().includes("fetch") ? "network_error" : "upload_failed");
+      console.error("[AnySkill][IdentityUpload] Upload failed", { stage, purpose, httpStatus: cloudinaryStatus, errorCode, message });
+      void apiRequest("/identity-verification/uploads/failure", {
+        method: "POST",
+        body: JSON.stringify({ purpose, stage, ...(cloudinaryStatus ? { httpStatus: cloudinaryStatus } : {}), errorCode }),
+      }, true).catch((reportError) => {
+        console.warn("[AnySkill][IdentityUpload] Could not report failure to API logs", reportError instanceof Error ? reportError.message : "report_failed");
+      });
+      setError(`Upload failed during ${stage.replace("_", " ")}: ${message}`);
+    }
     finally { setBusy(false); }
   };
 
