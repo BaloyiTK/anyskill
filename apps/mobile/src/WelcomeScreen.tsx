@@ -18,6 +18,7 @@ type Props = {
   onSignIn: () => void;
   onSignUp: () => void;
   onGoogle: () => void;
+  showAuthActions?: boolean;
 };
 
 const RADII = [1, 5, 10, 20, 50] as const;
@@ -52,7 +53,7 @@ function worldPoint(latitude: number, longitude: number) {
   };
 }
 
-export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
+export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true }: Props) {
   const [radiusKm, setRadiusKm] = useState<number>(5);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -321,12 +322,14 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle }: Props) {
       {providerError ? <Text style={styles.error}>{providerError}</Text> : <Text style={styles.mapFoot}>{coordinates ? `${providers.length} available ${providers.length === 1 ? "Provider" : "Providers"} within ${radiusKm} km` : "Only online and available Providers will appear here."}</Text>}
     </View>
 
-    <View style={styles.actions}>
-      <Pressable accessibilityRole="button" onPress={onSignUp} style={styles.primaryButton}><Text style={styles.primaryText}>Get started</Text></Pressable>
-      <Pressable accessibilityRole="button" onPress={onSignIn} style={styles.secondaryButton}><Text style={styles.secondaryText}>Sign in</Text></Pressable>
-      <Pressable accessibilityRole="button" onPress={onGoogle} style={styles.googleButton}><Image source={require("../assets/branding/google-sign-in.png")} style={styles.googleIcon} resizeMode="contain" accessibilityLabel="Google" /><Text style={styles.googleText}>Continue with Google</Text></Pressable>
-    </View>
-    <Text style={styles.footer}>Connecting people through skills and opportunity.</Text>
+    {showAuthActions ? <>
+      <View style={styles.actions}>
+        <Pressable accessibilityRole="button" onPress={onSignUp} style={styles.primaryButton}><Text style={styles.primaryText}>Get started</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={onSignIn} style={styles.secondaryButton}><Text style={styles.secondaryText}>Sign in</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={onGoogle} style={styles.googleButton}><Image source={require("../assets/branding/google-sign-in.png")} style={styles.googleIcon} resizeMode="contain" accessibilityLabel="Google" /><Text style={styles.googleText}>Continue with Google</Text></Pressable>
+      </View>
+      <Text style={styles.footer}>Connecting people through skills and opportunity.</Text>
+    </> : null}
   </View>;
 }
 
