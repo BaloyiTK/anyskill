@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { v2 as cloudinary } from "cloudinary";
 import { PrismaService } from "../database/prisma.service";
@@ -10,7 +10,23 @@ const FOLDERS: Record<string, string> = { JOB_COMPLETION_EVIDENCE: "anyskill/job
 
 @Injectable()
 export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
   private configured = false;
+
+  logIdentityUploadFailure(input: {
+    purpose: string;
+    stage: string;
+    httpStatus?: number;
+    errorCode?: string;
+  }) {
+    const details = [
+      `purpose=${input.purpose}`,
+      `stage=${input.stage}`,
+      input.httpStatus ? `httpStatus=${input.httpStatus}` : undefined,
+      input.errorCode ? `errorCode=${input.errorCode.slice(0, 80)}` : undefined,
+    ].filter(Boolean).join(" ");
+    this.logger.warn(`[identity-upload] ${details}`);
+  }
 
   constructor(private readonly prisma: PrismaService) {
     const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
