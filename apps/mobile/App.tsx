@@ -518,6 +518,15 @@ export default function App() {
             {screen === "login" && <Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry />}
             {screen === "register" && <Text style={s.helper}>First, enter only your email address. We will send a six-digit code before asking for any other details.</Text>}
             <Primary label={screen === "register" ? "Send verification code" : "Sign in"} onPress={screen === "register" ? register : login} disabled={busy || !email.trim() || (screen === "login" && password.length < 12)} />
+            <View style={s.googleDivider}>
+              <View style={s.googleDividerLine} />
+              <Text style={s.googleDividerText}>OR</Text>
+              <View style={s.googleDividerLine} />
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Continue with Google" onPress={() => { void continueWithGoogle(); }} disabled={busy} style={[s.googleAuthButton, busy && s.disabled]}>
+              <Image source={require("./assets/branding/google-sign-in.png")} style={s.googleAuthIcon} resizeMode="contain" accessibilityLabel="Google" />
+              <Text style={s.googleAuthText}>Continue with Google</Text>
+            </Pressable>
             <Secondary label={screen === "register" ? "I already have an account" : "Create a new account"} onPress={() => goTo(screen === "register" ? "login" : "register")} />
             {screen === "login" && <TextButton label="Forgot password?" onPress={() => goTo("forgot-password")} />}
             <TextButton label="Back" onPress={() => goTo("welcome")} />
@@ -721,6 +730,10 @@ const s = StyleSheet.create({
   brandLogo: { width: 150, height: 52 },
   googleDivider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 18 },
   googleDividerLine: { flex: 1, height: 1, backgroundColor: C.border },
+  googleDividerText: { color: C.muted, fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  googleAuthButton: { minHeight: 53, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, borderWidth: 1, borderColor: C.border, borderRadius: 15, backgroundColor: C.surface, paddingHorizontal: 14, marginTop: 2 },
+  googleAuthIcon: { width: 20, height: 20 },
+  googleAuthText: { color: C.ink, fontSize: 13, fontWeight: "800" },
   hero: { marginTop: 4, marginBottom: 28, backgroundColor: "#123F32", borderRadius: 26, paddingHorizontal: 23, paddingTop: 23, paddingBottom: 20, overflow: "hidden" },
   heroPill: { alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.12)", marginBottom: 21 },
   heroDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#9EE2BD" },
