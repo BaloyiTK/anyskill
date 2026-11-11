@@ -111,8 +111,26 @@ async function bootstrap(): Promise<void> {
 
       if (response.statusCode >= 500) {
         logger.error(message);
+        writeErrorLog({
+          timestamp: new Date().toISOString(),
+          level: "error",
+          statusCode: response.statusCode,
+          method,
+          path,
+          requestId,
+          message: "HTTP request returned a server error.",
+        });
       } else if (response.statusCode >= 400) {
         logger.warn(message);
+        writeErrorLog({
+          timestamp: new Date().toISOString(),
+          level: "warn",
+          statusCode: response.statusCode,
+          method,
+          path,
+          requestId,
+          message: "HTTP request returned a client error.",
+        });
       } else {
         logger.log(message);
       }
