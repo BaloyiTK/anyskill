@@ -596,7 +596,7 @@ export default function App() {
         onGoogle={() => {}}
       />}
 
-          {screen === "dashboard" && account && activeTab === "activities"          {screen === "dashboard" && account && activeTab === "activities" && <View style={s.form}>
+          {screen === "dashboard" && account && activeTab === "activities" && <View style={s.form}>
             <Text style={s.kicker}>YOUR WORK</Text>
             <Text style={s.formTitle}>Activities</Text>
             <Text style={s.subtitle}>Your service requests, accepted jobs and completed activity will appear here.</Text>
