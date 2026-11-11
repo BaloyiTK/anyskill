@@ -34,7 +34,7 @@ function coordinateAt(x: number, y: number, centerX: number, centerY: number, wi
 }
 
 export function MapPinPicker(p: Props) {
-  const [zoom, setZoom] = useState(14);
+  const [zoom, setZoom] = useState(p.readOnly ? 11 : 14);
   const [size, setSize] = useState({ width: 320, height: 230 });
   const center = useMemo(() => worldPoint(p.latitude, p.longitude, zoom), [p.latitude, p.longitude, zoom]);
   const centerTileX = Math.floor(center.x / TILE);
