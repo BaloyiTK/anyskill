@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as Notifications from "expo-notifications";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -71,6 +71,8 @@ function formatWorkDuration(milliseconds: number) {
 
 export function MarketplaceScreen(p: Props) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
+  const [incomingRequestId, setIncomingRequestId] = useState<string | null>(null);
+  const seenIncomingRequestIds = useRef<Set<string>>(new Set());
   const [myRequests, setMyRequests] = useState<SeekerRequest[]>([]);
   const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
   const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>([]);
@@ -147,7 +149,10 @@ export function MarketplaceScreen(p: Props) {
     setBusy(true); setError("");
     try {
       const result = await apiRequest<{ items: RequestItem[] }>("/marketplace/incoming-requests", {}, true);
+      const newlyMatched = result.items.filter((item) => !seenIncomingRequestIds.current.has(item.id));
+      result.items.forEach((item) => seenIncomingRequestIds.current.add(item.id));
       setRequests(result.items);
+      if (newlyMatched.length > 0) setIncomingRequestId(newlyMatched[0].id);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load incoming requests."); }
     finally { setBusy(false); }
   }, []);
@@ -426,8 +431,17 @@ export function MarketplaceScreen(p: Props) {
   }, []);
 
   useEffect(() => {
-    if (p.mode === "provider") { void loadRequests(); void loadProviderProfile(); void loadMyJobs(); }
+    if (p.mode !== "provider") return;
+    void loadRequests(); void loadProviderProfile(); void loadMyJobs();
+    const refreshIncoming = setInterval(() => { void loadRequests(); }, 8000);
+    return () => clearInterval(refreshIncoming);
   }, [p.mode, loadRequests, loadProviderProfile, loadMyJobs]);
+
+  useEffect(() => {
+    if (p.mode === "provider" && p.pendingRequestId && requests.some((request) => request.id === p.pendingRequestId)) {
+      setIncomingRequestId(p.pendingRequestId);
+    }
+  }, [p.mode, p.pendingRequestId, requests]);
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerAvailable || !providerLiveTrackingEnabled ||
@@ -501,6 +515,8 @@ export function MarketplaceScreen(p: Props) {
       }
     } finally { setBusy(false); }
   };
+
+  const activeIncomingRequest = requests.find((request) => request.id === incomingRequestId) ?? null;
 
   return <View style={s.container}>
     <View style={s.header}>
@@ -762,6 +778,41 @@ export function MarketplaceScreen(p: Props) {
       {notice ? <Text style={s.success}>{notice}</Text> : null}
       {error ? <Text style={s.error}>{error}</Text> : null}
     </ScrollView>
+    <Modal visible={p.mode === "provider" && activeIncomingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setIncomingRequestId(null)}>
+      {activeIncomingRequest ? <View style={{ flex: 1, backgroundColor: "#0B2545", paddingTop: 48 }}>
+        <View style={{ paddingHorizontal: 20, paddingBottom: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ color: "#FFFFFF", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
+          <Text style={{ color: "#BFDBFE", fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>INCOMING REQUEST</Text>
+        </View>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 28 }}>
+          <Text style={{ color: "#BFDBFE", textAlign: "center", fontSize: 11, fontWeight: "900", letterSpacing: 1, marginTop: 8 }}>A SEEKER NEEDS YOUR HELP</Text>
+          <View style={{ backgroundColor: "#FFFFFF18", borderColor: "#FFFFFF35", borderWidth: 1, borderRadius: 18, padding: 15, marginTop: 16, flexDirection: "row", alignItems: "center", gap: 13 }}>
+            {activeIncomingRequest.seeker.profilePhotoUrl
+              ? <Image source={{ uri: activeIncomingRequest.seeker.profilePhotoUrl }} style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#DCEBFA" }} />
+              : <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#DCEBFA", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#0B2545", fontSize: 22, fontWeight: "900" }}>{[activeIncomingRequest.seeker.firstName, activeIncomingRequest.seeker.lastName].filter(Boolean).map((part) => part[0]?.toUpperCase()).join("") || "S"}</Text></View>}
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: "#FFFFFF", fontSize: 18, fontWeight: "900" }}>{[activeIncomingRequest.seeker.firstName, activeIncomingRequest.seeker.lastName].filter(Boolean).join(" ") || "Skill Seeker"}</Text>
+              <Text style={{ color: "#DBEAFE", fontSize: 12, marginTop: 3 }}>Skill Seeker · Requesting your help</Text>
+              <Text style={{ color: activeIncomingRequest.seeker.identityVerified ? "#86EFAC" : "#FDE68A", fontSize: 11, fontWeight: "800", marginTop: 6 }}>{activeIncomingRequest.seeker.identityVerified ? "✓ Identity verified" : "Identity not verified"}</Text>
+            </View>
+          </View>
+          <Text style={{ color: "#FFFFFF", fontSize: 22, fontWeight: "900", marginTop: 20 }}>{activeIncomingRequest.skillCategory}</Text>
+          <Text style={{ color: "#FFFFFF", fontSize: 17, fontWeight: "800", marginTop: 5 }}>{activeIncomingRequest.title}</Text>
+          <Text style={{ color: "#DBEAFE", fontSize: 13, lineHeight: 19, marginTop: 9 }}>{activeIncomingRequest.description}</Text>
+          {activeIncomingRequest.deliveryMode !== "REMOTE" && activeIncomingRequest.latitude != null && activeIncomingRequest.longitude != null ? <>
+            <Text style={{ color: "#BFDBFE", fontSize: 11, fontWeight: "900", marginTop: 18, marginBottom: 8 }}>JOB LOCATION AND DISTANCE</Text>
+            {activeIncomingRequest.providerLocation ? <MapPinPicker latitude={activeIncomingRequest.providerLocation.latitude} longitude={activeIncomingRequest.providerLocation.longitude} selectedLatitude={activeIncomingRequest.latitude} selectedLongitude={activeIncomingRequest.longitude} onSelect={() => undefined} readOnly showCenterMarker /> : <MapPinPicker latitude={activeIncomingRequest.latitude} longitude={activeIncomingRequest.longitude} selectedLatitude={activeIncomingRequest.latitude} selectedLongitude={activeIncomingRequest.longitude} onSelect={() => undefined} readOnly />}
+            <Text style={{ color: "#FFFFFF", fontSize: 16, fontWeight: "900", marginTop: 8 }}>{activeIncomingRequest.distanceKm != null ? `${activeIncomingRequest.distanceKm.toFixed(1)} km straight-line distance` : "Distance unavailable — enable live location while Available"}</Text>
+          </> : <Text style={{ color: "#DBEAFE", marginTop: 15, fontSize: 12 }}>{activeIncomingRequest.deliveryMode === "REMOTE" ? "Remote request · no travel required" : "Job coordinates are not available."}</Text>}
+          {activeIncomingRequest.location ? <Text style={{ color: "#DBEAFE", fontSize: 12, marginTop: 9 }}>📍 {activeIncomingRequest.location}</Text> : null}
+          {activeIncomingRequest.instructions ? <View style={{ backgroundColor: "#FFFFFF18", borderRadius: 12, padding: 12, marginTop: 14 }}><Text style={{ color: "#BFDBFE", fontSize: 11, fontWeight: "900" }}>SPECIAL NOTES</Text><Text style={{ color: "#FFFFFF", fontSize: 13, marginTop: 6 }}>{activeIncomingRequest.instructions}</Text></View> : null}
+          {activeIncomingRequest.imageUrls?.length ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 }}>{activeIncomingRequest.imageUrls.slice(0, 6).map((uri, index) => <Image key={uri + index} source={{ uri }} style={{ width: 82, height: 82, borderRadius: 10, backgroundColor: "#FFFFFF22" }} />)}</View> : null}
+          <TextInput value={responseMessage} onChangeText={setResponseMessage} placeholder="Optional message to the Seeker" placeholderTextColor="#A9BDD0" style={{ backgroundColor: "#FFFFFF", borderRadius: 12, minHeight: 48, paddingHorizontal: 13, marginTop: 18, color: "#0B2545" }} />
+          <Primary label="Accept request" onPress={() => { void acceptRequest(activeIncomingRequest); setIncomingRequestId(null); }} disabled={busy || activeIncomingRequest.alreadyResponded} />
+          <Secondary label="Close for now" onPress={() => setIncomingRequestId(null)} />
+        </ScrollView>
+      </View> : null}
+    </Modal>
     <Modal visible={p.mode === "seeker" && matchingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setMatchingRequest(null)}>
       <View style={{ flex: 1, backgroundColor: "#F6F8FA", paddingHorizontal: 22, paddingTop: 54, paddingBottom: 28 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
