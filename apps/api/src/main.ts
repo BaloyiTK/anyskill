@@ -18,7 +18,7 @@ const MAX_ERROR_LOG_BYTES = 5 * 1024 * 1024;
 
 function redactLogText(value: string): string {
   return value
-    .replace(/(api[_-]?secret|authorization|password|access[_-]?token|refresh[_-]?token|signature)(\s*[:=]\s*)[^\\s,;]+/gi, "$1$2[REDACTED]")
+    .replace(/(api[_-]?secret|authorization|password|access[_-]?token|refresh[_-]?token|signature)(\s*[:=]\s*)[^\s,;]+/gi, "$1$2[REDACTED]")
     .slice(0, 12_000);
 }
 
