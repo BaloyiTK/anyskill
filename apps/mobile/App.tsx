@@ -557,7 +557,7 @@ export default function App() {
                 <TextInput
                   ref={otpInputRef}
                   value={otp}
-                  onChangeText={(value) => setOtp(value.replace(/\\D/g, "").slice(0, 6))}
+                  onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, 6))}
                   keyboardType="number-pad"
                   textContentType="oneTimeCode"
                   autoComplete="sms-otp"
