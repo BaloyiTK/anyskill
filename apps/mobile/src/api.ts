@@ -77,7 +77,9 @@ export async function apiRequest<T>(
   authenticated = false,
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  headers.set("Content-Type", "application/json");
+  const isMultipart = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (!isMultipart) headers.set("Content-Type", "application/json");
+  else headers.delete("Content-Type");
 
   if (authenticated) {
     const accessToken = await getStoredItem(ACCESS_TOKEN_KEY);
