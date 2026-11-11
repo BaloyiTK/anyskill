@@ -255,30 +255,79 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listIncomingRequests(providerId: string, cursor?: string) {
-    const requests = await this.prisma.serviceRequest.findMany({
-      where: {
-        status: "OPEN",
-        matches: { some: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] } } },
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 21,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      select: {
-        id: true, title: true, skillCategory: true, description: true,
-        imageUrls: true, location: true, deliveryMode: true,
-        preferredStartAt: true, instructions: true, status: true, createdAt: true,
-        providerResponses: {
-          where: { providerId },
-          select: { id: true, status: true, createdAt: true },
+    const [requests, providerProfile] = await Promise.all([
+      this.prisma.serviceRequest.findMany({
+        where: {
+          status: "OPEN",
+          matches: { some: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] } } },
         },
-      },
-    });
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 21,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+        select: {
+          id: true, title: true, skillCategory: true, description: true,
+          imageUrls: true, location: true, latitude: true, longitude: true,
+          deliveryMode: true, preferredStartAt: true, instructions: true,
+          status: true, createdAt: true,
+          seeker: {
+            select: {
+              identityVerification: true,
+              onboardingDraft: { select: { profile: true } },
+            },
+          },
+          providerResponses: {
+            where: { providerId },
+            select: { id: true, status: true, createdAt: true },
+          },
+        },
+      }),
+      this.prisma.providerProfile.findUnique({
+        where: { userId: providerId },
+        select: { liveLatitude: true, liveLongitude: true, liveLocationUpdatedAt: true },
+      }),
+    ]);
     const hasMore = requests.length > 20;
-    const items = requests.slice(0, 20).map(({ providerResponses, ...request }) => ({
-      ...request,
-      alreadyResponded: providerResponses.length > 0,
-      myResponse: providerResponses[0] ?? null,
-    }));
+    const now = Date.now();
+    const hasFreshProviderLocation = providerProfile?.liveLatitude != null
+      && providerProfile.liveLongitude != null
+      && providerProfile.liveLocationUpdatedAt != null
+      && now - providerProfile.liveLocationUpdatedAt.getTime() <= 5 * 60 * 1000;
+    const providerLocation = hasFreshProviderLocation
+      ? { latitude: providerProfile!.liveLatitude!, longitude: providerProfile!.liveLongitude! }
+      : null;
+    const radians = (degrees: number) => degrees * Math.PI / 180;
+    const distanceBetween = (latitude: number, longitude: number, targetLatitude: number, targetLongitude: number) => {
+      const dLat = radians(targetLatitude - latitude);
+      const dLon = radians(targetLongitude - longitude);
+      const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(radians(latitude)) * Math.cos(radians(targetLatitude)) * Math.sin(dLon / 2) ** 2;
+      return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    const items = requests.slice(0, 20).map(({ providerResponses, seeker, ...request }) => {
+      const profile = seeker.onboardingDraft?.profile;
+      const seekerProfile = profile && typeof profile === "object" && !Array.isArray(profile)
+        ? profile as Record<string, unknown>
+        : {};
+      const firstName = typeof seekerProfile.firstName === "string" ? seekerProfile.firstName.trim() : "";
+      const lastName = typeof seekerProfile.lastName === "string" ? seekerProfile.lastName.trim() : "";
+      const photo = typeof seekerProfile.profilePhotoUrl === "string" ? seekerProfile.profilePhotoUrl.trim() : "";
+      const distanceKm = providerLocation && request.latitude != null && request.longitude != null
+        ? Math.round(distanceBetween(providerLocation.latitude, providerLocation.longitude, request.latitude, request.longitude) * 10) / 10
+        : null;
+      return {
+        ...request,
+        seeker: {
+          firstName,
+          lastName,
+          profilePhotoUrl: photo || null,
+          identityVerified: seeker.identityVerification === "VERIFIED",
+        },
+        providerLocation,
+        distanceKm,
+        alreadyResponded: providerResponses.length > 0,
+        myResponse: providerResponses[0] ?? null,
+      };
+    });
     return { items, nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null };
   }
 
