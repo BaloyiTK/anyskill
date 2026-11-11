@@ -7,7 +7,7 @@ import {
   Body,
   BadRequestException,
 } from "@nestjs/common";
-import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PrismaService } from "../database/prisma.service";
@@ -20,6 +20,12 @@ class CreateIdentityUploadDto {
   @IsString() purpose!: "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE";
 }
 class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
+class IdentityUploadFailureDto {
+  @IsString() @IsIn(["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"]) purpose!: string;
+  @IsString() @IsIn(["read_file", "reserve", "cloudinary", "confirm"]) stage!: string;
+  @IsOptional() @IsInt() @Min(100) @Max(599) httpStatus?: number;
+  @IsOptional() @IsString() @MaxLength(80) errorCode?: string;
+}
 
 @Controller("identity-verification")
 @UseGuards(JwtAuthGuard)
@@ -36,6 +42,12 @@ export class IdentityController {
   @Post("uploads/confirm")
   confirmUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: ConfirmIdentityUploadDto) {
     return this.media.confirmUpload(user.id, dto.assetId);
+  }
+
+  @Post("uploads/failure")
+  reportUploadFailure(@CurrentUser() _user: AuthenticatedUser, @Body() dto: IdentityUploadFailureDto) {
+    this.media.logIdentityUploadFailure(dto);
+    return { received: true };
   }
 
   @Get("status")
