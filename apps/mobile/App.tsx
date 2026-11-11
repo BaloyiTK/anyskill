@@ -591,6 +591,9 @@ export default function App() {
 
       {screen === "dashboard" && account && activeTab === "home" && <WelcomeScreen
         showAuthActions={false}
+        accountEmail={account.email}
+        onAvatarPress={() => { setActiveTab("account"); feedback(); }}
+        onRequestSkill={() => { setMode("seeker"); setScreen("marketplace"); feedback(); }}
         onSignIn={() => {}}
         onSignUp={() => {}}
         onGoogle={() => {}}
