@@ -43,6 +43,7 @@ export default function App() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const otpInputRef = useRef<TextInput>(null);
+  const [otpResendSeconds, setOtpResendSeconds] = useState(0);
   const [registrationToken, setRegistrationToken] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -130,6 +131,14 @@ export default function App() {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (otpResendSeconds <= 0) return;
+    const timer = setTimeout(() => {
+      setOtpResendSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [otpResendSeconds]);
 
   useEffect(() => {
     void Linking.getInitialURL().then((url) => { if (url) void verifyEmailFromLink(url); });
@@ -234,16 +243,37 @@ export default function App() {
   const register = async () => {
     feedback(); setBusy(true);
     try {
-      const result = await apiRequest<{ message: string }>("/auth/register", {
+      const result = await apiRequest<{ message: string; resendAfterSeconds?: number }>("/auth/register", {
         method: "POST",
         body: JSON.stringify({ email: email.trim() }),
       });
       setMessage(result.message);
       setOtp("");
+      setOtpResendSeconds(result.resendAfterSeconds ?? 60);
       setScreen("verify-otp");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send verification code.");
     } finally { setBusy(false); }
+  };
+
+  const resendRegistrationOtp = async () => {
+    if (busy || otpResendSeconds > 0) return;
+    feedback();
+    setBusy(true);
+    try {
+      const result = await apiRequest<{ message: string; resendAfterSeconds?: number }>("/auth/resend-registration-otp", {
+        method: "POST",
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      setOtp("");
+      setOtpResendSeconds(result.resendAfterSeconds ?? 60);
+      otpInputRef.current?.focus();
+      setMessage(result.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not resend verification code.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const verifyRegistrationOtp = async () => {
@@ -569,6 +599,19 @@ export default function App() {
               </Pressable>
             </View>
             <Primary label="Verify email" onPress={verifyRegistrationOtp} disabled={busy || !/^\d{6}$/.test(otp)} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy || otpResendSeconds > 0 }}
+              disabled={busy || otpResendSeconds > 0}
+              onPress={resendRegistrationOtp}
+              style={s.resendCodeButton}
+            >
+              <Text style={[s.resendCodeText, (busy || otpResendSeconds > 0) && s.resendCodeDisabled]}>
+                {otpResendSeconds > 0
+                  ? `Resend code in 00:${String(otpResendSeconds).padStart(2, "0")}`
+                  : "Resend code"}
+              </Text>
+            </Pressable>
             <TextButton label="Back" onPress={() => goTo("register")} />
           </View>}
           {screen === "complete-registration" && <View style={s.form}>
@@ -788,6 +831,9 @@ const s = StyleSheet.create({
   form: { marginTop: 5, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 24, padding: 20, paddingTop: 23, shadowColor: "#173B2C", shadowOpacity: 0.045, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
   field: { marginBottom: 17 }, fieldLabel: { color: C.ink, fontSize: 12, fontWeight: "800", marginBottom: 8, letterSpacing: 0.1 },
   otpField: { marginBottom: 17 },
+  resendCodeButton: { alignItems: "center", justifyContent: "center", paddingVertical: 13, marginTop: 2 },
+  resendCodeText: { color: C.primary, fontSize: 13, fontWeight: "800" },
+  resendCodeDisabled: { color: C.muted, opacity: 0.65 },
   otpBoxes: { position: "relative", flexDirection: "row", justifyContent: "space-between", gap: 8, minHeight: 62 },
   otpBox: { flex: 1, height: 62, alignItems: "center", justifyContent: "center", borderWidth: 1.4, borderColor: C.border, borderRadius: 14, backgroundColor: "#FBFCFB" },
   otpBoxActive: { borderColor: C.primary, borderWidth: 2, backgroundColor: "#EFF7F1" },
