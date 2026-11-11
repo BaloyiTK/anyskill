@@ -7,6 +7,8 @@ type Props = {
   selectedLatitude: number | null;
   selectedLongitude: number | null;
   onSelect: (latitude: number, longitude: number) => void;
+  readOnly?: boolean;
+  showCenterMarker?: boolean;
 };
 
 const TILE = 256;
@@ -59,7 +61,7 @@ export function MapPinPicker(p: Props) {
             resizeMode="stretch" />;
         }))}
       </View>
-      <Pressable style={StyleSheet.absoluteFill} onPress={(event) => {
+      <Pressable style={StyleSheet.absoluteFill} disabled={p.readOnly} onPress={(event) => {
         const point = coordinateAt(event.nativeEvent.locationX, event.nativeEvent.locationY, center.x, center.y, size.width, size.height, zoom);
         p.onSelect(point.latitude, point.longitude);
       }}>
@@ -67,13 +69,14 @@ export function MapPinPicker(p: Props) {
           <View style={styles.pinHead} /><View style={styles.pinTail} />
         </View> : null}
       </Pressable>
+      {p.showCenterMarker ? <View pointerEvents="none" style={{ position: "absolute", left: size.width / 2 - 9, top: size.height / 2 - 9, width: 18, height: 18, borderRadius: 9, backgroundColor: "#0066CC", borderWidth: 3, borderColor: "#FFFFFF", zIndex: 4 }} /> : null}
       <View style={styles.zoom}>
         <Pressable onPress={() => setZoom((value) => Math.min(19, value + 1))} style={styles.zoomButton}><Text style={styles.zoomText}>+</Text></Pressable>
         <Pressable onPress={() => setZoom((value) => Math.max(3, value - 1))} style={styles.zoomButton}><Text style={styles.zoomText}>−</Text></Pressable>
       </View>
       <View pointerEvents="none" style={styles.attribution}><Text style={styles.attributionText}>© OpenStreetMap contributors</Text></View>
     </View>
-    <Text style={styles.help}>Tap the map to place the pin. Use + / − to change zoom. Map tiles require an internet connection.</Text>
+    <Text style={styles.help}>{p.readOnly ? "Blue dot: your current location. Pin: the job location. Map tiles require an internet connection." : "Tap the map to place the pin. Use + / − to change zoom. Map tiles require an internet connection."}</Text>
     {p.selectedLatitude != null && p.selectedLongitude != null
       ? <Text style={styles.coords}>Selected pin: {p.selectedLatitude.toFixed(6)}, {p.selectedLongitude.toFixed(6)}</Text>
       : <Text style={styles.coords}>No pin selected yet.</Text>}
