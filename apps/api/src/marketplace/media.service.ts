@@ -156,17 +156,30 @@ export class MediaService {
     }
 
     const remoteMime = FORMAT_MIME[String(remote.format ?? "").toLowerCase()];
-    const valid =
-      remote.public_id === expectedPublicId &&
-      (remote.asset_folder ?? remote.folder) === folder &&
-      remoteMime === asset.contentType &&
-      ALLOWED.has(remoteMime) &&
-      remote.bytes === asset.sizeBytes &&
-      remote.bytes <= MAX_BYTES &&
-      remote.resource_type === "image" &&
-      remote.type === "authenticated";
+    const checks = {
+      publicIdMatches: remote.public_id === expectedPublicId,
+      folderMatches: (remote.asset_folder ?? remote.folder) === folder,
+      formatMatches: remoteMime === asset.contentType,
+      formatAllowed: ALLOWED.has(remoteMime),
+      sizeMatches: remote.bytes === asset.sizeBytes,
+      sizeWithinLimit: remote.bytes <= MAX_BYTES,
+      resourceTypeIsImage: remote.resource_type === "image",
+      deliveryTypeIsAuthenticated: remote.type === "authenticated",
+    };
+    const valid = Object.values(checks).every(Boolean);
 
     if (!valid) {
+      // Log only Cloudinary metadata and pass/fail flags. Never log image bytes,
+      // credentials, user IDs, or the full public ID.
+      this.logger.error(
+        `[identity-upload] Cloudinary confirmation validation failed purpose=${asset.purpose} ` +
+        `checks=${JSON.stringify(checks)} ` +
+        `expectedFolder=${folder} assetFolder=${String(remote.asset_folder ?? "missing")} ` +
+        `legacyFolder=${String(remote.folder ?? "missing")} format=${String(remote.format ?? "missing")} ` +
+        `expectedMime=${asset.contentType} bytes=${String(remote.bytes ?? "missing")} ` +
+        `expectedBytes=${asset.sizeBytes} resourceType=${String(remote.resource_type ?? "missing")} ` +
+        `deliveryType=${String(remote.type ?? "missing")}`,
+      );
       try {
         await cloudinary.uploader.destroy(expectedPublicId, {
           resource_type: "image",
