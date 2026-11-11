@@ -19,6 +19,9 @@ type Props = {
   onSignUp: () => void;
   onGoogle: () => void;
   showAuthActions?: boolean;
+  accountEmail?: string;
+  onAvatarPress?: () => void;
+  onRequestSkill?: () => void;
 };
 
 const RADII = [1, 5, 10, 20, 50] as const;
@@ -53,7 +56,7 @@ function worldPoint(latitude: number, longitude: number) {
   };
 }
 
-export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true }: Props) {
+export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true, accountEmail, onAvatarPress, onRequestSkill }: Props) {
   const [radiusKm, setRadiusKm] = useState<number>(5);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -231,6 +234,9 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
   return <View style={styles.container}>
     <View style={styles.branding}>
       <Image source={require("../assets/branding/anyskill-logo.png")} style={styles.logo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
+      {!showAuthActions ? <Pressable accessibilityRole="button" accessibilityLabel="Open account" onPress={onAvatarPress} style={styles.avatarButton}>
+        <Text style={styles.avatarText}>{(accountEmail?.trim()?.[0] ?? "U").toUpperCase()}</Text>
+      </Pressable> : null}
     </View>
     <View style={styles.intro}>
       <Text style={styles.eyebrow}>LOCAL SKILLS. REAL PEOPLE.</Text>
@@ -322,6 +328,15 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
       {providerError ? <Text style={styles.error}>{providerError}</Text> : <Text style={styles.mapFoot}>{coordinates ? `${providers.length} available ${providers.length === 1 ? "Provider" : "Providers"} within ${radiusKm} km` : "Only online and available Providers will appear here."}</Text>}
     </View>
 
+    {!showAuthActions ? <Pressable accessibilityRole="button" onPress={onRequestSkill} style={styles.requestSkillButton}>
+      <Text style={styles.requestSkillIcon}>＋</Text>
+      <View style={styles.requestSkillCopy}>
+        <Text style={styles.requestSkillTitle}>Request a Skill</Text>
+        <Text style={styles.requestSkillSubtitle}>Tell us what you need help with</Text>
+      </View>
+      <Text style={styles.requestSkillArrow}>›</Text>
+    </Pressable> : null}
+
     {showAuthActions ? <>
       <View style={styles.actions}>
         <Pressable accessibilityRole="button" onPress={onSignUp} style={styles.primaryButton}><Text style={styles.primaryText}>Get started</Text></Pressable>
@@ -335,8 +350,10 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
 
 const styles = StyleSheet.create({
   container: { gap: 12 },
-  branding: { alignItems: "flex-start", justifyContent: "center", paddingTop: 2, marginBottom: -4 },
+  branding: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 2, marginBottom: -4 },
   logo: { width: 164, height: 76 },
+  avatarButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: THEME.softBlue, borderWidth: 2, borderColor: THEME.blue, alignItems: "center", justifyContent: "center" },
+  avatarText: { color: THEME.navy, fontSize: 16, fontWeight: "900" },
   intro: { paddingTop: 4, paddingBottom: 3 },
   eyebrow: { color: THEME.blue, fontSize: 10, fontWeight: "900", letterSpacing: 1.5, marginBottom: 9 },
   heading: { color: THEME.navy, fontSize: 31, lineHeight: 37, fontWeight: "900", letterSpacing: -1 },
