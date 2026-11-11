@@ -60,6 +60,12 @@ export class AuthController {
   @Post("register")
   register(@Body() dto: RegisterDto) { return this.auth.register(dto); }
 
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("resend-registration-otp")
+  resendRegistrationOtp(@Body() dto: ForgotPasswordDto) {
+    return this.auth.resendRegistrationOtp(dto.email);
+  }
+
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post("verify-registration-otp")
   verifyRegistrationOtp(@Body() dto: VerifyRegistrationOtpDto) { return this.auth.verifyRegistrationOtp(dto.email, dto.otp); }
