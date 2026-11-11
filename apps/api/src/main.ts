@@ -5,7 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync
 import { join } from "node:path";
 import {
   ArgumentsHost,
-  BaseExceptionFilter,
+  ExceptionFilter,
   Catch,
   HttpException,
   Logger,
@@ -40,10 +40,12 @@ function writeErrorLog(entry: Record<string, unknown>): void {
 }
 
 @Catch()
-class ApiExceptionFilter extends BaseExceptionFilter {
+class ApiExceptionFilter implements ExceptionFilter {
   private readonly errorLogger = new Logger("API-ERROR");
 
-  override catch(exception: unknown, host: ArgumentsHost): void {
+  constructor(private readonly httpAdapterHost: HttpAdapterHost) {}
+
+  catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
     const request = context.getRequest<{
       method?: string;
@@ -81,7 +83,16 @@ class ApiExceptionFilter extends BaseExceptionFilter {
       ...(stack ? { stack } : {}),
     });
 
-    super.catch(exception, host);
+    const httpAdapter = this.httpAdapterHost.httpAdapter;
+    const httpContext = host.switchToHttp();
+    const response = exception instanceof HttpException
+      ? exception.getResponse()
+      : { statusCode: 500, message: "Internal server error" };
+    const responseBody = typeof response === "object" && response !== null
+      ? response
+      : { statusCode, message: response };
+
+    httpAdapter.reply(httpContext.getResponse(), responseBody, statusCode);
   }
 }
 
