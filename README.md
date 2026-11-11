@@ -28,17 +28,16 @@ The mobile product is one application with two operating modes. A single account
 ## Start local services
 
 ```bash
-docker compose up -d postgres mailpit
+docker compose up -d postgres
 ```
-
-Mailpit captures local email at [http://localhost:8025](http://localhost:8025). It is for development only; production must use a real SMTP provider.
 
 ## API setup
 
 1. Copy `apps/api/.env.example` to `apps/api/.env`.
 2. Generate a unique `JWT_ACCESS_SECRET` of at least 32 characters.
-3. Install dependencies, generate Prisma Client and apply migrations.
-4. Start the API.
+3. Configure an SMTP provider in `apps/api/.env` if email delivery is required.
+4. Install dependencies, generate Prisma Client and apply migrations.
+5. Start the API.
 
 ```bash
 corepack enable
