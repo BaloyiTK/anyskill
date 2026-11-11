@@ -160,7 +160,7 @@ export class MediaService {
       publicIdMatches: remote.public_id === expectedPublicId,
       folderMatches: (remote.asset_folder ?? remote.folder) === folder,
       formatMatches: remoteMime === asset.contentType,
-      formatAllowed: ALLOWED.has(remoteMime),
+      formatAllowed: Boolean(remoteMime && ALLOWED.has(remoteMime)),
       sizeMatches: remote.bytes === asset.sizeBytes,
       sizeWithinLimit: remote.bytes <= MAX_BYTES,
       resourceTypeIsImage: remote.resource_type === "image",
