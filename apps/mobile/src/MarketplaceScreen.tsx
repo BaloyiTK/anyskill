@@ -517,6 +517,9 @@ export function MarketplaceScreen(p: Props) {
   };
 
   const activeIncomingRequest = requests.find((request) => request.id === incomingRequestId) ?? null;
+  const matchingRequestOffers = matchingRequest
+    ? myRequests.find((request) => request.id === matchingRequest.id)?.providerResponses.length ?? 0
+    : 0;
 
   return <View style={s.container}>
     <View style={s.header}>
@@ -833,7 +836,7 @@ export function MarketplaceScreen(p: Props) {
         <View style={{ marginTop: 28, gap: 19 }}>
           <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>01</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Matching skills and experience</Text><Text style={{ color: "#66756D", fontSize: 12 }}>Finding Providers suited to your job</Text></View></View>
           <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>02</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Checking availability and distance</Text><Text style={{ color: "#66756D", fontSize: 12 }}>Prioritising suitable nearby Providers</Text></View></View>
-          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>03</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Sending your request</Text><Text style={{ color: "#66756D", fontSize: 12 }}>{matchingRequest?.notified ? `Notified ${matchingRequest.notified} matched Provider(s) in wave ${matchingRequest.wave}` : "Waiting for matching Providers"}</Text></View></View>
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>03</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Sending your request</Text><Text style={{ color: "#66756D", fontSize: 12 }}>{matchingRequestOffers > 0 ? `${matchingRequestOffers} Provider response(s) received` : matchingRequest?.notified ? `Notified ${matchingRequest.notified} matched Provider(s) in wave ${matchingRequest.wave} · waiting for responses` : "Waiting for matching Providers"}</Text></View></View>
         </View>
         <View style={{ marginTop: "auto", backgroundColor: "#EAF3FF", borderRadius: 14, padding: 14 }}>
           <Text style={{ color: "#17446D", fontSize: 13, lineHeight: 19 }}>You can leave this screen. AnySkill will keep your request active and notify you when Providers respond.</Text>
