@@ -83,6 +83,7 @@ export class MediaService {
     if (!ALLOWED.has(file.mimetype) || file.mimetype !== asset.contentType) throw new BadRequestException("Only the reserved JPEG, PNG or WebP image can be uploaded.");
 
     const folder = FOLDERS[asset.purpose];
+    if (!folder) throw new BadRequestException("Unsupported upload purpose.");
     const publicId = asset.objectKey.slice((folder + "/").length);
     await new Promise<void>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream({
