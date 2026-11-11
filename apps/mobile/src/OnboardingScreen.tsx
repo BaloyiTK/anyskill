@@ -236,7 +236,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const uploadIdentityAsset = async (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE", uri: string, mimeType?: string | null, fileSize?: number | null, originalFileName?: string | null) => {
     setBusy(true); setError(""); setMessage("");
     let stage: "read_file" | "reserve" | "api_upload" | "confirm" = "read_file";
-    let uploadHttpStatus: number | undefined;
     try {
       const contentType = mimeType ?? "image/jpeg";
       if (!["image/jpeg", "image/png", "image/webp"].includes(contentType)) throw new Error("Please use a JPEG, PNG or WebP image.");
@@ -245,7 +244,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const blob = await fileResponse.blob();
       const fileName = originalFileName ?? (purpose === "ID_SELFIE" ? "identity-selfie.jpg" : purpose.toLowerCase().replaceAll("_", "-") + ".jpg");
       stage = "reserve";
-      const reservation = await apiRequest<{assetId:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: fileSize ?? blob.size, purpose }) }, true);
+      const reservation = await apiRequest<{assetId:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: blob.size, purpose }) }, true);
       const form = new FormData();
       form.append("file", blob, fileName);
       stage = "api_upload";
@@ -262,11 +261,11 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       setMessage(purpose === "ID_SELFIE" ? "Live selfie captured and uploaded securely." : "ID image uploaded securely.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not upload verification image.";
-      const errorCode = cloudinaryErrorCode ?? (message.toLowerCase().includes("network") || message.toLowerCase().includes("fetch") ? "network_error" : "upload_failed");
-      console.error("[AnySkill][IdentityUpload] Upload failed", { stage, purpose, httpStatus: uploadHttpStatus, errorCode, message });
+      const errorCode = message.toLowerCase().includes("network") || message.toLowerCase().includes("fetch") ? "network_error" : "upload_failed";
+      console.error("[AnySkill][IdentityUpload] Upload failed", { stage, purpose, errorCode, message });
       void apiRequest("/identity-verification/uploads/failure", {
         method: "POST",
-        body: JSON.stringify({ purpose, stage, ...(uploadHttpStatus ? { httpStatus: uploadHttpStatus } : {}), errorCode }),
+        body: JSON.stringify({ purpose, stage, errorCode }),
       }, true).catch((reportError) => {
         console.warn("[AnySkill][IdentityUpload] Could not report failure to API logs", reportError instanceof Error ? reportError.message : "report_failed");
       });
