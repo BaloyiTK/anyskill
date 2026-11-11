@@ -54,6 +54,9 @@ export class MarketplaceController {
   @Get("marketplace/media/:assetId/url")
   getEvidenceUrl(@CurrentUser() user: AuthenticatedUser, @Param("assetId") assetId: string) { return this.media.getEvidenceUrl(user.id, assetId); }
 
+  @Get("marketplace/skills")
+  listSkills(@Query("q") query?: string) { return this.marketplace.listSkills(query ?? ""); }
+
   @Post("marketplace/requests")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("SEEKER_SUBMIT_REQUEST")
