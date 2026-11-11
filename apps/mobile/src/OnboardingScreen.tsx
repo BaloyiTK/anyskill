@@ -351,9 +351,33 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         <View><Text style={st.stepCount}>Step {tabs.indexOf(active) + 1} of 5</Text><Text style={st.percent}>{active} information</Text></View>
         <Text style={st.percentStrong}>{data.percentage}% complete</Text>
       </View>
-      <View style={st.track}><View style={[st.fill, { width: `${data.percentage}%` }]} /></View>
       <View style={st.tabs}>
-        {tabs.map((tab, index) => <Pressable key={tab} onPress={() => setActive(tab)} style={[st.tab, active === tab && st.activeTab, tabs.indexOf(active) > index && st.doneTab]}><View style={[st.stepDot, active === tab && st.activeDot, tabs.indexOf(active) > index && st.doneDot]}><Text style={[st.stepDotText, (active === tab || tabs.indexOf(active) > index) && st.activeDotText]}>{tabs.indexOf(active) > index ? "✓" : index + 1}</Text></View><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={[st.tabText, active === tab && st.activeTabText]}>{tab}</Text></Pressable>)}
+        {tabs.map((tab, index) => {
+          const completed = [
+            Boolean(data.sections?.profile),
+            ["APPROVED", "VERIFIED", "COMPLETE", "COMPLETED"].includes(identityStatus.toUpperCase()),
+            Boolean(data.sections?.skills),
+            Boolean(data.sections?.portfolio),
+            false,
+          ][index];
+          const isActive = active === tab;
+          const leftConnected = index > 0 && [
+            Boolean(data.sections?.profile),
+            ["APPROVED", "VERIFIED", "COMPLETE", "COMPLETED"].includes(identityStatus.toUpperCase()),
+            Boolean(data.sections?.skills),
+            Boolean(data.sections?.portfolio),
+          ][index - 1];
+          return <Pressable key={tab} onPress={() => setActive(tab)} accessibilityRole="button" accessibilityState={{ selected: isActive }} style={st.tab}>
+            <View style={st.stepRow}>
+              <View style={[st.connector, index === 0 && st.connectorHidden, leftConnected && st.connectorDone]} />
+              <View style={[st.stepDot, isActive && st.activeDot, completed && st.doneDot]}>
+                <Text style={[st.stepDotText, isActive && st.activeDotText, completed && st.doneDotText]}>{completed ? "✓" : index + 1}</Text>
+              </View>
+              <View style={[st.connector, index === tabs.length - 1 && st.connectorHidden, completed && st.connectorDone]} />
+            </View>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68} style={[st.tabText, isActive && st.activeTabText, completed && st.doneTabText]}>{tab}</Text>
+          </Pressable>;
+        })}
       </View>
     </View>
     <ScrollView style={st.body} contentContainerStyle={{ paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
@@ -554,13 +578,21 @@ const st = StyleSheet.create({
   percent: { color: colors.muted, fontSize: 11, marginTop: 4 }, percentStrong: { color: colors.primary, fontSize: 12, fontWeight: "900" },
   track: { height: 7, marginHorizontal: 20, marginTop: 11, borderRadius: 10, backgroundColor: "#E2EAF2", overflow: "hidden" },
   fill: { height: 7, backgroundColor: colors.primary, borderRadius: 10 },
-  tabs: { flexDirection: "row", flexWrap: "nowrap", gap: 5, paddingHorizontal: 12, paddingVertical: 15, alignItems: "stretch" },
-  tab: { flex: 1, flexBasis: 0, minWidth: 0, flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 9, paddingHorizontal: 2, borderRadius: 13, borderWidth: 1, borderColor: "#E1E8F0", backgroundColor: colors.surface },
-  activeTab: { backgroundColor: "#EAF3FF", borderColor: colors.primary }, doneTab: { borderColor: "#B9DFC0", backgroundColor: "#F3FAF4" },
-  stepDot: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#EDF1F5" },
-  activeDot: { backgroundColor: colors.primary }, doneDot: { backgroundColor: "#DDF2E1" },
-  stepDotText: { color: colors.muted, fontSize: 10, fontWeight: "900" }, activeDotText: { color: colors.primary },
-  tabText: { color: colors.muted, fontSize: 9, fontWeight: "800", textAlign: "center", includeFontPadding: false, flexShrink: 1 }, activeTabText: { color: colors.primary },
+  tabs: { flexDirection: "row", flexWrap: "nowrap", paddingHorizontal: 10, paddingTop: 17, paddingBottom: 13, alignItems: "flex-start" },
+  tab: { flex: 1, flexBasis: 0, minWidth: 0, alignItems: "center", justifyContent: "flex-start", gap: 7, paddingHorizontal: 0 },
+  stepRow: { width: "100%", flexDirection: "row", alignItems: "center" },
+  connector: { flex: 1, height: 2, backgroundColor: "#DCE5EF" },
+  connectorHidden: { backgroundColor: "transparent" },
+  connectorDone: { backgroundColor: colors.green },
+  stepDot: { width: 27, height: 27, flexShrink: 0, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#EDF1F5", borderWidth: 1.5, borderColor: "#DCE5EF" },
+  activeDot: { backgroundColor: colors.primary, borderColor: colors.primary },
+  doneDot: { backgroundColor: colors.green, borderColor: colors.green },
+  stepDotText: { color: colors.muted, fontSize: 10, fontWeight: "900" },
+  activeDotText: { color: "#FFFFFF" },
+  doneDotText: { color: "#FFFFFF", fontSize: 13 },
+  tabText: { color: colors.muted, fontSize: 9, fontWeight: "800", textAlign: "center", includeFontPadding: false, flexShrink: 1 },
+  activeTabText: { color: colors.primary },
+  doneTabText: { color: colors.forest },
   body: { flex: 1, paddingHorizontal: 18 },
   heading: { color: colors.ink, fontSize: 22, fontWeight: "900", letterSpacing: -0.5, marginBottom: 10 },
   photoCard: { flexDirection: "row", alignItems: "center", gap: 15, backgroundColor: colors.surface, borderWidth: 1, borderColor: "#E4EAF1", borderRadius: 20, padding: 16, marginBottom: 20, shadowColor: "#0B2545", shadowOpacity: 0.055, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
