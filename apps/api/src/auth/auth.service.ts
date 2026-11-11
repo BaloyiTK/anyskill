@@ -58,6 +58,55 @@ export class AuthService {
     return { otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60, message: "A six-digit verification code has been sent to your email address." };
   }
 
+  async resendRegistrationOtp(emailInput: string) {
+    const email = emailInput.trim().toLowerCase();
+    if (await this.prisma.user.findUnique({ where: { email } })) {
+      throw new ConflictException("An account with this email already exists.");
+    }
+
+    const pending = await this.prisma.pendingRegistration.findUnique({ where: { email } });
+    const now = new Date();
+    if (!pending || pending.verifiedAt) {
+      throw new ConflictException("There is no pending email verification for this address. Start registration again.");
+    }
+    if (pending.resendAvailableAt > now) {
+      const retryAfterSeconds = Math.ceil((pending.resendAvailableAt.getTime() - now.getTime()) / 1000);
+      throw new ConflictException(`Please wait ${retryAfterSeconds} seconds before requesting another code.`);
+    }
+
+    const otp = randomInt(0, 1_000_000).toString().padStart(6, "0");
+    const updated = await this.prisma.pendingRegistration.updateMany({
+      where: { id: pending.id, verifiedAt: null, resendAvailableAt: { lte: now } },
+      data: {
+        otpHash: this.registrationOtpHash(email, otp),
+        attempts: 0,
+        expiresAt: new Date(now.getTime() + 600000),
+        resendAvailableAt: new Date(now.getTime() + 60000),
+      },
+    });
+    if (updated.count !== 1) {
+      throw new ConflictException("A code was just requested. Please wait before trying again.");
+    }
+
+    try {
+      await this.mail.sendRegistrationOtp(email, otp);
+    } catch (error) {
+      // A failed email delivery must not lock the user out for another minute.
+      await this.prisma.pendingRegistration.updateMany({
+        where: { id: pending.id, verifiedAt: null },
+        data: { resendAvailableAt: new Date() },
+      });
+      throw error;
+    }
+
+    return {
+      otpSent: true,
+      expiresInSeconds: 600,
+      resendAfterSeconds: 60,
+      message: "A new six-digit verification code has been sent to your email address.",
+    };
+  }
+
   async verifyRegistrationOtp(emailInput: string, otp: string) {
     const email=emailInput.trim().toLowerCase(); const now=new Date();
     const row=await this.prisma.pendingRegistration.findUnique({where:{email}});
