@@ -334,7 +334,7 @@ export default function App() {
   const continueWithGoogle = async () => {
     if (googleAuthInProgress.current) return;
     feedback();
-    console.warn("[AnySkill Google OAuth] sign-in request", {
+    console.info("[AnySkill Google OAuth] sign-in request", {
       platform: Platform.OS,
       requestReady: Boolean(googleRequest),
       clientId: googleRequest?.clientId ?? null,
@@ -401,7 +401,7 @@ export default function App() {
   const connectGoogle = async () => {
     if (googleAuthInProgress.current) return;
     feedback();
-    console.warn("[AnySkill Google OAuth] link request", {
+    console.info("[AnySkill Google OAuth] link request", {
       platform: Platform.OS,
       requestReady: Boolean(googleRequest),
       clientId: googleRequest?.clientId ?? null,
