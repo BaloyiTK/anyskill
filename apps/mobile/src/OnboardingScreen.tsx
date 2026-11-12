@@ -261,6 +261,9 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         body: JSON.stringify({ fileName, contentType, sizeBytes: file.size, purpose }),
       }, true);
       if (file.size > reservation.maxBytes) throw new Error("The selected image exceeds the 10 MB upload limit.");
+      if (!reservation.cloudName?.trim() || !reservation.apiKey?.trim() || !reservation.signature?.trim()) {
+        throw new Error("The secure upload configuration is incomplete. Please contact support.");
+      }
 
       // Upload directly from the native app to Cloudinary using the scoped
       // signature returned by our API. The Cloudinary API secret stays server-side.
@@ -275,12 +278,29 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       form.append("unique_filename", "false");
       form.append("use_filename", "false");
       stage = "cloudinary_upload";
-      const uploadResponse = await fetch(
-        `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/authenticated`,
-        { method: "POST", body: form },
-      );
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/authenticated`;
+      const uploadResponse = await fetch(uploadUrl, { method: "POST", body: form });
       if (!uploadResponse.ok) {
-        throw new Error(`Secure image upload failed (HTTP ${uploadResponse.status}). Please try again.`);
+        const responseBody = await uploadResponse.text().catch(() => "");
+        let cloudinaryMessage = "";
+        try {
+          const parsed = JSON.parse(responseBody) as { error?: { message?: string } };
+          cloudinaryMessage = parsed.error?.message ?? "";
+        } catch {
+          cloudinaryMessage = responseBody;
+        }
+        const providerMessage = uploadResponse.headers.get("x-cld-error") || cloudinaryMessage;
+        const safeProviderMessage = providerMessage.replace(/[\\r\\n\\t]+/g, " ").slice(0, 240);
+        console.error("[AnySkill][IdentityUpload] Cloudinary rejected upload", {
+          httpStatus: uploadResponse.status,
+          providerMessage: safeProviderMessage || "No provider detail returned",
+          endpoint: "/image/authenticated",
+        });
+        throw new Error(
+          safeProviderMessage
+            ? `Cloudinary rejected the upload (HTTP ${uploadResponse.status}): ${safeProviderMessage}`
+            : `Cloudinary rejected the upload (HTTP ${uploadResponse.status}). Please try again.`,
+        );
       }
       stage = "confirm";
       await apiRequest("/identity-verification/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
