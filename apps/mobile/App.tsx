@@ -3,8 +3,9 @@ import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
 import {
   ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, Pressable,
-  SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
+  ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   AccountSummary, apiRequest, clearTokens, IdentitySummary, saveTokens, signOut,
 } from "./src/api";
@@ -540,7 +541,8 @@ export default function App() {
   const canRequestSkill = profileComplete && verified;
 
   return (
-    <SafeAreaView style={s.safe}>
+    <SafeAreaProvider>
+      <SafeAreaView style={s.safe}>
       <StatusBar barStyle="dark-content" />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
@@ -771,7 +773,8 @@ export default function App() {
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Account" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }} />
       </View>}
-    </SafeAreaView>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
