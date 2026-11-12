@@ -237,16 +237,25 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     setBusy(true); setError(""); setMessage("");
     let stage: "read_file" | "reserve" | "api_upload" | "confirm" = "read_file";
     try {
-      const contentType = mimeType ?? "image/jpeg";
-      if (!["image/jpeg", "image/png", "image/webp"].includes(contentType)) throw new Error("Please use a JPEG, PNG or WebP image.");
       const fileResponse = await fetch(uri);
       if (!fileResponse.ok) throw new Error(`Could not read the selected image (HTTP ${fileResponse.status}).`);
       const blob = await fileResponse.blob();
       const fileName = originalFileName ?? (purpose === "ID_SELFIE" ? "identity-selfie.jpg" : purpose.toLowerCase().replaceAll("_", "-") + ".jpg");
+      const allowedContentTypes = ["image/jpeg", "image/png", "image/webp"];
+      const extension = fileName.split(".").pop()?.toLowerCase();
+      const extensionMime: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
+      // Android's Blob/FormData bridge can lose or rewrite the MIME metadata.
+      // Prefer the actual fetched file type, then the picker metadata, then its extension.
+      const contentType = [blob.type, mimeType, extensionMime[extension ?? ""]]
+        .map((value) => value?.toLowerCase().split(";")[0].trim())
+        .find((value) => value && allowedContentTypes.includes(value));
+      if (!contentType) throw new Error("Please use a JPEG, PNG or WebP image.");
       stage = "reserve";
       const reservation = await apiRequest<{assetId:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: blob.size, purpose }) }, true);
       const form = new FormData();
-      form.append("file", blob, fileName);
+      // React Native Android requires the native { uri, name, type } file part;
+      // appending a fetched Blob can send a different MIME type than the reservation.
+      form.append("file", { uri, name: fileName, type: contentType } as any);
       stage = "api_upload";
       await apiRequest(`/identity-verification/uploads/${reservation.assetId}/file`, { method: "POST", body: form }, true);
       stage = "confirm";
