@@ -313,7 +313,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       if (purpose === "ID_BOOK_PAGE_1") setBookPage1Ready(true);
       if (purpose === "ID_BOOK_PAGE_2") setBookPage2Ready(true);
       if (purpose === "ID_SELFIE") setSelfieReady(true);
-      setIdDocumentReady(idType === "SMART_ID_CARD" ? (purpose === "ID_DOCUMENT_FRONT" || idFrontReady) && (purpose === "ID_DOCUMENT_BACK" || idBackReady) : (purpose === "ID_BOOK_PAGE_1" || bookPage1Ready) && (purpose === "ID_BOOK_PAGE_2" || bookPage2Ready));
+      setIdDocumentReady(idType === "SMART_ID_CARD" ? (purpose === "ID_DOCUMENT_FRONT" || idFrontReady) && (purpose === "ID_DOCUMENT_BACK" || idBackReady) : purpose === "ID_BOOK_PAGE_1" || bookPage1Ready);
       setMessage(purpose === "ID_SELFIE" ? "Live selfie captured and uploaded securely." : "ID image uploaded securely.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not upload verification image.";
@@ -365,7 +365,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   };
 
   const submitIdentityVerification = async () => {
-    const idComplete = idType === "SMART_ID_CARD" ? idFrontReady && idBackReady : bookPage1Ready && bookPage2Ready;
+    const idComplete = idType === "SMART_ID_CARD" ? idFrontReady && idBackReady : bookPage1Ready;
     if (!idComplete || !selfieReady) { setError("Complete both required ID images and take a live selfie before continuing."); return false; }
     setBusy(true); setError(""); setMessage("");
     try {
@@ -559,8 +559,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           { purpose: "ID_DOCUMENT_FRONT" as const, label: "Front of Smart ID card", ready: idFrontReady },
           { purpose: "ID_DOCUMENT_BACK" as const, label: "Back of Smart ID card", ready: idBackReady },
         ] : [
-          { purpose: "ID_BOOK_PAGE_1" as const, label: "ID book: photo/details page", ready: bookPage1Ready },
-          { purpose: "ID_BOOK_PAGE_2" as const, label: "ID book: second identity page", ready: bookPage2Ready },
+          { purpose: "ID_BOOK_PAGE_1" as const, label: "Green ID book: photo/details page", ready: bookPage1Ready },
         ]).map((item) => <View key={item.purpose} style={st.card}>
           <Text style={st.label}>{item.label}</Text>
           {identityPreviews[item.purpose] ? <Image source={{ uri: identityPreviews[item.purpose] }} style={st.imagePreview} resizeMode="contain" /> : null}
