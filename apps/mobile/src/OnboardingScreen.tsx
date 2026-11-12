@@ -295,6 +295,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           httpStatus: uploadResponse.status,
           providerMessage: safeProviderMessage || "No provider detail returned",
           endpoint: "/image/authenticated",
+          uploadUrl,
+          responseContentType: uploadResponse.headers.get("content-type") || "unknown",
         });
         throw new Error(
           safeProviderMessage
