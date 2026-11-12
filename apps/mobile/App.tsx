@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ComponentRef } from "react";
 import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
 import {
@@ -43,7 +44,7 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
-  const otpInputRef = useRef<TextInput>(null);
+  const otpInputRef = useRef<ComponentRef<typeof TextInput>>(null);
   const [otpResendSeconds, setOtpResendSeconds] = useState(0);
   const [registrationToken, setRegistrationToken] = useState("");
   const [password, setPassword] = useState("");
@@ -864,7 +865,7 @@ const s = StyleSheet.create({
   otpBoxActive: { borderColor: C.primary, borderWidth: 2, backgroundColor: "#EFF7F1" },
   otpBoxFilled: { borderColor: C.primary, backgroundColor: "#F1F8F3" },
   otpDigit: { color: C.ink, fontSize: 25, fontWeight: "800", fontVariant: ["tabular-nums"] },
-  otpInputOverlay: { ...StyleSheet.absoluteFillObject, width: "100%", height: "100%", opacity: 0, color: "transparent", backgroundColor: "transparent" },
+  otpInputOverlay: { ...StyleSheet.absoluteFill, width: "100%", height: "100%", opacity: 0, color: "transparent", backgroundColor: "transparent" },
   input: { minHeight: 54, borderWidth: 1, borderColor: C.border, borderRadius: 14, paddingHorizontal: 15, color: C.ink, backgroundColor: "#FBFCFB", fontSize: 15 },
   helper: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 7, marginBottom: 14 },
   primary: { minHeight: 55, borderRadius: 15, backgroundColor: C.primary, alignItems: "center", justifyContent: "center", marginTop: 9, paddingHorizontal: 18, shadowColor: "#124331", shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
