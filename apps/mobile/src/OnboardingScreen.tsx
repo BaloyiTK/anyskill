@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
+import { File } from "expo-file-system";
 import { CameraView, useCameraPermissions } from "expo-camera";
 type CountryOption = { name: string; code: string; dialCode: string };
 type AddressSuggestion = { label: string; latitude: number; longitude: number };
@@ -237,25 +238,24 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     setBusy(true); setError(""); setMessage("");
     let stage: "read_file" | "reserve" | "api_upload" | "confirm" = "read_file";
     try {
-      const fileResponse = await fetch(uri);
-      if (!fileResponse.ok) throw new Error(`Could not read the selected image (HTTP ${fileResponse.status}).`);
-      const blob = await fileResponse.blob();
-      const fileName = originalFileName ?? (purpose === "ID_SELFIE" ? "identity-selfie.jpg" : purpose.toLowerCase().replaceAll("_", "-") + ".jpg");
+      // Expo SDK 58 uses a standards-based FormData serializer. A native
+      // { uri, name, type } object is not a supported FormData part; File is a
+      // Blob-backed reference to the local URI and avoids copying image bytes
+      // into JavaScript memory before upload.
+      const file = new File(uri);
+      const fileName = originalFileName ?? file.name ?? (purpose === "ID_SELFIE" ? "identity-selfie.jpg" : purpose.toLowerCase().replaceAll("_", "-") + ".jpg");
       const allowedContentTypes = ["image/jpeg", "image/png", "image/webp"];
       const extension = fileName.split(".").pop()?.toLowerCase();
       const extensionMime: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
-      // Android's Blob/FormData bridge can lose or rewrite the MIME metadata.
-      // Prefer the actual fetched file type, then the picker metadata, then its extension.
-      const contentType = [blob.type, mimeType, extensionMime[extension ?? ""]]
+      const contentType = [file.type, mimeType, extensionMime[extension ?? ""]]
         .map((value) => value?.toLowerCase().split(";")[0].trim())
         .find((value) => value && allowedContentTypes.includes(value));
       if (!contentType) throw new Error("Please use a JPEG, PNG or WebP image.");
+      if (!Number.isFinite(file.size) || file.size < 1) throw new Error("The selected image could not be read.");
       stage = "reserve";
-      const reservation = await apiRequest<{assetId:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: blob.size, purpose }) }, true);
+      const reservation = await apiRequest<{assetId:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: file.size, purpose }) }, true);
       const form = new FormData();
-      // React Native Android requires the native { uri, name, type } file part;
-      // appending a fetched Blob can send a different MIME type than the reservation.
-      form.append("file", { uri, name: fileName, type: contentType } as any);
+      form.append("file", file, fileName);
       stage = "api_upload";
       await apiRequest(`/identity-verification/uploads/${reservation.assetId}/file`, { method: "POST", body: form }, true);
       stage = "confirm";
