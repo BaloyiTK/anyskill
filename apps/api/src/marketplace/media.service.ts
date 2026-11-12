@@ -88,7 +88,7 @@ export class MediaService {
     const params = {
       timestamp,
       public_id: publicId,
-      asset_folder: folder,
+      folder,
       type: "authenticated",
       overwrite: false,
       unique_filename: false,
@@ -135,10 +135,10 @@ export class MediaService {
 
     const folder = FOLDERS[asset.purpose];
     if (!folder) throw new BadRequestException("Unsupported upload purpose.");
-    // The client uploads with public_id plus asset_folder. The folder is
-    // stored alongside that public ID in objectKey, but is not part of the
-    // Cloudinary public_id itself.
-    const expectedPublicId = asset.objectKey.slice((folder + "/").length);
+    // `folder` is signed and prepended to the public_id by Cloudinary in
+    // fixed-folder mode. In dynamic-folder mode it also sets asset_folder.
+    // objectKey stores the complete Cloudinary public_id in both modes.
+    const expectedPublicId = asset.objectKey;
     let remote: any;
     try {
       remote = await cloudinary.api.resource(expectedPublicId, { resource_type: "image", type: "authenticated" });
@@ -202,6 +202,17 @@ export class MediaService {
     return { id: asset.id, status: "READY" };
   }
 
+  private async resolveStoredPublicId(objectKey: string, folder: string) {
+    // Older reservations used asset_folder, keeping the folder out of public_id.
+    // Resolve those existing assets while new uploads use the full folder-prefixed ID.
+    try {
+      await cloudinary.api.resource(objectKey, { resource_type: "image", type: "authenticated" });
+      return objectKey;
+    } catch {
+      return objectKey.slice((folder + "/").length);
+    }
+  }
+
   async getIdentityPreviewUrl(userId: string, purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE") {
     this.ensureConfigured();
     const asset = await this.prisma.mediaAsset.findFirst({
@@ -214,7 +225,7 @@ export class MediaService {
     const format = formatByMime[asset.contentType];
     const folder = FOLDERS[purpose];
     if (!format || !folder) throw new BadRequestException("Identity image has an unsupported format.");
-    const publicId = asset.objectKey.slice((folder + "/").length);
+    const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
     const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
     const url = cloudinary.utils.private_download_url(publicId, format, {
       resource_type: "image",
@@ -244,7 +255,7 @@ export class MediaService {
     if (!format) throw new BadRequestException("Evidence image has an unsupported content type.");
     const folder = FOLDERS[asset.purpose];
     if (!folder) throw new BadRequestException("Evidence image has an unsupported purpose.");
-    const publicId = asset.objectKey.slice((folder + "/").length);
+    const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
     const url = cloudinary.utils.private_download_url(publicId, format, {
       resource_type: "image",
       type: "authenticated",
