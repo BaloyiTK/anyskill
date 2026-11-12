@@ -105,9 +105,10 @@ export class MediaService {
 
     const folder = FOLDERS[asset.purpose];
     if (!folder) throw new BadRequestException("Unsupported upload purpose.");
-    // The upload uses Cloudinary's cross-mode "folder" parameter, so the
-    // resulting public ID is the complete stored objectKey in both folder modes.
-    const expectedPublicId = asset.objectKey;
+    // The client uploads with public_id plus asset_folder. The folder is
+    // stored alongside that public ID in objectKey, but is not part of the
+    // Cloudinary public_id itself.
+    const expectedPublicId = asset.objectKey.slice((folder + "/").length);
     let remote: any;
     try {
       remote = await cloudinary.api.resource(expectedPublicId, { resource_type: "image", type: "authenticated" });
@@ -183,7 +184,7 @@ export class MediaService {
     const format = formatByMime[asset.contentType];
     const folder = FOLDERS[purpose];
     if (!format || !folder) throw new BadRequestException("Identity image has an unsupported format.");
-    const publicId = asset.objectKey;
+    const publicId = asset.objectKey.slice((folder + "/").length);
     const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
     const url = cloudinary.utils.private_download_url(publicId, format, {
       resource_type: "image",
