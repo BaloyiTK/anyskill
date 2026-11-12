@@ -21,7 +21,8 @@
     "expo-image-picker": "~58.0.10",
     "expo-location": "~58.0.18",
     "expo-camera": "~58.0.14",
-    "expo-file-system": "~58.0.13"
+    "expo-file-system": "~58.0.13",
+    "react-native-safe-area-context": "~5.11.1"
   },
   "devDependencies": {
     "@types/react": "~19.3.0",
