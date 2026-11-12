@@ -152,7 +152,7 @@ export function MarketplaceScreen(p: Props) {
       const newlyMatched = result.items.filter((item) => !item.alreadyResponded && !seenIncomingRequestIds.current.has(item.id));
       result.items.forEach((item) => seenIncomingRequestIds.current.add(item.id));
       setRequests(result.items);
-      if (newlyMatched.length > 0) setIncomingRequestId(newlyMatched[0].id);
+      if (newlyMatched.length > 0 && newlyMatched[0]) setIncomingRequestId(newlyMatched[0].id);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load incoming requests."); }
     finally { setBusy(false); }
   }, []);
