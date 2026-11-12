@@ -248,7 +248,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const extension = fileName.split(".").pop()?.toLowerCase();
       const extensionMime: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
       const contentType = [file.type, mimeType, extensionMime[extension ?? ""]]
-        .map((value) => value?.toLowerCase().split(";")[0].trim())
+        .map((value) => value?.toLowerCase().split(";")[0]?.trim())
         .find((value) => value && allowedContentTypes.includes(value));
       if (!contentType) throw new Error("Please use a JPEG, PNG or WebP image.");
       if (!Number.isFinite(file.size) || file.size < 1) throw new Error("The selected image could not be read.");
