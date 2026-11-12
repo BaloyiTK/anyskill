@@ -60,6 +60,7 @@ export class MediaService {
       timestamp,
       public_id: publicId,
       asset_folder: folder,
+      type: "authenticated",
       overwrite: false,
       unique_filename: false,
       use_filename: false,
@@ -85,6 +86,7 @@ export class MediaService {
       signature,
       publicId,
       assetFolder: folder,
+      type: "authenticated" as const,
       maxBytes: MAX_BYTES,
     };
   }
