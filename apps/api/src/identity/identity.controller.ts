@@ -127,8 +127,8 @@ export class IdentityController {
       this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
       this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_SELFIE", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
     ]);
-    const validId = body.idType === "SMART_ID_CARD" ? Boolean(front && back) : body.idType === "GREEN_ID_BOOK" ? Boolean(page1 && page2) : false;
-    if (!validId || !selfie) throw new BadRequestException("Capture both sides/pages of your selected ID document and take a live selfie before submitting verification.");
+    const validId = body.idType === "SMART_ID_CARD" ? Boolean(front && back) : body.idType === "GREEN_ID_BOOK" ? Boolean(page1) : false;
+    if (!validId || !selfie) throw new BadRequestException(body.idType === "GREEN_ID_BOOK" ? "Upload the Green ID book photo/details page and take a live selfie before submitting verification." : "Upload both sides of your Smart ID card and take a live selfie before submitting verification.");
 
     const existingPending = await this.prisma.identityVerificationCase.findFirst({
       where: {
@@ -148,7 +148,7 @@ export class IdentityController {
 
     const verificationCase = await this.prisma.$transaction(async (tx) => {
       const created = await tx.identityVerificationCase.create({
-        data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW", providerReference: (body.idType === "SMART_ID_CARD" ? "type:SMART_ID_CARD;front:" + front!.id + ";back:" + back!.id : "type:GREEN_ID_BOOK;page1:" + page1!.id + ";page2:" + page2!.id) + ";selfie:" + selfie.id },
+        data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW", providerReference: (body.idType === "SMART_ID_CARD" ? "type:SMART_ID_CARD;front:" + front!.id + ";back:" + back!.id : "type:GREEN_ID_BOOK;page1:" + page1!.id) + ";selfie:" + selfie.id },
         select: { id: true, status: true, submittedAt: true },
       });
 
