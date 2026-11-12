@@ -273,7 +273,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       form.append("timestamp", String(reservation.timestamp));
       form.append("signature", reservation.signature);
       form.append("public_id", reservation.publicId);
-      form.append("asset_folder", reservation.assetFolder);
+      form.append("folder", reservation.assetFolder);
       form.append("type", "authenticated");
       form.append("overwrite", "false");
       form.append("unique_filename", "false");
