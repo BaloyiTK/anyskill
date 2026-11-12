@@ -276,7 +276,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       form.append("use_filename", "false");
       stage = "cloudinary_upload";
       const uploadResponse = await fetch(
-        `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/authenticated/upload`,
+        `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/authenticated`,
         { method: "POST", body: form },
       );
       if (!uploadResponse.ok) {
