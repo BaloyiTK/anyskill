@@ -290,7 +290,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           cloudinaryMessage = responseBody;
         }
         const providerMessage = uploadResponse.headers.get("x-cld-error") || cloudinaryMessage;
-        const safeProviderMessage = providerMessage.replace(/[\\r\\n\\t]+/g, " ").slice(0, 240);
+        const safeProviderMessage = providerMessage.replace(/[\r\n\t]+/g, " ").slice(0, 240);
         console.error("[AnySkill][IdentityUpload] Cloudinary rejected upload", {
           httpStatus: uploadResponse.status,
           providerMessage: safeProviderMessage || "No provider detail returned",
