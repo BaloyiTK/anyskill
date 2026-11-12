@@ -274,11 +274,12 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       form.append("signature", reservation.signature);
       form.append("public_id", reservation.publicId);
       form.append("asset_folder", reservation.assetFolder);
+      form.append("type", "authenticated");
       form.append("overwrite", "false");
       form.append("unique_filename", "false");
       form.append("use_filename", "false");
       stage = "cloudinary_upload";
-      const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/authenticated`;
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/upload`;
       const uploadResponse = await fetch(uploadUrl, { method: "POST", body: form });
       if (!uploadResponse.ok) {
         const responseBody = await uploadResponse.text().catch(() => "");
@@ -294,7 +295,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         console.error("[AnySkill][IdentityUpload] Cloudinary rejected upload", {
           httpStatus: uploadResponse.status,
           providerMessage: safeProviderMessage || "No provider detail returned",
-          endpoint: "/image/authenticated",
+          endpoint: "/image/upload",
           uploadUrl,
           responseContentType: uploadResponse.headers.get("content-type") || "unknown",
         });
