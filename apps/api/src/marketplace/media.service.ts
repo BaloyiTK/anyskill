@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, InternalServerErrorException, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { v2 as cloudinary } from "cloudinary";
 import { PrismaService } from "../database/prisma.service";
@@ -89,68 +89,6 @@ export class MediaService {
     };
   }
 
-  async uploadIdentityFile(userId: string, assetId: string, file: { buffer: Buffer; mimetype: string; size: number }) {
-    this.ensureConfigured();
-    const asset = await this.prisma.mediaAsset.findFirst({
-      where: {
-        id: assetId,
-        userId,
-        status: "PENDING",
-        purpose: { in: ["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] },
-      },
-    });
-    if (!asset) throw new NotFoundException("Identity upload reservation not found.");
-    if (!file?.buffer?.length) throw new BadRequestException("Choose an image before uploading.");
-    if (file.size > MAX_BYTES || file.size !== asset.sizeBytes) throw new BadRequestException("The selected image size does not match its upload reservation.");
-    if (!ALLOWED.has(file.mimetype) || file.mimetype !== asset.contentType) throw new BadRequestException("Only the reserved JPEG, PNG or WebP image can be uploaded.");
-
-    const folder = FOLDERS[asset.purpose];
-    if (!folder) throw new BadRequestException("Unsupported upload purpose.");
-    const publicId = asset.objectKey.slice((folder + "/").length);
-    await new Promise<void>((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream({
-        resource_type: "image",
-        type: "authenticated",
-        public_id: publicId,
-        // "folder" works in both Cloudinary folder modes. In fixed-folder
-        // mode, "asset_folder" is ignored; in dynamic-folder mode, "folder"
-        // also prefixes the public ID. Our database objectKey stores that
-        // resulting full public ID.
-        folder,
-        overwrite: false,
-        unique_filename: false,
-        use_filename: false,
-      }, (error) => {
-        if (!error) {
-          resolve();
-          return;
-        }
-
-        // Cloudinary SDK errors are not always Error instances. Record only safe
-        // diagnostic fields so the API log exposes the real failure instead of
-        // the unhelpful "[object Object]" produced by generic exception logging.
-        const details = typeof error === "object" && error !== null
-          ? error as { message?: unknown; http_code?: unknown; code?: unknown; name?: unknown }
-          : undefined;
-        const errorMessage = typeof details?.message === "string"
-          ? details.message
-          : String(error);
-        const httpStatus = typeof details?.http_code === "number" ? details.http_code : undefined;
-        const errorCode = typeof details?.code === "string" ? details.code : undefined;
-        this.logger.error(
-          `[identity-upload] Cloudinary rejected upload purpose=${asset.purpose} httpStatus=${httpStatus ?? "unknown"} code=${errorCode ?? "unknown"} message=${errorMessage.slice(0, 500)}`,
-        );
-        reject(new InternalServerErrorException("The verification image could not be stored securely. Please try again."));
-      });
-      stream.on("error", (error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        this.logger.error(`[identity-upload] Cloudinary stream failed purpose=${asset.purpose} message=${message.slice(0, 500)}`);
-        reject(new InternalServerErrorException("The verification image could not be stored securely. Please try again."));
-      });
-      stream.end(file.buffer);
-    });
-    return { received: true };
-  }
 
   async confirmUpload(userId: string, assetId: string) {
     this.ensureConfigured();
