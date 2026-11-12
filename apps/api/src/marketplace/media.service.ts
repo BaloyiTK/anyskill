@@ -52,6 +52,19 @@ export class MediaService {
 
     const id = randomUUID();
     const publicId = `${userId}/${id}`;
+    const timestamp = Math.floor(Date.now() / 1000);
+    // Sign the exact parameters the native app sends to Cloudinary. The API
+    // secret never leaves the server; the signature is short-lived and scoped
+    // to this user's reserved private identity asset.
+    const params = {
+      timestamp,
+      public_id: publicId,
+      asset_folder: folder,
+      overwrite: false,
+      unique_filename: false,
+      use_filename: false,
+    };
+    const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET!);
     const asset = await this.prisma.mediaAsset.create({
       data: {
         userId,
@@ -64,7 +77,16 @@ export class MediaService {
       },
     });
 
-    return { assetId: asset.id };
+    return {
+      assetId: asset.id,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+      apiKey: process.env.CLOUDINARY_API_KEY,
+      timestamp,
+      signature,
+      publicId,
+      assetFolder: folder,
+      maxBytes: MAX_BYTES,
+    };
   }
 
   async uploadIdentityFile(userId: string, assetId: string, file: { buffer: Buffer; mimetype: string; size: number }) {
