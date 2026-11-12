@@ -236,7 +236,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
 
   const uploadIdentityAsset = async (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE", uri: string, mimeType?: string | null, fileSize?: number | null, originalFileName?: string | null) => {
     setBusy(true); setError(""); setMessage("");
-    let stage: "read_file" | "reserve" | "api_upload" | "confirm" = "read_file";
+    let stage: "read_file" | "reserve" | "cloudinary_upload" | "confirm" = "read_file";
     try {
       // Expo SDK 58 uses a standards-based FormData serializer. A native
       // { uri, name, type } object is not a supported FormData part; File is a
@@ -253,11 +253,35 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       if (!contentType) throw new Error("Please use a JPEG, PNG or WebP image.");
       if (!Number.isFinite(file.size) || file.size < 1) throw new Error("The selected image could not be read.");
       stage = "reserve";
-      const reservation = await apiRequest<{assetId:string}>("/identity-verification/uploads", { method: "POST", body: JSON.stringify({ fileName, contentType, sizeBytes: file.size, purpose }) }, true);
+      const reservation = await apiRequest<{
+        assetId: string; cloudName: string; apiKey: string; timestamp: number;
+        signature: string; publicId: string; assetFolder: string; maxBytes: number;
+      }>("/identity-verification/uploads", {
+        method: "POST",
+        body: JSON.stringify({ fileName, contentType, sizeBytes: file.size, purpose }),
+      }, true);
+      if (file.size > reservation.maxBytes) throw new Error("The selected image exceeds the 10 MB upload limit.");
+
+      // Upload directly from the native app to Cloudinary using the scoped
+      // signature returned by our API. The Cloudinary API secret stays server-side.
       const form = new FormData();
       form.append("file", file, fileName);
-      stage = "api_upload";
-      await apiRequest(`/identity-verification/uploads/${reservation.assetId}/file`, { method: "POST", body: form }, true);
+      form.append("api_key", reservation.apiKey);
+      form.append("timestamp", String(reservation.timestamp));
+      form.append("signature", reservation.signature);
+      form.append("public_id", reservation.publicId);
+      form.append("asset_folder", reservation.assetFolder);
+      form.append("overwrite", "false");
+      form.append("unique_filename", "false");
+      form.append("use_filename", "false");
+      stage = "cloudinary_upload";
+      const uploadResponse = await fetch(
+        `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/authenticated/upload`,
+        { method: "POST", body: form },
+      );
+      if (!uploadResponse.ok) {
+        throw new Error(`Secure image upload failed (HTTP ${uploadResponse.status}). Please try again.`);
+      }
       stage = "confirm";
       await apiRequest("/identity-verification/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
       setIdentityPreviews((current) => ({ ...current, [purpose]: uri }));
