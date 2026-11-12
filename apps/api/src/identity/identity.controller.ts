@@ -23,7 +23,7 @@ class CreateIdentityUploadDto {
 class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
 class IdentityUploadFailureDto {
   @IsString() @IsIn(["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"]) purpose!: string;
-  @IsString() @IsIn(["read_file", "reserve", "api_upload", "confirm"]) stage!: string;
+  @IsString() @IsIn(["read_file", "reserve", "cloudinary_upload", "confirm"]) stage!: string;
   @IsOptional() @IsInt() @Min(100) @Max(599) httpStatus?: number;
   @IsOptional() @IsString() @MaxLength(80) errorCode?: string;
 }
