@@ -255,7 +255,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       stage = "reserve";
       const reservation = await apiRequest<{
         assetId: string; cloudName: string; apiKey: string; timestamp: number;
-        signature: string; publicId: string; assetFolder: string; type: "authenticated"; maxBytes: number;
+        signature: string; publicId: string; assetFolder: string; maxBytes: number;
       }>("/identity-verification/uploads", {
         method: "POST",
         body: JSON.stringify({ fileName, contentType, sizeBytes: file.size, purpose }),
@@ -274,12 +274,11 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       form.append("signature", reservation.signature);
       form.append("public_id", reservation.publicId);
       form.append("asset_folder", reservation.assetFolder);
-      form.append("type", reservation.type);
       form.append("overwrite", "false");
       form.append("unique_filename", "false");
       form.append("use_filename", "false");
       stage = "cloudinary_upload";
-      const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/upload`;
+      const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/authenticated`;
       const uploadResponse = await fetch(uploadUrl, { method: "POST", body: form });
       if (!uploadResponse.ok) {
         const responseBody = await uploadResponse.text().catch(() => "");
@@ -295,7 +294,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         console.error("[AnySkill][IdentityUpload] Cloudinary rejected upload", {
           httpStatus: uploadResponse.status,
           providerMessage: safeProviderMessage || "No provider detail returned",
-          endpoint: "/image/upload",
+          endpoint: "/image/authenticated",
         });
         throw new Error(
           safeProviderMessage
