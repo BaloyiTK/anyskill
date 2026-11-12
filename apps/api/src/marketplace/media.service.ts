@@ -29,9 +29,11 @@ export class MediaService {
   }
 
   constructor(private readonly prisma: PrismaService) {
-    const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
-    if (CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET) {
-      cloudinary.config({ cloud_name: CLOUDINARY_CLOUD_NAME, api_key: CLOUDINARY_API_KEY, api_secret: CLOUDINARY_API_SECRET, secure: true });
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
+    const apiKey = process.env.CLOUDINARY_API_KEY?.trim();
+    const apiSecret = process.env.CLOUDINARY_API_SECRET?.trim();
+    if (cloudName && apiKey && apiSecret) {
+      cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret, secure: true });
       this.configured = true;
     }
   }
@@ -64,7 +66,7 @@ export class MediaService {
       unique_filename: false,
       use_filename: false,
     };
-    const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET!);
+    const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET!.trim());
     const asset = await this.prisma.mediaAsset.create({
       data: {
         userId,
@@ -79,8 +81,8 @@ export class MediaService {
 
     return {
       assetId: asset.id,
-      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-      apiKey: process.env.CLOUDINARY_API_KEY,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME!.trim(),
+      apiKey: process.env.CLOUDINARY_API_KEY!.trim(),
       timestamp,
       signature,
       publicId,
