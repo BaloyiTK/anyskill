@@ -12,6 +12,9 @@ const FOLDERS: Record<string, string> = { JOB_COMPLETION_EVIDENCE: "anyskill/job
 export class MediaService {
   private readonly logger = new Logger(MediaService.name);
   private configured = false;
+  private cloudName = "";
+  private apiKey = "";
+  private apiSecret = "";
 
   logIdentityUploadFailure(input: {
     purpose: string;
@@ -29,12 +32,36 @@ export class MediaService {
   }
 
   constructor(private readonly prisma: PrismaService) {
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME?.trim();
-    const apiKey = process.env.CLOUDINARY_API_KEY?.trim();
-    const apiSecret = process.env.CLOUDINARY_API_SECRET?.trim();
-    if (cloudName && apiKey && apiSecret) {
-      cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret, secure: true });
+    // Prefer Cloudinary's canonical CLOUDINARY_URL (cloudinary://key:secret@cloud).
+    // Keep the split variables as a backwards-compatible fallback for existing deployments.
+    const cloudinaryUrl = process.env.CLOUDINARY_URL?.trim();
+    if (cloudinaryUrl) {
+      try {
+        const parsed = new URL(cloudinaryUrl);
+        if (parsed.protocol === "cloudinary:") {
+          this.cloudName = parsed.hostname.trim();
+          this.apiKey = decodeURIComponent(parsed.username).trim();
+          this.apiSecret = decodeURIComponent(parsed.password).trim();
+        }
+      } catch {
+        this.logger.error("CLOUDINARY_URL is invalid. Expected cloudinary://<api_key>:<api_secret>@<cloud_name>.");
+      }
+    }
+
+    this.cloudName ||= process.env.CLOUDINARY_CLOUD_NAME?.trim() ?? "";
+    this.apiKey ||= process.env.CLOUDINARY_API_KEY?.trim() ?? "";
+    this.apiSecret ||= process.env.CLOUDINARY_API_SECRET?.trim() ?? "";
+
+    if (this.cloudName && this.apiKey && this.apiSecret) {
+      cloudinary.config({
+        cloud_name: this.cloudName,
+        api_key: this.apiKey,
+        api_secret: this.apiSecret,
+        secure: true,
+      });
       this.configured = true;
+    } else if (cloudinaryUrl) {
+      this.logger.error("Cloudinary is not configured. Check CLOUDINARY_URL credentials and cloud name.");
     }
   }
 
@@ -66,7 +93,7 @@ export class MediaService {
       unique_filename: false,
       use_filename: false,
     };
-    const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET!.trim());
+    const signature = cloudinary.utils.api_sign_request(params, this.apiSecret);
     const asset = await this.prisma.mediaAsset.create({
       data: {
         userId,
@@ -81,8 +108,8 @@ export class MediaService {
 
     return {
       assetId: asset.id,
-      cloudName: process.env.CLOUDINARY_CLOUD_NAME!.trim(),
-      apiKey: process.env.CLOUDINARY_API_KEY!.trim(),
+      cloudName: this.cloudName,
+      apiKey: this.apiKey,
       timestamp,
       signature,
       publicId,
