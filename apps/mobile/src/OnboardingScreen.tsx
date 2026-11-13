@@ -72,6 +72,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [identityPreviews, setIdentityPreviews] = useState<Record<string, string>>({});
   const [uploadingIdentityPurpose, setUploadingIdentityPurpose] = useState<string | null>(null);
   const [identityUploadPercent, setIdentityUploadPercent] = useState(0);
+  const [identityUploadPhase, setIdentityUploadPhase] = useState<"uploading" | "finalising">("uploading");
+  const lastIdentityProgressUpdate = useRef(0);
   const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const selfieCameraRef = useRef<CameraView>(null);
@@ -252,6 +254,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/upload`;
       setUploadingIdentityPurpose(purpose);
       setIdentityUploadPercent(0);
+      setIdentityUploadPhase("uploading");
+      lastIdentityProgressUpdate.current = 0;
       const uploadResponse = await file.upload(uploadUrl, {
         httpMethod: "POST",
         uploadType: UploadType.MULTIPART,
@@ -269,8 +273,13 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           use_filename: "false",
         },
         onProgress: ({ bytesSent, totalBytes }) => {
-          if (totalBytes > 0) {
-            setIdentityUploadPercent(Math.min(99, Math.max(0, Math.round((bytesSent / totalBytes) * 100))));
+          if (totalBytes <= 0) return;
+          const percent = Math.min(99, Math.max(0, Math.floor((bytesSent / totalBytes) * 100)));
+          const now = Date.now();
+          // Limit React updates to roughly 8 per second; native upload continues uninterrupted.
+          if (percent > identityUploadPercent && now - lastIdentityProgressUpdate.current >= 120) {
+            lastIdentityProgressUpdate.current = now;
+            setIdentityUploadPercent(percent);
           }
         },
       });
@@ -298,6 +307,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         );
       }
       setIdentityUploadPercent(100);
+      setIdentityUploadPhase("finalising");
       stage = "confirm";
       await apiRequest("/identity-verification/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
       setIdentityPreviews((current) => ({ ...current, [purpose]: uri }));
@@ -323,7 +333,12 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       });
       setError(`Upload failed during ${stage.replace("_", " ")}: ${message}`);
     }
-    finally { setBusy(false); setUploadingIdentityPurpose(null); }
+    finally {
+      setBusy(false);
+      setUploadingIdentityPurpose(null);
+      setIdentityUploadPercent(0);
+      setIdentityUploadPhase("uploading");
+    }
   };
 
   const openIdentityUploadOptions = (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2") => {
@@ -589,7 +604,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
             </Pressable>
             {isUploading ? <View style={st.identityProgressWrap}>
               <View style={st.identityProgressHeader}>
-                <View style={st.identityProgressCopy}><ActivityIndicator size="small" color={colors.primary} /><Text style={st.identityProgressLabel}>Uploading document securely...</Text></View>
+                <View style={st.identityProgressCopy}><ActivityIndicator size="small" color={colors.primary} /><Text style={st.identityProgressLabel}>{identityUploadPhase === "finalising" ? "Finalising secure upload..." : "Uploading document securely..."}</Text></View>
                 <Text style={st.identityProgressValue}>{identityUploadPercent}%</Text>
               </View>
               <View style={st.identityProgressTrack}>
