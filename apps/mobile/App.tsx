@@ -57,6 +57,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [profileComplete, setProfileComplete] = useState(false);
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -611,6 +612,7 @@ export default function App() {
       setNotifications([]);
       setProfileComplete(false);
       setDeleteConfirmation("");
+      setShowDeleteConfirmation(false);
       setActiveTab("home");
       setScreen("welcome");
       setMessage("Your AnySkill account has been deleted.");
@@ -886,8 +888,8 @@ export default function App() {
             <View style={s.deleteAccountSection}>
               <Text style={s.deleteAccountTitle}>Delete profile</Text>
               <Text style={s.deleteAccountText}>Permanently close your AnySkill account and remove your profile, identity-verification data, saved devices and notifications. Job and transaction records that must be retained for payment, legal or dispute purposes will be kept with your account details anonymised.</Text>
-              <Secondary label="Delete profile" onPress={() => { setDeleteConfirmation(""); setError(""); setMessage(""); setDeleteConfirmation(" "); }} />
-              {deleteConfirmation !== "" && <View style={s.deleteConfirmPanel}>
+              <Secondary label="Delete profile" onPress={() => { setDeleteConfirmation(""); setShowDeleteConfirmation(true); setError(""); setMessage(""); }} />
+              {showDeleteConfirmation && <View style={s.deleteConfirmPanel}>
                 <Text style={s.deleteAccountText}>To confirm, type DELETE below. This action cannot be undone.</Text>
                 <TextInput
                   accessibilityLabel="Type DELETE to confirm account deletion"
@@ -899,7 +901,7 @@ export default function App() {
                   style={s.input}
                 />
                 <Primary label="Permanently delete my account" onPress={deleteProfile} disabled={busy || deleteConfirmation.trim() !== "DELETE"} />
-                <Secondary label="Cancel" onPress={() => setDeleteConfirmation("")} />
+                <Secondary label="Cancel" onPress={() => { setDeleteConfirmation(""); setShowDeleteConfirmation(false); }} />
               </View>}
             </View>
           </View>}
