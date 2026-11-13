@@ -236,6 +236,33 @@ export class MediaService {
     return { url, expiresAt: new Date(expiresAt * 1000).toISOString() };
   }
 
+  async deleteIdentityAssets(userId: string) {
+    this.ensureConfigured();
+    const identityPurposes = ["ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"];
+    const assets = await this.prisma.mediaAsset.findMany({
+      where: { userId, purpose: { in: identityPurposes } },
+      select: { objectKey: true, purpose: true },
+    });
+
+    for (const asset of assets) {
+      const folder = FOLDERS[asset.purpose];
+      if (!folder) continue;
+      const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
+      const result = await cloudinary.uploader.destroy(publicId, {
+        resource_type: "image",
+        type: "authenticated",
+        invalidate: true,
+      });
+      if (result.result !== "ok" && result.result !== "not found") {
+        throw new ServiceUnavailableException("Identity images could not be securely removed. Please try again later.");
+      }
+    }
+
+    await this.prisma.mediaAsset.deleteMany({
+      where: { userId, purpose: { in: identityPurposes } },
+    });
+  }
+
   async getEvidenceUrl(userId: string, assetId: string) {
     this.ensureConfigured();
     const asset = await this.prisma.mediaAsset.findFirst({
