@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
-import { File } from "expo-file-system";
+import { File, UploadType } from "expo-file-system";
 import { CameraView, useCameraPermissions } from "expo-camera";
 type CountryOption = { name: string; code: string; dialCode: string };
 type AddressSuggestion = { label: string; latitude: number; longitude: number };
@@ -71,6 +71,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [selfieReady, setSelfieReady] = useState(false);
   const [identityPreviews, setIdentityPreviews] = useState<Record<string, string>>({});
   const [uploadingIdentityPurpose, setUploadingIdentityPurpose] = useState<string | null>(null);
+  const [identityUploadPercent, setIdentityUploadPercent] = useState(0);
   const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const selfieCameraRef = useRef<CameraView>(null);
@@ -247,39 +248,50 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       }
 
       // Upload directly from the native app to Cloudinary using the scoped
-      // signature returned by our API. The Cloudinary API secret stays server-side.
-      const form = new FormData();
-      form.append("file", file, fileName);
-      form.append("api_key", reservation.apiKey);
-      form.append("timestamp", String(reservation.timestamp));
-      form.append("signature", reservation.signature);
-      form.append("public_id", reservation.publicId);
-      form.append("folder", reservation.assetFolder);
-      form.append("type", "authenticated");
-      form.append("overwrite", "false");
-      form.append("unique_filename", "false");
-      form.append("use_filename", "false");
+      // signature returned by our API. The native File upload API reports real
+      // byte progress without changing the working multipart upload transport.
       stage = "cloudinary_upload";
       const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/upload`;
       setUploadingIdentityPurpose(purpose);
-      const uploadResponse = await fetch(uploadUrl, { method: "POST", body: form });
-      if (!uploadResponse.ok) {
-        const responseBody = await uploadResponse.text().catch(() => "");
+      setIdentityUploadPercent(0);
+      const uploadResponse = await file.upload(uploadUrl, {
+        httpMethod: "POST",
+        uploadType: UploadType.MULTIPART,
+        fieldName: "file",
+        mimeType: contentType,
+        parameters: {
+          api_key: reservation.apiKey,
+          timestamp: String(reservation.timestamp),
+          signature: reservation.signature,
+          public_id: reservation.publicId,
+          folder: reservation.assetFolder,
+          type: "authenticated",
+          overwrite: "false",
+          unique_filename: "false",
+          use_filename: "false",
+        },
+        onProgress: ({ bytesSent, totalBytes }) => {
+          if (totalBytes > 0) {
+            setIdentityUploadPercent(Math.min(99, Math.max(0, Math.round((bytesSent / totalBytes) * 100))));
+          }
+        },
+      });
+      if (uploadResponse.status < 200 || uploadResponse.status >= 300) {
         let cloudinaryMessage = "";
         try {
-          const parsed = JSON.parse(responseBody) as { error?: { message?: string } };
+          const parsed = JSON.parse(uploadResponse.body) as { error?: { message?: string } };
           cloudinaryMessage = parsed.error?.message ?? "";
         } catch {
-          cloudinaryMessage = responseBody;
+          cloudinaryMessage = uploadResponse.body;
         }
-        const providerMessage = uploadResponse.headers.get("x-cld-error") || cloudinaryMessage;
+        const providerMessage = uploadResponse.headers["x-cld-error"] || cloudinaryMessage;
         const safeProviderMessage = providerMessage.replace(/[\\r\\n\\t]+/g, " ").slice(0, 240);
         console.error("[AnySkill][IdentityUpload] Cloudinary rejected upload", {
           httpStatus: uploadResponse.status,
           providerMessage: safeProviderMessage || "No provider detail returned",
           endpoint: "/image/upload",
           uploadUrl,
-          responseContentType: uploadResponse.headers.get("content-type") || "unknown",
+          responseContentType: uploadResponse.headers["content-type"] || "unknown",
         });
         throw new Error(
           safeProviderMessage
@@ -287,6 +299,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
             : `Cloudinary rejected the upload (HTTP ${uploadResponse.status}). Please try again.`,
         );
       }
+      setIdentityUploadPercent(100);
       stage = "confirm";
       await apiRequest("/identity-verification/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
       setIdentityPreviews((current) => ({ ...current, [purpose]: uri }));
@@ -577,7 +590,13 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
               </View>
             </Pressable>
             {isUploading ? <View style={st.identityProgressWrap}>
-              <View style={st.identityProgressHeader}><ActivityIndicator size="small" color={colors.primary} /><Text style={st.identityProgressLabel}>Uploading document securely...</Text></View>
+              <View style={st.identityProgressHeader}>
+                <View style={st.identityProgressCopy}><ActivityIndicator size="small" color={colors.primary} /><Text style={st.identityProgressLabel}>Uploading document securely...</Text></View>
+                <Text style={st.identityProgressValue}>{identityUploadPercent}%</Text>
+              </View>
+              <View style={st.identityProgressTrack}>
+                <View style={[st.identityProgressFill, { width: `${identityUploadPercent}%` }]} />
+              </View>
             </View> : null}
             <Text style={st.status}>{isRejected ? "Your document was not approved. Please upload it again." : item.ready ? (identitySubmitted ? "Submitted and awaiting review" : "Uploaded — ready to submit") : "Tap the image to upload a document."}</Text>
           </View>;
@@ -733,6 +752,7 @@ const st = StyleSheet.create({
   identityGlassText: { color: "#263B43", fontSize: 9, fontWeight: "900", letterSpacing: 0.55, marginTop: 4 },
   identityProgressWrap: { paddingTop: 10, paddingHorizontal: 2 },
   identityProgressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  identityProgressCopy: { flexDirection: "row", alignItems: "center", gap: 7 },
   identityProgressLabel: { color: colors.muted, fontSize: 10, fontWeight: "700" },
   identityProgressValue: { color: colors.primary, fontSize: 12, fontWeight: "900", fontVariant: ["tabular-nums"] },
   identityProgressTrack: { height: 5, borderRadius: 5, backgroundColor: "#E4EAF1", overflow: "hidden" },
