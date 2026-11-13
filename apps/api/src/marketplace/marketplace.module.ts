@@ -11,5 +11,6 @@ import { MediaService } from "./media.service";
   imports: [DatabaseModule, IdentityModule, PassportModule],
   controllers: [MarketplaceController, PublicProviderDiscoveryController],
   providers: [MarketplaceService, MediaService, JwtAuthGuard],
+  exports: [MediaService],
 })
 export class MarketplaceModule {}
