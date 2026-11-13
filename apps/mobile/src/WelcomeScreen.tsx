@@ -19,8 +19,6 @@ type Props = {
   onSignUp: () => void;
   onGoogle: () => void;
   showAuthActions?: boolean;
-  accountEmail?: string;
-  onAvatarPress?: () => void;
   onRequestSkill?: () => void;
   canRequestSkill?: boolean;
 };
@@ -57,7 +55,7 @@ function worldPoint(latitude: number, longitude: number) {
   };
 }
 
-export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true, accountEmail, onAvatarPress, onRequestSkill, canRequestSkill = false }: Props) {
+export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true, onRequestSkill, canRequestSkill = false }: Props) {
   const [radiusKm, setRadiusKm] = useState<number>(5);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -233,15 +231,6 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
   }));
 
   return <View style={styles.container}>
-    <View style={styles.branding}>
-      {showAuthActions ? <Image source={require("../assets/branding/anyskill-logo.png")} style={styles.logo} resizeMode="contain" accessibilityLabel="AnySkill logo" /> : <View />}
-      {!showAuthActions ? <View style={styles.avatarWrap}>
-        <Pressable accessibilityRole="button" accessibilityLabel={canRequestSkill ? "Open account" : "Open account — unverified"} onPress={onAvatarPress} style={styles.avatarButton}>
-          <Text style={styles.avatarText}>{(accountEmail?.trim()?.[0] ?? "U").toUpperCase()}</Text>
-        </Pressable>
-        {!canRequestSkill ? <View style={styles.unverifiedBadge}><Text style={styles.unverifiedBadgeText}>UNVERIFIED</Text></View> : null}
-      </View> : null}
-    </View>
     <View style={styles.intro}>
       <Text style={styles.eyebrow}>LOCAL SKILLS. REAL PEOPLE.</Text>
       <Text style={styles.heading}>Find help nearby.</Text>
@@ -354,13 +343,6 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
 
 const styles = StyleSheet.create({
   container: { gap: 12 },
-  branding: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingTop: 2, marginBottom: -4 },
-  logo: { width: 164, height: 76 },
-  avatarWrap: { position: "relative", alignItems: "center", justifyContent: "center", paddingBottom: 3, paddingRight: 2 },
-  avatarButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: THEME.softBlue, borderWidth: 2, borderColor: THEME.blue, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: THEME.navy, fontSize: 16, fontWeight: "900" },
-  unverifiedBadge: { position: "absolute", right: -5, bottom: -5, backgroundColor: "#C62828", borderWidth: 1.5, borderColor: "#FFFFFF", borderRadius: 8, paddingHorizontal: 5, paddingVertical: 3 },
-  unverifiedBadgeText: { color: "#FFFFFF", fontSize: 7, lineHeight: 9, fontWeight: "900", letterSpacing: 0.25 },
   requestSkillButton: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 15, paddingVertical: 12, backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.blue, borderRadius: 15 },
   requestSkillIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: THEME.softBlue, color: THEME.blue, textAlign: "center", textAlignVertical: "center", fontSize: 23, fontWeight: "800", overflow: "hidden" },
   requestSkillCopy: { flex: 1, gap: 3 },
