@@ -24,7 +24,7 @@ type Props = {
   onSelectRole?: (role: "provider" | "seeker") => void;
 };
 
-const RADII = [1, 5, 10, 20, 50] as const;
+const RADII = [5, 10, 20, 50] as const;
 const DEFAULT_CENTER = { latitude: -26.2041, longitude: 28.0473 };
 const TILE = 256;
 const TILE_URL = process.env.EXPO_PUBLIC_MAP_TILE_URL ?? "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -56,8 +56,8 @@ function worldPoint(latitude: number, longitude: number, zoom: number) {
   };
 }
 
-export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true, onRequestSkill, canRequestSkill = false, onSelectRole }: Props) {
-  const [radiusKm, setRadiusKm] = useState<number>(5);
+export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRequestSkill, canRequestSkill = false, onSelectRole }: Props) {
+  const [radiusKm, setRadiusKm] = useState<number>(10);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [areaLabel, setAreaLabel] = useState("Detecting your location…");
@@ -284,24 +284,10 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
     </View> : manualLocation.trim().length >= 3 && !searchingLocation ? <Text style={styles.locationHint}>No matching places found. Try a different spelling.</Text> : null}
     {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
 
-    <View style={styles.radiusControlRow}>
-      <Text style={styles.radiusLabel}>Search distance</Text>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: radiusOpen }} onPress={() => setRadiusOpen((open) => !open)} style={styles.radiusDropdown}>
-      <Text style={styles.radiusDropdownValue}>{radiusKm} km</Text>
-      <Text style={styles.radiusDropdownChevron}>{radiusOpen ? "▲" : "▼"}</Text>
-      </Pressable>
-    </View>
-    {radiusOpen ? <View style={styles.radiusDropdownOptions}>
-      {RADII.map((radius) => <Pressable key={radius} accessibilityRole="button" accessibilityState={{ selected: radiusKm === radius }} onPress={() => { setRadiusKm(radius); setRadiusOpen(false); }} style={[styles.radiusDropdownOption, radiusKm === radius && styles.radiusDropdownOptionSelected]}>
-        <Text style={[styles.radiusDropdownOptionText, radiusKm === radius && styles.radiusDropdownOptionTextSelected]}>{radius} km</Text>
-      </Pressable>)}
-    </View> : null}
-
     <View style={styles.mapFrame}>
       <View style={styles.mapHeader}>
         <Text style={styles.mapTitle}>People near you</Text>
         <Text numberOfLines={1} style={styles.mapAreaLabel}>{areaLabel}</Text>
-        <View style={styles.onlineIndicator}><View style={styles.onlineDot} /><Text style={styles.onlineText}>Available now</Text></View>
       </View>
       <View style={styles.map} onLayout={(event) => setMapSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
         <View pointerEvents="none" style={[styles.radiusFence, { width: radiusPixels * 2, height: radiusPixels * 2, left: mapSize.width / 2 - radiusPixels, top: mapSize.height / 2 - radiusPixels }]} />
@@ -336,6 +322,20 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
       </View>
       {providerError ? <Text style={styles.error}>{providerError}</Text> : <Text style={styles.mapFoot}>{coordinates ? `${visibleProviders.length} available ${visibleProviders.length === 1 ? "Provider" : "Providers"} within ${radiusKm} km` : "Only online and available Providers will appear here."}</Text>}
     </View>
+
+    <View style={styles.radiusControlRow}>
+      <Text style={styles.radiusLabel}>Search distance</Text>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: radiusOpen }} onPress={() => setRadiusOpen((open) => !open)} style={styles.radiusDropdown}>
+      <Text style={styles.radiusDropdownValue}>{radiusKm} km</Text>
+      <Text style={styles.radiusDropdownChevron}>{radiusOpen ? "▲" : "▼"}</Text>
+      </Pressable>
+    </View>
+    {radiusOpen ? <View style={styles.radiusDropdownOptions}>
+      {RADII.map((radius) => <Pressable key={radius} accessibilityRole="button" accessibilityState={{ selected: radiusKm === radius }} onPress={() => { setRadiusKm(radius); setRadiusOpen(false); }} style={[styles.radiusDropdownOption, radiusKm === radius && styles.radiusDropdownOptionSelected]}>
+        <Text style={[styles.radiusDropdownOptionText, radiusKm === radius && styles.radiusDropdownOptionTextSelected]}>{radius} km</Text>
+      </Pressable>)}
+    </View> : null}
+
 
     {!showAuthActions ? <Pressable accessibilityRole="button" onPress={onRequestSkill} style={styles.requestSkillButton}>
       <Text style={styles.requestSkillIcon}>{canRequestSkill ? "＋" : "✓"}</Text>
