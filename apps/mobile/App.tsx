@@ -682,6 +682,7 @@ export default function App() {
             identityStatus={identityStatus}
             onBack={() => { void (async () => { await refreshHomeEligibility(); goTo("dashboard"); })(); }}
             onStartVerification={() => { void startIdentityVerification(); }}
+            onIdentityUpdated={refreshHomeEligibility}
             onComplete={async () => { await refreshHomeEligibility(); setActiveTab("home"); setScreen("dashboard"); feedback(); }}
           />}
 
