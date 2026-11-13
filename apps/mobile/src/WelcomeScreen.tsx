@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { AppleMaps, GoogleMaps } from "expo-maps";
 import * as Location from "expo-location";
 import { apiRequest } from "./api";
 
@@ -26,9 +27,6 @@ type Props = {
 
 const RADII = [5, 10, 20, 50] as const;
 const DEFAULT_CENTER = { latitude: -26.2041, longitude: 28.0473 };
-const TILE = 256;
-const TILE_URL = process.env.EXPO_PUBLIC_MAP_TILE_URL ?? "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-const EARTH_CIRCUMFERENCE_METRES = 2 * Math.PI * 6378137;
 
 // AnySkill brand palette, based on the colours supplied from the approved logo.
 const THEME = {
@@ -47,15 +45,6 @@ const THEME = {
 };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-function worldPoint(latitude: number, longitude: number, zoom: number) {
-  const scale = TILE * 2 ** zoom;
-  const lat = clamp(latitude, -85.05112878, 85.05112878) * Math.PI / 180;
-  return {
-    x: ((longitude + 180) / 360) * scale,
-    y: (1 - Math.asinh(Math.tan(lat)) / Math.PI) / 2 * scale,
-  };
-}
-
 export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRequestSkill, canRequestSkill = false, onSelectRole }: Props) {
   const [radiusKm, setRadiusKm] = useState<number>(10);
   const [radiusOpen, setRadiusOpen] = useState(false);
@@ -66,31 +55,13 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
   const [searchingLocation, setSearchingLocation] = useState(false);
   const [providers, setProviders] = useState<ProviderPin[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-  const [mapSize, setMapSize] = useState({ width: 340, height: 340 });
   const [locating, setLocating] = useState(false);
   const [loadingProviders, setLoadingProviders] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [providerError, setProviderError] = useState("");
-  const tileDiagnosticRan = useRef(false);
 
-  const mapZoom = useMemo(() => {
-    const latitude = coordinates?.latitude ?? DEFAULT_CENTER.latitude;
-    const cosine = Math.max(0.01, Math.cos(latitude * Math.PI / 180));
-    const desiredRadiusPixels = Math.max(80, mapSize.width * 0.40);
-    return clamp(Math.floor(Math.log2((desiredRadiusPixels * EARTH_CIRCUMFERENCE_METRES * cosine) / (radiusKm * 1000 * TILE))), 3, 17);
-  }, [coordinates, mapSize.width, radiusKm]);
-  const center = useMemo(
-    () => worldPoint(coordinates?.latitude ?? DEFAULT_CENTER.latitude, coordinates?.longitude ?? DEFAULT_CENTER.longitude, mapZoom),
-    [coordinates, mapZoom],
-  );
-  const radiusPixels = useMemo(() => {
-    const latitude = coordinates?.latitude ?? DEFAULT_CENTER.latitude;
-    const cosine = Math.max(0.01, Math.cos(latitude * Math.PI / 180));
-    return (radiusKm * 1000 * TILE * 2 ** mapZoom) / (EARTH_CIRCUMFERENCE_METRES * cosine);
-  }, [coordinates, mapZoom, radiusKm]);
-  const centerTileX = Math.floor(center.x / TILE);
-  const centerTileY = Math.floor(center.y / TILE);
-  const tileCount = 2 ** mapZoom;
+  const mapZoom = useMemo(() => clamp(16 - Math.log2(radiusKm / 1.5), 5, 16), [radiusKm]);
+  const mapCenter = coordinates ?? DEFAULT_CENTER;
 
   useEffect(() => {
     if (!coordinates) return;
@@ -240,41 +211,21 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
     (coordinates ? distanceBetween(coordinates, provider) : provider.distanceKm) <= radiusKm + 1e-6
   );
   const selectedProvider = visibleProviders.find((provider) => provider.id === selectedProviderId);
-  const tileImages = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].flatMap((dy) => {
-    const rawX = centerTileX + dx;
-    const x = (rawX + tileCount) % tileCount;
-    const y = centerTileY + dy;
-    if (y < 0 || y >= tileCount) return [];
-    return [{
-      key: `${rawX}:${y}`,
-      uri: TILE_URL.replace("{z}", String(mapZoom)).replace("{x}", String(x)).replace("{y}", String(y)),
-      left: rawX * TILE - center.x + mapSize.width / 2,
-      top: y * TILE - center.y + mapSize.height / 2,
-    }];
+  const mapMarkers = visibleProviders.map((provider) => ({
+    id: provider.id,
+    coordinates: { latitude: provider.latitude, longitude: provider.longitude },
+    title: provider.skill,
+    snippet: `${provider.name} · ${provider.distanceKm.toFixed(1)} km away`,
+    showCallout: true,
   }));
-  // One native diagnostic request distinguishes an OSM policy block from an image-loader issue.
-  useEffect(() => {
-    if (tileDiagnosticRan.current || !tileImages[0]?.uri) return;
-    tileDiagnosticRan.current = true;
-    void fetch(tileImages[0].uri, {
-      headers: {
-        "User-Agent": "AnySkill/0.1.0 (+https://github.com/BaloyiTK/anyskill)",
-        "X-Requested-With": "com.anyskill.mobile",
-      },
-    }).then((response) => {
-      const headers = {
-        blocked: response.headers.get("x-blocked"),
-        contentType: response.headers.get("content-type"),
-        cacheControl: response.headers.get("cache-control"),
-        status: response.status,
-      };
-      console.warn("[AnySkill map diagnostic] OSM tile response", headers);
-    }).catch((error) => {
-      console.warn("[AnySkill map diagnostic] OSM tile request failed", error);
-    });
-  // This diagnostic intentionally runs only once per screen mount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const mapCircle = [{
+    id: "search-radius",
+    center: mapCenter,
+    radius: radiusKm * 1000,
+    color: "rgba(76,175,80,0.10)",
+    lineColor: "#26845F",
+    lineWidth: 2,
+  }];
 
   return <View style={styles.container}>
     <View style={styles.compactHeader}>
@@ -313,22 +264,24 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
         <Text style={styles.mapTitle}>People near you</Text>
         <Text numberOfLines={1} style={styles.mapAreaLabel}>{areaLabel}</Text>
       </View>
-      <View style={styles.map} onLayout={(event) => setMapSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
-        <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {tileImages.map((tile) => <Image key={tile.key} source={{ uri: tile.uri, headers: { "User-Agent": "AnySkill/0.1.0 (+https://github.com/BaloyiTK/anyskill)", "X-Requested-With": "com.anyskill.mobile" } }} style={{ position: "absolute", width: TILE, height: TILE, left: tile.left, top: tile.top }} resizeMode="stretch" />)}
-        </View>
-        <View pointerEvents="none" style={[styles.radiusFence, { width: radiusPixels * 2, height: radiusPixels * 2, left: mapSize.width / 2 - radiusPixels, top: mapSize.height / 2 - radiusPixels }]} />
-        {visibleProviders.map((provider) => {
-          const point = worldPoint(provider.latitude, provider.longitude, mapZoom);
-          const left = point.x - center.x + mapSize.width / 2;
-          const top = point.y - center.y + mapSize.height / 2;
-          if (left < -20 || top < -35 || left > mapSize.width + 20 || top > mapSize.height + 20) return null;
-          const selected = selectedProviderId === provider.id;
-          return <Pressable key={provider.id} accessibilityRole="button" accessibilityLabel={`${provider.skill}, ${provider.distanceKm} kilometres away`} onPress={() => setSelectedProviderId(selected ? null : provider.id)} style={[styles.providerMarker, { left: left - 10, top: top - 10 }]}>
-            <View style={[styles.markerDot, selected && styles.markerDotSelected]} />
-            <View style={styles.markerLabel}><Text numberOfLines={1} style={styles.markerLabelText}>{provider.skill} · {provider.distanceKm.toFixed(1)} km</Text></View>
-          </Pressable>;
-        })}
+      <View style={styles.map}>
+        {Platform.OS === "android" ? <GoogleMaps.View
+          key={`google-${mapCenter.latitude}-${mapCenter.longitude}-${radiusKm}`}
+          style={StyleSheet.absoluteFill}
+          cameraPosition={{ coordinates: mapCenter, zoom: mapZoom }}
+          circles={mapCircle}
+          markers={mapMarkers}
+          onMarkerClick={(marker) => setSelectedProviderId(marker.id ?? null)}
+          properties={{ isBuildingEnabled: true, isIndoorEnabled: true, isMyLocationEnabled: false }}
+          uiSettings={{ compassEnabled: true, zoomControlsEnabled: false, myLocationButtonEnabled: false, scrollGesturesEnabled: true, zoomGesturesEnabled: true }}
+        /> : Platform.OS === "ios" ? <AppleMaps.View
+          key={`apple-${mapCenter.latitude}-${mapCenter.longitude}-${radiusKm}`}
+          style={StyleSheet.absoluteFill}
+          cameraPosition={{ coordinates: mapCenter, zoom: mapZoom }}
+          circles={mapCircle}
+          annotations={mapMarkers.map((marker) => ({ ...marker, text: marker.title }))}
+          onAnnotationClick={(marker) => setSelectedProviderId(marker.id ?? null)}
+        /> : <View style={styles.mapPrompt}><Text style={styles.mapPromptTitle}>Map unavailable</Text></View>}
         {selectedProvider ? <View pointerEvents="none" style={styles.providerCallout}>
           <Text style={styles.calloutName}>{selectedProvider.name}</Text>
           <Text style={styles.calloutSkill}>{selectedProvider.skill} · {selectedProvider.distanceKm.toFixed(1)} km away</Text>
@@ -342,7 +295,6 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
           <Text style={styles.mapPromptText}>Try a wider radius or check again later.</Text>
         </View> : null}
         {loadingProviders ? <View style={styles.mapLoading}><ActivityIndicator color={THEME.blue} /><Text style={styles.mapLoadingText}>Finding nearby Providers…</Text></View> : null}
-        <View pointerEvents="none" style={styles.attribution}><Text style={styles.attributionText}>© OpenStreetMap contributors</Text></View>
       </View>
       {providerError ? <Text style={styles.error}>{providerError}</Text> : <Text style={styles.mapFoot}>{coordinates ? `${visibleProviders.length} available ${visibleProviders.length === 1 ? "Provider" : "Providers"} within ${radiusKm} km` : "Only online and available Providers will appear here."}</Text>}
     </View>
@@ -429,7 +381,6 @@ const styles = StyleSheet.create({
   mapHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 6, marginBottom: 6 },
   mapTitle: { color: THEME.ink, fontSize: 12, fontWeight: "900" },
   mapAreaLabel: { color: THEME.muted, fontSize: 9, flexShrink: 1 },
-  radiusFence: { position: "absolute", borderWidth: 2, borderColor: "#26845F", borderStyle: "dashed", borderRadius: 999, backgroundColor: "rgba(76,175,80,0.08)", zIndex: 1 },
   onlineIndicator: { flexDirection: "row", alignItems: "center", gap: 5 },
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: THEME.green },
   onlineText: { color: THEME.forest, fontSize: 9, fontWeight: "800" },
@@ -447,8 +398,6 @@ const styles = StyleSheet.create({
   mapPromptText: { color: THEME.muted, fontSize: 11, lineHeight: 16, textAlign: "center", marginTop: 4 },
   mapLoading: { position: "absolute", left: 10, right: 10, top: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.95)", borderRadius: 10, padding: 9 },
   mapLoadingText: { color: THEME.blue, fontSize: 11, fontWeight: "800" },
-  attribution: { position: "absolute", left: 5, bottom: 4, paddingHorizontal: 4, paddingVertical: 2, backgroundColor: "rgba(255,255,255,0.86)", borderRadius: 4 },
-  attributionText: { color: THEME.navy, fontSize: 9 },
   mapFoot: { color: THEME.muted, fontSize: 10, marginTop: 7 },
   roleActions: { flexDirection: "row", gap: 8, marginTop: 1 },
   roleButton: { flex: 1, minHeight: 43, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1, borderColor: THEME.border, backgroundColor: THEME.surface, borderRadius: 11, paddingHorizontal: 5 },
