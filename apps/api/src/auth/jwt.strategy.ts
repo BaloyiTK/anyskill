@@ -37,10 +37,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         emailVerifiedAt: true,
         identityVerification: true,
         googleSubject: true,
+        deletedAt: true,
       },
     });
 
-    if (!user || !user.emailVerifiedAt) throw new UnauthorizedException();
+    if (!user || !user.emailVerifiedAt || user.deletedAt) throw new UnauthorizedException();
 
     return {
       id: user.id,
