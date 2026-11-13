@@ -10,6 +10,7 @@ import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 
 import { OAuth2Client } from "google-auth-library";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
+import { MediaService } from "../marketplace/media.service";
 
 const ACCESS_TOKEN_TTL = "15m";
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -33,6 +34,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly mail: MailService,
+    private readonly media: MediaService,
   ) {}
 
   private registrationOtpHash(email: string, otp: string): string {
@@ -513,6 +515,9 @@ export class AuthService {
       type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1,
     });
 
+    // Remove private identity images from Cloudinary before anonymising the account.
+    await this.media.deleteIdentityAssets(userId);
+
     await this.prisma.$transaction(async (tx) => {
       await tx.refreshSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
       await tx.emailVerificationToken.deleteMany({ where: { userId } });
@@ -520,7 +525,6 @@ export class AuthService {
       await tx.identityVerificationCase.deleteMany({ where: { userId } });
       await tx.pushDevice.deleteMany({ where: { userId } });
       await tx.appNotification.deleteMany({ where: { userId } });
-      await tx.mediaAsset.deleteMany({ where: { userId } });
       await tx.onboardingDraft.deleteMany({ where: { userId } });
       await tx.providerProfile.deleteMany({ where: { userId } });
 
