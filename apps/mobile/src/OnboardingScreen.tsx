@@ -618,7 +618,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           </View>;
         })}
         <Text style={st.label}>2. Live selfie</Text>
-        <Text style={st.help}>Your front-facing camera will open. Take a fresh selfie now; selecting a selfie from your gallery is not allowed.</Text>
+        <Text style={st.help}>Take a fresh selfie with your front-facing camera. Gallery uploads are not allowed.</Text>
         {selfieCameraOpen ? <View style={st.cameraFrame}>
           <CameraView ref={selfieCameraRef} style={StyleSheet.absoluteFill} facing="front" />
           <View pointerEvents="none" style={st.cameraOverlay}>
@@ -630,8 +630,21 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
             <Pressable style={[st.cameraButton, st.cameraCancel]} onPress={() => setSelfieCameraOpen(false)} disabled={busy}><Text style={st.cameraButtonText}>Cancel</Text></Pressable>
             <Pressable style={st.cameraButton} onPress={() => void captureSelfie()} disabled={busy}><Text style={st.cameraButtonText}>{busy ? "Please wait..." : "Take selfie"}</Text></Pressable>
           </View>
-        </View> : <Action label={selfieReady ? "Retake live selfie" : "Open front camera and take selfie"} onPress={() => void openSelfieCamera()} disabled={busy} />}
-        {identityPreviews.ID_SELFIE ? <Image source={{ uri: identityPreviews.ID_SELFIE }} style={st.imagePreview} resizeMode="contain" /> : null}
+        </View> : <Pressable style={st.identityImageFrame} onPress={() => void openSelfieCamera()} disabled={busy}>
+          {identityPreviews.ID_SELFIE ? <Image source={{ uri: identityPreviews.ID_SELFIE }} style={st.identityImage} resizeMode="contain" /> : <View style={st.identityImagePlaceholder}><Text style={st.identityPlaceholderText}>Your live selfie will appear here</Text></View>}
+          <View style={st.identityStatusBadge}><Text style={[st.identityStatusBadgeText, identityStatus.toLowerCase().includes("reject") ? st.identityRejectedText : ["verified", "approved", "identity_verified"].includes(identityStatus.toLowerCase()) ? st.identityVerifiedText : st.identityPendingText]}>{uploadingIdentityPurpose === "ID_SELFIE" ? "Uploading" : identityStatus.toLowerCase().includes("reject") ? "Rejected" : ["verified", "approved", "identity_verified"].includes(identityStatus.toLowerCase()) ? "Verified" : selfieReady ? (identitySubmitted ? "Pending verification" : "Not submitted") : "Not submitted"}</Text></View>
+          <View style={st.identityGlassControl}>
+            <View style={st.identityCameraCircle}><Text style={st.identityCameraIcon}>📷</Text></View>
+            <Text style={st.identityGlassText}>{selfieReady ? "RETAKE SELFIE" : "TAKE LIVE SELFIE"}</Text>
+          </View>
+        </Pressable>}
+        {uploadingIdentityPurpose === "ID_SELFIE" ? <View style={st.identityProgressWrap}>
+          <View style={st.identityProgressHeader}>
+            <View style={st.identityProgressCopy}><ActivityIndicator size="small" color={colors.primary} /><Text style={st.identityProgressLabel}>{identityUploadPhase === "finalising" ? "Finalising secure upload..." : "Uploading selfie securely..."}</Text></View>
+            <Text style={st.identityProgressValue}>{identityUploadPercent}%</Text>
+          </View>
+          <View style={st.identityProgressTrack}><View style={[st.identityProgressFill, { width: `${identityUploadPercent}%` }]} /></View>
+        </View> : null}
         <Text style={st.status}>{selfieReady ? (identitySubmitted ? "Selfie pending verification" : "Live selfie uploaded — awaiting submission") : "Live selfie required"}</Text>
         <Text style={st.help}>Images are stored privately. An administrator will review them later; uploading does not automatically verify your identity.</Text>
         <Action label="Submit identity verification" onPress={() => void submitIdentityVerification()} disabled={busy} />
