@@ -237,12 +237,13 @@ export class MediaService {
   }
 
   async deleteIdentityAssets(userId: string) {
-    this.ensureConfigured();
     const identityPurposes = ["ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"];
     const assets = await this.prisma.mediaAsset.findMany({
       where: { userId, purpose: { in: identityPurposes } },
       select: { objectKey: true, purpose: true },
     });
+    if (assets.length === 0) return;
+    this.ensureConfigured();
 
     for (const asset of assets) {
       const folder = FOLDERS[asset.purpose];
