@@ -4,7 +4,7 @@ import { File } from "expo-file-system";
 import { CameraView, useCameraPermissions } from "expo-camera";
 type CountryOption = { name: string; code: string; dialCode: string };
 type AddressSuggestion = { label: string; latitude: number; longitude: number };
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
 
 type Section = "Profile" | "Verification" | "Skills" | "Portfolio" | "Submit";
@@ -70,6 +70,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [bookPage2Ready, setBookPage2Ready] = useState(false);
   const [selfieReady, setSelfieReady] = useState(false);
   const [identityPreviews, setIdentityPreviews] = useState<Record<string, string>>({});
+  const [uploadingIdentityPurpose, setUploadingIdentityPurpose] = useState<string | null>(null);
+  const [identityUploadPercent, setIdentityUploadPercent] = useState(0);
   const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const selfieCameraRef = useRef<CameraView>(null);
@@ -260,29 +262,51 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       form.append("use_filename", "false");
       stage = "cloudinary_upload";
       const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/upload`;
-      const uploadResponse = await fetch(uploadUrl, { method: "POST", body: form });
-      if (!uploadResponse.ok) {
-        const responseBody = await uploadResponse.text().catch(() => "");
+      setUploadingIdentityPurpose(purpose);
+      setIdentityUploadPercent(0);
+      const uploadResult = await new Promise<{ status: number; body: string; providerError: string | null; contentType: string | null }>((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open("POST", uploadUrl);
+        request.upload.onprogress = (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            setIdentityUploadPercent(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+          }
+        };
+        request.onload = () => resolve({
+          status: request.status,
+          body: request.responseText ?? "",
+          providerError: request.getResponseHeader("x-cld-error"),
+          contentType: request.getResponseHeader("content-type"),
+        });
+        request.onerror = () => reject(new Error("Network error while uploading the image. Please check your connection and try again."));
+        request.ontimeout = () => reject(new Error("The image upload timed out. Please try again."));
+        request.onabort = () => reject(new Error("The image upload was cancelled."));
+        request.timeout = 120000;
+        request.send(form);
+      });
+      if (uploadResult.status >= 200 && uploadResult.status < 300) {
+        setIdentityUploadPercent(100);
+      } else {
         let cloudinaryMessage = "";
         try {
-          const parsed = JSON.parse(responseBody) as { error?: { message?: string } };
+          const parsed = JSON.parse(uploadResult.body) as { error?: { message?: string } };
           cloudinaryMessage = parsed.error?.message ?? "";
         } catch {
-          cloudinaryMessage = responseBody;
+          cloudinaryMessage = uploadResult.body;
         }
-        const providerMessage = uploadResponse.headers.get("x-cld-error") || cloudinaryMessage;
-        const safeProviderMessage = providerMessage.replace(/[\r\n\t]+/g, " ").slice(0, 240);
+        const providerMessage = uploadResult.providerError || cloudinaryMessage;
+        const safeProviderMessage = providerMessage.replace(/[\\r\\n\\t]+/g, " ").slice(0, 240);
         console.error("[AnySkill][IdentityUpload] Cloudinary rejected upload", {
-          httpStatus: uploadResponse.status,
+          httpStatus: uploadResult.status,
           providerMessage: safeProviderMessage || "No provider detail returned",
           endpoint: "/image/upload",
           uploadUrl,
-          responseContentType: uploadResponse.headers.get("content-type") || "unknown",
+          responseContentType: uploadResult.contentType || "unknown",
         });
         throw new Error(
           safeProviderMessage
-            ? `Cloudinary rejected the upload (HTTP ${uploadResponse.status}): ${safeProviderMessage}`
-            : `Cloudinary rejected the upload (HTTP ${uploadResponse.status}). Please try again.`,
+            ? `Cloudinary rejected the upload (HTTP ${uploadResult.status}): ${safeProviderMessage}`
+            : `Cloudinary rejected the upload (HTTP ${uploadResult.status}). Please try again.`,
         );
       }
       stage = "confirm";
@@ -310,7 +334,15 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       });
       setError(`Upload failed during ${stage.replace("_", " ")}: ${message}`);
     }
-    finally { setBusy(false); }
+    finally { setBusy(false); setUploadingIdentityPurpose(null); setIdentityUploadPercent(0); }
+  };
+
+  const openIdentityUploadOptions = (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2") => {
+    Alert.alert("Add document", "Choose how you want to add this image.", [
+      { text: "Take picture", onPress: () => void uploadIdentityImage(purpose, "camera") },
+      { text: "Choose from gallery", onPress: () => void uploadIdentityImage(purpose, "gallery") },
+      { text: "Cancel", style: "cancel" },
+    ]);
   };
 
   const uploadIdentityImage = async (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2", source: "camera" | "gallery" = "camera") => {
@@ -550,15 +582,28 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           { purpose: "ID_DOCUMENT_BACK" as const, label: "Back of Smart ID card", ready: idBackReady },
         ] : [
           { purpose: "ID_BOOK_PAGE_1" as const, label: "Green ID book: photo/details page", ready: bookPage1Ready },
-        ]).map((item) => <View key={item.purpose} style={st.card}>
-          <Text style={st.label}>{item.label}</Text>
-          {identityPreviews[item.purpose] ? <Image source={{ uri: identityPreviews[item.purpose] }} style={st.imagePreview} resizeMode="contain" /> : null}
-          <Text style={st.status}>{item.ready ? (identitySubmitted ? "Pending verification" : "Uploaded — awaiting submission") : "Image required"}</Text>
-          <View style={st.choiceRow}>
-            <View style={{ flex: 1 }}><Action label="Upload from gallery" onPress={() => void uploadIdentityImage(item.purpose, "gallery")} disabled={busy} /></View>
-            <View style={{ flex: 1 }}><Action label="Take picture" onPress={() => void uploadIdentityImage(item.purpose, "camera")} disabled={busy} /></View>
-          </View>
-        </View>)}
+        ]).map((item) => {
+          const isUploading = uploadingIdentityPurpose === item.purpose;
+          const caseStatus = identityStatus.toLowerCase();
+          const isRejected = caseStatus.includes("reject");
+          const statusLabel = isRejected ? "Rejected" : item.ready ? (identitySubmitted ? "Pending verification" : "Uploaded — awaiting submission") : "Not submitted";
+          return <View key={item.purpose} style={st.card}>
+            <Text style={st.label}>{item.label}</Text>
+            <Pressable style={st.identityImageFrame} onPress={() => openIdentityUploadOptions(item.purpose)} disabled={busy}>
+              {identityPreviews[item.purpose] ? <Image source={{ uri: identityPreviews[item.purpose] }} style={st.identityImage} resizeMode="contain" /> : <View style={st.identityImagePlaceholder}><Text style={st.identityPlaceholderText}>Your document image will appear here</Text></View>}
+              <View style={st.identityStatusBadge}><Text style={[st.identityStatusBadgeText, isRejected ? st.identityRejectedText : item.ready && identitySubmitted ? st.identityVerifiedText : st.identityPendingText]}>{isUploading ? "Uploading" : statusLabel}</Text></View>
+              <View style={st.identityGlassControl}>
+                <View style={st.identityCameraCircle}><Text style={st.identityCameraIcon}>▣</Text></View>
+                <Text style={st.identityGlassText}>{item.ready ? "CHANGE DOCUMENT" : "UPLOAD DOCUMENT"}</Text>
+              </View>
+            </Pressable>
+            {isUploading ? <View style={st.identityProgressWrap}>
+              <View style={st.identityProgressHeader}><Text style={st.identityProgressLabel}>Uploading document...</Text><Text style={st.identityProgressValue}>{identityUploadPercent}%</Text></View>
+              <View style={st.identityProgressTrack}><View style={[st.identityProgressFill, { width: `${identityUploadPercent}%` }]} /></View>
+            </View> : null}
+            <Text style={st.status}>{isRejected ? "Your document was not approved. Please upload it again." : item.ready ? (identitySubmitted ? "Submitted and awaiting review" : "Uploaded — ready to submit") : "Tap the image to upload a document."}</Text>
+          </View>;
+        })}
         <Text style={st.label}>2. Live selfie</Text>
         <Text style={st.help}>Your front-facing camera will open. Take a fresh selfie now; selecting a selfie from your gallery is not allowed.</Text>
         {selfieCameraOpen ? <View style={st.cameraFrame}>
@@ -695,6 +740,25 @@ const st = StyleSheet.create({
   status: { color: colors.muted, fontSize: 12, marginVertical: 7 }, statusValue: { color: colors.ink, fontWeight: "800", marginTop: 7, textTransform: "capitalize" },
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: "#E4EAF1", borderRadius: 19, padding: 17, marginVertical: 14, shadowColor: "#0B2545", shadowOpacity: 0.045, shadowRadius: 11, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
   imagePreview: { width: "100%", height: 190, backgroundColor: "#EEF2F6", borderRadius: 14, marginTop: 11 },
+  identityImageFrame: { height: 190, borderRadius: 14, overflow: "hidden", backgroundColor: "#DCE6E9", position: "relative", justifyContent: "center", alignItems: "center", marginTop: 10 },
+  identityImage: { width: "100%", height: "100%", backgroundColor: "#DCE6E9" },
+  identityImagePlaceholder: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", padding: 20 },
+  identityPlaceholderText: { color: "#71858A", fontSize: 12, fontWeight: "600", textAlign: "center" },
+  identityStatusBadge: { position: "absolute", top: 9, right: 9, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.94)" },
+  identityStatusBadgeText: { fontSize: 10, fontWeight: "800" },
+  identityPendingText: { color: "#91651C" },
+  identityVerifiedText: { color: "#26744B" },
+  identityRejectedText: { color: "#A33D35" },
+  identityGlassControl: { position: "absolute", alignItems: "center", justifyContent: "center", paddingHorizontal: 15, paddingVertical: 9, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.66)", borderWidth: 1, borderColor: "rgba(255,255,255,0.8)" },
+  identityCameraCircle: { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.86)", alignItems: "center", justifyContent: "center" },
+  identityCameraIcon: { color: "#263B43", fontSize: 24, lineHeight: 28, fontWeight: "700" },
+  identityGlassText: { color: "#263B43", fontSize: 9, fontWeight: "900", letterSpacing: 0.55, marginTop: 4 },
+  identityProgressWrap: { paddingTop: 10, paddingHorizontal: 2 },
+  identityProgressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  identityProgressLabel: { color: colors.muted, fontSize: 10, fontWeight: "700" },
+  identityProgressValue: { color: colors.primary, fontSize: 12, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  identityProgressTrack: { height: 5, borderRadius: 5, backgroundColor: "#E4EAF1", overflow: "hidden" },
+  identityProgressFill: { height: 5, borderRadius: 5, backgroundColor: "#2995C9" },
   cameraFrame: { height: 440, overflow: "hidden", borderRadius: 20, backgroundColor: "#101827", marginVertical: 14 },
   cameraOverlay: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", paddingVertical: 20 },
   headGuide: { width: 218, height: 286, borderWidth: 3, borderColor: "#FFFFFF", borderRadius: 140, backgroundColor: "transparent", marginVertical: 14 },
