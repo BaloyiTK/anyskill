@@ -586,14 +586,15 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           const isUploading = uploadingIdentityPurpose === item.purpose;
           const caseStatus = identityStatus.toLowerCase();
           const isRejected = caseStatus.includes("reject");
-          const statusLabel = isRejected ? "Rejected" : item.ready ? (identitySubmitted ? "Pending verification" : "Uploaded — awaiting submission") : "Not submitted";
+          const isVerified = caseStatus.includes("verified") || caseStatus.includes("approved");
+          const statusLabel = isRejected ? "Rejected" : isVerified ? "Verified" : item.ready ? (identitySubmitted ? "Pending verification" : "Uploaded — awaiting submission") : "Not submitted";
           return <View key={item.purpose} style={st.card}>
             <Text style={st.label}>{item.label}</Text>
             <Pressable style={st.identityImageFrame} onPress={() => openIdentityUploadOptions(item.purpose)} disabled={busy}>
               {identityPreviews[item.purpose] ? <Image source={{ uri: identityPreviews[item.purpose] }} style={st.identityImage} resizeMode="contain" /> : <View style={st.identityImagePlaceholder}><Text style={st.identityPlaceholderText}>Your document image will appear here</Text></View>}
               <View style={st.identityStatusBadge}><Text style={[st.identityStatusBadgeText, isRejected ? st.identityRejectedText : item.ready && identitySubmitted ? st.identityVerifiedText : st.identityPendingText]}>{isUploading ? "Uploading" : statusLabel}</Text></View>
               <View style={st.identityGlassControl}>
-                <View style={st.identityCameraCircle}><Text style={st.identityCameraIcon}>▣</Text></View>
+                <View style={st.identityCameraCircle}><Text style={st.identityCameraIcon}>📷</Text></View>
                 <Text style={st.identityGlassText}>{item.ready ? "CHANGE DOCUMENT" : "UPLOAD DOCUMENT"}</Text>
               </View>
             </Pressable>
@@ -751,7 +752,7 @@ const st = StyleSheet.create({
   identityRejectedText: { color: "#A33D35" },
   identityGlassControl: { position: "absolute", alignItems: "center", justifyContent: "center", paddingHorizontal: 15, paddingVertical: 9, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.66)", borderWidth: 1, borderColor: "rgba(255,255,255,0.8)" },
   identityCameraCircle: { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.86)", alignItems: "center", justifyContent: "center" },
-  identityCameraIcon: { color: "#263B43", fontSize: 24, lineHeight: 28, fontWeight: "700" },
+  identityCameraIcon: { color: "#263B43", fontSize: 19, lineHeight: 25, fontWeight: "700" },
   identityGlassText: { color: "#263B43", fontSize: 9, fontWeight: "900", letterSpacing: 0.55, marginTop: 4 },
   identityProgressWrap: { paddingTop: 10, paddingHorizontal: 2 },
   identityProgressHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
