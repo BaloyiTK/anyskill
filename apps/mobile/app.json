@@ -2,7 +2,10 @@
   "expo": {
     "name": "AnySkill",
     "slug": "anyskill",
-    "scheme": ["anyskill", "com.anyskill.mobile"],
+    "scheme": [
+      "anyskill",
+      "com.anyskill.mobile"
+    ],
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
@@ -27,6 +30,10 @@
         {
           "photosPermission": "AnySkill needs photo-library access so Providers can submit job-completion evidence."
         }
+      ],
+      [
+        "expo-maps",
+        {}
       ]
     ],
     "ios": {
