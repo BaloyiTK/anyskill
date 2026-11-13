@@ -743,7 +743,7 @@ const st = StyleSheet.create({
   imagePreview: { width: "100%", height: 190, backgroundColor: "#EEF2F6", borderRadius: 14, marginTop: 11 },
   identityImageFrame: { height: 190, borderRadius: 14, overflow: "hidden", backgroundColor: "#DCE6E9", position: "relative", justifyContent: "center", alignItems: "center", marginTop: 10 },
   identityImage: { width: "100%", height: "100%", backgroundColor: "#DCE6E9" },
-  identityImagePlaceholder: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", padding: 20 },
+  identityImagePlaceholder: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", padding: 20 },
   identityPlaceholderText: { color: "#71858A", fontSize: 12, fontWeight: "600", textAlign: "center" },
   identityStatusBadge: { position: "absolute", top: 9, right: 9, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.94)" },
   identityStatusBadgeText: { fontSize: 10, fontWeight: "800" },
