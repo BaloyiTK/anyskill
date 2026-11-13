@@ -457,7 +457,7 @@ export class AuthService {
       include: { user: true },
     });
 
-    if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+    if (!session || session.revokedAt || session.expiresAt <= new Date() || session.user.deletedAt || !session.user.emailVerifiedAt) {
       throw new UnauthorizedException("Refresh session is invalid or expired");
     }
 
