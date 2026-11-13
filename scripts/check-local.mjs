@@ -117,7 +117,7 @@ console.log("Read-only diagnostics except normal build output and Git remote-tra
 
 run("API TypeScript", pnpm, ["--filter", "@anyskill/api", "typecheck"]);
 run("Mobile TypeScript", pnpm, ["--filter", "@anyskill/mobile", "typecheck"]);
-run("Shared contracts TypeScript", pnpm, ["exec", "tsc", "--noEmit", "--strict", "--noUncheckedIndexedAccess", "--exactOptionalPropertyTypes", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "packages/contracts/src/index.ts"]);
+run("Shared contracts TypeScript", pnpm, ["--filter", "@anyskill/api", "exec", "tsc", "--noEmit", "--strict", "--noUncheckedIndexedAccess", "--exactOptionalPropertyTypes", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "../../packages/contracts/src/index.ts"]);
 
 run("Prisma schema validation", pnpm, ["--filter", "@anyskill/api", "exec", "prisma", "validate"]);
 run("Prisma migration status (read-only)", pnpm, ["--filter", "@anyskill/api", "exec", "prisma", "migrate", "status"]);
