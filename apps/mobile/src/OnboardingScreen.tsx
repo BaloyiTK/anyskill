@@ -220,10 +220,8 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     setBusy(true); setError(""); setMessage("");
     let stage: "read_file" | "reserve" | "cloudinary_upload" | "confirm" = "read_file";
     try {
-      // Expo SDK 58 uses a standards-based FormData serializer. A native
-      // { uri, name, type } object is not a supported FormData part; File is a
-      // Blob-backed reference to the local URI and avoids copying image bytes
-      // into JavaScript memory before upload.
+      // Keep the image as a native File reference so the upload can stream
+      // directly from local storage without copying its bytes into JS memory.
       const file = new File(uri);
       const fileName = originalFileName ?? file.name ?? (purpose === "ID_SELFIE" ? "identity-selfie.jpg" : purpose.toLowerCase().replaceAll("_", "-") + ".jpg");
       const allowedContentTypes = ["image/jpeg", "image/png", "image/webp"];
