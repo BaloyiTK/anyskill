@@ -117,11 +117,11 @@ console.log("Read-only diagnostics except normal build output and Git remote-tra
 
 run("API TypeScript", pnpm, ["--filter", "@anyskill/api", "typecheck"]);
 run("Mobile TypeScript", pnpm, ["--filter", "@anyskill/mobile", "typecheck"]);
-run("Shared contracts TypeScript", pnpm, ["--filter", "@anyskill/api", "exec", "tsc", "--noEmit", "--strict", "--noUncheckedIndexedAccess", "--exactOptionalPropertyTypes", "--target", "ES2022", "--module", "NodeNext", "--moduleResolution", "NodeNext", "../../packages/contracts/src/index.ts"]);
+run("Shared contracts TypeScript", pnpm, ["--filter", "@anyskill/api", "exec", "tsc", "--project", "../../packages/contracts/tsconfig.json", "--noEmit"]);
 
 run("Prisma schema validation", pnpm, ["--filter", "@anyskill/api", "exec", "prisma", "validate"]);
 run("Prisma migration status (read-only)", pnpm, ["--filter", "@anyskill/api", "exec", "prisma", "migrate", "status"]);
-run("API production build", pnpm, ["--filter", "@anyskill/api", "build"], { timeout: 240_000 });
+// Prisma schema validation and migration checks run above. Build Nest directly here to avoid\n// re-generating Prisma Client during diagnostics, which can fail on Windows when its DLL is locked.\nrun("API production build (Nest compile)", pnpm, ["--filter", "@anyskill/api", "exec", "nest", "build"], { timeout: 240_000 });
 
 const rootPackage = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
 const apiPackage = JSON.parse(readFileSync(resolve(root, "apps/api/package.json"), "utf8"));
