@@ -651,6 +651,10 @@ export default function App() {
             onSignIn={() => goTo("login")}
             onSignUp={() => goTo("register")}
             onGoogle={() => { void continueWithGoogle(); }}
+            onSelectRole={(selectedMode) => {
+              setMode(selectedMode);
+              goTo("register");
+            }}
           />}
 
           {(screen === "register" || screen === "login") && <View style={s.form}>
