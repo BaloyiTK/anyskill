@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import * as Location from "expo-location";
 import { apiRequest } from "./api";
@@ -71,6 +71,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
   const [loadingProviders, setLoadingProviders] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [providerError, setProviderError] = useState("");
+  const tileDiagnosticRan = useRef(false);
 
   const mapZoom = useMemo(() => {
     const latitude = coordinates?.latitude ?? DEFAULT_CENTER.latitude;
@@ -251,6 +252,29 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
       top: y * TILE - center.y + mapSize.height / 2,
     }];
   }));
+  // One native diagnostic request distinguishes an OSM policy block from an image-loader issue.
+  useEffect(() => {
+    if (tileDiagnosticRan.current || !tileImages[0]?.uri) return;
+    tileDiagnosticRan.current = true;
+    void fetch(tileImages[0].uri, {
+      headers: {
+        "User-Agent": "AnySkill/0.1.0 (+https://github.com/BaloyiTK/anyskill)",
+        "X-Requested-With": "com.anyskill.mobile",
+      },
+    }).then((response) => {
+      const headers = {
+        blocked: response.headers.get("x-blocked"),
+        contentType: response.headers.get("content-type"),
+        cacheControl: response.headers.get("cache-control"),
+        status: response.status,
+      };
+      console.warn("[AnySkill map diagnostic] OSM tile response", headers);
+    }).catch((error) => {
+      console.warn("[AnySkill map diagnostic] OSM tile request failed", error);
+    });
+  // This diagnostic intentionally runs only once per screen mount.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return <View style={styles.container}>
     <View style={styles.compactHeader}>
