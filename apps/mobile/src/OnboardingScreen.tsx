@@ -74,6 +74,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [identityUploadPercent, setIdentityUploadPercent] = useState(0);
   const [identityUploadPhase, setIdentityUploadPhase] = useState<"uploading" | "finalising">("uploading");
   const lastIdentityProgressUpdate = useRef(0);
+  const lastIdentityProgressPercent = useRef(0);
   const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const selfieCameraRef = useRef<CameraView>(null);
@@ -256,6 +257,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       setIdentityUploadPercent(0);
       setIdentityUploadPhase("uploading");
       lastIdentityProgressUpdate.current = 0;
+      lastIdentityProgressPercent.current = 0;
       const uploadResponse = await file.upload(uploadUrl, {
         httpMethod: "POST",
         uploadType: UploadType.MULTIPART,
@@ -277,8 +279,9 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           const percent = Math.min(99, Math.max(0, Math.floor((bytesSent / totalBytes) * 100)));
           const now = Date.now();
           // Limit React updates to roughly 8 per second; native upload continues uninterrupted.
-          if (percent > identityUploadPercent && now - lastIdentityProgressUpdate.current >= 120) {
+          if (percent > lastIdentityProgressPercent.current && now - lastIdentityProgressUpdate.current >= 120) {
             lastIdentityProgressUpdate.current = now;
+            lastIdentityProgressPercent.current = percent;
             setIdentityUploadPercent(percent);
           }
         },
