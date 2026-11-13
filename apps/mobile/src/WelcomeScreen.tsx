@@ -21,13 +21,14 @@ type Props = {
   showAuthActions?: boolean;
   onRequestSkill?: () => void;
   canRequestSkill?: boolean;
+  onSelectRole?: (role: "provider" | "seeker") => void;
 };
 
 const RADII = [1, 5, 10, 20, 50] as const;
 const DEFAULT_CENTER = { latitude: -26.2041, longitude: 28.0473 };
 const TILE = 256;
 const TILE_URL = process.env.EXPO_PUBLIC_MAP_TILE_URL ?? "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-const ZOOM = 12;
+const EARTH_CIRCUMFERENCE_METRES = 2 * Math.PI * 6378137;
 
 // AnySkill brand palette, based on the colours supplied from the approved logo.
 const THEME = {
@@ -46,8 +47,8 @@ const THEME = {
 };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-function worldPoint(latitude: number, longitude: number) {
-  const scale = TILE * 2 ** ZOOM;
+function worldPoint(latitude: number, longitude: number, zoom: number) {
+  const scale = TILE * 2 ** zoom;
   const lat = clamp(latitude, -85.05112878, 85.05112878) * Math.PI / 180;
   return {
     x: ((longitude + 180) / 360) * scale,
@@ -55,7 +56,7 @@ function worldPoint(latitude: number, longitude: number) {
   };
 }
 
-export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true, onRequestSkill, canRequestSkill = false }: Props) {
+export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = true, onRequestSkill, canRequestSkill = false, onSelectRole }: Props) {
   const [radiusKm, setRadiusKm] = useState<number>(5);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -65,19 +66,30 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
   const [searchingLocation, setSearchingLocation] = useState(false);
   const [providers, setProviders] = useState<ProviderPin[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-  const [mapSize, setMapSize] = useState({ width: 340, height: 330 });
+  const [mapSize, setMapSize] = useState({ width: 340, height: 340 });
   const [locating, setLocating] = useState(false);
   const [loadingProviders, setLoadingProviders] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [providerError, setProviderError] = useState("");
 
+  const mapZoom = useMemo(() => {
+    const latitude = coordinates?.latitude ?? DEFAULT_CENTER.latitude;
+    const cosine = Math.max(0.01, Math.cos(latitude * Math.PI / 180));
+    const desiredRadiusPixels = Math.max(80, mapSize.width * 0.40);
+    return clamp(Math.floor(Math.log2((desiredRadiusPixels * EARTH_CIRCUMFERENCE_METRES * cosine) / (radiusKm * 1000 * TILE))), 3, 17);
+  }, [coordinates, mapSize.width, radiusKm]);
   const center = useMemo(
-    () => worldPoint(coordinates?.latitude ?? DEFAULT_CENTER.latitude, coordinates?.longitude ?? DEFAULT_CENTER.longitude),
-    [coordinates],
+    () => worldPoint(coordinates?.latitude ?? DEFAULT_CENTER.latitude, coordinates?.longitude ?? DEFAULT_CENTER.longitude, mapZoom),
+    [coordinates, mapZoom],
   );
+  const radiusPixels = useMemo(() => {
+    const latitude = coordinates?.latitude ?? DEFAULT_CENTER.latitude;
+    const cosine = Math.max(0.01, Math.cos(latitude * Math.PI / 180));
+    return (radiusKm * 1000 * TILE * 2 ** mapZoom) / (EARTH_CIRCUMFERENCE_METRES * cosine);
+  }, [coordinates, mapZoom, radiusKm]);
   const centerTileX = Math.floor(center.x / TILE);
   const centerTileY = Math.floor(center.y / TILE);
-  const tileCount = 2 ** ZOOM;
+  const tileCount = 2 ** mapZoom;
 
   useEffect(() => {
     if (!coordinates) return;
@@ -216,7 +228,17 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const selectedProvider = providers.find((provider) => provider.id === selectedProviderId);
+  const distanceBetween = (a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) => {
+    const radians = (value: number) => value * Math.PI / 180;
+    const dLat = radians(b.latitude - a.latitude), dLon = radians(b.longitude - a.longitude);
+    const lat1 = radians(a.latitude), lat2 = radians(b.latitude);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  };
+  const visibleProviders = providers.filter((provider) =>
+    (coordinates ? distanceBetween(coordinates, provider) : provider.distanceKm) <= radiusKm + 1e-6
+  );
+  const selectedProvider = visibleProviders.find((provider) => provider.id === selectedProviderId);
   const tileImages = [-1, 0, 1].flatMap((dx) => [-1, 0, 1].flatMap((dy) => {
     const rawX = centerTileX + dx;
     const x = (rawX + tileCount) % tileCount;
@@ -224,28 +246,20 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
     if (y < 0 || y >= tileCount) return [];
     return [{
       key: `${rawX}:${y}`,
-      uri: TILE_URL.replace("{z}", String(ZOOM)).replace("{x}", String(x)).replace("{y}", String(y)),
+      uri: TILE_URL.replace("{z}", String(mapZoom)).replace("{x}", String(x)).replace("{y}", String(y)),
       left: rawX * TILE - center.x + mapSize.width / 2,
       top: y * TILE - center.y + mapSize.height / 2,
     }];
   }));
 
   return <View style={styles.container}>
-    <View style={styles.intro}>
+    <View style={styles.compactHeader}>
+      <View style={styles.brandMark}><Text style={styles.brandMarkText}>A</Text></View>
+      <Text style={styles.brandName}>AnySkill</Text><View style={styles.headerSpacer} />
       <Text style={styles.eyebrow}>LOCAL SKILLS. REAL PEOPLE.</Text>
-      <Text style={styles.heading}>Find help nearby.</Text>
-      <Text style={styles.subtitle}>We'll connect you with the best match first.</Text>
     </View>
-
-    <View style={styles.locationCard}>
-      <View style={styles.locationIcon}><Text style={styles.locationIconText}>⌖</Text></View>
-      <View style={styles.locationCopy}>
-        <Text style={styles.locationLabel}>YOUR AREA</Text>
-        <Text numberOfLines={2} style={styles.locationValue}>{areaLabel}</Text>
-      </View>
-      {locating ? <ActivityIndicator color={THEME.blue} size="small" /> : coordinates ? <Text style={styles.locationDetected}>Detected</Text> : null}
-    </View>
-    <View style={styles.locationSearchRow}>
+    <Text style={styles.heading}>Find help nearby.</Text>
+    <View style={styles.locationSearchRow}><Text style={styles.locationSearchIcon}>⌕</Text>
       <TextInput
         accessibilityLabel="Search for a location"
         value={manualLocation}
@@ -254,7 +268,8 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
         placeholderTextColor={THEME.muted}
         style={styles.locationSearchInput}
       />
-      {searchingLocation ? <ActivityIndicator color={THEME.blue} size="small" /> : null}
+      {searchingLocation || locating ? <ActivityIndicator color={THEME.blue} size="small" /> : null}
+      <Text style={styles.locationSearchPin}>⌖</Text>
     </View>
     {locationSuggestions.length > 0 ? <View style={styles.locationSuggestions}>
       {locationSuggestions.map((suggestion, index) => <Pressable
@@ -269,14 +284,13 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
     </View> : manualLocation.trim().length >= 3 && !searchingLocation ? <Text style={styles.locationHint}>No matching places found. Try a different spelling.</Text> : null}
     {locationError ? <Text style={styles.error}>{locationError}</Text> : null}
 
-    <View style={styles.radiusHeader}>
-      <Text style={styles.radiusLabel}>SEARCH RADIUS</Text>
-      <Text style={styles.radiusValue}>{radiusKm} km</Text>
-    </View>
-    <Pressable accessibilityRole="button" accessibilityState={{ expanded: radiusOpen }} onPress={() => setRadiusOpen((open) => !open)} style={styles.radiusDropdown}>
+    <View style={styles.radiusControlRow}>
+      <Text style={styles.radiusLabel}>Search distance</Text>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: radiusOpen }} onPress={() => setRadiusOpen((open) => !open)} style={styles.radiusDropdown}>
       <Text style={styles.radiusDropdownValue}>{radiusKm} km</Text>
       <Text style={styles.radiusDropdownChevron}>{radiusOpen ? "▲" : "▼"}</Text>
-    </Pressable>
+      </Pressable>
+    </View>
     {radiusOpen ? <View style={styles.radiusDropdownOptions}>
       {RADII.map((radius) => <Pressable key={radius} accessibilityRole="button" accessibilityState={{ selected: radiusKm === radius }} onPress={() => { setRadiusKm(radius); setRadiusOpen(false); }} style={[styles.radiusDropdownOption, radiusKm === radius && styles.radiusDropdownOptionSelected]}>
         <Text style={[styles.radiusDropdownOptionText, radiusKm === radius && styles.radiusDropdownOptionTextSelected]}>{radius} km</Text>
@@ -285,15 +299,17 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
 
     <View style={styles.mapFrame}>
       <View style={styles.mapHeader}>
-        <Text style={styles.mapTitle}>Available near you</Text>
+        <Text style={styles.mapTitle}>People near you</Text>
+        <Text numberOfLines={1} style={styles.mapAreaLabel}>{areaLabel}</Text>
         <View style={styles.onlineIndicator}><View style={styles.onlineDot} /><Text style={styles.onlineText}>Available now</Text></View>
       </View>
       <View style={styles.map} onLayout={(event) => setMapSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
+        <View pointerEvents="none" style={[styles.radiusFence, { width: radiusPixels * 2, height: radiusPixels * 2, left: mapSize.width / 2 - radiusPixels, top: mapSize.height / 2 - radiusPixels }]} />
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {tileImages.map((tile) => <Image key={tile.key} source={{ uri: tile.uri }} style={{ position: "absolute", width: TILE, height: TILE, left: tile.left, top: tile.top }} resizeMode="stretch" />)}
         </View>
-        {providers.map((provider) => {
-          const point = worldPoint(provider.latitude, provider.longitude);
+        {visibleProviders.map((provider) => {
+          const point = worldPoint(provider.latitude, provider.longitude, mapZoom);
           const left = point.x - center.x + mapSize.width / 2;
           const top = point.y - center.y + mapSize.height / 2;
           if (left < -20 || top < -35 || left > mapSize.width + 20 || top > mapSize.height + 20) return null;
@@ -318,7 +334,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
         {loadingProviders ? <View style={styles.mapLoading}><ActivityIndicator color={THEME.blue} /><Text style={styles.mapLoadingText}>Finding nearby Providers…</Text></View> : null}
         <View pointerEvents="none" style={styles.attribution}><Text style={styles.attributionText}>© OpenStreetMap contributors</Text></View>
       </View>
-      {providerError ? <Text style={styles.error}>{providerError}</Text> : <Text style={styles.mapFoot}>{coordinates ? `${providers.length} available ${providers.length === 1 ? "Provider" : "Providers"} within ${radiusKm} km` : "Only online and available Providers will appear here."}</Text>}
+      {providerError ? <Text style={styles.error}>{providerError}</Text> : <Text style={styles.mapFoot}>{coordinates ? `${visibleProviders.length} available ${visibleProviders.length === 1 ? "Provider" : "Providers"} within ${radiusKm} km` : "Only online and available Providers will appear here."}</Text>}
     </View>
 
     {!showAuthActions ? <Pressable accessibilityRole="button" onPress={onRequestSkill} style={styles.requestSkillButton}>
@@ -331,28 +347,32 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
     </Pressable> : null}
 
     {showAuthActions ? <>
-      <View style={styles.actions}>
-        <Pressable accessibilityRole="button" onPress={onSignUp} style={styles.primaryButton}><Text style={styles.primaryText}>Get started</Text></Pressable>
-        <Pressable accessibilityRole="button" onPress={onSignIn} style={styles.secondaryButton}><Text style={styles.secondaryText}>Sign in</Text></Pressable>
-        <Pressable accessibilityRole="button" onPress={onGoogle} style={styles.googleButton}><Image source={require("../assets/branding/google-sign-in.png")} style={styles.googleIcon} resizeMode="contain" accessibilityLabel="Google" /><Text style={styles.googleText}>Continue with Google</Text></Pressable>
+      <View style={styles.roleActions}>
+        <Pressable accessibilityRole="button" onPress={() => onSelectRole ? onSelectRole("provider") : onSignUp()} style={styles.roleButton}><Text style={styles.roleIcon}>🧰</Text><Text style={styles.roleButtonText}>I'm a Skill Provider</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => onSelectRole ? onSelectRole("seeker") : onSignUp()} style={styles.roleButton}><Text style={styles.roleIcon}>⌕</Text><Text style={styles.roleButtonText}>I'm a Skill Seeker</Text></Pressable>
       </View>
       <Text style={styles.footer}>Connecting people through skills and opportunity.</Text>
+      <View style={styles.signInRow}><Text style={styles.signInPrompt}>Already have an account?</Text><Text onPress={onSignIn} style={styles.signInLink}> Sign in</Text></View>
     </> : null}
   </View>;
 }
 
 const styles = StyleSheet.create({
-  container: { gap: 12 },
+  container: { gap: 8 },
+  compactHeader: { flexDirection: "row", alignItems: "center", gap: 7, paddingTop: 2 },
+  brandMark: { width: 29, height: 29, borderRadius: 8, backgroundColor: THEME.forest, alignItems: "center", justifyContent: "center" },
+  brandMarkText: { color: THEME.surface, fontSize: 17, fontWeight: "900" },
+  brandName: { color: THEME.navy, fontSize: 15, fontWeight: "900" },
+  headerSpacer: { flex: 1 },
   requestSkillButton: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 15, paddingVertical: 12, backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.blue, borderRadius: 15 },
   requestSkillIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: THEME.softBlue, color: THEME.blue, textAlign: "center", textAlignVertical: "center", fontSize: 23, fontWeight: "800", overflow: "hidden" },
   requestSkillCopy: { flex: 1, gap: 3 },
   requestSkillTitle: { color: THEME.navy, fontSize: 13, fontWeight: "900" },
   requestSkillSubtitle: { color: THEME.muted, fontSize: 10, lineHeight: 14 },
   requestSkillArrow: { color: THEME.blue, fontSize: 25, fontWeight: "700" },
-  intro: { paddingTop: 4, paddingBottom: 3 },
-  eyebrow: { color: THEME.blue, fontSize: 10, fontWeight: "900", letterSpacing: 1.5, marginBottom: 9 },
-  heading: { color: THEME.navy, fontSize: 31, lineHeight: 37, fontWeight: "900", letterSpacing: -1 },
-  subtitle: { color: THEME.muted, fontSize: 14, lineHeight: 21, marginTop: 6 },
+
+  eyebrow: { color: THEME.blue, fontSize: 8, fontWeight: "900", letterSpacing: 1 },
+  heading: { color: THEME.navy, fontSize: 23, lineHeight: 28, fontWeight: "900", letterSpacing: -0.5 },
   locationCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: THEME.surface, borderColor: THEME.border, borderWidth: 1, borderRadius: 16, padding: 11 },
   locationIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: THEME.softBlue, alignItems: "center", justifyContent: "center" },
   locationIconText: { color: THEME.blue, fontSize: 23, fontWeight: "800" },
@@ -360,8 +380,10 @@ const styles = StyleSheet.create({
   locationLabel: { color: THEME.muted, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
   locationValue: { color: THEME.ink, fontSize: 13, fontWeight: "800", marginTop: 3 },
   locationDetected: { color: THEME.green, fontSize: 10, fontWeight: "900" },
-  locationSearchRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  locationSearchInput: { flex: 1, minHeight: 43, borderWidth: 1, borderColor: THEME.border, borderRadius: 11, backgroundColor: THEME.surface, paddingHorizontal: 12, color: THEME.navy, fontSize: 12 },
+  locationSearchRow: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 40, borderWidth: 1, borderColor: THEME.border, borderRadius: 11, backgroundColor: THEME.surface, paddingHorizontal: 10 },
+  locationSearchIcon: { color: THEME.navy, fontSize: 20 },
+  locationSearchPin: { color: THEME.muted, fontSize: 16 },
+  locationSearchInput: { flex: 1, minHeight: 38, paddingHorizontal: 0, color: THEME.navy, fontSize: 12 },
   locationSuggestions: { backgroundColor: THEME.surface, borderColor: THEME.border, borderWidth: 1, borderRadius: 11, overflow: "hidden", marginTop: -5 },
   locationSuggestion: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 9, paddingHorizontal: 11, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: THEME.border },
   suggestionPin: { width: 28, height: 28, borderRadius: 8, backgroundColor: THEME.softBlue, alignItems: "center", justifyContent: "center" },
@@ -369,9 +391,8 @@ const styles = StyleSheet.create({
   locationSuggestionText: { flex: 1, color: THEME.navy, fontSize: 11, fontWeight: "700" },
   locationHint: { color: THEME.muted, fontSize: 10, paddingHorizontal: 3 },
   error: { color: THEME.danger, fontSize: 11, lineHeight: 16 },
-  radiusHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 2 },
-  radiusLabel: { color: THEME.muted, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
-  radiusValue: { color: THEME.blue, fontSize: 12, fontWeight: "900" },
+  radiusControlRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  radiusLabel: { color: THEME.muted, fontSize: 11, fontWeight: "800" },
   radiusDropdown: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, borderRadius: 11, borderWidth: 1, borderColor: THEME.border, backgroundColor: THEME.surface },
   radiusDropdownValue: { color: THEME.navy, fontSize: 13, fontWeight: "800" },
   radiusDropdownChevron: { color: THEME.blue, fontSize: 11, fontWeight: "900" },
@@ -380,13 +401,15 @@ const styles = StyleSheet.create({
   radiusDropdownOptionSelected: { backgroundColor: THEME.softBlue },
   radiusDropdownOptionText: { color: THEME.navy, fontSize: 12, fontWeight: "700" },
   radiusDropdownOptionTextSelected: { color: THEME.blue, fontWeight: "900" },
-  mapFrame: { backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.border, borderRadius: 18, padding: 10 },
-  mapHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 9 },
-  mapTitle: { color: THEME.ink, fontSize: 14, fontWeight: "900" },
+  mapFrame: { backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.border, borderRadius: 15, padding: 7 },
+  mapHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 6, marginBottom: 6 },
+  mapTitle: { color: THEME.ink, fontSize: 12, fontWeight: "900" },
+  mapAreaLabel: { color: THEME.muted, fontSize: 9, flexShrink: 1 },
+  radiusFence: { position: "absolute", borderWidth: 2, borderColor: "#26845F", borderStyle: "dashed", borderRadius: 999, backgroundColor: "rgba(76,175,80,0.08)", zIndex: 1 },
   onlineIndicator: { flexDirection: "row", alignItems: "center", gap: 5 },
   onlineDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: THEME.green },
   onlineText: { color: THEME.forest, fontSize: 9, fontWeight: "800" },
-  map: { height: 330, borderRadius: 13, overflow: "hidden", backgroundColor: "#EDF2F7" },
+  map: { width: "100%", aspectRatio: 1, borderRadius: 11, overflow: "hidden", backgroundColor: "#EDF2F7" },
   providerMarker: { position: "absolute", flexDirection: "row", alignItems: "center", gap: 4, zIndex: 2, elevation: 4 },
   markerLabel: { maxWidth: 150, backgroundColor: THEME.surface, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 5, shadowColor: "#000000", shadowOpacity: 0.16, shadowRadius: 3, elevation: 3 },
   markerLabelText: { color: THEME.ink, fontSize: 9, fontWeight: "900" },
@@ -403,7 +426,13 @@ const styles = StyleSheet.create({
   attribution: { position: "absolute", left: 5, bottom: 4, paddingHorizontal: 4, paddingVertical: 2, backgroundColor: "rgba(255,255,255,0.86)", borderRadius: 4 },
   attributionText: { color: THEME.navy, fontSize: 9 },
   mapFoot: { color: THEME.muted, fontSize: 10, marginTop: 7 },
-  actions: { gap: 0, marginTop: 2 },
+  roleActions: { flexDirection: "row", gap: 8, marginTop: 1 },
+  roleButton: { flex: 1, minHeight: 43, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderWidth: 1, borderColor: THEME.border, backgroundColor: THEME.surface, borderRadius: 11, paddingHorizontal: 5 },
+  roleIcon: { color: THEME.forest, fontSize: 16 },
+  roleButtonText: { color: THEME.navy, fontSize: 10, fontWeight: "800", flexShrink: 1 },
+  signInRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: -3 },
+  signInPrompt: { color: THEME.muted, fontSize: 10 },
+  signInLink: { color: THEME.blue, fontSize: 10, fontWeight: "900" },
   primaryButton: { minHeight: 49, backgroundColor: THEME.blue, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   primaryText: { color: THEME.surface, fontSize: 13, fontWeight: "900" },
   secondaryButton: { minHeight: 46, borderRadius: 13, borderWidth: 1, borderColor: "#D8E5F2", backgroundColor: THEME.surface, alignItems: "center", justifyContent: "center", marginTop: 8 },
