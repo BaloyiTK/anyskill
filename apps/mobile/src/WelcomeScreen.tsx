@@ -255,7 +255,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
   return <View style={styles.container}>
     <View style={styles.compactHeader}>
       <View style={styles.brandMark}><Text style={styles.brandMarkText}>A</Text></View>
-      <Text style={styles.brandName}>AnySkill</Text><View style={styles.headerSpacer} />
+      <View style={styles.headerSpacer} />
       <Text style={styles.eyebrow}>LOCAL SKILLS. REAL PEOPLE.</Text>
     </View>
     <Text style={styles.heading}>Find help nearby.</Text>
