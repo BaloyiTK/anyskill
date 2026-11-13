@@ -22,7 +22,7 @@ const tabs: Section[] = ["Profile", "Verification", "Skills", "Portfolio", "Subm
 const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, sections: { profile: false, skills: false, portfolio: false } };
 const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#4CAF50", forest: "#1B5E20", border: "#DCE5EF", surface: "#FFFFFF", bg: "#F6F8FA", hero: "#0B2545", soft: "#EAF3FF" };
 
-export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void; onComplete: () => void | Promise<void> }) {
+export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<void>; onComplete: () => void | Promise<void> }) {
   const [active, setActive] = useState<Section>("Profile");
   const [data, setData] = useState<Payload>(empty);
   const [accountType, setAccountType] = useState<AccountType | "">("");
@@ -292,7 +292,10 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       if (purpose === "ID_DOCUMENT_BACK") setIdBackReady(true);
       if (purpose === "ID_BOOK_PAGE_1") setBookPage1Ready(true);
       if (purpose === "ID_BOOK_PAGE_2") setBookPage2Ready(true);
-      if (purpose === "ID_SELFIE") setSelfieReady(true);
+      if (purpose === "ID_SELFIE") {
+        setSelfieReady(true);
+        await p.onIdentityUpdated?.();
+      }
       setIdDocumentReady(idType === "SMART_ID_CARD" ? (purpose === "ID_DOCUMENT_FRONT" || idFrontReady) && (purpose === "ID_DOCUMENT_BACK" || idBackReady) : purpose === "ID_BOOK_PAGE_1" || bookPage1Ready);
       setMessage(purpose === "ID_SELFIE" ? "Live selfie captured and uploaded securely." : "ID image uploaded securely.");
     } catch (e) {
