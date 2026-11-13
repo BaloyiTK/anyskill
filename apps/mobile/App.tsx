@@ -739,11 +739,20 @@ export default function App() {
             <Text style={s.kicker}>UPDATES</Text>
             <Text style={s.formTitle}>Notifications</Text>
             <Text style={s.subtitle}>Important request updates, account alerts and messages will appear here.</Text>
-            <View style={s.emptyState}>
-              <Text style={s.emptyStateIcon}>♧</Text>
-              <Text style={s.emptyStateTitle}>You're all caught up</Text>
-              <Text style={s.emptyStateText}>There are no notifications to show right now.</Text>
-            </View>
+            {identity?.latestCase && ["submitted", "pending", "pending_review", "in_review", "under_review"].includes(identity.latestCase.status.toLowerCase()) ? (
+              <View style={s.statusCard}>
+                <Text style={s.statusLabel}>PROFILE VERIFICATION</Text>
+                <Text style={s.statusValue}>Profile submitted for verification</Text>
+                <Text style={s.helper}>Your profile and identity documents have been submitted and are awaiting review. We'll update you when the verification process is complete.</Text>
+                <Text style={s.helper}>Submitted {new Date(identity.latestCase.submittedAt).toLocaleString()}.</Text>
+              </View>
+            ) : (
+              <View style={s.emptyState}>
+                <Text style={s.emptyStateIcon}>♧</Text>
+                <Text style={s.emptyStateTitle}>You're all caught up</Text>
+                <Text style={s.emptyStateText}>There are no notifications to show right now.</Text>
+              </View>
+            )}
           </View>}
 
           {screen === "dashboard" && account && activeTab === "account" && <View style={s.form}>
