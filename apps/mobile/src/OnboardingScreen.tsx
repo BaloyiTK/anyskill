@@ -24,6 +24,11 @@ const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#
 
 export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
   const [active, setActive] = useState<Section>("Profile");
+  const scrollViewRef = useRef<ScrollView>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => scrollViewRef.current?.scrollTo({ y: 0, animated: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [active]);
   const [onboardingSubmitted, setOnboardingSubmitted] = useState(false);
   const [data, setData] = useState<Payload>(empty);
   const [accountType, setAccountType] = useState<AccountType | "">("");
@@ -486,7 +491,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           const isActive = active === tab;
           const leftConnected = index > 0 && [
             Boolean(data.sections?.profile),
-            ["APPROVED", "VERIFIED", "COMPLETE", "COMPLETED"].includes(identityStatus.toUpperCase()),
+            verificationComplete,
             Boolean(data.sections?.skills),
             Boolean(data.sections?.portfolio),
           ][index - 1];
@@ -503,7 +508,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         })}
       </View>
     </View>
-    <ScrollView style={st.body} contentContainerStyle={{ paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
+    <ScrollView ref={scrollViewRef} style={st.body} contentContainerStyle={{ paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
       {busy && <ActivityIndicator color={colors.primary} />}
       {active === "Profile" && <>
         <Text style={st.help}>Your live identity selfie will be used as your account avatar once you take it during verification. You do not need to upload another profile picture.</Text>
