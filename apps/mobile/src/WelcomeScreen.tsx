@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppleMaps, GoogleMaps } from "expo-maps";
 import * as Location from "expo-location";
@@ -60,7 +60,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
   const [locationError, setLocationError] = useState("");
   const [providerError, setProviderError] = useState("");
 
-  const mapZoom = useMemo(() => clamp(16 - Math.log2(radiusKm / 1.5), 5, 16), [radiusKm]);
+  const mapZoom = useMemo(() => clamp(11.2 - Math.log2(radiusKm / 10), 5, 16), [radiusKm]);
   const mapCenter = coordinates ?? DEFAULT_CENTER;
 
   useEffect(() => {
@@ -279,7 +279,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
           style={StyleSheet.absoluteFill}
           cameraPosition={{ coordinates: mapCenter, zoom: mapZoom }}
           circles={mapCircle}
-          annotations={mapMarkers.map((marker) => ({ ...marker, text: marker.title }))}
+          annotations={mapMarkers.map((marker) => ({ id: marker.id, coordinates: marker.coordinates, title: marker.title }))}
           onAnnotationClick={(marker) => setSelectedProviderId(marker.id ?? null)}
         /> : <View style={styles.mapPrompt}><Text style={styles.mapPromptTitle}>Map unavailable</Text></View>}
         {selectedProvider ? <View pointerEvents="none" style={styles.providerCallout}>
