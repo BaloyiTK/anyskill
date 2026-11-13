@@ -682,7 +682,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       {!!error && <Text style={st.error}>{error}</Text>}
       <View style={st.saveButtons}>
         <View style={st.saveButtonHalf}><Action label="Save" onPress={() => void saveCurrent()} disabled={busy} /></View>
-        <View style={st.saveButtonHalf}><Action label={active === "Submit" ? "Submit & close" : "Save & Continue"} onPress={() => void continueCurrent()} disabled={busy} /></View>
+        <View style={st.saveButtonHalf}><Action label={active === "Submit" ? "Save & Submit" : "Save & Continue"} onPress={() => void continueCurrent()} disabled={busy} /></View>
       </View>
     </ScrollView>
   </View>;
