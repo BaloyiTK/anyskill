@@ -153,4 +153,7 @@ export type IdentitySummary = {
     reviewedAt: string | null;
     decisionReason: string | null;
   } | null;
+  previews?: {
+    ID_SELFIE?: string | null;
+  };
 };
