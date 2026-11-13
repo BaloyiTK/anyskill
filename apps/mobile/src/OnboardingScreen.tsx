@@ -71,7 +71,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [selfieReady, setSelfieReady] = useState(false);
   const [identityPreviews, setIdentityPreviews] = useState<Record<string, string>>({});
   const [uploadingIdentityPurpose, setUploadingIdentityPurpose] = useState<string | null>(null);
-  const [identityUploadPercent, setIdentityUploadPercent] = useState(0);
   const [selfieCameraOpen, setSelfieCameraOpen] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const selfieCameraRef = useRef<CameraView>(null);
@@ -263,7 +262,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       stage = "cloudinary_upload";
       const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/upload`;
       setUploadingIdentityPurpose(purpose);
-      setIdentityUploadPercent(0);
       const uploadResponse = await fetch(uploadUrl, { method: "POST", body: form });
       if (!uploadResponse.ok) {
         const responseBody = await uploadResponse.text().catch(() => "");
@@ -314,7 +312,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       });
       setError(`Upload failed during ${stage.replace("_", " ")}: ${message}`);
     }
-    finally { setBusy(false); setUploadingIdentityPurpose(null); setIdentityUploadPercent(0); }
+    finally { setBusy(false); setUploadingIdentityPurpose(null); }
   };
 
   const openIdentityUploadOptions = (purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2") => {
