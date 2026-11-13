@@ -401,7 +401,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     if (active === "Profile") return save("profile");
     if (active === "Skills") return save("skills");
     if (active === "Portfolio") return save("portfolio");
-    if (active === "Verification") { setMessage("Identity verification is optional for now. Any images you have uploaded remain securely saved."); return true; }
+    if (active === "Verification") { setMessage("Your ID images and live selfie are saved securely as you upload them. Tap Save & Continue to submit them for review."); return true; }
     if (!await save("profile") || !await save("skills")) return false;
     return save("portfolio");
   };
