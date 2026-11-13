@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ComponentRef } from "react";
 import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
+import * as Notifications from "expo-notifications";
 import {
   ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, Pressable,
   ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
@@ -9,6 +10,7 @@ import {
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   AccountSummary, apiRequest, clearTokens, IdentitySummary, saveTokens, signOut,
+  AppNotification, fetchNotifications, markNotificationRead,
 } from "./src/api";
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
@@ -52,6 +54,8 @@ export default function App() {
   const [resetToken, setResetToken] = useState("");
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [identity, setIdentity] = useState<IdentitySummary | null>(null);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [profileComplete, setProfileComplete] = useState(false);
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -103,6 +107,18 @@ export default function App() {
       && identityResult.value.status === "verified";
   };
 
+  const loadNotifications = async () => {
+    if (!account) return;
+    setNotificationsLoading(true);
+    try {
+      setNotifications(await fetchNotifications());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load notifications.");
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
   const loadAccount = async () => {
     const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
     setAccount(me);
@@ -144,6 +160,47 @@ export default function App() {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (!account || Platform.OS === "web") return;
+    let cancelled = false;
+    const registerDevice = async () => {
+      try {
+        if (Platform.OS === "android") {
+          await Notifications.setNotificationChannelAsync("default", {
+            name: "AnySkill updates", importance: Notifications.AndroidImportance.MAX,
+          });
+        }
+        let permission = await Notifications.getPermissionsAsync();
+        if (permission.status !== "granted") permission = await Notifications.requestPermissionsAsync();
+        if (permission.status !== "granted" || cancelled) return;
+        const token = await Notifications.getExpoPushTokenAsync();
+        if (cancelled) return;
+        await apiRequest("/notifications/devices", {
+          method: "POST",
+          body: JSON.stringify({ expoPushToken: token.data, platform: Platform.OS }),
+        }, true);
+      } catch (e) {
+        console.warn("[AnySkill notifications] Push registration failed.", e);
+      }
+    };
+    void registerDevice();
+    return () => { cancelled = true; };
+  }, [account?.id]);
+
+  useEffect(() => {
+    if (!account || activeTab !== "notifications") return;
+    void loadNotifications();
+  }, [account?.id, activeTab]);
+
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(() => {
+      setActiveTab("notifications");
+      setScreen("dashboard");
+      void loadNotifications();
+    });
+    return () => subscription.remove();
+  }, [account?.id]);
 
   useEffect(() => {
     if (otpResendSeconds <= 0) return;
@@ -738,21 +795,35 @@ export default function App() {
           {screen === "dashboard" && account && activeTab === "notifications" && <View style={s.form}>
             <Text style={s.kicker}>UPDATES</Text>
             <Text style={s.formTitle}>Notifications</Text>
-            <Text style={s.subtitle}>Important request updates, account alerts and messages will appear here.</Text>
-            {identity?.latestCase && ["submitted", "pending", "pending_review", "in_review", "under_review"].includes(identity.latestCase.status.toLowerCase()) ? (
-              <View style={s.statusCard}>
-                <Text style={s.statusLabel}>PROFILE VERIFICATION</Text>
-                <Text style={s.statusValue}>Profile submitted for verification</Text>
-                <Text style={s.helper}>Your profile and identity documents have been submitted and are awaiting review. We'll update you when the verification process is complete.</Text>
-                <Text style={s.helper}>Submitted {new Date(identity.latestCase.submittedAt).toLocaleString()}.</Text>
-              </View>
-            ) : (
+            <Text style={s.subtitle}>Job updates, verification decisions and important account messages.</Text>
+            {notificationsLoading && <ActivityIndicator color={C.primary} />}
+            {!notificationsLoading && notifications.length === 0 && (
               <View style={s.emptyState}>
                 <Text style={s.emptyStateIcon}>♧</Text>
                 <Text style={s.emptyStateTitle}>You're all caught up</Text>
-                <Text style={s.emptyStateText}>There are no notifications to show right now.</Text>
+                <Text style={s.emptyStateText}>New updates will appear here.</Text>
               </View>
             )}
+            {notifications.map((item) => (
+              <Pressable
+                key={item.id}
+                accessibilityRole="button"
+                onPress={() => {
+                  if (item.readAt) return;
+                  void markNotificationRead(item.id).then(() => {
+                    setNotifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, readAt: new Date().toISOString() } : entry));
+                  }).catch((e) => setError(e instanceof Error ? e.message : "Could not update notification."));
+                }}
+                style={[s.notificationCard, !item.readAt && s.notificationUnread]}
+              >
+                <View style={s.notificationHeader}>
+                  <Text style={s.notificationTitle}>{item.title}</Text>
+                  {!item.readAt && <View style={s.unreadDot} />}
+                </View>
+                <Text style={s.notificationBody}>{item.body}</Text>
+                <Text style={s.notificationDate}>{new Date(item.createdAt).toLocaleString()}</Text>
+              </Pressable>
+            ))}
           </View>}
 
           {screen === "dashboard" && account && activeTab === "account" && <View style={s.form}>
@@ -907,6 +978,13 @@ const s = StyleSheet.create({
   successTitle: { color: C.primary, fontSize: 13, fontWeight: "800", marginBottom: 5 }, successText: { color: C.ink, fontSize: 12, lineHeight: 18 },
   errorNotice: { backgroundColor: "#FCE9E9", borderRadius: 12, padding: 13, marginTop: 14 }, errorText: { color: C.danger, fontSize: 12, lineHeight: 18 },
   statusCard: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 16, padding: 17, marginBottom: 10 },
+  notificationCard: { backgroundColor: C.surface, borderColor: C.border, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 10 },
+  notificationUnread: { borderColor: C.primary, backgroundColor: "#F4FAF6" },
+  notificationHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  notificationTitle: { color: C.ink, fontSize: 14, fontWeight: "900", flex: 1 },
+  notificationBody: { color: C.muted, fontSize: 13, lineHeight: 20, marginTop: 8 },
+  notificationDate: { color: C.muted, fontSize: 10, marginTop: 10 },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.primary },
   statusLabel: { color: C.muted, fontSize: 10, fontWeight: "800", letterSpacing: 1.1 },
   statusValue: { color: C.ink, fontSize: 16, fontWeight: "800", marginTop: 5, marginBottom: 14 },
   divider: { height: 1, backgroundColor: C.border, marginVertical: 8 }, loader: { marginTop: 15 },
