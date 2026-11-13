@@ -27,7 +27,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [data, setData] = useState<Payload>(empty);
   const [accountType, setAccountType] = useState<AccountType | "">("");
   const [marketplaceRoles, setMarketplaceRoles] = useState<MarketplaceRole[]>([]);
-  const [profilePhotoUri, setProfilePhotoUri] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -181,25 +180,6 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       return true;
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save this section."); return false; }
     finally { setBusy(false); }
-  };
-
-  const chooseProfilePhoto = async () => {
-    setError(""); setMessage("");
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError("Allow photo-library access to choose a profile picture, or continue with your initials.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.85,
-    });
-    if (!result.canceled && result.assets[0]?.uri) {
-      setProfilePhotoUri(result.assets[0].uri);
-      setMessage("Profile picture selected.");
-    }
   };
 
   const searchHomeAddress = async (query: string) => {
@@ -470,15 +450,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     <ScrollView style={st.body} contentContainerStyle={{ paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
       {busy && <ActivityIndicator color={colors.primary} />}
       {active === "Profile" && <>
-        <View style={st.photoCard}>
-          <View style={st.avatar}>
-            {profilePhotoUri ? <Image source={{ uri: profilePhotoUri }} style={st.avatarImage} /> : <Text style={st.avatarInitials}>{[firstName.trim()[0], lastName.trim()[0]].filter(Boolean).join("").toUpperCase() || "AS"}</Text>}
-          </View>
-          <View style={st.photoCopy}>
-            <Text style={st.photoTitle}>Profile picture</Text>
-            <Pressable onPress={() => void chooseProfilePhoto()} style={st.photoButton}><Text style={st.photoButtonText}>Upload picture</Text></Pressable>
-          </View>
-        </View>
+        <Text style={st.help}>Your live identity selfie will be used as your account avatar once you take it during verification. You do not need to upload another profile picture.</Text>
         <Text style={st.label}>Account type</Text>
         <View style={st.choiceRow}>
           <Choice label="Individual" description="A personal profile" selected={accountType === "INDIVIDUAL"} onPress={() => setAccountType("INDIVIDUAL")} />
