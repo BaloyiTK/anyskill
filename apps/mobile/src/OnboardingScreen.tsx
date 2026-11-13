@@ -264,49 +264,29 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       const uploadUrl = `https://api.cloudinary.com/v1_1/${reservation.cloudName}/image/upload`;
       setUploadingIdentityPurpose(purpose);
       setIdentityUploadPercent(0);
-      const uploadResult = await new Promise<{ status: number; body: string; providerError: string | null; contentType: string | null }>((resolve, reject) => {
-        const request = new XMLHttpRequest();
-        request.open("POST", uploadUrl);
-        request.upload.onprogress = (event) => {
-          if (event.lengthComputable && event.total > 0) {
-            setIdentityUploadPercent(Math.min(99, Math.round((event.loaded / event.total) * 100)));
-          }
-        };
-        request.onload = () => resolve({
-          status: request.status,
-          body: request.responseText ?? "",
-          providerError: request.getResponseHeader("x-cld-error"),
-          contentType: request.getResponseHeader("content-type"),
-        });
-        request.onerror = () => reject(new Error("Network error while uploading the image. Please check your connection and try again."));
-        request.ontimeout = () => reject(new Error("The image upload timed out. Please try again."));
-        request.onabort = () => reject(new Error("The image upload was cancelled."));
-        request.timeout = 120000;
-        request.send(form);
-      });
-      if (uploadResult.status >= 200 && uploadResult.status < 300) {
-        setIdentityUploadPercent(100);
-      } else {
+      const uploadResponse = await fetch(uploadUrl, { method: "POST", body: form });
+      if (!uploadResponse.ok) {
+        const responseBody = await uploadResponse.text().catch(() => "");
         let cloudinaryMessage = "";
         try {
-          const parsed = JSON.parse(uploadResult.body) as { error?: { message?: string } };
+          const parsed = JSON.parse(responseBody) as { error?: { message?: string } };
           cloudinaryMessage = parsed.error?.message ?? "";
         } catch {
-          cloudinaryMessage = uploadResult.body;
+          cloudinaryMessage = responseBody;
         }
-        const providerMessage = uploadResult.providerError || cloudinaryMessage;
+        const providerMessage = uploadResponse.headers.get("x-cld-error") || cloudinaryMessage;
         const safeProviderMessage = providerMessage.replace(/[\\r\\n\\t]+/g, " ").slice(0, 240);
         console.error("[AnySkill][IdentityUpload] Cloudinary rejected upload", {
-          httpStatus: uploadResult.status,
+          httpStatus: uploadResponse.status,
           providerMessage: safeProviderMessage || "No provider detail returned",
           endpoint: "/image/upload",
           uploadUrl,
-          responseContentType: uploadResult.contentType || "unknown",
+          responseContentType: uploadResponse.headers.get("content-type") || "unknown",
         });
         throw new Error(
           safeProviderMessage
-            ? `Cloudinary rejected the upload (HTTP ${uploadResult.status}): ${safeProviderMessage}`
-            : `Cloudinary rejected the upload (HTTP ${uploadResult.status}). Please try again.`,
+            ? `Cloudinary rejected the upload (HTTP ${uploadResponse.status}): ${safeProviderMessage}`
+            : `Cloudinary rejected the upload (HTTP ${uploadResponse.status}). Please try again.`,
         );
       }
       stage = "confirm";
@@ -599,8 +579,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
               </View>
             </Pressable>
             {isUploading ? <View style={st.identityProgressWrap}>
-              <View style={st.identityProgressHeader}><Text style={st.identityProgressLabel}>Uploading document...</Text><Text style={st.identityProgressValue}>{identityUploadPercent}%</Text></View>
-              <View style={st.identityProgressTrack}><View style={[st.identityProgressFill, { width: `${identityUploadPercent}%` }]} /></View>
+              <View style={st.identityProgressHeader}><ActivityIndicator size="small" color={colors.primary} /><Text style={st.identityProgressLabel}>Uploading document securely...</Text></View>
             </View> : null}
             <Text style={st.status}>{isRejected ? "Your document was not approved. Please upload it again." : item.ready ? (identitySubmitted ? "Submitted and awaiting review" : "Uploaded — ready to submit") : "Tap the image to upload a document."}</Text>
           </View>;
