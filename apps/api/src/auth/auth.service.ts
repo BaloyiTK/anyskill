@@ -162,6 +162,15 @@ export class AuthService {
         where: { id: record.userId },
         data: { emailVerifiedAt: record.user.emailVerifiedAt ?? now },
       });
+
+      await tx.appNotification.create({
+        data: {
+          userId: record.userId,
+          title: "Email address verified",
+          body: "Your AnySkill email address has been successfully verified.",
+          data: { type: "ACCOUNT_EMAIL_VERIFIED" },
+        },
+      });
     });
 
     return { emailVerified: true };
@@ -566,6 +575,15 @@ export class AuthService {
       await tx.refreshSession.updateMany({
         where: { userId: record.userId, revokedAt: null },
         data: { revokedAt: now },
+      });
+
+      await tx.appNotification.create({
+        data: {
+          userId: record.userId,
+          title: "Password updated",
+          body: "Your AnySkill password was changed successfully. If you did not make this change, contact support.",
+          data: { type: "ACCOUNT_PASSWORD_UPDATED" },
+        },
       });
     });
 
