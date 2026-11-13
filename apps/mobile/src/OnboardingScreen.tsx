@@ -586,13 +586,13 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           const isUploading = uploadingIdentityPurpose === item.purpose;
           const caseStatus = identityStatus.toLowerCase();
           const isRejected = caseStatus.includes("reject");
-          const isVerified = caseStatus.includes("verified") || caseStatus.includes("approved");
+          const isVerified = ["verified", "approved", "identity_verified"].includes(caseStatus);
           const statusLabel = isRejected ? "Rejected" : isVerified ? "Verified" : item.ready ? (identitySubmitted ? "Pending verification" : "Uploaded — awaiting submission") : "Not submitted";
           return <View key={item.purpose} style={st.card}>
             <Text style={st.label}>{item.label}</Text>
             <Pressable style={st.identityImageFrame} onPress={() => openIdentityUploadOptions(item.purpose)} disabled={busy}>
               {identityPreviews[item.purpose] ? <Image source={{ uri: identityPreviews[item.purpose] }} style={st.identityImage} resizeMode="contain" /> : <View style={st.identityImagePlaceholder}><Text style={st.identityPlaceholderText}>Your document image will appear here</Text></View>}
-              <View style={st.identityStatusBadge}><Text style={[st.identityStatusBadgeText, isRejected ? st.identityRejectedText : item.ready && identitySubmitted ? st.identityVerifiedText : st.identityPendingText]}>{isUploading ? "Uploading" : statusLabel}</Text></View>
+              <View style={st.identityStatusBadge}><Text style={[st.identityStatusBadgeText, isRejected ? st.identityRejectedText : isVerified ? st.identityVerifiedText : st.identityPendingText]}>{isUploading ? "Uploading" : statusLabel}</Text></View>
               <View style={st.identityGlassControl}>
                 <View style={st.identityCameraCircle}><Text style={st.identityCameraIcon}>📷</Text></View>
                 <Text style={st.identityGlassText}>{item.ready ? "CHANGE DOCUMENT" : "UPLOAD DOCUMENT"}</Text>
