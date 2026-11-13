@@ -291,7 +291,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
       </View>
       <View style={styles.map} onLayout={(event) => setMapSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {tileImages.map((tile) => <Image key={tile.key} source={{ uri: tile.uri }} style={{ position: "absolute", width: TILE, height: TILE, left: tile.left, top: tile.top }} resizeMode="stretch" />)}
+          {tileImages.map((tile) => <Image key={tile.key} source={{ uri: tile.uri, headers: { "User-Agent": "AnySkill/1.0 (https://anyskill.app)" } }} style={{ position: "absolute", width: TILE, height: TILE, left: tile.left, top: tile.top }} resizeMode="stretch" />)}
         </View>
         <View pointerEvents="none" style={[styles.radiusFence, { width: radiusPixels * 2, height: radiusPixels * 2, left: mapSize.width / 2 - radiusPixels, top: mapSize.height / 2 - radiusPixels }]} />
         {visibleProviders.map((provider) => {
