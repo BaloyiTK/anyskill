@@ -157,6 +157,15 @@ export class IdentityController {
         data: { identityVerification: "PENDING", identityVerifiedAt: null },
       });
 
+      await tx.appNotification.create({
+        data: {
+          userId: user.id,
+          title: "Profile submitted for verification",
+          body: "Your profile and identity documents have been submitted. We'll notify you when the review is complete.",
+          data: { type: "PROFILE_VERIFICATION_SUBMITTED", verificationCaseId: created.id },
+        },
+      });
+
       return created;
     });
 
