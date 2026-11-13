@@ -290,10 +290,10 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
         <Text numberOfLines={1} style={styles.mapAreaLabel}>{areaLabel}</Text>
       </View>
       <View style={styles.map} onLayout={(event) => setMapSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
-        <View pointerEvents="none" style={[styles.radiusFence, { width: radiusPixels * 2, height: radiusPixels * 2, left: mapSize.width / 2 - radiusPixels, top: mapSize.height / 2 - radiusPixels }]} />
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {tileImages.map((tile) => <Image key={tile.key} source={{ uri: tile.uri }} style={{ position: "absolute", width: TILE, height: TILE, left: tile.left, top: tile.top }} resizeMode="stretch" />)}
         </View>
+        <View pointerEvents="none" style={[styles.radiusFence, { width: radiusPixels * 2, height: radiusPixels * 2, left: mapSize.width / 2 - radiusPixels, top: mapSize.height / 2 - radiusPixels }]} />
         {visibleProviders.map((provider) => {
           const point = worldPoint(provider.latitude, provider.longitude, mapZoom);
           const left = point.x - center.x + mapSize.width / 2;
@@ -313,7 +313,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
           <Text style={styles.mapPromptTitle}>Set your location</Text>
           <Text style={styles.mapPromptText}>Choose your area to see available Providers on the map.</Text>
         </View> : null}
-        {coordinates && !loadingProviders && providers.length === 0 ? <View style={styles.mapPrompt}>
+        {coordinates && !loadingProviders && visibleProviders.length === 0 ? <View style={styles.mapPrompt}>
           <Text style={styles.mapPromptTitle}>No available Providers yet</Text>
           <Text style={styles.mapPromptText}>Try a wider radius or check again later.</Text>
         </View> : null}
