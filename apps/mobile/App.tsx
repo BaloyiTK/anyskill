@@ -56,6 +56,7 @@ export default function App() {
   const [identity, setIdentity] = useState<IdentitySummary | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [profileComplete, setProfileComplete] = useState(false);
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -598,6 +599,28 @@ export default function App() {
     }
   };
 
+  const deleteProfile = async () => {
+    if (deleteConfirmation.trim() !== "DELETE" || busy) return;
+    feedback();
+    setBusy(true);
+    try {
+      await apiRequest("/auth/account", { method: "DELETE" }, true);
+      await clearTokens();
+      setAccount(null);
+      setIdentity(null);
+      setNotifications([]);
+      setProfileComplete(false);
+      setDeleteConfirmation("");
+      setActiveTab("home");
+      setScreen("welcome");
+      setMessage("Your AnySkill account has been deleted.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete your account. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const identityStatus = identity?.status ?? "not_started";
   const verified = identityStatus === "verified";
   const canRequestSkill = profileComplete && verified;
@@ -860,6 +883,25 @@ export default function App() {
               <ModeCard title="Skill Provider" description="Offer skills and respond to suitable requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
             </View>
             <Secondary label="Sign out" onPress={logout} />
+            <View style={s.deleteAccountSection}>
+              <Text style={s.deleteAccountTitle}>Delete profile</Text>
+              <Text style={s.deleteAccountText}>Permanently close your AnySkill account and remove your profile, identity-verification data, saved devices and notifications. Job and transaction records that must be retained for payment, legal or dispute purposes will be kept with your account details anonymised.</Text>
+              <Secondary label="Delete profile" onPress={() => { setDeleteConfirmation(""); setError(""); setMessage(""); setDeleteConfirmation(" "); }} />
+              {deleteConfirmation !== "" && <View style={s.deleteConfirmPanel}>
+                <Text style={s.deleteAccountText}>To confirm, type DELETE below. This action cannot be undone.</Text>
+                <TextInput
+                  accessibilityLabel="Type DELETE to confirm account deletion"
+                  value={deleteConfirmation.trim() === "" ? "" : deleteConfirmation}
+                  onChangeText={setDeleteConfirmation}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  placeholder="Type DELETE"
+                  style={s.input}
+                />
+                <Primary label="Permanently delete my account" onPress={deleteProfile} disabled={busy || deleteConfirmation.trim() !== "DELETE"} />
+                <Secondary label="Cancel" onPress={() => setDeleteConfirmation("")} />
+              </View>}
+            </View>
           </View>}
 
           {message ? <View style={s.successNotice}><Text style={s.successText}>{message}</Text></View> : null}
