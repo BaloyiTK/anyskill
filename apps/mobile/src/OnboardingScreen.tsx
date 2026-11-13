@@ -22,7 +22,7 @@ const tabs: Section[] = ["Profile", "Verification", "Skills", "Portfolio", "Subm
 const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, sections: { profile: false, skills: false, portfolio: false } };
 const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#4CAF50", forest: "#1B5E20", border: "#DCE5EF", surface: "#FFFFFF", bg: "#F6F8FA", hero: "#0B2545", soft: "#EAF3FF" };
 
-export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void }) {
+export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void; onComplete: () => void | Promise<void> }) {
   const [active, setActive] = useState<Section>("Profile");
   const [data, setData] = useState<Payload>(empty);
   const [accountType, setAccountType] = useState<AccountType | "">("");
@@ -401,10 +401,24 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     try {
       const result = await apiRequest<{ message: string }>("/profile/onboarding/submit", { method: "POST", body: "{}" }, true);
       setMessage(result.message);
+      await p.onComplete();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your available information."); }
     finally { setBusy(false); }
   };
 
+  const submittedIdentityStatuses = ["PENDING", "PENDING_REVIEW", "SUBMITTED", "IN_REVIEW", "UNDER_REVIEW", "APPROVED", "VERIFIED", "COMPLETE", "COMPLETED"];
+  const identitySubmitted = submittedIdentityStatuses.includes(identityStatus.toUpperCase());
+  const identityRequirementsComplete = idType === "SMART_ID_CARD"
+    ? idFrontReady && idBackReady && selfieReady
+    : bookPage1Ready && selfieReady;
+  const verificationComplete = identitySubmitted && identityRequirementsComplete;
+  const completedSectionCount = [
+    Boolean(data.sections?.profile),
+    verificationComplete,
+    Boolean(data.sections?.skills),
+    Boolean(data.sections?.portfolio),
+  ].filter(Boolean).length;
+  const completionPercentage = Math.round((completedSectionCount / 4) * 100);
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Draft / not complete";
   const Field = (label: string, value: string, change: (v: string) => void, multiline = false) => (
     <View style={st.field} key={label}><Text style={st.label}>{label}</Text><TextInput value={value} onChangeText={change} multiline={multiline} placeholder={label} placeholderTextColor="#93A099" style={[st.input, multiline && st.multiline]} /></View>
@@ -421,13 +435,14 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     <View style={st.progressWrap}>
       <View style={st.progressMeta}>
         <View><Text style={st.stepCount}>Step {tabs.indexOf(active) + 1} of 5</Text><Text style={st.percent}>Profile, Skills & Portfolio</Text></View>
-        <Text style={st.percentStrong}>{data.percentage}% complete</Text>
+        <Text style={st.percentStrong}>{completionPercentage}% complete</Text>
       </View>
+      <View style={st.track}><View style={[st.fill, { width: `${completionPercentage}%` }]} /></View>
       <View style={st.tabs}>
         {tabs.map((tab, index) => {
           const completed = [
             Boolean(data.sections?.profile),
-            ["APPROVED", "VERIFIED", "COMPLETE", "COMPLETED"].includes(identityStatus.toUpperCase()),
+            verificationComplete,
             Boolean(data.sections?.skills),
             Boolean(data.sections?.portfolio),
             false,
@@ -563,7 +578,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         ]).map((item) => <View key={item.purpose} style={st.card}>
           <Text style={st.label}>{item.label}</Text>
           {identityPreviews[item.purpose] ? <Image source={{ uri: identityPreviews[item.purpose] }} style={st.imagePreview} resizeMode="contain" /> : null}
-          <Text style={st.status}>{item.ready ? "Image saved securely" : "Image required"}</Text>
+          <Text style={st.status}>{item.ready ? (identitySubmitted ? "Pending verification" : "Uploaded — awaiting submission") : "Image required"}</Text>
           <View style={st.choiceRow}>
             <View style={{ flex: 1 }}><Action label="Upload from gallery" onPress={() => void uploadIdentityImage(item.purpose, "gallery")} disabled={busy} /></View>
             <View style={{ flex: 1 }}><Action label="Take picture" onPress={() => void uploadIdentityImage(item.purpose, "camera")} disabled={busy} /></View>
@@ -584,7 +599,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           </View>
         </View> : <Action label={selfieReady ? "Retake live selfie" : "Open front camera and take selfie"} onPress={() => void openSelfieCamera()} disabled={busy} />}
         {identityPreviews.ID_SELFIE ? <Image source={{ uri: identityPreviews.ID_SELFIE }} style={st.imagePreview} resizeMode="contain" /> : null}
-        <Text style={st.status}>{selfieReady ? "Live selfie captured and uploaded" : "Live selfie required"}</Text>
+        <Text style={st.status}>{selfieReady ? (identitySubmitted ? "Selfie pending verification" : "Live selfie uploaded — awaiting submission") : "Live selfie required"}</Text>
         <Text style={st.help}>Images are stored privately. An administrator will review them later; uploading does not automatically verify your identity.</Text>
         <Action label="Submit identity verification" onPress={() => void submitIdentityVerification()} disabled={busy} />
       </>}
@@ -593,6 +608,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         {Field("Skill category", category, setCategory)}{Field("Experience and service description", description, setDescription, true)}
         {Field("Supporting document name", documentName, setDocumentName)}{Field("Supporting document URL (temporary)", documentUrl, setDocumentUrl)}
         <Text style={st.help}>Document upload to AnySkill-managed cloud storage will be connected separately; this field currently records a document reference only.</Text>
+        {documentName.trim() && documentUrl.trim() ? <Text style={st.status}>Document status: Pending verification</Text> : null}
         <Text style={st.status}>Section: {status("skills")}</Text>
       </>}
       {active === "Portfolio" && <>
@@ -609,7 +625,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       {!!error && <Text style={st.error}>{error}</Text>}
       <View style={st.saveButtons}>
         <View style={st.saveButtonHalf}><Action label="Save" onPress={() => void saveCurrent()} disabled={busy} /></View>
-        <View style={st.saveButtonHalf}><Action label="Save & Continue" onPress={() => void continueCurrent()} disabled={busy} /></View>
+        <View style={st.saveButtonHalf}><Action label={active === "Submit" ? "Submit & close" : "Save & Continue"} onPress={() => void continueCurrent()} disabled={busy} /></View>
       </View>
     </ScrollView>
   </View>;
