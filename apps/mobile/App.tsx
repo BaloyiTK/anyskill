@@ -672,6 +672,7 @@ export default function App() {
             identityStatus={identityStatus}
             onBack={() => { void (async () => { await refreshHomeEligibility(); goTo("dashboard"); })(); }}
             onStartVerification={() => { void startIdentityVerification(); }}
+            onComplete={async () => { await refreshHomeEligibility(); setActiveTab("home"); setScreen("dashboard"); feedback(); }}
           />}
 
           {screen === "marketplace" && account && <MarketplaceScreen
@@ -688,7 +689,12 @@ export default function App() {
         onStartVerification={() => { void startIdentityVerification(); }}
       />}
 
-      {screen === "dashboard" && account && activeTab === "home" && <WelcomeScreen
+      {screen === "dashboard" && account && activeTab === "home" && <>
+      {!verified && <View style={s.notice}>
+        <Text style={s.noticeTitle}>Account pending verification</Text>
+        <Text style={s.noticeText}>Your account is submitted. You can explore AnySkill, but identity checks must be approved before you can use restricted marketplace actions.</Text>
+      </View>}
+      <WelcomeScreen
         showAuthActions={false}
         accountEmail={account.email}
         canRequestSkill={canRequestSkill}
@@ -705,7 +711,8 @@ export default function App() {
         onSignIn={() => {}}
         onSignUp={() => {}}
         onGoogle={() => {}}
-      />}
+      />
+      </>}
 
           {screen === "dashboard" && account && activeTab === "activities" && <View style={s.form}>
             <Text style={s.kicker}>YOUR WORK</Text>
