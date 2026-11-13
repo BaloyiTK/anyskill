@@ -234,7 +234,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, onGoogle, showAuthActions = 
 
   return <View style={styles.container}>
     <View style={styles.branding}>
-      <Image source={require("../assets/branding/anyskill-logo.png")} style={styles.logo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
+      {showAuthActions ? <Image source={require("../assets/branding/anyskill-logo.png")} style={styles.logo} resizeMode="contain" accessibilityLabel="AnySkill logo" /> : <View />}
       {!showAuthActions ? <View style={styles.avatarWrap}>
         <Pressable accessibilityRole="button" accessibilityLabel={canRequestSkill ? "Open account" : "Open account — unverified"} onPress={onAvatarPress} style={styles.avatarButton}>
           <Text style={styles.avatarText}>{(accountEmail?.trim()?.[0] ?? "U").toUpperCase()}</Text>
