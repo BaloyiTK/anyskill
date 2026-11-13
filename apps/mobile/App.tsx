@@ -174,7 +174,11 @@ export default function App() {
         let permission = await Notifications.getPermissionsAsync();
         if (permission.status !== "granted") permission = await Notifications.requestPermissionsAsync();
         if (permission.status !== "granted" || cancelled) return;
-        const token = await Notifications.getExpoPushTokenAsync();
+        const projectId = process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
+        if (!projectId) {
+          throw new Error("Set EXPO_PUBLIC_EAS_PROJECT_ID to the AnySkill EAS project ID before registering push notifications.");
+        }
+        const token = await Notifications.getExpoPushTokenAsync({ projectId });
         if (cancelled) return;
         await apiRequest("/notifications/devices", {
           method: "POST",
