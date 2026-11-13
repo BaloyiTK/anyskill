@@ -692,7 +692,7 @@ export default function App() {
       {screen === "dashboard" && account && activeTab === "home" && <>
       {!verified && <View style={s.notice}>
         <Text style={s.noticeTitle}>Account pending verification</Text>
-        <Text style={s.noticeText}>Your account is submitted. You can explore AnySkill, but identity checks must be approved before you can use restricted marketplace actions.</Text>
+        <Text style={s.noticeText}>Your account is not verified yet. Submit your identity documents for review. You can explore AnySkill, but restricted marketplace actions remain locked until approval.</Text>
       </View>}
       <WelcomeScreen
         showAuthActions={false}
