@@ -413,7 +413,19 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       if (await save("profile")) setActive("Verification");
       return;
     }
-    if (active === "Verification") { setError(""); setMessage("You can complete identity verification later. Continue building your profile."); setActive("Skills"); return; }
+    if (active === "Verification") {
+      if (!identityRequirementsComplete) {
+        setError(idType === "SMART_ID_CARD"
+          ? "Upload the front and back of your Smart ID card and take your live selfie to continue."
+          : "Upload the photo/details page of your Green ID book and take your live selfie to continue.");
+        return;
+      }
+      if (!identitySubmitted && !await submitIdentityVerification()) return;
+      setError("");
+      setMessage("Identity verification submitted for review.");
+      setActive("Skills");
+      return;
+    }
     if (active === "Skills") { if (await save("skills")) setActive("Portfolio"); return; }
     if (active === "Portfolio") { if (await save("portfolio")) setActive("Submit"); return; }
     if (await saveCurrent()) await submit();
@@ -575,13 +587,13 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         <Text style={st.status}>Section: {status("profile")}</Text>
       </>}
       {active === "Verification" && <>
-        <Text style={st.heading}>Identity verification (optional)</Text>
-        <Text style={st.help}>You can skip this step and complete it later. Identity verification does not count toward your profile completion percentage, but it is required before using restricted marketplace actions.</Text>
+        <Text style={st.heading}>Identity verification</Text>
+        <Text style={st.help}>Choose one South African ID type, upload the required images and take a live selfie. All three steps must be completed before you can continue.</Text>
         <View style={st.card}><Text style={st.label}>Current identity status</Text><Text style={st.statusValue}>{identityStatus.replace(/_/g, " ")}</Text></View>
-        <Text style={st.label}>1. Choose your South African ID type</Text>
+        <Text style={st.label}>1. Choose your South African ID type <Text style={st.requiredStar}>*</Text></Text>
         <View style={st.choiceRow}>
-          <Choice label="Smart ID card" description="Front and back of the card" selected={idType === "SMART_ID_CARD"} onPress={() => setIdType("SMART_ID_CARD")} />
-          <Choice label="Green ID book" description="Required identity pages" selected={idType === "GREEN_ID_BOOK"} onPress={() => setIdType("GREEN_ID_BOOK")} />
+          <Choice label="Smart ID card" required description="Front and back of the card" selected={idType === "SMART_ID_CARD"} onPress={() => setIdType("SMART_ID_CARD")} />
+          <Choice label="Green ID book" required description="Photo and details page" selected={idType === "GREEN_ID_BOOK"} onPress={() => setIdType("GREEN_ID_BOOK")} />
         </View>
         <Text style={st.help}>For each ID image, choose whether to upload an existing picture or take a new picture with your camera. Images must be clear, readable and no larger than 10 MB.</Text>
         {(idType === "SMART_ID_CARD" ? [
@@ -596,7 +608,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           const isVerified = ["verified", "approved", "identity_verified"].includes(caseStatus);
           const statusLabel = isRejected ? "Rejected" : isVerified ? "Verified" : item.ready ? (identitySubmitted ? "Pending verification" : "Uploaded — awaiting submission") : "Not submitted";
           return <View key={item.purpose} style={st.card}>
-            <Text style={st.label}>{item.label}</Text>
+            <Text style={st.label}>{item.label} <Text style={st.requiredStar}>*</Text></Text>
             <Pressable style={st.identityImageFrame} onPress={() => openIdentityUploadOptions(item.purpose)} disabled={busy}>
               {identityPreviews[item.purpose] ? <Image source={{ uri: identityPreviews[item.purpose] }} style={st.identityImage} resizeMode="contain" /> : <View style={st.identityImagePlaceholder}><Text style={st.identityPlaceholderText}>Your document image will appear here</Text></View>}
               <View style={st.identityStatusBadge}><Text style={[st.identityStatusBadgeText, isRejected ? st.identityRejectedText : isVerified ? st.identityVerifiedText : st.identityPendingText]}>{isUploading ? "Uploading" : statusLabel}</Text></View>
@@ -617,7 +629,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
             <Text style={st.status}>{isRejected ? "Your document was not approved. Please upload it again." : item.ready ? (identitySubmitted ? "Submitted and awaiting review" : "Uploaded — ready to submit") : "Tap the image to upload a document."}</Text>
           </View>;
         })}
-        <Text style={st.label}>2. Live selfie</Text>
+        <Text style={st.label}>2. Live selfie <Text style={st.requiredStar}>*</Text></Text>
         <Text style={st.help}>Take a fresh selfie with your front-facing camera. Gallery uploads are not allowed.</Text>
         {selfieCameraOpen ? <View style={st.cameraFrame}>
           <CameraView ref={selfieCameraRef} style={StyleSheet.absoluteFill} facing="front" />
@@ -646,8 +658,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           <View style={st.identityProgressTrack}><View style={[st.identityProgressFill, { width: `${identityUploadPercent}%` }]} /></View>
         </View> : null}
         <Text style={st.status}>{selfieReady ? (identitySubmitted ? "Selfie pending verification" : "Live selfie uploaded — awaiting submission") : "Live selfie required"}</Text>
-        <Text style={st.help}>Images are stored privately. An administrator will review them later; uploading does not automatically verify your identity.</Text>
-        <Action label="Submit identity verification" onPress={() => void submitIdentityVerification()} disabled={busy} />
+        <Text style={st.help}>Your images are stored privately and reviewed by an administrator. Uploading alone does not verify your identity; tap Save & Continue below to submit them for review.</Text>
       </>}
       {active === "Skills" && <>
         <Text style={st.heading}>Skills and experience</Text><Text style={st.help}>Add each skill and attach its supporting documents to that skill. You can skip this section and complete it later.</Text>
@@ -680,10 +691,10 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
 function Action(p: { label: string; onPress: () => void; disabled?: boolean }) {
   return <Pressable onPress={p.onPress} disabled={p.disabled} style={[st.action, p.disabled && { opacity: 0.45 }]}><Text style={st.actionText}>{p.label}</Text></Pressable>;
 }
-function Choice(p: { label: string; description: string; selected: boolean; onPress: () => void }) {
+function Choice(p: { label: string; description: string; selected: boolean; onPress: () => void; required?: boolean }) {
   return <Pressable accessibilityRole="radio" accessibilityState={{ selected: p.selected }} onPress={p.onPress} style={[st.choice, p.selected && st.choiceSelected]}>
     <View style={st.choiceTop}>
-      <Text style={st.choiceTitle}>{p.label}</Text>
+      <Text style={st.choiceTitle}>{p.label}{p.required ? <Text style={st.requiredStar}> *</Text> : null}</Text>
       <View style={[st.choiceRadio, p.selected && st.choiceRadioSelected]} />
     </View>
     <Text style={st.choiceDescription}>{p.description}</Text>
@@ -700,19 +711,19 @@ function RoleChoice(p: { label: string; description: string; selected: boolean; 
 }
 const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  hero: { backgroundColor: colors.hero, paddingHorizontal: 22, paddingTop: 22, paddingBottom: 28, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
-  heroTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 28 },
+  hero: { backgroundColor: colors.hero, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 21, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
+  heroTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
   brand: { color: "#FFFFFF", fontSize: 21, fontWeight: "900", letterSpacing: 0.2 }, brandAccent: { color: colors.green },
   backButton: { borderRadius: 22, paddingHorizontal: 16, paddingVertical: 9, backgroundColor: "#263D5B", borderWidth: 1, borderColor: "#3C5270" }, back: { color: "#E3EAFF", fontSize: 12, fontWeight: "800" },
   heroTitle: { color: "#FFFFFF", fontSize: 28, lineHeight: 34, fontWeight: "900", letterSpacing: -0.8 },
   heroSubtitle: { color: "#C3CDE0", fontSize: 13, lineHeight: 20, marginTop: 9, maxWidth: 340 },
-  progressWrap: { paddingTop: 18, paddingBottom: 4, backgroundColor: colors.bg },
+  progressWrap: { paddingTop: 13, paddingBottom: 2, backgroundColor: colors.bg },
   progressMeta: { paddingHorizontal: 20, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   stepCount: { color: colors.ink, fontSize: 13, fontWeight: "900" },
   percent: { color: colors.muted, fontSize: 11, marginTop: 4 }, percentStrong: { color: colors.primary, fontSize: 12, fontWeight: "900" },
   track: { height: 7, marginHorizontal: 20, marginTop: 11, borderRadius: 10, backgroundColor: "#E2EAF2", overflow: "hidden" },
   fill: { height: 7, backgroundColor: colors.primary, borderRadius: 10 },
-  tabs: { flexDirection: "row", flexWrap: "nowrap", paddingHorizontal: 10, paddingTop: 17, paddingBottom: 13, alignItems: "flex-start" },
+  tabs: { flexDirection: "row", flexWrap: "nowrap", paddingHorizontal: 8, paddingTop: 13, paddingBottom: 10, alignItems: "flex-start" },
   tab: { flex: 1, flexBasis: 0, minWidth: 0, alignItems: "center", justifyContent: "flex-start", gap: 7, paddingHorizontal: 0 },
   stepRow: { width: "100%", flexDirection: "row", alignItems: "center" },
   connector: { flex: 1, height: 2, backgroundColor: "#DCE5EF" },
@@ -727,8 +738,8 @@ const st = StyleSheet.create({
   tabText: { color: colors.muted, fontSize: 9, fontWeight: "800", textAlign: "center", includeFontPadding: false, flexShrink: 1 },
   activeTabText: { color: colors.primary },
   doneTabText: { color: colors.forest },
-  body: { flex: 1, paddingHorizontal: 18 },
-  heading: { color: colors.ink, fontSize: 22, fontWeight: "900", letterSpacing: -0.5, marginBottom: 10 },
+  body: { flex: 1, paddingHorizontal: 16 },
+  heading: { color: colors.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.45, marginBottom: 9 },
   photoCard: { flexDirection: "row", alignItems: "center", gap: 15, backgroundColor: colors.surface, borderWidth: 1, borderColor: "#E4EAF1", borderRadius: 20, padding: 16, marginBottom: 20, shadowColor: "#0B2545", shadowOpacity: 0.055, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 2 },
   avatar: { width: 78, height: 78, borderRadius: 24, backgroundColor: colors.soft, alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 2, borderColor: "#D5E7FA" },
   avatarImage: { width: "100%", height: "100%" }, avatarInitials: { color: colors.primary, fontSize: 24, fontWeight: "900" },
@@ -737,8 +748,8 @@ const st = StyleSheet.create({
   photoButton: { alignSelf: "flex-start", backgroundColor: colors.soft, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, marginTop: 10, borderWidth: 1, borderColor: "#D6E8FC" },
   photoButtonText: { color: colors.primary, fontSize: 12, fontWeight: "900" },
   help: { color: colors.muted, fontSize: 12, lineHeight: 19, marginBottom: 14 },
-  choiceRow: { flexDirection: "row", gap: 10, marginBottom: 17 },
-  choice: { flex: 1, minHeight: 108, borderWidth: 1.5, borderColor: "#E1E8F0", borderRadius: 17, backgroundColor: colors.surface, padding: 14, shadowColor: "#0B2545", shadowOpacity: 0.035, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  choiceRow: { flexDirection: "row", gap: 9, marginBottom: 15 },
+  choice: { flex: 1, minHeight: 98, borderWidth: 1.3, borderColor: "#E1E8F0", borderRadius: 16, backgroundColor: colors.surface, padding: 13, shadowColor: "#0B2545", shadowOpacity: 0.025, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   choiceSelected: { borderColor: colors.primary, borderWidth: 1.8, backgroundColor: "#F1F7FF", padding: 13.7 },
   choiceTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
   choiceTitle: { color: colors.ink, fontSize: 13, fontWeight: "800", flexShrink: 1 },
@@ -753,6 +764,7 @@ const st = StyleSheet.create({
   sectionHeading: { color: colors.ink, fontSize: 17, fontWeight: "900", marginTop: 19, marginBottom: 12, letterSpacing: -0.2 },
   field: { marginBottom: 16 },
   label: { color: colors.ink, fontSize: 12, fontWeight: "800", marginBottom: 8 },
+  requiredStar: { color: "#D93025", fontSize: 14, fontWeight: "900" },
   inlineFields: { flexDirection: "row", gap: 9, marginBottom: 15 }, codeField: { width: 104 }, phoneField: { flex: 1 },
   selectInput: { minHeight: 54, borderWidth: 1, borderColor: "#DCE5EF", borderRadius: 13, backgroundColor: "#FFFFFF", paddingHorizontal: 15, justifyContent: "center", marginBottom: 13 },
   selectText: { color: colors.ink, fontSize: 14, fontWeight: "600" },
@@ -760,11 +772,11 @@ const st = StyleSheet.create({
   searchInput: { minHeight: 46, borderBottomWidth: 1, borderBottomColor: "#E8EDF3", paddingHorizontal: 13, color: colors.ink },
   option: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#F0F3F7" },
   optionText: { color: colors.ink, fontSize: 13 }, optionHint: { color: colors.muted, padding: 13, fontSize: 12 },
-  saveButtons: { flexDirection: "row", gap: 10, marginTop: 12 }, saveButtonHalf: { flex: 1 },
-  input: { minHeight: 54, borderWidth: 1, borderColor: "#DCE5EF", borderRadius: 13, backgroundColor: "#FFFFFF", paddingHorizontal: 15, color: colors.ink, fontSize: 14 },
+  saveButtons: { flexDirection: "row", gap: 9, marginTop: 10, paddingBottom: 8 }, saveButtonHalf: { flex: 1 },
+  input: { minHeight: 52, borderWidth: 1, borderColor: "#DCE5EF", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, color: colors.ink, fontSize: 14 },
   multiline: { minHeight: 96, paddingTop: 13, textAlignVertical: "top" },
   status: { color: colors.muted, fontSize: 12, marginVertical: 7 }, statusValue: { color: colors.ink, fontWeight: "800", marginTop: 7, textTransform: "capitalize" },
-  card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: "#E4EAF1", borderRadius: 19, padding: 17, marginVertical: 14, shadowColor: "#0B2545", shadowOpacity: 0.045, shadowRadius: 11, shadowOffset: { width: 0, height: 4 }, elevation: 2 },
+  card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: "#E4EAF1", borderRadius: 17, padding: 14, marginVertical: 11, shadowColor: "#0B2545", shadowOpacity: 0.025, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   imagePreview: { width: "100%", height: 190, backgroundColor: "#EEF2F6", borderRadius: 14, marginTop: 11 },
   identityImageFrame: { height: 190, borderRadius: 14, overflow: "hidden", backgroundColor: "#DCE6E9", position: "relative", justifyContent: "center", alignItems: "center", marginTop: 10 },
   identityImage: { width: "100%", height: "100%", backgroundColor: "#DCE6E9" },
@@ -794,7 +806,7 @@ const st = StyleSheet.create({
   cameraButton: { flex: 1, minHeight: 50, borderRadius: 13, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   cameraCancel: { backgroundColor: "#495469" },
   cameraButtonText: { color: "#FFFFFF", fontWeight: "800", fontSize: 13 },
-  action: { backgroundColor: colors.primary, borderRadius: 13, minHeight: 54, alignItems: "center", justifyContent: "center", paddingHorizontal: 17, marginTop: 10, shadowColor: colors.primary, shadowOpacity: 0.15, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  action: { backgroundColor: colors.primary, borderRadius: 15, minHeight: 52, alignItems: "center", justifyContent: "center", paddingHorizontal: 15, marginTop: 9, shadowColor: colors.primary, shadowOpacity: 0.12, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   actionText: { color: "#FFFFFF", fontWeight: "800", fontSize: 13 },
   nav: { marginTop: 12, marginBottom: 25 },
   success: { color: colors.primary, marginTop: 13, fontSize: 12, fontWeight: "700" },
