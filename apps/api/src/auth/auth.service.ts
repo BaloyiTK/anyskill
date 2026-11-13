@@ -503,6 +503,52 @@ export class AuthService {
     };
   }
 
+  async deleteAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, deletedAt: true } });
+    if (!user || user.deletedAt) throw new UnauthorizedException("This account is no longer active.");
+
+    const now = new Date();
+    const replacementEmail = `deleted-${userId}@deleted.anyskill.invalid`;
+    const replacementPasswordHash = await argon2.hash(opaqueToken(), {
+      type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1,
+    });
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.refreshSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
+      await tx.emailVerificationToken.deleteMany({ where: { userId } });
+      await tx.passwordResetToken.deleteMany({ where: { userId } });
+      await tx.identityVerificationCase.deleteMany({ where: { userId } });
+      await tx.pushDevice.deleteMany({ where: { userId } });
+      await tx.appNotification.deleteMany({ where: { userId } });
+      await tx.mediaAsset.deleteMany({ where: { userId } });
+      await tx.onboardingDraft.deleteMany({ where: { userId } });
+      await tx.providerProfile.deleteMany({ where: { userId } });
+
+      // Keep job and response records needed for disputes, payments and audit history,
+      // but remove the account holder's free-text response message.
+      await tx.providerResponse.updateMany({ where: { providerId: userId }, data: { message: null } });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          email: replacementEmail,
+          phone: null,
+          googleSubject: null,
+          passwordHash: replacementPasswordHash,
+          emailVerifiedAt: null,
+          identityVerification: "REVOKED",
+          identityVerifiedAt: null,
+          homeLocationLabel: null,
+          homeLatitude: null,
+          homeLongitude: null,
+          deletedAt: now,
+        },
+      });
+    });
+
+    return { deleted: true };
+  }
+
   async logout(refreshToken: string) {
     await this.prisma.refreshSession.updateMany({
       where: { tokenHash: tokenHash(refreshToken), revokedAt: null },
