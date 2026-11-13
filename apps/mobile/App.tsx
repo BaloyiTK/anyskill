@@ -970,7 +970,7 @@ function ModeCard(p: { title: string; description: string; selected: boolean; on
 const s = StyleSheet.create({
   flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 32 },
-  brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginHorizontal: -20, marginBottom: 20, paddingLeft: 0, paddingRight: 20 },
+  brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginHorizontal: -20, marginBottom: 20, paddingLeft: 20, paddingRight: 20 },
   brandLogo: { width: 150, height: 52, alignSelf: "flex-start" },
   headerAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#EAF3FF", borderWidth: 2, borderColor: "#0066CC", alignItems: "center", justifyContent: "center", alignSelf: "flex-end", overflow: "hidden" },
   headerAvatarImage: { width: "100%", height: "100%", borderRadius: 21 },
