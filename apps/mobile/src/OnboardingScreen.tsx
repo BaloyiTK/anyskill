@@ -24,6 +24,7 @@ const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#
 
 export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
   const [active, setActive] = useState<Section>("Profile");
+  const [onboardingSubmitted, setOnboardingSubmitted] = useState(false);
   const [data, setData] = useState<Payload>(empty);
   const [accountType, setAccountType] = useState<AccountType | "">("");
   const [marketplaceRoles, setMarketplaceRoles] = useState<MarketplaceRole[]>([]);
@@ -434,6 +435,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     setBusy(true); setError(""); setMessage("");
     try {
       const result = await apiRequest<{ message: string }>("/profile/onboarding/submit", { method: "POST", body: "{}" }, true);
+      setOnboardingSubmitted(true);
       setMessage(result.message);
       await p.onComplete();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your available information."); }
@@ -479,7 +481,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
             verificationComplete,
             Boolean(data.sections?.skills),
             Boolean(data.sections?.portfolio),
-            false,
+            onboardingSubmitted,
           ][index];
           const isActive = active === tab;
           const leftConnected = index > 0 && [
