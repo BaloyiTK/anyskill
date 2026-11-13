@@ -157,3 +157,21 @@ export type IdentitySummary = {
     ID_SELFIE?: string | null;
   };
 };
+
+
+export type AppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown> | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export async function fetchNotifications(): Promise<AppNotification[]> {
+  return apiRequest<AppNotification[]>("/notifications", {}, true);
+}
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  await apiRequest(`/notifications/${notificationId}/read`, { method: "PATCH" }, true);
+}
