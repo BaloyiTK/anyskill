@@ -555,7 +555,9 @@ export default function App() {
               onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }}
               style={s.headerAvatar}
             >
-              <Text style={s.headerAvatarText}>{(account.email?.trim()?.[0] ?? "U").toUpperCase()}</Text>
+              {identity?.previews?.ID_SELFIE
+                ? <Image source={{ uri: identity.previews.ID_SELFIE }} style={s.headerAvatarImage} resizeMode="cover" accessibilityLabel="Your profile photo" />
+                : <Text style={s.headerAvatarText}>{(account.email?.trim()?.[0] ?? "U").toUpperCase()}</Text>}
             </Pressable> : null}
           </View>
 
@@ -841,7 +843,8 @@ const s = StyleSheet.create({
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 32 },
   brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20, paddingHorizontal: 2 },
   brandLogo: { width: 150, height: 52 },
-  headerAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#EAF3FF", borderWidth: 2, borderColor: "#0066CC", alignItems: "center", justifyContent: "center" },
+  headerAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#EAF3FF", borderWidth: 2, borderColor: "#0066CC", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  headerAvatarImage: { width: "100%", height: "100%", borderRadius: 21 },
   headerAvatarText: { color: "#0B2545", fontSize: 16, fontWeight: "900" },
   googleDivider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 18 },
   googleDividerLine: { flex: 1, height: 1, backgroundColor: C.border },
