@@ -547,9 +547,17 @@ export default function App() {
       <StatusBar barStyle="dark-content" />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-          {screen !== "welcome" && <View style={s.brandRow}>
+          <View style={s.brandRow}>
             <Image source={require("./assets/branding/anyskill-logo.png")} style={s.brandLogo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
-          </View>}
+            {account ? <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open account"
+              onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }}
+              style={s.headerAvatar}
+            >
+              <Text style={s.headerAvatarText}>{(account.email?.trim()?.[0] ?? "U").toUpperCase()}</Text>
+            </Pressable> : null}
+          </View>
 
           {screen === "welcome" && <WelcomeScreen
             onSignIn={() => goTo("login")}
@@ -696,9 +704,7 @@ export default function App() {
       </View>}
       <WelcomeScreen
         showAuthActions={false}
-        accountEmail={account.email}
         canRequestSkill={canRequestSkill}
-        onAvatarPress={() => { setActiveTab("account"); feedback(); }}
         onRequestSkill={() => {
           feedback();
           if (canRequestSkill) {
@@ -833,8 +839,10 @@ function ModeCard(p: { title: string; description: string; selected: boolean; on
 const s = StyleSheet.create({
   flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 32 },
-  brandRow: { flexDirection: "row", alignItems: "center", marginBottom: 20, paddingHorizontal: 2 },
+  brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20, paddingHorizontal: 2 },
   brandLogo: { width: 150, height: 52 },
+  headerAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#EAF3FF", borderWidth: 2, borderColor: "#0066CC", alignItems: "center", justifyContent: "center" },
+  headerAvatarText: { color: "#0B2545", fontSize: 16, fontWeight: "900" },
   googleDivider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 18 },
   googleDividerLine: { flex: 1, height: 1, backgroundColor: C.border },
   googleDividerText: { color: C.muted, fontSize: 10, fontWeight: "800", letterSpacing: 1 },
