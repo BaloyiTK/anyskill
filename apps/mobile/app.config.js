@@ -8,7 +8,7 @@ function readEnvValue(filePath, name) {
   );
   if (!line) return undefined;
   const value = line.slice(line.indexOf("=") + 1).trim();
-  return value.replace(/^(['"])(.*)\\1$/, "$2").replace(/\\s+#.*$/, "");
+  return value.replace(/^(['"])(.*)\1$/, "$2").replace(/\s+#.*$/, "");
 }
 
 module.exports = ({ config }) => {
