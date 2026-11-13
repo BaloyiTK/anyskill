@@ -27,7 +27,7 @@ type Props = {
 const RADII = [5, 10, 20, 50] as const;
 const DEFAULT_CENTER = { latitude: -26.2041, longitude: 28.0473 };
 const TILE = 256;
-const TILE_URL = process.env.EXPO_PUBLIC_MAP_TILE_URL ?? "https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png";
+const TILE_URL = process.env.EXPO_PUBLIC_MAP_TILE_URL ?? "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const EARTH_CIRCUMFERENCE_METRES = 2 * Math.PI * 6378137;
 
 // AnySkill brand palette, based on the colours supplied from the approved logo.
@@ -318,7 +318,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
           <Text style={styles.mapPromptText}>Try a wider radius or check again later.</Text>
         </View> : null}
         {loadingProviders ? <View style={styles.mapLoading}><ActivityIndicator color={THEME.blue} /><Text style={styles.mapLoadingText}>Finding nearby Providers…</Text></View> : null}
-        <View pointerEvents="none" style={styles.attribution}><Text style={styles.attributionText}>© OpenStreetMap contributors · © CARTO</Text></View>
+        <View pointerEvents="none" style={styles.attribution}><Text style={styles.attributionText}>© OpenStreetMap contributors</Text></View>
       </View>
       {providerError ? <Text style={styles.error}>{providerError}</Text> : <Text style={styles.mapFoot}>{coordinates ? `${visibleProviders.length} available ${visibleProviders.length === 1 ? "Provider" : "Providers"} within ${radiusKm} km` : "Only online and available Providers will appear here."}</Text>}
     </View>
