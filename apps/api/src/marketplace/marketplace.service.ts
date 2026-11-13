@@ -531,17 +531,27 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async startWork(providerId: string, requestId: string) {
-    const job = await this.prisma.jobEngagement.findUnique({ where: { requestId } });
-    if (!job) throw new NotFoundException("Selected job not found.");
-    if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
-    if (job.status !== "ESTIMATE_APPROVED") throw new ConflictException("The Seeker must approve the estimate before work can start.");
-    const now = new Date();
-    const claimed = await this.prisma.jobEngagement.updateMany({
-      where: { id: job.id, status: "ESTIMATE_APPROVED" },
-      data: { status: "IN_PROGRESS", workStartedAt: now, workAccumulatedMs: 0, workSegmentStartedAt: now, workPausedAt: null, workEndedAt: null },
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
+      if (job.status !== "ESTIMATE_APPROVED") throw new ConflictException("The Seeker must approve the estimate before work can start.");
+      const now = new Date();
+      const claimed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "ESTIMATE_APPROVED" },
+        data: { status: "IN_PROGRESS", workStartedAt: now, workAccumulatedMs: 0, workSegmentStartedAt: now, workPausedAt: null, workEndedAt: null },
+      });
+      if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
+      await tx.appNotification.create({
+        data: {
+          userId: job.seekerId,
+          title: "Work has started",
+          body: "Your selected Provider has started work on your job.",
+          data: { type: "JOB_WORK_STARTED", requestId },
+        },
+      });
+      return tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
     });
-    if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
-    return this.prisma.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
   }
 
   async pauseWork(providerId: string, requestId: string) {
