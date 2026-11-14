@@ -1,5 +1,5 @@
 import {
-  Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
+  BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
 } from "@nestjs/common";
 import { IsOptional, IsUUID } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
@@ -53,6 +53,9 @@ export class MarketplaceController {
 
   @Get("marketplace/media/:assetId/url")
   getEvidenceUrl(@CurrentUser() user: AuthenticatedUser, @Param("assetId") assetId: string) { return this.media.getEvidenceUrl(user.id, assetId); }
+
+  @Get("marketplace/skills")
+  listSkills(@Query("q") query?: string) { return this.marketplace.listSkills(query ?? ""); }
 
   @Post("marketplace/requests")
   @UseGuards(MarketplaceAccessGuard)
@@ -134,6 +137,20 @@ export class MarketplaceController {
     return this.marketplace.startWork(user.id, requestId);
   }
 
+  @Post("marketplace/requests/:requestId/work-break")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_START_WORK")
+  pauseWork(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.pauseWork(user.id, requestId);
+  }
+
+  @Post("marketplace/requests/:requestId/resume-work")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_START_WORK")
+  resumeWork(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.resumeWork(user.id, requestId);
+  }
+
   @Post("marketplace/requests/:requestId/additional-hours")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("PROVIDER_REQUEST_EXTRA_HOURS")
@@ -174,5 +191,29 @@ export class MarketplaceController {
     @Param("notificationId", new ParseUUIDPipe()) notificationId: string,
   ) {
     return this.marketplace.markNotificationRead(user.id, notificationId);
+  }
+
+}
+
+// Public, privacy-preserving discovery used by the signed-out welcome map.
+@Controller()
+export class PublicProviderDiscoveryController {
+  constructor(private readonly marketplace: MarketplaceService) {}
+
+  @Get("marketplace/discover/providers")
+  discoverProviders(
+    @Query("latitude") latitudeValue: string,
+    @Query("longitude") longitudeValue: string,
+    @Query("radiusKm") radiusValue: string,
+  ) {
+    const latitude = Number(latitudeValue);
+    const longitude = Number(longitudeValue);
+    const radiusKm = Number(radiusValue);
+    if (!latitudeValue || !longitudeValue || !radiusValue ||
+        !Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+        !Number.isFinite(radiusKm)) {
+      throw new BadRequestException("Latitude, longitude and radiusKm are required.");
+    }
+    return this.marketplace.discoverNearbyProviders(latitude, longitude, radiusKm);
   }
 }

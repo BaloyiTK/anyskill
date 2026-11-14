@@ -6,8 +6,9 @@ import {
   UseGuards,
   Body,
   BadRequestException,
+  Param,
 } from "@nestjs/common";
-import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PrismaService } from "../database/prisma.service";
@@ -20,6 +21,12 @@ class CreateIdentityUploadDto {
   @IsString() purpose!: "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE";
 }
 class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
+class IdentityUploadFailureDto {
+  @IsString() @IsIn(["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"]) purpose!: string;
+  @IsString() @IsIn(["read_file", "reserve", "cloudinary_upload", "confirm"]) stage!: string;
+  @IsOptional() @IsInt() @Min(100) @Max(599) httpStatus?: number;
+  @IsOptional() @IsString() @MaxLength(80) errorCode?: string;
+}
 
 @Controller("identity-verification")
 @UseGuards(JwtAuthGuard)
@@ -36,6 +43,12 @@ export class IdentityController {
   @Post("uploads/confirm")
   confirmUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: ConfirmIdentityUploadDto) {
     return this.media.confirmUpload(user.id, dto.assetId);
+  }
+
+  @Post("uploads/failure")
+  reportUploadFailure(@CurrentUser() _user: AuthenticatedUser, @Body() dto: IdentityUploadFailureDto) {
+    this.media.logIdentityUploadFailure(dto);
+    return { received: true };
   }
 
   @Get("status")
@@ -114,8 +127,8 @@ export class IdentityController {
       this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_DOCUMENT", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
       this.prisma.mediaAsset.findFirst({ where: { userId: user.id, purpose: "ID_SELFIE", status: "READY" }, orderBy: { uploadedAt: "desc" } }),
     ]);
-    const validId = body.idType === "SMART_ID_CARD" ? Boolean(front && back) : body.idType === "GREEN_ID_BOOK" ? Boolean(page1 && page2) : false;
-    if (!validId || !selfie) throw new BadRequestException("Capture both sides/pages of your selected ID document and take a live selfie before submitting verification.");
+    const validId = body.idType === "SMART_ID_CARD" ? Boolean(front && back) : body.idType === "GREEN_ID_BOOK" ? Boolean(page1) : false;
+    if (!validId || !selfie) throw new BadRequestException(body.idType === "GREEN_ID_BOOK" ? "Upload the Green ID book photo/details page and take a live selfie before submitting verification." : "Upload both sides of your Smart ID card and take a live selfie before submitting verification.");
 
     const existingPending = await this.prisma.identityVerificationCase.findFirst({
       where: {
@@ -135,13 +148,22 @@ export class IdentityController {
 
     const verificationCase = await this.prisma.$transaction(async (tx) => {
       const created = await tx.identityVerificationCase.create({
-        data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW", providerReference: (body.idType === "SMART_ID_CARD" ? "type:SMART_ID_CARD;front:" + front!.id + ";back:" + back!.id : "type:GREEN_ID_BOOK;page1:" + page1!.id + ";page2:" + page2!.id) + ";selfie:" + selfie.id },
+        data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW", providerReference: (body.idType === "SMART_ID_CARD" ? "type:SMART_ID_CARD;front:" + front!.id + ";back:" + back!.id : "type:GREEN_ID_BOOK;page1:" + page1!.id) + ";selfie:" + selfie.id },
         select: { id: true, status: true, submittedAt: true },
       });
 
       await tx.user.update({
         where: { id: user.id },
         data: { identityVerification: "PENDING", identityVerifiedAt: null },
+      });
+
+      await tx.appNotification.create({
+        data: {
+          userId: user.id,
+          title: "Profile submitted for verification",
+          body: "Your profile and identity documents have been submitted. We'll notify you when the review is complete.",
+          data: { type: "PROFILE_VERIFICATION_SUBMITTED", verificationCaseId: created.id },
+        },
       });
 
       return created;

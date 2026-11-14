@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Post, UseGuards } from "@nestjs/common";
 import { IsEmail, IsString, MaxLength, MinLength } from "class-validator";
 import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
@@ -59,6 +59,12 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   @Post("register")
   register(@Body() dto: RegisterDto) { return this.auth.register(dto); }
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("resend-registration-otp")
+  resendRegistrationOtp(@Body() dto: ForgotPasswordDto) {
+    return this.auth.resendRegistrationOtp(dto.email);
+  }
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post("verify-registration-otp")
@@ -138,6 +144,12 @@ export class AuthController {
   @Post("reset-password")
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPassword(dto.token, dto.newPassword);
+  }
+
+  @Delete("account")
+  @UseGuards(JwtAuthGuard)
+  deleteAccount(@CurrentUser() user: AuthenticatedUser) {
+    return this.auth.deleteAccount(user.id);
   }
 
   @Get("me")

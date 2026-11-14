@@ -10,6 +10,7 @@ import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 
 import { OAuth2Client } from "google-auth-library";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
+import { MediaService } from "../marketplace/media.service";
 
 const ACCESS_TOKEN_TTL = "15m";
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -33,6 +34,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly mail: MailService,
+    private readonly media: MediaService,
   ) {}
 
   private registrationOtpHash(email: string, otp: string): string {
@@ -56,6 +58,55 @@ export class AuthService {
     });
     await this.mail.sendRegistrationOtp(email, otp);
     return { otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60, message: "A six-digit verification code has been sent to your email address." };
+  }
+
+  async resendRegistrationOtp(emailInput: string) {
+    const email = emailInput.trim().toLowerCase();
+    if (await this.prisma.user.findUnique({ where: { email } })) {
+      throw new ConflictException("An account with this email already exists.");
+    }
+
+    const pending = await this.prisma.pendingRegistration.findUnique({ where: { email } });
+    const now = new Date();
+    if (!pending || pending.verifiedAt) {
+      throw new ConflictException("There is no pending email verification for this address. Start registration again.");
+    }
+    if (pending.resendAvailableAt > now) {
+      const retryAfterSeconds = Math.ceil((pending.resendAvailableAt.getTime() - now.getTime()) / 1000);
+      throw new ConflictException(`Please wait ${retryAfterSeconds} seconds before requesting another code.`);
+    }
+
+    const otp = randomInt(0, 1_000_000).toString().padStart(6, "0");
+    const updated = await this.prisma.pendingRegistration.updateMany({
+      where: { id: pending.id, verifiedAt: null, resendAvailableAt: { lte: now } },
+      data: {
+        otpHash: this.registrationOtpHash(email, otp),
+        attempts: 0,
+        expiresAt: new Date(now.getTime() + 600000),
+        resendAvailableAt: new Date(now.getTime() + 60000),
+      },
+    });
+    if (updated.count !== 1) {
+      throw new ConflictException("A code was just requested. Please wait before trying again.");
+    }
+
+    try {
+      await this.mail.sendRegistrationOtp(email, otp);
+    } catch (error) {
+      // A failed email delivery must not lock the user out for another minute.
+      await this.prisma.pendingRegistration.updateMany({
+        where: { id: pending.id, verifiedAt: null },
+        data: { resendAvailableAt: new Date() },
+      });
+      throw error;
+    }
+
+    return {
+      otpSent: true,
+      expiresInSeconds: 600,
+      resendAfterSeconds: 60,
+      message: "A new six-digit verification code has been sent to your email address.",
+    };
   }
 
   async verifyRegistrationOtp(emailInput: string, otp: string) {
@@ -112,6 +163,15 @@ export class AuthService {
       await tx.user.update({
         where: { id: record.userId },
         data: { emailVerifiedAt: record.user.emailVerifiedAt ?? now },
+      });
+
+      await tx.appNotification.create({
+        data: {
+          userId: record.userId,
+          title: "Email address verified",
+          body: "Your AnySkill email address has been successfully verified.",
+          data: { type: "ACCOUNT_EMAIL_VERIFIED" },
+        },
       });
     });
 
@@ -399,7 +459,7 @@ export class AuthService {
       include: { user: true },
     });
 
-    if (!session || session.revokedAt || session.expiresAt <= new Date()) {
+    if (!session || session.revokedAt || session.expiresAt <= new Date() || session.user.deletedAt || !session.user.emailVerifiedAt) {
       throw new UnauthorizedException("Refresh session is invalid or expired");
     }
 
@@ -443,6 +503,54 @@ export class AuthService {
       tokenType: "Bearer",
       expiresIn: 900,
     };
+  }
+
+  async deleteAccount(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, deletedAt: true } });
+    if (!user || user.deletedAt) throw new UnauthorizedException("This account is no longer active.");
+
+    const now = new Date();
+    const replacementEmail = `deleted-${userId}@deleted.anyskill.invalid`;
+    const replacementPasswordHash = await argon2.hash(opaqueToken(), {
+      type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1,
+    });
+
+    // Remove private identity images from Cloudinary before anonymising the account.
+    await this.media.deleteIdentityAssets(userId);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.refreshSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
+      await tx.emailVerificationToken.deleteMany({ where: { userId } });
+      await tx.passwordResetToken.deleteMany({ where: { userId } });
+      await tx.identityVerificationCase.deleteMany({ where: { userId } });
+      await tx.pushDevice.deleteMany({ where: { userId } });
+      await tx.appNotification.deleteMany({ where: { userId } });
+      await tx.onboardingDraft.deleteMany({ where: { userId } });
+      await tx.providerProfile.deleteMany({ where: { userId } });
+
+      // Keep job and response records needed for disputes, payments and audit history,
+      // but remove the account holder's free-text response message.
+      await tx.providerResponse.updateMany({ where: { providerId: userId }, data: { message: null } });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          email: replacementEmail,
+          phone: null,
+          googleSubject: null,
+          passwordHash: replacementPasswordHash,
+          emailVerifiedAt: null,
+          identityVerification: "REVOKED",
+          identityVerifiedAt: null,
+          homeLocationLabel: null,
+          homeLatitude: null,
+          homeLongitude: null,
+          deletedAt: now,
+        },
+      });
+    });
+
+    return { deleted: true };
   }
 
   async logout(refreshToken: string) {
@@ -517,6 +625,15 @@ export class AuthService {
       await tx.refreshSession.updateMany({
         where: { userId: record.userId, revokedAt: null },
         data: { revokedAt: now },
+      });
+
+      await tx.appNotification.create({
+        data: {
+          userId: record.userId,
+          title: "Password updated",
+          body: "Your AnySkill password was changed successfully. If you did not make this change, contact support.",
+          data: { type: "ACCOUNT_PASSWORD_UPDATED" },
+        },
       });
     });
 

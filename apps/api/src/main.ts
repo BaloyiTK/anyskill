@@ -1,11 +1,158 @@
 import "dotenv/config";
 import "reflect-metadata";
-import { ValidationPipe } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
+import { randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, renameSync, statSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import {
+  ArgumentsHost,
+  ExceptionFilter,
+  Catch,
+  HttpException,
+  Logger,
+  ValidationPipe,
+} from "@nestjs/common";
+import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 
+const MAX_ERROR_LOG_BYTES = 5 * 1024 * 1024;
+const LOG_DIRECTORY = join(__dirname, "..", "logs");
+const ERROR_LOG_FILE = join(LOG_DIRECTORY, "error.log");
+
+function redactLogText(value: string): string {
+  return value
+    .replace(/(api[_-]?secret|authorization|password|access[_-]?token|refresh[_-]?token|signature)(\s*[:=]\s*)[^\s,;]+/gi, "$1$2[REDACTED]")
+    .slice(0, 12_000);
+}
+
+function writeErrorLog(entry: Record<string, unknown>): void {
+  const logDirectory = LOG_DIRECTORY;
+  const logFile = ERROR_LOG_FILE;
+  try {
+    mkdirSync(logDirectory, { recursive: true });
+    if (existsSync(logFile) && statSync(logFile).size >= MAX_ERROR_LOG_BYTES) {
+      const backupFile = `${logFile}.1`;
+      if (existsSync(backupFile)) unlinkSync(backupFile);
+      renameSync(logFile, backupFile);
+    }
+    appendFileSync(logFile, `${JSON.stringify(entry)}\n`, { encoding: "utf8", mode: 0o600 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown log file error";
+    process.stderr.write(`[ERROR-LOGGER] Could not write ${logFile}: ${redactLogText(message)}\\n`);
+  }
+}
+
+@Catch()
+class ApiExceptionFilter implements ExceptionFilter {
+  private readonly errorLogger = new Logger("API-ERROR");
+
+  constructor(private readonly httpAdapterHost: HttpAdapterHost) {}
+
+  catch(exception: unknown, host: ArgumentsHost): void {
+    const context = host.switchToHttp();
+    const request = context.getRequest<{
+      method?: string;
+      originalUrl?: string;
+      url?: string;
+      requestId?: string;
+    }>();
+    const statusCode = exception instanceof HttpException ? exception.getStatus() : 500;
+    const errorName = exception instanceof Error ? exception.name : "UnknownError";
+    const rawMessage = exception instanceof Error ? exception.message : String(exception);
+    const message = redactLogText(rawMessage);
+    const stack = exception instanceof Error && exception.stack
+      ? redactLogText(exception.stack)
+      : undefined;
+    const path = (request.originalUrl ?? request.url ?? "").split("?")[0];
+    const requestId = request.requestId ?? "unavailable";
+    const level = statusCode >= 500 ? "error" : "warn";
+    const summary = `${request.method ?? "UNKNOWN"} ${path} ${statusCode} ${errorName}: ${message} requestId=${requestId}`;
+
+    if (statusCode >= 500) {
+      this.errorLogger.error(summary, stack);
+    } else {
+      this.errorLogger.warn(summary);
+    }
+
+    writeErrorLog({
+      timestamp: new Date().toISOString(),
+      level,
+      statusCode,
+      method: request.method ?? "UNKNOWN",
+      path,
+      requestId,
+      errorName,
+      message,
+      ...(stack ? { stack } : {}),
+    });
+
+    const httpAdapter = this.httpAdapterHost.httpAdapter;
+    const httpContext = host.switchToHttp();
+    const response = exception instanceof HttpException
+      ? exception.getResponse()
+      : { statusCode: 500, message: "Internal server error" };
+    const responseBody = typeof response === "object" && response !== null
+      ? response
+      : { statusCode, message: response };
+
+    httpAdapter.reply(httpContext.getResponse(), responseBody, statusCode);
+  }
+}
+
 async function bootstrap(): Promise<void> {
+  const logger = new Logger("HTTP");
+  mkdirSync(LOG_DIRECTORY, { recursive: true });
+  appendFileSync(ERROR_LOG_FILE, "", { encoding: "utf8", mode: 0o600 });
   const app = await NestFactory.create(AppModule);
+
+  app.use((
+    request: { method: string; originalUrl?: string; url: string; requestId?: string },
+    response: {
+      setHeader(name: string, value: string): void;
+      once(event: "finish", listener: () => void): void;
+      statusCode: number;
+    },
+    next: () => void,
+  ) => {
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+    const method = request.method;
+    const path = (request.originalUrl ?? request.url).split("?")[0];
+    request.requestId = requestId;
+
+    response.setHeader("x-request-id", requestId);
+    response.once("finish", () => {
+      const durationMs = Date.now() - startedAt;
+      const message = `${method} ${path} ${response.statusCode} ${durationMs}ms requestId=${requestId}`;
+
+      if (response.statusCode >= 500) {
+        logger.error(message);
+        writeErrorLog({
+          timestamp: new Date().toISOString(),
+          level: "error",
+          statusCode: response.statusCode,
+          method,
+          path,
+          requestId,
+          message: "HTTP request returned a server error.",
+        });
+      } else if (response.statusCode >= 400) {
+        logger.warn(message);
+        writeErrorLog({
+          timestamp: new Date().toISOString(),
+          level: "warn",
+          statusCode: response.statusCode,
+          method,
+          path,
+          requestId,
+          message: "HTTP request returned a client error.",
+        });
+      } else {
+        logger.log(message);
+      }
+    });
+
+    next();
+  });
 
   app.setGlobalPrefix("api/v1");
   app.useGlobalPipes(
@@ -16,6 +163,7 @@ async function bootstrap(): Promise<void> {
       transformOptions: { enableImplicitConversion: false },
     }),
   );
+  app.useGlobalFilters(new ApiExceptionFilter(app.get(HttpAdapterHost)));
   app.enableShutdownHooks();
 
   const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
@@ -29,6 +177,13 @@ async function bootstrap(): Promise<void> {
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, "0.0.0.0");
+  logger.log(`API listening on http://0.0.0.0:${port}/api/v1`);
+  logger.log(`API error log file: ${ERROR_LOG_FILE}`);
+  logger.log(
+    allowedOrigins.length > 0
+      ? `CORS allowed origins: ${allowedOrigins.join(", ")}`
+      : "CORS_ALLOWED_ORIGINS is empty; browser cross-origin requests are not enabled.",
+  );
 }
 
 void bootstrap();

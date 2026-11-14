@@ -44,6 +44,28 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (this.worker) clearInterval(this.worker);
   }
 
+  async listSkills(query: string) {
+    const profiles = await this.prisma.providerProfile.findMany({
+      where: { skillCategories: { isEmpty: false } }, select: { skillCategories: true }, take: 2000,
+    });
+    const counts = new Map<string, number>();
+    for (const profile of profiles) for (const skill of profile.skillCategories) {
+      const canonical = skill.trim().replace(/\s+/g, " ");
+      if (!canonical) continue;
+      const key = normalise(canonical);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const needle = normalise(query).replace(/[^\p{L}\p{N}]+/gu, "");
+    const ranked = [...counts.entries()].map(([key, count]) => {
+      const compact = key.replace(/[^\p{L}\p{N}]+/gu, "");
+      const score = !needle ? 0 : compact === needle ? 100 : compact.startsWith(needle) || needle.startsWith(compact) ? 70 : compact.includes(needle) || needle.includes(compact) ? 50 : 0;
+      return { name: key.replace(/(^|\s)\p{L}/gu, (letter) => letter.toLocaleUpperCase("en-ZA")), providerCount: count, score };
+    }).filter((skill) => !needle || skill.score > 0)
+      .sort((a, b) => b.score - a.score || b.providerCount - a.providerCount || a.name.localeCompare(b.name))
+      .slice(0, 12);
+    return { items: ranked.map(({ name, providerCount }) => ({ name, providerCount })) };
+  }
+
   async createRequest(seekerId: string, input: CreateServiceRequestDto) {
     if ((input.latitude == null) !== (input.longitude == null)) throw new BadRequestException("Provide both latitude and longitude for the job location.");
     if (input.deliveryMode === "ONSITE" && (input.latitude == null || input.longitude == null)) throw new BadRequestException("Choose the on-site job location on the map before publishing.");
@@ -146,6 +168,62 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async discoverNearbyProviders(latitude: number, longitude: number, radiusKm: number) {
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
+        !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
+        ![1, 5, 10, 20, 50].includes(radiusKm)) {
+      throw new BadRequestException("Provide valid coordinates and a supported search radius.");
+    }
+
+    // Only show Providers who are explicitly Available and have sent a fresh
+    // foreground GPS fix. Never expose their exact live coordinates publicly.
+    const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+    const profiles = await this.prisma.providerProfile.findMany({
+      where: {
+        isAvailable: true,
+        deliveryModes: { hasSome: ["ONSITE", "EITHER"] },
+        liveLatitude: { not: null },
+        liveLongitude: { not: null },
+        liveLocationUpdatedAt: { gte: cutoff },
+        user: { is: { identityVerification: "VERIFIED" } },
+      },
+      select: {
+        id: true,
+        publicName: true,
+        skillCategories: true,
+        liveLatitude: true,
+        liveLongitude: true,
+        maxTravelDistanceKm: true,
+      },
+      orderBy: { liveLocationUpdatedAt: "desc" },
+      take: 500,
+    });
+
+    const radians = (degrees: number) => degrees * Math.PI / 180;
+    const distanceKm = (lat: number, lon: number) => {
+      const dLat = radians(lat - latitude);
+      const dLon = radians(lon - longitude);
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(radians(latitude)) * Math.cos(radians(lat)) * Math.sin(dLon / 2) ** 2;
+      return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
+    return profiles.flatMap((profile) => {
+      if (profile.liveLatitude == null || profile.liveLongitude == null || !profile.skillCategories.length) return [];
+      const distance = distanceKm(profile.liveLatitude, profile.liveLongitude);
+      if (distance > radiusKm || distance > profile.maxTravelDistanceKm) return [];
+      return [{
+        id: profile.id,
+        name: profile.publicName || "Available Provider",
+        skill: profile.skillCategories[0],
+        distanceKm: Math.round(distance * 10) / 10,
+        // Approximately 100 m precision is sufficient for a discovery pin.
+        latitude: Math.round(profile.liveLatitude * 1000) / 1000,
+        longitude: Math.round(profile.liveLongitude * 1000) / 1000,
+      }];
+    }).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 100);
+  }
+
   async registerPushDevice(userId: string, input: RegisterPushDeviceDto) {
     if (!/^(Expo|Exponent)PushToken\[[^\]]+\]$/.test(input.expoPushToken)) {
       throw new ConflictException("The device did not provide a valid Expo push token.");
@@ -177,35 +255,84 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listIncomingRequests(providerId: string, cursor?: string) {
-    const requests = await this.prisma.serviceRequest.findMany({
-      where: {
-        status: "OPEN",
-        matches: { some: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] } } },
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: 21,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      select: {
-        id: true, title: true, skillCategory: true, description: true,
-        imageUrls: true, location: true, deliveryMode: true,
-        preferredStartAt: true, instructions: true, status: true, createdAt: true,
-        providerResponses: {
-          where: { providerId },
-          select: { id: true, status: true, createdAt: true },
+    const [requests, providerProfile] = await Promise.all([
+      this.prisma.serviceRequest.findMany({
+        where: {
+          status: "OPEN",
+          matches: { some: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] } } },
         },
-      },
-    });
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 21,
+        ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+        select: {
+          id: true, title: true, skillCategory: true, description: true,
+          imageUrls: true, location: true, latitude: true, longitude: true,
+          deliveryMode: true, preferredStartAt: true, instructions: true,
+          status: true, createdAt: true,
+          seeker: {
+            select: {
+              identityVerification: true,
+              onboardingDraft: { select: { profile: true } },
+            },
+          },
+          providerResponses: {
+            where: { providerId },
+            select: { id: true, status: true, createdAt: true },
+          },
+        },
+      }),
+      this.prisma.providerProfile.findUnique({
+        where: { userId: providerId },
+        select: { liveLatitude: true, liveLongitude: true, liveLocationUpdatedAt: true },
+      }),
+    ]);
     const hasMore = requests.length > 20;
-    const items = requests.slice(0, 20).map(({ providerResponses, ...request }) => ({
-      ...request,
-      alreadyResponded: providerResponses.length > 0,
-      myResponse: providerResponses[0] ?? null,
-    }));
+    const now = Date.now();
+    const hasFreshProviderLocation = providerProfile?.liveLatitude != null
+      && providerProfile.liveLongitude != null
+      && providerProfile.liveLocationUpdatedAt != null
+      && now - providerProfile.liveLocationUpdatedAt.getTime() <= 5 * 60 * 1000;
+    const providerLocation = hasFreshProviderLocation
+      ? { latitude: providerProfile!.liveLatitude!, longitude: providerProfile!.liveLongitude! }
+      : null;
+    const radians = (degrees: number) => degrees * Math.PI / 180;
+    const distanceBetween = (latitude: number, longitude: number, targetLatitude: number, targetLongitude: number) => {
+      const dLat = radians(targetLatitude - latitude);
+      const dLon = radians(targetLongitude - longitude);
+      const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(radians(latitude)) * Math.cos(radians(targetLatitude)) * Math.sin(dLon / 2) ** 2;
+      return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    const items = requests.slice(0, 20).map(({ providerResponses, seeker, ...request }) => {
+      const profile = seeker.onboardingDraft?.profile;
+      const seekerProfile = profile && typeof profile === "object" && !Array.isArray(profile)
+        ? profile as Record<string, unknown>
+        : {};
+      const firstName = typeof seekerProfile.firstName === "string" ? seekerProfile.firstName.trim() : "";
+      const lastName = typeof seekerProfile.lastName === "string" ? seekerProfile.lastName.trim() : "";
+      const photo = typeof seekerProfile.profilePhotoUrl === "string" ? seekerProfile.profilePhotoUrl.trim() : "";
+      const distanceKm = providerLocation && request.latitude != null && request.longitude != null
+        ? Math.round(distanceBetween(providerLocation.latitude, providerLocation.longitude, request.latitude, request.longitude) * 10) / 10
+        : null;
+      return {
+        ...request,
+        seeker: {
+          firstName,
+          lastName,
+          profilePhotoUrl: photo || null,
+          identityVerified: seeker.identityVerification === "VERIFIED",
+        },
+        providerLocation,
+        distanceKm,
+        alreadyResponded: providerResponses.length > 0,
+        myResponse: providerResponses[0] ?? null,
+      };
+    });
     return { items, nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null };
   }
 
   async listMyRequests(seekerId: string) {
-    return this.prisma.serviceRequest.findMany({
+    const requests = await this.prisma.serviceRequest.findMany({
       where: { seekerId },
       orderBy: { createdAt: "desc" },
       include: {
@@ -226,6 +353,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         },
       },
     });
+    const serverNow = new Date().toISOString();
+    return requests.map((request) => ({
+      ...request,
+      jobEngagement: request.jobEngagement ? { ...request.jobEngagement, serverNow } : null,
+    }));
   }
 
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
@@ -281,10 +413,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
 
   async listMyJobs(providerId: string) {
-    return this.prisma.jobEngagement.findMany({
+    const jobs = await this.prisma.jobEngagement.findMany({
       where: { providerId }, orderBy: { updatedAt: "desc" },
       include: { request: { select: { id: true, title: true, description: true, location: true, latitude: true, longitude: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
     });
+    const serverNow = new Date().toISOString();
+    return jobs.map((job) => ({ ...job, serverNow }));
   }
 
 
@@ -294,6 +428,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit completion.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("The job must be in progress before completion can be submitted.");
+      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Resume the work timer before submitting completion.");
+      const completionTime = new Date();
+      const accumulatedWorkMs = job.workAccumulatedMs + Math.max(0, completionTime.getTime() - job.workSegmentStartedAt.getTime());
       const pendingAdjustments = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pendingAdjustments > 0) throw new ConflictException("Resolve pending additional-hours approvals before submitting completion.");
       const pendingSubmission = await tx.jobCompletionSubmission.count({ where: { engagementId: job.id, status: "PENDING" } });
@@ -313,8 +450,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } },
       });
       const claimed = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: "IN_PROGRESS" },
-        data: { status: "COMPLETION_PENDING" },
+        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        data: {
+          status: "COMPLETION_PENDING",
+          workAccumulatedMs: accumulatedWorkMs,
+          workSegmentStartedAt: null,
+          workPausedAt: null,
+          workEndedAt: completionTime,
+        },
       });
       if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
       await tx.appNotification.create({
@@ -337,10 +480,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { id: submission.id },
         data: { status: input.approved ? "APPROVED" : "REJECTED", reviewNote: input.note?.trim() || null, reviewedAt: new Date() },
       });
-      await tx.jobEngagement.update({
-        where: { id: job.id },
-        data: { status: input.approved ? "COMPLETED" : "IN_PROGRESS" },
+      const reviewTime = new Date();
+      const jobUpdate = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "COMPLETION_PENDING" },
+        data: input.approved
+          ? { status: "COMPLETED", workSegmentStartedAt: null, workPausedAt: null }
+          : { status: "IN_PROGRESS", workSegmentStartedAt: reviewTime, workPausedAt: null, workEndedAt: null },
       });
+      if (jobUpdate.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
       if (input.approved) {
         await tx.serviceRequest.update({ where: { id: requestId }, data: { status: "COMPLETED" } });
       }
@@ -384,11 +531,62 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async startWork(providerId: string, requestId: string) {
-    const job = await this.prisma.jobEngagement.findUnique({ where: { requestId } });
-    if (!job) throw new NotFoundException("Selected job not found.");
-    if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
-    if (job.status !== "ESTIMATE_APPROVED") throw new ConflictException("The Seeker must approve the estimate before work can start.");
-    return this.prisma.jobEngagement.update({ where: { id: job.id }, data: { status: "IN_PROGRESS", workStartedAt: new Date() } });
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
+      if (job.status !== "ESTIMATE_APPROVED") throw new ConflictException("The Seeker must approve the estimate before work can start.");
+      const now = new Date();
+      const claimed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "ESTIMATE_APPROVED" },
+        data: { status: "IN_PROGRESS", workStartedAt: now, workAccumulatedMs: 0, workSegmentStartedAt: now, workPausedAt: null, workEndedAt: null },
+      });
+      if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
+      await tx.appNotification.create({
+        data: {
+          userId: job.seekerId,
+          title: "Work has started",
+          body: "Your selected Provider has started work on your job.",
+          data: { type: "JOB_WORK_STARTED", requestId },
+        },
+      });
+      return tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
+    });
+  }
+
+  async pauseWork(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can pause this job.");
+      if (job.status !== "IN_PROGRESS") throw new ConflictException("Only an active job can be paused.");
+      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("The work timer is already paused or not running.");
+      const now = new Date();
+      const accumulated = job.workAccumulatedMs + Math.max(0, now.getTime() - job.workSegmentStartedAt.getTime());
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        data: { workAccumulatedMs: accumulated, workSegmentStartedAt: null, workPausedAt: now },
+      });
+      if (changed.count !== 1) throw new ConflictException("The job changed. Refresh before trying again.");
+      return tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
+    });
+  }
+
+  async resumeWork(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can resume this job.");
+      if (job.status !== "IN_PROGRESS") throw new ConflictException("Only an active job can be resumed.");
+      if (!job.workPausedAt || job.workSegmentStartedAt) throw new ConflictException("The work timer is not paused.");
+      const now = new Date();
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "IN_PROGRESS", workPausedAt: job.workPausedAt, workSegmentStartedAt: null },
+        data: { workSegmentStartedAt: now, workPausedAt: null },
+      });
+      if (changed.count !== 1) throw new ConflictException("The job changed. Refresh before trying again.");
+      return tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
+    });
   }
 
   async requestAdditionalHours(providerId: string, requestId: string, input: RequestAdditionalHoursDto) {
@@ -397,6 +595,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("Extra hours can only be requested while work is in progress.");
+      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Additional hours can only be requested while the work timer is running.");
+      // Claim the active timer state before creating the request so a concurrent break cannot
+      // make an additional-hours request slip through after the timer has been paused.
+      const timerClaim = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        data: { workAccumulatedMs: job.workAccumulatedMs },
+      });
+      if (timerClaim.count !== 1) throw new ConflictException("The work timer changed. Refresh and try again.");
       const pending = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pending) throw new ConflictException("An additional-hours request is already awaiting the Seeker's decision.");
       const hours = new Prisma.Decimal(input.additionalHours);

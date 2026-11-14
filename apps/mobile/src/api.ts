@@ -77,7 +77,9 @@ export async function apiRequest<T>(
   authenticated = false,
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  headers.set("Content-Type", "application/json");
+  const isMultipart = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (!isMultipart) headers.set("Content-Type", "application/json");
+  else headers.delete("Content-Type");
 
   if (authenticated) {
     const accessToken = await getStoredItem(ACCESS_TOKEN_KEY);
@@ -151,4 +153,25 @@ export type IdentitySummary = {
     reviewedAt: string | null;
     decisionReason: string | null;
   } | null;
+  previews?: {
+    ID_SELFIE?: string | null;
+  };
 };
+
+
+export type AppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown> | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export async function fetchNotifications(): Promise<AppNotification[]> {
+  return apiRequest<AppNotification[]>("/notifications", {}, true);
+}
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  await apiRequest(`/notifications/${notificationId}/read`, { method: "PATCH" }, true);
+}

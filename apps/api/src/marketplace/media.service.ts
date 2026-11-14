@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { v2 as cloudinary } from "cloudinary";
 import { PrismaService } from "../database/prisma.service";
@@ -10,13 +10,58 @@ const FOLDERS: Record<string, string> = { JOB_COMPLETION_EVIDENCE: "anyskill/job
 
 @Injectable()
 export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
   private configured = false;
+  private cloudName = "";
+  private apiKey = "";
+  private apiSecret = "";
+
+  logIdentityUploadFailure(input: {
+    purpose: string;
+    stage: string;
+    httpStatus?: number;
+    errorCode?: string;
+  }) {
+    const details = [
+      `purpose=${input.purpose}`,
+      `stage=${input.stage}`,
+      input.httpStatus ? `httpStatus=${input.httpStatus}` : undefined,
+      input.errorCode ? `errorCode=${input.errorCode.slice(0, 80)}` : undefined,
+    ].filter(Boolean).join(" ");
+    this.logger.warn(`[identity-upload] ${details}`);
+  }
 
   constructor(private readonly prisma: PrismaService) {
-    const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } = process.env;
-    if (CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET) {
-      cloudinary.config({ cloud_name: CLOUDINARY_CLOUD_NAME, api_key: CLOUDINARY_API_KEY, api_secret: CLOUDINARY_API_SECRET, secure: true });
+    // Prefer Cloudinary's canonical CLOUDINARY_URL (cloudinary://key:secret@cloud).
+    // Keep the split variables as a backwards-compatible fallback for existing deployments.
+    const cloudinaryUrl = process.env.CLOUDINARY_URL?.trim();
+    if (cloudinaryUrl) {
+      try {
+        const parsed = new URL(cloudinaryUrl);
+        if (parsed.protocol === "cloudinary:") {
+          this.cloudName = parsed.hostname.trim();
+          this.apiKey = decodeURIComponent(parsed.username).trim();
+          this.apiSecret = decodeURIComponent(parsed.password).trim();
+        }
+      } catch {
+        this.logger.error("CLOUDINARY_URL is invalid. Expected cloudinary://<api_key>:<api_secret>@<cloud_name>.");
+      }
+    }
+
+    this.cloudName ||= process.env.CLOUDINARY_CLOUD_NAME?.trim() ?? "";
+    this.apiKey ||= process.env.CLOUDINARY_API_KEY?.trim() ?? "";
+    this.apiSecret ||= process.env.CLOUDINARY_API_SECRET?.trim() ?? "";
+
+    if (this.cloudName && this.apiKey && this.apiSecret) {
+      cloudinary.config({
+        cloud_name: this.cloudName,
+        api_key: this.apiKey,
+        api_secret: this.apiSecret,
+        secure: true,
+      });
       this.configured = true;
+    } else if (cloudinaryUrl) {
+      this.logger.error("Cloudinary is not configured. Check CLOUDINARY_URL credentials and cloud name.");
     }
   }
 
@@ -37,17 +82,19 @@ export class MediaService {
     const id = randomUUID();
     const publicId = `${userId}/${id}`;
     const timestamp = Math.floor(Date.now() / 1000);
-    // The REST endpoint /image/authenticated establishes the authenticated delivery type.
-    // Sign every client-supplied upload parameter; never expose the API secret.
+    // Sign the exact parameters the native app sends to Cloudinary. The API
+    // secret never leaves the server; the signature is short-lived and scoped
+    // to this user's reserved private identity asset.
     const params = {
       timestamp,
       public_id: publicId,
-      asset_folder: folder,
+      folder,
+      type: "authenticated",
       overwrite: false,
       unique_filename: false,
       use_filename: false,
     };
-    const signature = cloudinary.utils.api_sign_request(params, process.env.CLOUDINARY_API_SECRET!);
+    const signature = cloudinary.utils.api_sign_request(params, this.apiSecret);
     const asset = await this.prisma.mediaAsset.create({
       data: {
         userId,
@@ -62,8 +109,8 @@ export class MediaService {
 
     return {
       assetId: asset.id,
-      cloudName: process.env.CLOUDINARY_CLOUD_NAME,
-      apiKey: process.env.CLOUDINARY_API_KEY,
+      cloudName: this.cloudName,
+      apiKey: this.apiKey,
       timestamp,
       signature,
       publicId,
@@ -71,6 +118,7 @@ export class MediaService {
       maxBytes: MAX_BYTES,
     };
   }
+
 
   async confirmUpload(userId: string, assetId: string) {
     this.ensureConfigured();
@@ -87,7 +135,10 @@ export class MediaService {
 
     const folder = FOLDERS[asset.purpose];
     if (!folder) throw new BadRequestException("Unsupported upload purpose.");
-    const expectedPublicId = asset.objectKey.slice((folder + "/").length);
+    // `folder` is signed and prepended to the public_id by Cloudinary in
+    // fixed-folder mode. In dynamic-folder mode it also sets asset_folder.
+    // objectKey stores the complete Cloudinary public_id in both modes.
+    const expectedPublicId = asset.objectKey;
     let remote: any;
     try {
       remote = await cloudinary.api.resource(expectedPublicId, { resource_type: "image", type: "authenticated" });
@@ -96,17 +147,35 @@ export class MediaService {
     }
 
     const remoteMime = FORMAT_MIME[String(remote.format ?? "").toLowerCase()];
-    const valid =
-      remote.public_id === expectedPublicId &&
-      remote.asset_folder === folder &&
-      remoteMime === asset.contentType &&
-      ALLOWED.has(remoteMime) &&
-      remote.bytes === asset.sizeBytes &&
-      remote.bytes <= MAX_BYTES &&
-      remote.resource_type === "image" &&
-      remote.type === "authenticated";
+    const checks = {
+      publicIdMatches: remote.public_id === expectedPublicId,
+      // Dynamic-folder accounts expose asset_folder as the configured folder.
+      // Fixed-folder accounts expose the legacy folder path, which can include
+      // the user-specific parent directory from the public ID.
+      folderMatches: remote.asset_folder != null
+        ? remote.asset_folder === folder
+        : remote.folder === folder || remote.folder === asset.objectKey.slice(0, asset.objectKey.lastIndexOf("/")),
+      formatMatches: remoteMime === asset.contentType,
+      formatAllowed: Boolean(remoteMime && ALLOWED.has(remoteMime)),
+      sizeMatches: remote.bytes === asset.sizeBytes,
+      sizeWithinLimit: remote.bytes <= MAX_BYTES,
+      resourceTypeIsImage: remote.resource_type === "image",
+      deliveryTypeIsAuthenticated: remote.type === "authenticated",
+    };
+    const valid = Object.values(checks).every(Boolean);
 
     if (!valid) {
+      // Log only Cloudinary metadata and pass/fail flags. Never log image bytes,
+      // credentials, user IDs, or the full public ID.
+      this.logger.error(
+        `[identity-upload] Cloudinary confirmation validation failed purpose=${asset.purpose} ` +
+        `checks=${JSON.stringify(checks)} ` +
+        `expectedFolder=${folder} assetFolder=${String(remote.asset_folder ?? "missing")} ` +
+        `legacyFolder=${String(remote.folder ?? "missing")} format=${String(remote.format ?? "missing")} ` +
+        `expectedMime=${asset.contentType} bytes=${String(remote.bytes ?? "missing")} ` +
+        `expectedBytes=${asset.sizeBytes} resourceType=${String(remote.resource_type ?? "missing")} ` +
+        `deliveryType=${String(remote.type ?? "missing")}`,
+      );
       try {
         await cloudinary.uploader.destroy(expectedPublicId, {
           resource_type: "image",
@@ -133,6 +202,17 @@ export class MediaService {
     return { id: asset.id, status: "READY" };
   }
 
+  private async resolveStoredPublicId(objectKey: string, folder: string) {
+    // Older reservations used asset_folder, keeping the folder out of public_id.
+    // Resolve those existing assets while new uploads use the full folder-prefixed ID.
+    try {
+      await cloudinary.api.resource(objectKey, { resource_type: "image", type: "authenticated" });
+      return objectKey;
+    } catch {
+      return objectKey.slice((folder + "/").length);
+    }
+  }
+
   async getIdentityPreviewUrl(userId: string, purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE") {
     this.ensureConfigured();
     const asset = await this.prisma.mediaAsset.findFirst({
@@ -145,7 +225,7 @@ export class MediaService {
     const format = formatByMime[asset.contentType];
     const folder = FOLDERS[purpose];
     if (!format || !folder) throw new BadRequestException("Identity image has an unsupported format.");
-    const publicId = asset.objectKey.slice((folder + "/").length);
+    const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
     const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
     const url = cloudinary.utils.private_download_url(publicId, format, {
       resource_type: "image",
@@ -154,6 +234,34 @@ export class MediaService {
       attachment: false,
     });
     return { url, expiresAt: new Date(expiresAt * 1000).toISOString() };
+  }
+
+  async deleteIdentityAssets(userId: string) {
+    const identityPurposes = ["ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"];
+    const assets = await this.prisma.mediaAsset.findMany({
+      where: { userId, purpose: { in: identityPurposes } },
+      select: { objectKey: true, purpose: true },
+    });
+    if (assets.length === 0) return;
+    this.ensureConfigured();
+
+    for (const asset of assets) {
+      const folder = FOLDERS[asset.purpose];
+      if (!folder) continue;
+      const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
+      const result = await cloudinary.uploader.destroy(publicId, {
+        resource_type: "image",
+        type: "authenticated",
+        invalidate: true,
+      });
+      if (result.result !== "ok" && result.result !== "not found") {
+        throw new ServiceUnavailableException("Identity images could not be securely removed. Please try again later.");
+      }
+    }
+
+    await this.prisma.mediaAsset.deleteMany({
+      where: { userId, purpose: { in: identityPurposes } },
+    });
   }
 
   async getEvidenceUrl(userId: string, assetId: string) {
@@ -175,7 +283,7 @@ export class MediaService {
     if (!format) throw new BadRequestException("Evidence image has an unsupported content type.");
     const folder = FOLDERS[asset.purpose];
     if (!folder) throw new BadRequestException("Evidence image has an unsupported purpose.");
-    const publicId = asset.objectKey.slice((folder + "/").length);
+    const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
     const url = cloudinary.utils.private_download_url(publicId, format, {
       resource_type: "image",
       type: "authenticated",

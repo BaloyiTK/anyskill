@@ -2,13 +2,18 @@
   "expo": {
     "name": "AnySkill",
     "slug": "anyskill",
-    "scheme": ["anyskill", "com.anyskill.mobile"],
+    "owner": "baloyitk",
+    "scheme": [
+      "anyskill",
+      "com.anyskill.mobile"
+    ],
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "plugins": [
       "expo-secure-store",
+      "expo-camera",
       [
         "expo-notifications",
         {
@@ -26,6 +31,17 @@
         {
           "photosPermission": "AnySkill needs photo-library access so Providers can submit job-completion evidence."
         }
+      ],
+      [
+        "expo-dev-client",
+        {
+          "launchMode": "launcher",
+          "addGeneratedScheme": true
+        }
+      ],
+      [
+        "expo-maps",
+        {}
       ]
     ],
     "ios": {
@@ -34,6 +50,11 @@
     },
     "android": {
       "package": "com.anyskill.mobile"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2927d4f0-8523-4d2c-9c19-7172f7d16d26"
+      }
     }
   }
 }

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as Notifications from "expo-notifications";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { MapPinPicker } from "./MapPinPicker";
 import { Platform } from "react-native";
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { apiRequest } from "./api";
 
@@ -17,17 +17,22 @@ type RequestItem = {
   description: string;
   imageUrls: string[];
   location: string | null;
+  latitude: number | null;
+  longitude: number | null;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER";
   preferredStartAt: string | null;
   instructions: string | null;
   status: string;
   createdAt: string;
+  seeker: { firstName: string; lastName: string; profilePhotoUrl: string | null; identityVerified: boolean };
+  providerLocation: { latitude: number; longitude: number } | null;
+  distanceKm: number | null;
   alreadyResponded: boolean;
   myResponse: { id: string; status: string } | null;
 };
 type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
-type JobEngagement = { id: string; status: string; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
+type JobEngagement = { id: string; status: string; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
@@ -49,11 +54,30 @@ type Props = {
 };
 const C = { ink: "#15251E", muted: "#66756D", primary: "#176B55", border: "#E1E8E3", surface: "#FFFFFF", warning: "#FFF6E4", warningInk: "#78551A", bg: "#F5F7F5" };
 
+function getWorkElapsedMs(job: JobEngagement, now: number) {
+  const accumulated = Math.max(0, Number(job.workAccumulatedMs ?? 0));
+  if (!job.workSegmentStartedAt || job.workPausedAt || job.status !== "IN_PROGRESS") return accumulated;
+  const startedAt = Date.parse(job.workSegmentStartedAt);
+  return accumulated + (Number.isFinite(startedAt) ? Math.max(0, now - startedAt) : 0);
+}
+
+function formatWorkDuration(milliseconds: number) {
+  const totalSeconds = Math.floor(Math.max(0, milliseconds) / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
 export function MarketplaceScreen(p: Props) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
+  const [incomingRequestId, setIncomingRequestId] = useState<string | null>(null);
+  const seenIncomingRequestIds = useRef<Set<string>>(new Set());
   const [myRequests, setMyRequests] = useState<SeekerRequest[]>([]);
   const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
   const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>([]);
+  const [clockNow, setClockNow] = useState(Date.now());
+  const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const [estimateHours, setEstimateHours] = useState("2");
   const [estimateNotes, setEstimateNotes] = useState("");
   const [extraHours, setExtraHours] = useState("1");
@@ -65,6 +89,10 @@ export function MarketplaceScreen(p: Props) {
   const [jobActionBusy, setJobActionBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
+  const [skillSuggestions, setSkillSuggestions] = useState<Array<{name:string;providerCount:number}>>([]);
+  const [skillQuery, setSkillQuery] = useState("");
+  const [skillBusy, setSkillBusy] = useState(false);
+  const [instructions, setInstructions] = useState("");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [requestLatitude, setRequestLatitude] = useState<number | null>(null);
@@ -74,6 +102,7 @@ export function MarketplaceScreen(p: Props) {
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
   const [responseMessage, setResponseMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;notified:number;wave:number}|null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [verificationPrompt, setVerificationPrompt] = useState(false);
@@ -90,11 +119,40 @@ export function MarketplaceScreen(p: Props) {
   const [savingProfile, setSavingProfile] = useState(false);
   const [notifications, setNotifications] = useState<Array<{id:string;title:string;body:string;readAt:string|null;createdAt:string}>>([]);
 
+  const searchSkills = useCallback(async (query: string) => {
+    try {
+      const result = await apiRequest<{items:Array<{name:string;providerCount:number}>}>("/marketplace/skills" + (query.trim() ? "?q=" + encodeURIComponent(query.trim()) : ""), {}, true);
+      setSkillSuggestions(result.items);
+    } catch { setSkillSuggestions([]); }
+  }, []);
+
+  const addSkill = async () => {
+    const value = skillQuery.trim();
+    if (value.length < 2) { setError("Enter at least 2 characters for the skill."); return; }
+    setSkillBusy(true); setError(""); setNotice("");
+    try {
+      const result = await apiRequest<{items:Array<{name:string;providerCount:number}>}>("/marketplace/skills?q=" + encodeURIComponent(value), {}, true);
+      const match = result.items.find((item) => item.name.trim().toLocaleLowerCase("en-ZA") === value.toLocaleLowerCase("en-ZA"))
+        ?? result.items.find((item) => item.name.toLocaleLowerCase("en-ZA").includes(value.toLocaleLowerCase("en-ZA")) || value.toLocaleLowerCase("en-ZA").includes(item.name.toLocaleLowerCase("en-ZA")));
+      if (match) {
+        setCategory(match.name); setSkillQuery(match.name);
+        setNotice("This skill already exists in AnySkill. We selected the existing skill instead of creating a duplicate.");
+      } else {
+        setCategory(value); setSkillQuery(value);
+        setNotice("Skill added to this request. AnySkill will use the entered skill category for matching.");
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not check the skill catalogue."); }
+    finally { setSkillBusy(false); }
+  };
+
   const loadRequests = useCallback(async () => {
     setBusy(true); setError("");
     try {
       const result = await apiRequest<{ items: RequestItem[] }>("/marketplace/incoming-requests", {}, true);
+      const newlyMatched = result.items.filter((item) => !item.alreadyResponded && !seenIncomingRequestIds.current.has(item.id));
+      result.items.forEach((item) => seenIncomingRequestIds.current.add(item.id));
       setRequests(result.items);
+      if (newlyMatched.length > 0 && newlyMatched[0]) setIncomingRequestId(newlyMatched[0].id);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load incoming requests."); }
     finally { setBusy(false); }
   }, []);
@@ -102,15 +160,56 @@ export function MarketplaceScreen(p: Props) {
   const loadMyRequests = useCallback(async () => {
     setBusy(true); setError("");
     try {
+      const requestStartedAt = Date.now();
       const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
+      const receivedAt = Date.now();
+      const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
+      if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
       setMyRequests(result);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load your requests."); }
     finally { setBusy(false); }
   }, []);
 
   useEffect(() => {
-    if (p.mode === "seeker") { void loadMyRequests(); void loadHomeLocation(); }
-  }, [p.mode, loadMyRequests]);
+    if (p.mode === "seeker") { void loadMyRequests(); void loadHomeLocation(); void searchSkills(""); }
+  }, [p.mode, loadMyRequests, searchSkills]);
+
+  useEffect(() => {
+    if (p.mode !== "seeker") return;
+    const timer = setTimeout(() => { void searchSkills(skillQuery); }, 220);
+    return () => clearTimeout(timer);
+  }, [skillQuery, p.mode, searchSkills]);
+
+  useEffect(() => {
+    const clock = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(clock);
+  }, []);
+
+  useEffect(() => {
+    const refreshJobState = async () => {
+      try {
+        if (p.mode === "provider") {
+          const requestStartedAt = Date.now();
+          const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>("/marketplace/my-jobs", {}, true);
+          const receivedAt = Date.now();
+          const serverNow = result.find((item) => item.serverNow)?.serverNow;
+          if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
+          setMyJobs(result);
+        } else {
+          const requestStartedAt = Date.now();
+          const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
+          const receivedAt = Date.now();
+          const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
+          if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
+          setMyRequests(result);
+        }
+      } catch {
+        // Retain the last server-confirmed state during temporary network loss.
+      }
+    };
+    const refresh = setInterval(() => { void refreshJobState(); }, 12000);
+    return () => clearInterval(refresh);
+  }, [p.mode]);
 
   const selectProvider = async (requestId: string, responseId: string) => {
     setSelectingOfferId(responseId); setError(""); setNotice("");
@@ -141,6 +240,18 @@ export function MarketplaceScreen(p: Props) {
     try { await apiRequest(`/marketplace/requests/${requestId}/start-work`, { method: "POST" }, true); setNotice("Work marked as started."); await loadMyJobs(); }
     catch (e) { setError(e instanceof Error ? e.message : "Could not start work."); }
     finally { setJobActionBusy(false); }
+  };
+
+  const changeWorkBreak = async (requestId: string, paused: boolean) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/${paused ? "work-break" : "resume-work"}`, { method: "POST" }, true);
+      setNotice(paused ? "Work timer paused. Break time will not be counted." : "Work timer resumed.");
+      await loadMyJobs();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update the work timer.");
+      await loadMyJobs();
+    } finally { setJobActionBusy(false); }
   };
 
   const requestExtraHours = async (requestId: string) => {
@@ -233,15 +344,23 @@ export function MarketplaceScreen(p: Props) {
     if (deliveryMode === "ONSITE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the on-site job location on the map or use GPS before publishing."); return; }
     setBusy(true); setError(""); setNotice(""); setVerificationPrompt(false);
     try {
-      await apiRequest("/marketplace/requests", {
+      const published = await apiRequest<{
+        id: string; title: string; skillCategory: string; location: string | null;
+        matching?: { notified?: number; wave?: number };
+      }>("/marketplace/requests", {
         method: "POST",
         body: JSON.stringify({
-          title: title.trim(), skillCategory: category.trim(), description: description.trim(),
+          title: title.trim(), skillCategory: category.trim(), description: description.trim(), ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
           ...(location.trim() ? { location: location.trim() } : {}),
           ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude } : {}), deliveryMode,
         }),
       }, true);
-      setTitle(""); setCategory(""); setDescription(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
+      setMatchingRequest({
+        id: published.id, title: published.title, skillCategory: published.skillCategory,
+        location: published.location, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1,
+      });
+      setTitle(""); setCategory(""); setSkillQuery(""); setDescription(""); setInstructions(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
+      await loadMyRequests();
       setNotice("Your service request has been published.");
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not submit your request.";
@@ -302,14 +421,27 @@ export function MarketplaceScreen(p: Props) {
 
   const loadMyJobs = useCallback(async () => {
     try {
+      const requestStartedAt = Date.now();
       const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>("/marketplace/my-jobs", {}, true);
+      const receivedAt = Date.now();
+      const serverNow = result.find((item) => item.serverNow)?.serverNow;
+      if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
       setMyJobs(result);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load selected jobs."); }
   }, []);
 
   useEffect(() => {
-    if (p.mode === "provider") { void loadRequests(); void loadProviderProfile(); void loadMyJobs(); }
+    if (p.mode !== "provider") return;
+    void loadRequests(); void loadProviderProfile(); void loadMyJobs();
+    const refreshIncoming = setInterval(() => { void loadRequests(); }, 8000);
+    return () => clearInterval(refreshIncoming);
   }, [p.mode, loadRequests, loadProviderProfile, loadMyJobs]);
+
+  useEffect(() => {
+    if (p.mode === "provider" && p.pendingRequestId && requests.some((request) => request.id === p.pendingRequestId)) {
+      setIncomingRequestId(p.pendingRequestId);
+    }
+  }, [p.mode, p.pendingRequestId, requests]);
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerAvailable || !providerLiveTrackingEnabled ||
@@ -384,6 +516,11 @@ export function MarketplaceScreen(p: Props) {
     } finally { setBusy(false); }
   };
 
+  const activeIncomingRequest = requests.find((request) => request.id === incomingRequestId) ?? null;
+  const matchingRequestOffers = matchingRequest
+    ? myRequests.find((request) => request.id === matchingRequest.id)?.providerResponses.length ?? 0
+    : 0;
+
   return <View style={s.container}>
     <View style={s.header}>
       <Pressable onPress={p.onBack}><Text style={s.back}>‹ Back</Text></Pressable>
@@ -401,10 +538,21 @@ export function MarketplaceScreen(p: Props) {
         {!p.verified && <View style={s.notice}><Text style={s.noticeTitle}>Verification required to publish</Text><Text style={s.noticeText}>You can complete this request form now. AnySkill will only publish it after your identity is verified.</Text></View>}
         <Text style={s.label}>What do you need done?</Text>
         <TextInput value={title} onChangeText={setTitle} placeholder="e.g. Repair a leaking kitchen tap" style={s.input} />
-        <Text style={s.label}>Skill category</Text>
-        <TextInput value={category} onChangeText={setCategory} placeholder="e.g. Plumbing" style={s.input} />
+        <Text style={s.label}>Choose a skill</Text>
+        <TextInput value={skillQuery} onChangeText={(value) => { setSkillQuery(value); setCategory(""); }} placeholder="Search skills, e.g. Plumbing" style={s.input} />
+        <Text style={s.helper}>Popular skills are based on skills listed by AnySkill Providers.</Text>
+        <View style={s.skillChipRow}>
+          {skillSuggestions.slice(0, 8).map((skill) => <Pressable key={skill.name} onPress={() => { setCategory(skill.name); setSkillQuery(skill.name); }} style={[s.skillChip, category.toLowerCase() === skill.name.toLowerCase() && s.skillChipActive]}>
+            <Text style={[s.skillChipText, category.toLowerCase() === skill.name.toLowerCase() && s.skillChipTextActive]}>{skill.name}</Text>
+          </Pressable>)}
+        </View>
+        {skillQuery.trim().length >= 2 && !skillSuggestions.some((skill) => skill.name.toLowerCase() === skillQuery.trim().toLowerCase()) ?
+          <Pressable onPress={() => void addSkill()} disabled={skillBusy} style={s.addSkillButton}><Text style={s.addSkillText}>{skillBusy ? "Adding..." : "Add skill"}</Text></Pressable> : null}
+        {category ? <Text style={s.selectedSkill}>Selected skill: {category}</Text> : <Text style={s.helper}>Choose an existing skill or add a new one. AnySkill checks the catalogue automatically to avoid duplicates.</Text>}
         <Text style={s.label}>Describe the work</Text>
         <TextInput value={description} onChangeText={setDescription} placeholder="Explain what needs to be done..." multiline style={[s.input, s.multiline]} />
+        <Text style={s.label}>Special notes (optional)</Text>
+        <TextInput value={instructions} onChangeText={setInstructions} placeholder="Add access details, preferred times, materials, or anything else the Provider should know..." multiline style={[s.input, s.multiline]} />
         <Text style={s.label}>Service area (not your exact street address)</Text>
         <TextInput value={location} onChangeText={setLocation} placeholder="e.g. Rosebank, Johannesburg" style={s.input} />
         <View style={s.choiceRow}>
@@ -464,6 +612,10 @@ export function MarketplaceScreen(p: Props) {
             </View>)}            {request.jobEngagement ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Assessment and job-cost approval</Text>
               <Text style={s.meta}>Status: {request.jobEngagement.status.replaceAll("_", " ")}</Text>
+              {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(request.jobEngagement.status) ? <>
+                <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(request.jobEngagement, clockNow + clockOffsetMs))}</Text>
+                <Text style={s.meta}>{request.jobEngagement.workPausedAt ? "Provider is on a break" : request.jobEngagement.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting your review" : request.jobEngagement.status === "COMPLETED" ? "Final recorded working time" : "Work timer running"}</Text>
+              </> : null}
               <Text style={s.meta}>Agreed hourly rate: R {Number(request.jobEngagement.hourlyRate).toFixed(2)}</Text>
               <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee).toFixed(2)}</Text>
               {request.jobEngagement.estimatedHours != null ? <Text style={s.meta}>Estimated hours: {Number(request.jobEngagement.estimatedHours).toFixed(2)}</Text> : null}
@@ -544,14 +696,19 @@ export function MarketplaceScreen(p: Props) {
           </> : null}
           {job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
           {job.status === "ESTIMATE_APPROVED" ? <Primary label="Start approved work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
-          {job.status === "IN_PROGRESS" ? <>
+          {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(job.status) ? <>
+            <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(job, clockNow + clockOffsetMs))}</Text>
+            <Text style={s.meta}>{job.workPausedAt ? "ON BREAK · timer paused" : job.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting Seeker review" : job.status === "COMPLETED" ? "Final recorded working time" : "Work timer running"}</Text>
+          </> : null}
+          {job.status === "IN_PROGRESS" ? <Secondary label={job.workPausedAt ? "Resume work" : "Take a break"} onPress={() => void changeWorkBreak(job.request.id, !job.workPausedAt)} disabled={jobActionBusy} /> : null}
+          {job.status === "IN_PROGRESS" && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
             <Text style={s.helper}>Need more time? Explain why and request approval before doing the extra work.</Text>
             <TextInput value={extraHours} onChangeText={setExtraHours} keyboardType="decimal-pad" placeholder="Additional hours" style={s.input} />
             <TextInput value={extraReason} onChangeText={setExtraReason} placeholder="Explain why extra hours are required..." multiline style={[s.input, s.multiline]} />
             <Primary label="Request additional hours" onPress={() => void requestExtraHours(job.request.id)} disabled={jobActionBusy || !(Number(extraHours) > 0) || extraReason.trim().length < 10} />
           </> : null}
           {job.adjustments.map((adjustment) => <Text key={adjustment.id} style={s.meta}>Extra hours request: {Number(adjustment.requestedHours).toFixed(2)} · R {Number(adjustment.requestedAmount).toFixed(2)} · {adjustment.status}</Text>)}
-{job.status === "IN_PROGRESS" ? <>
+{job.status === "IN_PROGRESS" && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
             <Text style={s.helper}>When the agreed work is finished, submit completion notes and photo evidence. The Seeker must approve before the job is marked completed.</Text>
             <Text style={s.label}>Completion notes</Text>
             <TextInput value={completionNotes} onChangeText={setCompletionNotes} placeholder="Summarise the work completed, tests performed and any handover details..." multiline style={[s.input, s.multiline]} />
@@ -579,30 +736,135 @@ export function MarketplaceScreen(p: Props) {
         {!p.verified && <View style={s.notice}><Text style={s.noticeTitle}>You can explore available work</Text><Text style={s.noticeText}>When you tap Accept, AnySkill will ask you to verify your identity first. The request can be reopened after approval if it is still available.</Text></View>}
         <Secondary label="Refresh requests" onPress={() => void loadRequests()} />
         {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
-        {requests.map((request) => <View key={request.id} style={[s.card, request.id === p.pendingRequestId && s.highlight]}>
-          <Text style={s.cardTitle}>{request.title}</Text>
-          <Text style={s.meta}>{request.skillCategory} · {request.deliveryMode === "ONSITE" ? "On-site" : request.deliveryMode === "REMOTE" ? "Remote" : "On-site or remote"}</Text>
-          <Text style={s.body}>{request.description}</Text>
-          {request.location ? <Text style={s.meta}>Area: {request.location}</Text> : null}
-          {request.preferredStartAt ? <Text style={s.meta}>Preferred: {new Date(request.preferredStartAt).toLocaleString()}</Text> : null}
-          {request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
-        </View>)}
+        {requests.map((request) => {
+          const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
+          const initials = seekerName.split(/\\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "S";
+          const mapLatitude = request.providerLocation?.latitude ?? request.latitude;
+          const mapLongitude = request.providerLocation?.longitude ?? request.longitude;
+          const hasJobPin = request.latitude != null && request.longitude != null;
+          const hasMapCenter = mapLatitude != null && mapLongitude != null;
+          return <View key={request.id} style={[s.card, request.id === p.pendingRequestId && s.highlight]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 13 }}>
+              {request.seeker?.profilePhotoUrl
+                ? <Image source={{ uri: request.seeker.profilePhotoUrl }} style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: "#EAF3FF" }} />
+                : <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: "#DCEBFA", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#0B2545", fontSize: 19, fontWeight: "900" }}>{initials}</Text></View>}
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>{seekerName}</Text>
+                <Text style={s.meta}>Skill Seeker · Requesting your help</Text>
+                <Text style={{ color: request.seeker?.identityVerified ? "#1B5E20" : C.warningInk, fontSize: 11, fontWeight: "800", marginTop: 4 }}>
+                  {request.seeker?.identityVerified ? "✓ Identity verified" : "Identity not verified"}
+                </Text>
+              </View>
+            </View>
+            <Text style={s.cardTitle}>{request.title}</Text>
+            <Text style={s.meta}>{request.skillCategory} · {request.deliveryMode === "ONSITE" ? "On-site" : request.deliveryMode === "REMOTE" ? "Remote" : "On-site or remote"}</Text>
+            <Text style={s.body}>{request.description}</Text>
+            {request.instructions ? <View style={s.offerCard}><Text style={s.offerTitle}>Special notes</Text><Text style={s.body}>{request.instructions}</Text></View> : null}
+            {request.imageUrls?.length ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
+              {request.imageUrls.slice(0, 4).map((uri, index) => <Image key={uri + index} source={{ uri }} style={{ width: 76, height: 76, borderRadius: 9, backgroundColor: "#E8EDF2" }} />)}
+            </View> : null}
+            {request.location ? <Text style={s.meta}>Job area: {request.location}</Text> : null}
+            {request.preferredStartAt ? <Text style={s.meta}>Preferred: {new Date(request.preferredStartAt).toLocaleString()}</Text> : null}
+            {request.deliveryMode !== "REMOTE" && hasJobPin && hasMapCenter ? <>
+              <Text style={s.sectionSmall}>Your location and job location</Text>
+              <MapPinPicker latitude={mapLatitude!} longitude={mapLongitude!} selectedLatitude={request.latitude} selectedLongitude={request.longitude} onSelect={() => undefined} readOnly showCenterMarker={!!request.providerLocation} />
+              <Text style={s.meta}>{request.providerLocation ? "Blue dot: your current location · Pin: Seeker's job location" : "Your live location is unavailable. Showing the job pin only."}</Text>
+              <Text style={{ color: C.primary, fontWeight: "900", fontSize: 14, marginTop: 5 }}>
+                {request.distanceKm != null ? `${request.distanceKm.toFixed(1)} km straight-line distance to the job` : "Distance unavailable — enable fresh location sharing while Available"}
+              </Text>
+            </> : request.deliveryMode !== "REMOTE" ? <Text style={s.meta}>Job map and distance will appear when location coordinates are available.</Text> : <Text style={s.meta}>Remote request · no travel required.</Text>}
+            {request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
+          </View>;
+        })}
         {!busy && requests.length === 0 && <Text style={s.helper}>No open requests are available right now. Pull to refresh or check again later.</Text>}
       </>}
       {notice ? <Text style={s.success}>{notice}</Text> : null}
       {error ? <Text style={s.error}>{error}</Text> : null}
     </ScrollView>
+    <Modal visible={p.mode === "provider" && activeIncomingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setIncomingRequestId(null)}>
+      {activeIncomingRequest ? <View style={{ flex: 1, backgroundColor: "#0B2545", paddingTop: 48 }}>
+        <View style={{ paddingHorizontal: 20, paddingBottom: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ color: "#FFFFFF", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
+          <Text style={{ color: "#BFDBFE", fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>INCOMING REQUEST</Text>
+        </View>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 28 }}>
+          <Text style={{ color: "#BFDBFE", textAlign: "center", fontSize: 11, fontWeight: "900", letterSpacing: 1, marginTop: 8 }}>A SEEKER NEEDS YOUR HELP</Text>
+          <View style={{ backgroundColor: "#FFFFFF18", borderColor: "#FFFFFF35", borderWidth: 1, borderRadius: 18, padding: 15, marginTop: 16, flexDirection: "row", alignItems: "center", gap: 13 }}>
+            {activeIncomingRequest.seeker.profilePhotoUrl
+              ? <Image source={{ uri: activeIncomingRequest.seeker.profilePhotoUrl }} style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#DCEBFA" }} />
+              : <View style={{ width: 68, height: 68, borderRadius: 34, backgroundColor: "#DCEBFA", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#0B2545", fontSize: 22, fontWeight: "900" }}>{[activeIncomingRequest.seeker.firstName, activeIncomingRequest.seeker.lastName].filter(Boolean).map((part) => part[0]?.toUpperCase()).join("") || "S"}</Text></View>}
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: "#FFFFFF", fontSize: 18, fontWeight: "900" }}>{[activeIncomingRequest.seeker.firstName, activeIncomingRequest.seeker.lastName].filter(Boolean).join(" ") || "Skill Seeker"}</Text>
+              <Text style={{ color: "#DBEAFE", fontSize: 12, marginTop: 3 }}>Skill Seeker · Requesting your help</Text>
+              <Text style={{ color: activeIncomingRequest.seeker.identityVerified ? "#86EFAC" : "#FDE68A", fontSize: 11, fontWeight: "800", marginTop: 6 }}>{activeIncomingRequest.seeker.identityVerified ? "✓ Identity verified" : "Identity not verified"}</Text>
+            </View>
+          </View>
+          <Text style={{ color: "#FFFFFF", fontSize: 22, fontWeight: "900", marginTop: 20 }}>{activeIncomingRequest.skillCategory}</Text>
+          <Text style={{ color: "#FFFFFF", fontSize: 17, fontWeight: "800", marginTop: 5 }}>{activeIncomingRequest.title}</Text>
+          <Text style={{ color: "#DBEAFE", fontSize: 13, lineHeight: 19, marginTop: 9 }}>{activeIncomingRequest.description}</Text>
+          {activeIncomingRequest.deliveryMode !== "REMOTE" && activeIncomingRequest.latitude != null && activeIncomingRequest.longitude != null ? <>
+            <Text style={{ color: "#BFDBFE", fontSize: 11, fontWeight: "900", marginTop: 18, marginBottom: 8 }}>JOB LOCATION AND DISTANCE</Text>
+            {activeIncomingRequest.providerLocation ? <MapPinPicker latitude={activeIncomingRequest.providerLocation.latitude} longitude={activeIncomingRequest.providerLocation.longitude} selectedLatitude={activeIncomingRequest.latitude} selectedLongitude={activeIncomingRequest.longitude} onSelect={() => undefined} readOnly showCenterMarker /> : <MapPinPicker latitude={activeIncomingRequest.latitude} longitude={activeIncomingRequest.longitude} selectedLatitude={activeIncomingRequest.latitude} selectedLongitude={activeIncomingRequest.longitude} onSelect={() => undefined} readOnly />}
+            <Text style={{ color: "#FFFFFF", fontSize: 16, fontWeight: "900", marginTop: 8 }}>{activeIncomingRequest.distanceKm != null ? `${activeIncomingRequest.distanceKm.toFixed(1)} km straight-line distance` : "Distance unavailable — enable live location while Available"}</Text>
+          </> : <Text style={{ color: "#DBEAFE", marginTop: 15, fontSize: 12 }}>{activeIncomingRequest.deliveryMode === "REMOTE" ? "Remote request · no travel required" : "Job coordinates are not available."}</Text>}
+          {activeIncomingRequest.location ? <Text style={{ color: "#DBEAFE", fontSize: 12, marginTop: 9 }}>📍 {activeIncomingRequest.location}</Text> : null}
+          {activeIncomingRequest.instructions ? <View style={{ backgroundColor: "#FFFFFF18", borderRadius: 12, padding: 12, marginTop: 14 }}><Text style={{ color: "#BFDBFE", fontSize: 11, fontWeight: "900" }}>SPECIAL NOTES</Text><Text style={{ color: "#FFFFFF", fontSize: 13, marginTop: 6 }}>{activeIncomingRequest.instructions}</Text></View> : null}
+          {activeIncomingRequest.imageUrls?.length ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 }}>{activeIncomingRequest.imageUrls.slice(0, 6).map((uri, index) => <Image key={uri + index} source={{ uri }} style={{ width: 82, height: 82, borderRadius: 10, backgroundColor: "#FFFFFF22" }} />)}</View> : null}
+          <TextInput value={responseMessage} onChangeText={setResponseMessage} placeholder="Optional message to the Seeker" placeholderTextColor="#A9BDD0" style={{ backgroundColor: "#FFFFFF", borderRadius: 12, minHeight: 48, paddingHorizontal: 13, marginTop: 18, color: "#0B2545" }} />
+          <Primary label="Accept request" onPress={() => { void acceptRequest(activeIncomingRequest); setIncomingRequestId(null); }} disabled={busy || activeIncomingRequest.alreadyResponded} />
+          <Secondary label="Close for now" onPress={() => setIncomingRequestId(null)} />
+        </ScrollView>
+      </View> : null}
+    </Modal>
+    <Modal visible={p.mode === "seeker" && matchingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setMatchingRequest(null)}>
+      <View style={{ flex: 1, backgroundColor: "#F6F8FA", paddingHorizontal: 22, paddingTop: 54, paddingBottom: 28 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ color: "#0B2545", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
+          <Text style={{ color: "#1B5E20", fontSize: 11, fontWeight: "900" }}>REQUEST SUBMITTED</Text>
+        </View>
+        <View style={{ alignItems: "center", marginTop: 48 }}>
+          <ActivityIndicator size="large" color="#0066CC" />
+          <Text style={{ color: "#0B2545", fontSize: 27, lineHeight: 33, fontWeight: "900", textAlign: "center", marginTop: 24 }}>Finding the best Provider for you.</Text>
+          <Text style={{ color: "#66756D", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 10 }}>AnySkill is matching your request with available Providers who have the right skills and service coverage.</Text>
+        </View>
+        {matchingRequest ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 16, marginTop: 30 }}>
+          <Text style={{ color: "#66756D", fontSize: 11, fontWeight: "800" }}>YOUR REQUEST</Text>
+          <Text style={{ color: "#0B2545", fontSize: 17, fontWeight: "900", marginTop: 7 }}>{matchingRequest.title}</Text>
+          <Text style={{ color: "#0066CC", fontSize: 13, fontWeight: "800", marginTop: 5 }}>{matchingRequest.skillCategory}</Text>
+          {matchingRequest.location ? <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }}>📍 {matchingRequest.location}</Text> : null}
+        </View> : null}
+        <View style={{ marginTop: 28, gap: 19 }}>
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>01</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Matching skills and experience</Text><Text style={{ color: "#66756D", fontSize: 12 }}>Finding Providers suited to your job</Text></View></View>
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>02</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Checking availability and distance</Text><Text style={{ color: "#66756D", fontSize: 12 }}>Prioritising suitable nearby Providers</Text></View></View>
+          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>03</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Sending your request</Text><Text style={{ color: "#66756D", fontSize: 12 }}>{matchingRequestOffers > 0 ? `${matchingRequestOffers} Provider response(s) received` : matchingRequest?.notified ? `Notified ${matchingRequest.notified} matched Provider(s) in wave ${matchingRequest.wave} · waiting for responses` : "Waiting for matching Providers"}</Text></View></View>
+        </View>
+        <View style={{ marginTop: "auto", backgroundColor: "#EAF3FF", borderRadius: 14, padding: 14 }}>
+          <Text style={{ color: "#17446D", fontSize: 13, lineHeight: 19 }}>You can leave this screen. AnySkill will keep your request active and notify you when Providers respond.</Text>
+        </View>
+        <Pressable onPress={() => setMatchingRequest(null)} style={{ backgroundColor: "#0066CC", borderRadius: 13, padding: 15, alignItems: "center", marginTop: 14 }}>
+          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>View my requests</Text>
+        </Pressable>
+      </View>
+    </Modal>
   </View>;
 }
 
 function Primary(p: { label: string; onPress: () => void; disabled?: boolean }) {
   return <Pressable onPress={p.onPress} disabled={p.disabled} style={[s.primary, p.disabled && { opacity: 0.45 }]}><Text style={s.primaryText}>{p.label}</Text></Pressable>;
 }
-function Secondary(p: { label: string; onPress: () => void }) {
-  return <Pressable onPress={p.onPress} style={s.secondary}><Text style={s.secondaryText}>{p.label}</Text></Pressable>;
+function Secondary(p: { label: string; onPress: () => void; disabled?: boolean }) {
+  return <Pressable onPress={p.onPress} disabled={p.disabled} style={[s.secondary, p.disabled && { opacity: 0.45 }]}><Text style={s.secondaryText}>{p.label}</Text></Pressable>;
 }
 
 const s = StyleSheet.create({
+  skillChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8, marginBottom: 8 },
+  skillChip: { borderWidth: 1, borderColor: "#D7E2EA", backgroundColor: "#FFFFFF", borderRadius: 18, paddingHorizontal: 12, paddingVertical: 8 },
+  skillChipActive: { borderColor: "#0066CC", backgroundColor: "#EAF3FF" },
+  skillChipText: { color: "#27445D", fontSize: 12, fontWeight: "600" },
+  skillChipTextActive: { color: "#0066CC" },
+  addSkillButton: { alignSelf: "flex-start", backgroundColor: "#0B2545", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 9, marginTop: 4 },
+  addSkillText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
+  selectedSkill: { color: "#1B5E20", fontSize: 12, fontWeight: "700", marginTop: 6 },
   container: { flex: 1, backgroundColor: C.bg },
   header: { paddingHorizontal: 20, paddingTop: 15, paddingBottom: 18, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
   back: { color: C.primary, fontWeight: "800", fontSize: 13, marginBottom: 14 },

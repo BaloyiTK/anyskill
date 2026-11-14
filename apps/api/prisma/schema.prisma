@@ -111,6 +111,7 @@ model User {
   identityVerifiedAt       DateTime?                   @map("identity_verified_at")
   createdAt                DateTime                    @default(now()) @map("created_at")
   updatedAt                DateTime                    @updatedAt @map("updated_at")
+  deletedAt                DateTime?                   @map("deleted_at")
   refreshSessions          RefreshSession[]
   emailVerificationTokens  EmailVerificationToken[]
   passwordResetTokens      PasswordResetToken[]
@@ -322,7 +323,11 @@ model JobEngagement {
   estimateDecisionNote String?             @map("estimate_decision_note") @db.VarChar(1000)
   estimateSubmittedAt DateTime?            @map("estimate_submitted_at")
   estimateDecidedAt   DateTime?            @map("estimate_decided_at")
-  workStartedAt       DateTime?            @map("work_started_at")
+  workStartedAt          DateTime? @map("work_started_at")
+  workAccumulatedMs       Int       @default(0) @map("work_accumulated_ms")
+  workSegmentStartedAt    DateTime? @map("work_segment_started_at")
+  workPausedAt            DateTime? @map("work_paused_at")
+  workEndedAt             DateTime? @map("work_ended_at")
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt @map("updated_at")
   request             ServiceRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
