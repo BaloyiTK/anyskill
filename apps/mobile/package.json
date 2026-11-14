@@ -11,24 +11,24 @@
     "web": "expo start --web --localhost --port 8081"
   },
   "dependencies": {
-    "expo": "^58.0.23",
-    "expo-secure-store": "~58.0.2",
+    "expo": "58.0.25",
+    "expo-auth-session": "58.0.18",
+    "expo-camera": "58.0.14",
+    "expo-crypto": "58.0.8",
+    "expo-dev-client": "58.0.20",
+    "expo-file-system": "58.0.13",
+    "expo-image-picker": "58.0.10",
+    "expo-location": "58.0.22",
+    "expo-maps": "58.0.11",
+    "expo-notifications": "58.1.9",
+    "expo-secure-store": "58.0.3",
     "react": "19.3.0",
-    "react-native": "0.88.0",
-    "expo-auth-session": "~58.0.17",
-    "expo-crypto": "~58.0.7",
-    "expo-notifications": "~58.1.8",
-    "expo-image-picker": "~58.0.10",
-    "expo-location": "~58.0.18",
-    "expo-camera": "~58.0.14",
-    "expo-file-system": "~58.0.13",
-    "react-native-safe-area-context": "~5.11.1",
-    "expo-maps": "~58.0.11",
-    "expo-dev-client": "~58.0.19"
+    "react-native": "0.88.1",
+    "react-native-safe-area-context": "5.11.1"
   },
   "devDependencies": {
-    "@types/react": "~19.3.0",
-    "typescript": "~5.9.3",
-    "@types/node": "^24.10.0"
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "typescript": "6.0.3"
   }
 }
