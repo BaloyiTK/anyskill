@@ -5,9 +5,8 @@ on:
     branches:
       - main
       - "foundation/**"
+      - "feature/**"
   pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -43,8 +42,11 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+      - name: Verify protected project standards and configuration
+        run: node scripts/check-project-standards.mjs
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma client
         run: pnpm db:generate
