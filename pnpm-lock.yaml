@@ -128,6 +128,9 @@ importers:
       expo-secure-store:
         specifier: 58.0.3
         version: 58.0.3(expo@58.0.25)
+      expo-system-ui:
+        specifier: 58.0.7
+        version: 58.0.7(expo@58.0.25)(react-native@0.88.1(@babel/core@7.29.13)(@types/react@19.3.0)(react@19.3.0))
       react:
         specifier: 19.3.0
         version: 19.3.0
@@ -1957,6 +1960,16 @@ packages:
   expo-server@58.1.0:
     resolution: {integrity: sha512-jo7I6uHnP5OQYKx3+7lbpdVVnOEwFj2ryDkQdauUQSwgh2HuMUkiFXWUIVe01ts6DLRoff5U0Tv+uNb3CMq/kw==}
     engines: {node: ^22.13.0 || ^24.3.0 || ^26.0.0 || >=27.0.0}
+
+  expo-system-ui@58.0.7:
+    resolution: {integrity: sha512-XxrMY93bT8MpZUlc6uRKzkeUoXhBi/Eq8j3qx2pjk0ARCV+0Ed1eqzmgxuAoKZ+10cyOZVSke5Hhi78NVFReuQ==}
+    peerDependencies:
+      expo: '*'
+      react-native: '*'
+      react-native-web: '*'
+    peerDependenciesMeta:
+      react-native-web:
+        optional: true
 
   expo-updates-interface@58.0.1:
     resolution: {integrity: sha512-OF+3BtMXtUsXWDfpHVNus9yHpx7WjMwjxDfeeN9LQBYSq/UtYmNNHBSfzChYTuqljWFSOAHRfsDykV9EB73Wlg==}
@@ -5526,6 +5539,15 @@ snapshots:
       expo: 58.0.25(@babel/core@7.29.13)(@expo/dom-webview@58.0.2)(react-native@0.88.1(@babel/core@7.29.13)(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
 
   expo-server@58.1.0: {}
+
+  expo-system-ui@58.0.7(expo@58.0.25)(react-native@0.88.1(@babel/core@7.29.13)(@types/react@19.3.0)(react@19.3.0)):
+    dependencies:
+      '@react-native/normalize-colors': 0.88.1
+      debug: 4.4.3
+      expo: 58.0.25(@babel/core@7.29.13)(@expo/dom-webview@58.0.2)(react-native@0.88.1(@babel/core@7.29.13)(@types/react@19.3.0)(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
+      react-native: 0.88.1(@babel/core@7.29.13)(@types/react@19.3.0)(react@19.3.0)
+    transitivePeerDependencies:
+      - supports-color
 
   expo-updates-interface@58.0.1(expo@58.0.25):
     dependencies:

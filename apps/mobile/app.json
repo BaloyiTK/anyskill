@@ -42,6 +42,12 @@
     },
     "android": {
       "package": "com.anyskill.mobile"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2927d4f0-8523-4d2c-9c19-7172f7d16d26"
+      }
+    },
+    "owner": "baloyitk"
   }
 }
