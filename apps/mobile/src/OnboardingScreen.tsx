@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentRef } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { File, UploadType } from "expo-file-system";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -24,7 +24,7 @@ const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#
 
 export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
   const [active, setActive] = useState<Section>("Profile");
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<ComponentRef<typeof ScrollView>>(null);
   useEffect(() => {
     const frame = requestAnimationFrame(() => scrollViewRef.current?.scrollTo({ y: 0, animated: true }));
     return () => cancelAnimationFrame(frame);
