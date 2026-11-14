@@ -33,6 +33,13 @@
         }
       ],
       [
+        "expo-dev-client",
+        {
+          "launchMode": "launcher",
+          "addGeneratedScheme": true
+        }
+      ],
+      [
         "expo-maps",
         {}
       ]

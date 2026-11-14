@@ -99,6 +99,18 @@ const hasMapsPlugin = plugins.some((plugin) =>
 );
 if (!hasMapsPlugin) fail("The expo-maps config plugin must remain in apps/mobile/app.json.");
 
+const devClientPlugin = plugins.find((plugin) =>
+  (Array.isArray(plugin) ? plugin[0] : plugin) === "expo-dev-client"
+);
+if (!Array.isArray(devClientPlugin) ||
+    devClientPlugin[1]?.launchMode !== "launcher" ||
+    devClientPlugin[1]?.addGeneratedScheme !== true) {
+  fail("The expo-dev-client plugin must register its generated scheme and open the development launcher.");
+}
+if (mobilePackage.scripts?.start !== "expo start --dev-client --lan") {
+  fail("The mobile start script must explicitly start the development client over LAN.");
+}
+
 const eas = readJson("apps/mobile/eas.json");
 if (typeof eas.cli?.version !== "string" || !eas.cli.version.includes("27.10.0")) {
   fail("apps/mobile/eas.json must retain the approved EAS CLI compatibility floor (27.10.0).");
@@ -143,7 +155,9 @@ if (errors.length) {
   console.log("✓ AI agent instructions reference the mandatory project standards.");
   console.log("✓ Mobile direct dependencies use exact versions and the approved baseline is intact.");
   console.log("✓ Expo owner, slug, Android application ID, and EAS project ID are protected.");
-  console.log("✓ Expo Maps plugin and all three EAS build profiles are protected.");
+  console.log("✓ Expo Maps and development-client plugins preserve native Maps and QR/deep-link behavior.");
+  console.log("✓ Mobile Metro starts explicitly in development-client LAN mode.");
+  console.log("✓ All three EAS build profiles are protected.");
   console.log("✓ Generated Android native project remains ignored.");
   console.log("✓ pnpm lockfile format is protected.");
   if (notices.length) for (const notice of notices) console.log(`! ${notice}`);
