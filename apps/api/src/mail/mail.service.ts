@@ -41,6 +41,13 @@ export class MailService {
     });
   }
 
+  async sendPasswordResetOtp(email: string, otp: string): Promise<void> {
+    await this.getTransporter().sendMail({
+      from: process.env.MAIL_FROM!, to: email, subject: "Your AnySkill password reset code",
+      text: `Your AnySkill password reset code is ${otp}. It expires in 10 minutes. If you did not request it, ignore this email.`,
+    });
+  }
+
   async sendPasswordResetEmail(email: string, token: string): Promise<void> {
     const url = `${process.env.APP_DEEP_LINK ?? "anyskill://"}reset-password?token=${encodeURIComponent(token)}`;
     await this.getTransporter().sendMail({
