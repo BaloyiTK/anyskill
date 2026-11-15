@@ -910,7 +910,7 @@ export default function App() {
                 <TextInput
                   ref={otpInputRef}
                   value={otp}
-                  onChangeText={(value) => setOtp(value.replace(/\\D/g, "").slice(0, 6))}
+                  onChangeText={(value) => setOtp(value.replace(/\D/g, "").slice(0, 6))}
                   keyboardType="number-pad"
                   textContentType="oneTimeCode"
                   autoComplete="sms-otp"
@@ -921,7 +921,7 @@ export default function App() {
                 />
               </Pressable>
             </View>
-            <Primary label="Verify code" onPress={verifyPasswordResetOtp} disabled={busy || !/^\\d{6}$/.test(otp)} />
+            <Primary label="Verify code" onPress={verifyPasswordResetOtp} disabled={busy || !/^\d{6}$/.test(otp)} />
             <Pressable
               accessibilityRole="button"
               accessibilityState={{ disabled: busy || otpResendSeconds > 0 }}
