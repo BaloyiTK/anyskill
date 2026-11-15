@@ -1,22 +1,27 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { networkInterfaces } from "node:os";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import net from "node:net";
 
 const root = process.cwd();
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const node = process.execPath;
 const git = process.platform === "win32" ? "git.exe" : "git";
 const expectedBranch = "feature/shared-job-work-timer";
 let failed = false;
+const skipped = [];
 
 function run(label, command, args, options = {}) {
   console.log(`\n=== ${label} ===`);
   const result = spawnSync(command, args, {
-    cwd: root,
+    cwd: options.cwd ?? root,
     stdio: "inherit",
     shell: process.platform === "win32" && command === pnpm,
     timeout: options.timeout ?? 180_000,
-    env: process.env,
+    env: { ...process.env, ...(options.env ?? {}) },
+    windowsHide: true,
   });
   if (result.error || result.status !== 0) {
     failed = true;
@@ -31,6 +36,40 @@ function gitOutput(args) {
   const result = spawnSync(git, args, { cwd: root, encoding: "utf8", windowsHide: true });
   if (result.status !== 0) throw new Error(result.stderr?.trim() || "Git command failed");
   return result.stdout.trim();
+}
+
+function getLocalIPv4Addresses() {
+  const addresses = [];
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === "IPv4" && !entry.internal) addresses.push(entry.address);
+    }
+  }
+  return [...new Set(addresses)];
+}
+
+function checkApiEnvironment() {
+  console.log("\n=== API environment configuration ===");
+  const envPath = resolve(root, "apps/api/.env");
+  if (!existsSync(envPath)) {
+    failed = true;
+    console.error("✗ apps/api/.env is missing. Create it locally; do not commit secrets.");
+    return;
+  }
+  const keys = new Set(
+    readFileSync(envPath, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1])
+      .filter(Boolean),
+  );
+  const required = ["DATABASE_URL", "JWT_ACCESS_SECRET"];
+  const missing = required.filter((key) => !keys.has(key));
+  if (missing.length) {
+    failed = true;
+    console.error(`✗ Required API environment variable(s) missing: ${missing.join(", ")}. Values are not displayed.`);
+    return;
+  }
+  console.log("✓ Required API environment variable names are present (values hidden)");
 }
 
 function readMobileApiUrl() {
@@ -51,6 +90,23 @@ function readMobileApiUrl() {
   return url;
 }
 
+function checkConfiguredLanAddress(url) {
+  console.log("\n=== LAN address configuration ===");
+  const localAddresses = getLocalIPv4Addresses();
+  if (net.isIP(url.hostname) === 4 && !localAddresses.includes(url.hostname)) {
+    failed = true;
+    console.error(`✗ Configured API host ${url.hostname} is not assigned to this computer.`);
+    console.error(`  Current non-loopback IPv4 address(es): ${localAddresses.join(", ") || "none detected"}`);
+    console.error("  Update EXPO_PUBLIC_API_URL in apps/mobile/.env to the current reachable LAN address.");
+    return;
+  }
+  if (net.isIP(url.hostname) === 4) {
+    console.log(`✓ Configured API host ${url.hostname} matches a local IPv4 interface`);
+  } else {
+    console.log("! API host is a hostname; local-interface matching was not performed.");
+  }
+}
+
 async function checkHealth(label, url) {
   console.log(`\n=== ${label}: ${url.href} ===`);
   try {
@@ -63,6 +119,9 @@ async function checkHealth(label, url) {
   } catch (error) {
     failed = true;
     console.error(`✗ ${label} failed: ${error.message}`);
+    if (label === "Configured LAN API") {
+      console.error("  If localhost passed, check Windows Firewall inbound TCP port 3000 and whether the phone is on a network that can reach this PC.");
+    }
   }
 }
 
@@ -97,7 +156,9 @@ function checkGit() {
     else console.log("✓ Working tree is clean");
 
     const upstream = gitOutput(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]);
-    run("Refresh branch comparison with origin", git, ["fetch", "--quiet", "origin", expectedBranch]);
+    const fetch = spawnSync(git, ["fetch", "--quiet", "origin", expectedBranch], { cwd: root, encoding: "utf8", windowsHide: true });
+    if (fetch.status !== 0) throw new Error(fetch.stderr?.trim() || "Could not refresh origin branch comparison.");
+    console.log("✓ Refreshed origin branch comparison");
     const counts = gitOutput(["rev-list", "--left-right", "--count", `HEAD...${upstream}`]).split(/\s+/).map(Number);
     const [ahead, behind] = counts;
     if (behind > 0) {
@@ -112,8 +173,62 @@ function checkGit() {
   }
 }
 
+function checkAdminJavaScript() {
+  const adminFiles = ["apps/admin/server.mjs", "apps/admin/main.js"];
+  const present = adminFiles.filter((file) => existsSync(resolve(root, file)));
+  if (!present.length) {
+    skipped.push("Admin portal syntax checks (admin source files not found)");
+    console.log("\n! Admin portal syntax checks skipped: expected source files were not found.");
+    return;
+  }
+  for (const file of present) run(`Admin syntax: ${file}`, node, ["--check", file]);
+}
+
+function checkOptionalQualityGates(rootPackage, apiPackage, mobilePackage) {
+  const packages = [
+    ["Workspace", rootPackage],
+    ["API", apiPackage],
+    ["Mobile", mobilePackage],
+  ];
+  const lintTargets = packages.filter(([, pkg]) => typeof pkg.scripts?.lint === "string");
+  if (lintTargets.length) {
+    console.log("\n=== Lint ===");
+    for (const [label] of lintTargets) {
+      if (label === "Workspace") run("Workspace lint", pnpm, ["lint"]);
+      else run(`${label} lint`, pnpm, ["--filter", label === "API" ? "@anyskill/api" : "@anyskill/mobile", "lint"]);
+    }
+  } else {
+    skipped.push("Lint (no lint scripts configured)");
+    console.log("\n! Lint skipped: no lint scripts are configured in the current workspace.");
+  }
+
+  const testTargets = packages.filter(([, pkg]) => typeof pkg.scripts?.test === "string");
+  if (testTargets.length) {
+    console.log("\n=== Automated tests ===");
+    for (const [label] of testTargets) {
+      if (label === "Workspace") run("Workspace tests", pnpm, ["test"]);
+      else run(`${label} tests`, pnpm, ["--filter", label === "API" ? "@anyskill/api" : "@anyskill/mobile", "test"]);
+    }
+  } else {
+    skipped.push("Automated tests (no test scripts configured)");
+    console.log("\n! Automated tests skipped: no test scripts are configured in the current workspace.");
+  }
+
+  if (process.env.ANYSKILL_RUN_SECURITY_AUDIT === "1") {
+    run("Production dependency security audit (requires internet)", pnpm, ["audit", "--prod", "--audit-level", "high"], { timeout: 240_000 });
+  } else {
+    skipped.push("Dependency security audit (opt-in; set ANYSKILL_RUN_SECURITY_AUDIT=1)");
+    console.log("\n! Dependency audit skipped by default. Set ANYSKILL_RUN_SECURITY_AUDIT=1 to run pnpm audit (internet required).");
+  }
+}
+
 console.log("AnySkill full local validation");
-console.log("Read-only diagnostics except normal build output and Git remote-tracking refresh. No database writes or process termination.");
+console.log("Diagnostics preserve local changes and do not write to the database or terminate running processes.");
+console.log("Build outputs may be generated; the mobile bundle export uses a temporary directory that is removed afterwards.");
+
+const rootPackage = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+const apiPackage = JSON.parse(readFileSync(resolve(root, "apps/api/package.json"), "utf8"));
+const mobilePackage = JSON.parse(readFileSync(resolve(root, "apps/mobile/package.json"), "utf8"));
 
 run("API TypeScript", pnpm, ["--filter", "@anyskill/api", "typecheck"]);
 run("Mobile TypeScript", pnpm, ["--filter", "@anyskill/mobile", "typecheck"]);
@@ -121,37 +236,26 @@ run("Shared contracts TypeScript", pnpm, ["--filter", "@anyskill/api", "exec", "
 
 run("Prisma schema validation", pnpm, ["--filter", "@anyskill/api", "exec", "prisma", "validate"]);
 run("Prisma migration status (read-only)", pnpm, ["--filter", "@anyskill/api", "exec", "prisma", "migrate", "status"]);
-// Prisma schema validation and migration checks run above. Build Nest directly here to avoid\n// re-generating Prisma Client during diagnostics, which can fail on Windows when its DLL is locked.\nrun("API production build (Nest compile)", pnpm, ["--filter", "@anyskill/api", "exec", "nest", "build"], { timeout: 240_000 });
+run("API build compile (Nest; avoids regenerating Prisma Client)", pnpm, ["--filter", "@anyskill/api", "exec", "nest", "build"], { timeout: 240_000 });
 
-const rootPackage = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
-const apiPackage = JSON.parse(readFileSync(resolve(root, "apps/api/package.json"), "utf8"));
-const mobilePackage = JSON.parse(readFileSync(resolve(root, "apps/mobile/package.json"), "utf8"));
-if (rootPackage.scripts?.lint || apiPackage.scripts?.lint || mobilePackage.scripts?.lint) {
-  console.log("\n=== Lint ===");
-  if (rootPackage.scripts?.lint) run("Workspace lint", pnpm, ["lint"]);
-  else {
-    if (apiPackage.scripts?.lint) run("API lint", pnpm, ["--filter", "@anyskill/api", "lint"]);
-    if (mobilePackage.scripts?.lint) run("Mobile lint", pnpm, ["--filter", "@anyskill/mobile", "lint"]);
-  }
-} else {
-  console.log("\n! Lint skipped: no lint scripts are configured in the current workspace.");
+checkApiEnvironment();
+checkAdminJavaScript();
+checkOptionalQualityGates(rootPackage, apiPackage, mobilePackage);
+
+const mobileBuildDir = mkdtempSync(resolve(tmpdir(), "anyskill-mobile-export-"));
+try {
+  run("Mobile Android JavaScript bundle export (not a native APK build)", pnpm, ["--filter", "@anyskill/mobile", "exec", "expo", "export", "--platform", "android", "--output-dir", mobileBuildDir], { timeout: 300_000 });
+} finally {
+  rmSync(mobileBuildDir, { recursive: true, force: true });
 }
-if (rootPackage.scripts?.test || apiPackage.scripts?.test || mobilePackage.scripts?.test) {
-  console.log("\n=== Automated tests ===");
-  if (rootPackage.scripts?.test) run("Workspace tests", pnpm, ["test"]);
-  else {
-    if (apiPackage.scripts?.test) run("API tests", pnpm, ["--filter", "@anyskill/api", "test"]);
-    if (mobilePackage.scripts?.test) run("Mobile tests", pnpm, ["--filter", "@anyskill/mobile", "test"]);
-  }
-} else {
-  console.log("\n! Automated tests skipped: no test scripts are configured in the current workspace.");
-}
-console.log("! Expo device/Metro startup is not automated here; the API health checks below verify the running backend.");
+
+console.log("\n! Expo device/Metro startup and physical-device interaction are not automated by this script.");
 
 checkDockerPostgres();
 
 try {
   const configured = readMobileApiUrl();
+  checkConfiguredLanAddress(configured);
   const healthPath = `${configured.pathname.replace(/\/+$/, "")}/health`.replace(/\/{2,}/g, "/");
   const localhost = new URL(configured);
   localhost.hostname = "localhost";
@@ -171,5 +275,10 @@ try {
 
 checkGit();
 
-console.log(failed ? "\nCHECK FAILED — review the errors above. No automatic repairs were made." : "\nALL CONFIGURED CHECKS PASSED.");
+console.log("\n=== Validation summary ===");
+if (skipped.length) {
+  console.log("Skipped / not yet configured:");
+  for (const item of skipped) console.log(`- ${item}`);
+}
+console.log(failed ? "\nCHECK FAILED — review the errors above. No automatic repairs were made." : "\nALL EXECUTED CHECKS PASSED — review skipped checks before treating this as a complete quality gate.");
 process.exitCode = failed ? 1 : 0;
