@@ -142,6 +142,12 @@ export class MarketplaceRolesService {
 
   async startProviderApplicationReview(reviewerId: string, applicationId: string) {
     const result = await this.prisma.$transaction(async (tx) => {
+      const application = await tx.providerRoleApplication.findUnique({
+        where: { id: applicationId },
+        select: { userId: true },
+      });
+      if (!application) throw new NotFoundException("Provider application not found.");
+      if (application.userId === reviewerId) throw new ForbiddenException("Reviewers cannot review their own Provider application.");
       const changed = await tx.providerRoleApplication.updateMany({
         where: { id: applicationId, status: ProviderApplicationStatus.PENDING },
         data: { status: ProviderApplicationStatus.UNDER_REVIEW, reviewerId },
@@ -149,10 +155,6 @@ export class MarketplaceRolesService {
       if (changed.count !== 1) {
         throw new ConflictException("This Provider application is not pending review.");
       }
-      const application = await tx.providerRoleApplication.findUniqueOrThrow({
-        where: { id: applicationId },
-        select: { userId: true },
-      });
       await tx.staffAuditLog.create({
         data: {
           actorId: reviewerId,
