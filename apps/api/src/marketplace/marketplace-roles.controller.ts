@@ -25,6 +25,22 @@ class ProviderApplicationDto implements ProviderApplicationInput {
   qualifications?: string[];
 }
 
+class CreateStaffMemberDto {
+  @IsString() @MaxLength(320)
+  email!: string;
+
+  @IsEnum(StaffRole)
+  role!: StaffRole;
+}
+
+class UpdateStaffMemberDto {
+  @IsOptional() @IsEnum(StaffRole)
+  role?: StaffRole;
+
+  @IsOptional() @IsIn([true, false])
+  isActive?: boolean;
+}
+
 class ProviderApplicationDecisionDto {
   @IsIn(["APPROVED", "REJECTED", "NEEDS_INFORMATION"])
   decision!: "APPROVED" | "REJECTED" | "NEEDS_INFORMATION";
@@ -56,6 +72,31 @@ export class MarketplaceRolesController {
   @Post("marketplace/roles/provider/applications")
   submitProviderApplication(@CurrentUser() user: AuthenticatedUser, @Body() dto: ProviderApplicationDto) {
     return this.roles.submitProviderApplication(user.id, dto);
+  }
+
+  @Get("admin/staff")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.SUPER_ADMIN)
+  listStaffMembers() {
+    return this.roles.listStaffMembers();
+  }
+
+  @Post("admin/staff")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.SUPER_ADMIN)
+  createStaffMember(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateStaffMemberDto) {
+    return this.roles.createStaffMember(user.id, dto.email, dto.role);
+  }
+
+  @Patch("admin/staff/:userId")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.SUPER_ADMIN)
+  updateStaffMember(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("userId", new ParseUUIDPipe()) userId: string,
+    @Body() dto: UpdateStaffMemberDto,
+  ) {
+    return this.roles.updateStaffMember(user.id, userId, dto);
   }
 
   @Get("admin/provider-applications")
