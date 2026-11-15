@@ -49,7 +49,7 @@ class VerifyPasswordResetOtpDto {
   email!: string;
 
   @IsString()
-  @Matches(/^\\d{6}$/)
+  @Matches(/^\d{6}$/)
   otp!: string;
 }
 
