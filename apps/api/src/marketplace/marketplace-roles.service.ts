@@ -1,6 +1,8 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { MarketplaceRoleStatus, ProviderApplicationStatus, RegistrationMode } from "@prisma/client";
+import { MarketplaceRoleStatus, ProviderApplicationStatus, RegistrationMode, StaffRole } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
+
+export type StaffMemberUpdate = { role?: StaffRole; isActive?: boolean };
 
 export type ProviderApplicationInput = {
   publicName: string;
@@ -123,6 +125,56 @@ export class MarketplaceRolesService {
     });
 
     return this.getRoles(userId);
+  }
+
+  async listStaffMembers() {
+    return this.prisma.staffMembership.findMany({
+      orderBy: [{ role: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true, role: true, isActive: true, createdAt: true,
+        user: { select: { id: true, email: true, createdAt: true } },
+      },
+    });
+  }
+
+  async createStaffMember(actorId: string, email: string, role: StaffRole) {
+    if (role === StaffRole.SUPER_ADMIN) {
+      throw new ForbiddenException("The single Super Administrator account is provisioned separately and cannot be created from staff management.");
+    }
+    const normalizedEmail = email.trim().toLocaleLowerCase("en-ZA");
+    const target = await this.prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true, email: true } });
+    if (!target) throw new NotFoundException("No AnySkill account exists with that email. Ask the person to register first.");
+    if (target.id === actorId) throw new ForbiddenException("You cannot assign staff access to yourself.");
+    const existing = await this.prisma.staffMembership.findUnique({ where: { userId: target.id } });
+    if (existing) throw new ConflictException("This user already has a staff membership. Update their existing membership instead.");
+    const created = await this.prisma.$transaction(async (tx) => {
+      const membership = await tx.staffMembership.create({ data: { userId: target.id, role, isActive: true }, select: { id: true, role: true, isActive: true, createdAt: true } });
+      await tx.staffAuditLog.create({ data: { actorId, targetUserId: target.id, action: "STAFF_MEMBER_CREATED", metadata: { email: target.email, role } } });
+      return membership;
+    });
+    return { ...created, user: target };
+  }
+
+  async updateStaffMember(actorId: string, targetUserId: string, input: StaffMemberUpdate) {
+    if (targetUserId === actorId && (input.isActive === false || (input.role && input.role !== StaffRole.SUPER_ADMIN))) {
+      throw new ForbiddenException("You cannot remove or change your own Super Administrator access.");
+    }
+    if (input.role === StaffRole.SUPER_ADMIN) {
+      throw new ForbiddenException("The Super Administrator role is reserved for the single bootstrap account.");
+    }
+    const existing = await this.prisma.staffMembership.findUnique({ where: { userId: targetUserId }, select: { id: true, role: true, isActive: true } });
+    if (!existing) throw new NotFoundException("Staff membership not found.");
+    if (existing.role === StaffRole.SUPER_ADMIN) throw new ForbiddenException("The Super Administrator membership cannot be changed here.");
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const membership = await tx.staffMembership.update({
+        where: { userId: targetUserId },
+        data: { ...(input.role ? { role: input.role } : {}), ...(typeof input.isActive === "boolean" ? { isActive: input.isActive } : {}) },
+        select: { id: true, role: true, isActive: true, createdAt: true },
+      });
+      await tx.staffAuditLog.create({ data: { actorId, targetUserId, action: "STAFF_MEMBER_UPDATED", metadata: { before: existing, after: { role: membership.role, isActive: membership.isActive } } } });
+      return membership;
+    });
+    return { ...updated, user: await this.prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, email: true, createdAt: true } }) };
   }
 
   async listProviderApplications() {
