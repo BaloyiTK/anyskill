@@ -7,7 +7,7 @@ CREATE TYPE "ProviderApplicationStatus" AS ENUM (
 CREATE TYPE "StaffRole" AS ENUM ('PROVIDER_REVIEWER', 'ADMIN', 'SUPER_ADMIN');
 
 ALTER TABLE "users"
-  ADD COLUMN "seeker_role_status" "MarketplaceRoleStatus" NOT NULL DEFAULT 'ACTIVE',
+  ADD COLUMN "seeker_role_status" "MarketplaceRoleStatus" NOT NULL DEFAULT 'NOT_REQUESTED',
   ADD COLUMN "provider_role_status" "MarketplaceRoleStatus" NOT NULL DEFAULT 'NOT_REQUESTED',
   ADD COLUMN "active_marketplace_mode" "RegistrationMode" NOT NULL DEFAULT 'SEEKER';
 
@@ -22,6 +22,8 @@ WHERE u."initial_mode" = 'PROVIDER'
    OR EXISTS (SELECT 1 FROM "provider_profiles" pp WHERE pp."user_id" = u."id")
    OR EXISTS (SELECT 1 FROM "provider_responses" pr WHERE pr."provider_id" = u."id")
    OR EXISTS (SELECT 1 FROM "job_engagements" je WHERE je."provider_id" = u."id");
+
+ALTER TABLE "users" ALTER COLUMN "seeker_role_status" SET DEFAULT 'ACTIVE';
 
 UPDATE "users" SET "active_marketplace_mode" = CASE
   WHEN "initial_mode" = 'PROVIDER' AND "provider_role_status" = 'ACTIVE' THEN 'PROVIDER'::"RegistrationMode"
