@@ -129,6 +129,7 @@ export class MarketplaceRolesService {
     return this.prisma.providerRoleApplication.findMany({
       where: { status: { in: [ProviderApplicationStatus.PENDING, ProviderApplicationStatus.UNDER_REVIEW] } },
       orderBy: { submittedAt: "asc" },
+      take: 100,
       select: {
         id: true,
         status: true,
