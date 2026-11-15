@@ -7,7 +7,7 @@ export interface AuthenticatedUser {
   identityVerification: string;
   seekerRoleStatus: string;
   providerRoleStatus: string;
-  activeMarketplaceMode: "SEEKER" | "PROVIDER";
+  activeMarketplaceMode: "SEEKER" | "PROVIDER" | null;
 }
 
 export const CurrentUser = createParamDecorator(
