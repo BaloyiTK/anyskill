@@ -6,17 +6,17 @@
 
 AnySkill uses one user account and one identity for both marketplace roles. Seeker and Provider are independently activated capabilities belonging to the same user. `initialMode` is retained only as a legacy/registration preference; it is not an authorization source.
 
-Each account has `seekerRoleStatus`, `providerRoleStatus`, and `activeMarketplaceMode`. Only an `ACTIVE` role may be selected as the active marketplace mode. Switching mode changes the app experience; it does not create another account, session, identity, or user ID.
+Each account has `seekerRoleStatus`, `providerRoleStatus`, and `activeMarketplaceMode`. Only an `ACTIVE` role may be selected as the active marketplace mode. An account that has no active role yet has a null active mode; this can happen when someone registers as Provider and is awaiting manual approval. Switching mode changes the app experience; it does not create another account, session, identity, or user ID.
 
 ## Provider activation: manual review
 
-A user may submit a Provider application while continuing to use an already-active Seeker role. The application captures a snapshot of public name, skills, portfolio and relevant qualifications. Client-supplied role/status values never activate Provider access.
+A user may submit a Provider application while continuing to use an already-active Seeker role. A Provider-first registrant may have no active marketplace role until the application is approved or they separately activate Seeker. The application captures a snapshot of public name, skills, portfolio and relevant qualifications. Client-supplied role/status values never activate Provider access.
 
 Provider application states: `PENDING`, `UNDER_REVIEW`, `APPROVED`, `REJECTED`, `NEEDS_INFORMATION`.
 
 Provider role states: `NOT_REQUESTED`, `PENDING`, `ACTIVE`, `REJECTED`, `REQUIRES_INFORMATION`, `SUSPENDED`.
 
-Only an authorised staff member with Provider Reviewer, Admin or Super Admin membership may decide an application. Approval activates Provider; rejection or a request for more information does not disable another active role. Applicants may update details and resubmit after rejection or a request for information.
+Only an authorised staff member with Provider Reviewer, Admin or Super Admin membership may decide an application. Approval activates Provider and provisions an unavailable Provider profile from the approved public name and skills; the user must finish service areas, delivery modes, pricing and availability before matching. Rejection or a request for more information does not disable another active role. Applicants may update details and resubmit after rejection or a request for information.
 
 Reviewer decisions are recorded in `staff_audit_logs`, including actor, target account, action, reason and application identifier. Staff membership is separate from marketplace roles and is granted only through a controlled administrative process, never through a public API or user-editable profile.
 
