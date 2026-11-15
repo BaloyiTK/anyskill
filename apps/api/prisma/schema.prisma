@@ -31,6 +31,10 @@ enum ProviderApplicationStatus {
 
 enum StaffRole {
   PROVIDER_REVIEWER
+  IDENTITY_REVIEWER
+  SUPPORT_AGENT
+  FINANCE_OFFICER
+  FRAUD_OFFICER
   ADMIN
   SUPER_ADMIN
 }
