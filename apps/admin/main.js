@@ -60,12 +60,46 @@ function signOut(callApi = true) {
   $("#password").value = "";
 }
 
+const moduleDefinitions = {
+  "user-providers": { group: "MARKETPLACE", title: "Providers", description: "Provider account register with All, Active, Suspended and application-status filters.", items: ["Provider profile and skills", "Identity verification state", "Availability and service areas", "Provider role status and account-level controls"], note: "The provider register UI is scoped here; connect it to a protected, paginated user-management API before showing live accounts or changing access." },
+  "user-seekers": { group: "MARKETPLACE", title: "Seekers", description: "Seeker account register with All, Active and Suspended tabs.", items: ["Seeker profile and contact details", "Marketplace roles (including dual-role accounts)", "Account status and registration date", "Role-level suspension kept separate from whole-account suspension"], note: "The seeker register UI is scoped here; connect it to a protected, paginated user-management API before showing live accounts or changing access." },
+  jobs: { group: "MARKETPLACE", title: "Jobs & requests", description: "Central register for service requests and job engagements.", items: ["All jobs", "Informal services (service category, not a lifecycle status)", "Pending and matching", "In progress and scheduled", "Cancelled and completed", "Disputes and escalations"], note: "Job records need a unified, paginated API joining requests, provider responses and engagements. The current schema does not yet contain a complete cancellation/dispute case workflow." },
+  identity: { group: "TRUST & SAFETY", title: "Identity verification", description: "Review identity cases separately from provider skill and qualification approval.", items: ["Submitted and awaiting review", "Under review", "Approved and rejected", "More information required", "Reviewer notes and decision history"], note: "Identity case records exist in the database; a dedicated reviewer API, evidence access policy and decision workflow still need to be connected." },
+  disputes: { group: "TRUST & SAFETY", title: "Disputes", description: "Investigate disagreements between seekers and providers.", items: ["New and open disputes", "Awaiting seeker or provider response", "Under investigation", "Escalated and resolved", "Evidence and resolution history"], note: "The engagement status supports DISPUTED, but a full dispute case, evidence and resolution workflow still needs to be designed and implemented." },
+  fraud: { group: "TRUST & SAFETY", title: "Fraud & risk", description: "Review suspicious activity and reported accounts.", items: ["Reported users and jobs", "Suspicious account patterns", "Transaction risk flags", "Investigation notes and outcomes"], note: "Risk signals and investigation records are not yet implemented. Do not present automated fraud prevention as an existing capability." },
+  reviews: { group: "TRUST & SAFETY", title: "Ratings & reviews", description: "Moderate feedback and reported content.", items: ["Provider ratings and seeker feedback", "Reported reviews", "Content moderation queue", "Moderation audit history"], note: "A review and moderation data model plus permission-checked endpoints are required before this module can display records." },
+  transactions: { group: "FINANCIALS", title: "Transactions", description: "Monitor payment attempts and completed marketplace payments.", items: ["Successful, pending and failed payments", "Transaction references and linked jobs", "Refund and chargeback references", "Reconciliation status"], note: "Payment gateway transaction records and webhook reconciliation are not yet connected. No payment totals are fabricated in this portal." },
+  commissions: { group: "FINANCIALS", title: "Commissions", description: "Track the proposed marketplace commission model.", items: ["Seeker fee and provider commission", "Commission per completed transaction", "VAT and payment-fee treatment", "Commission adjustments and reporting"], note: "The proposed 5% seeker + 5% provider model must be configurable and reconciled against actual payment records before financial reporting is enabled." },
+  payouts: { group: "FINANCIALS", title: "Payouts & refunds", description: "Manage provider settlement and customer refunds.", items: ["Payout eligibility and status", "Payout history", "Refund requests and outcomes", "Chargeback tracking"], note: "Payout and refund operations require payment-provider integration, approval controls and immutable financial audit records." },
+  support: { group: "CUSTOMER OPERATIONS", title: "Support tickets", description: "Manage seeker and provider support requests.", items: ["New, open and awaiting response", "Assigned support agent", "Priority and SLA tracking", "Escalation and resolution notes"], note: "A support-ticket model and API are not yet implemented." },
+  notifications: { group: "CUSTOMER OPERATIONS", title: "Notifications", description: "Monitor operational and customer notifications.", items: ["Delivery status and failures", "In-app and push notifications", "Retry history", "Operational announcements"], note: "The platform has notification records; staff-facing search, retry and announcement controls still need dedicated APIs and permissions." },
+  reports: { group: "ADMINISTRATION", title: "Reports & analytics", description: "Measure marketplace performance using verified operational data.", items: ["Provider and seeker growth", "Request-to-match conversion", "Job completion and cancellation rates", "Disputes, payments and commission reporting"], note: "Reports should be generated from validated source records and clearly show date ranges, definitions and data freshness." },
+  audit: { group: "ADMINISTRATION", title: "Audit logs", description: "Review sensitive administrative actions and changes.", items: ["Actor, target and action", "Timestamp and recorded reason", "Before-and-after values where appropriate", "Search and export with restricted access"], note: "Staff audit records already exist for selected workflows; a read-only audit API and portal view still need to be added." },
+  settings: { group: "ADMINISTRATION", title: "System settings", description: "Manage controlled marketplace configuration.", items: ["Marketplace configuration", "Service categories", "Commission settings", "Operational feature flags"], note: "Settings must be versioned, permission-controlled and audited. Avoid editing production configuration directly from an unprotected browser form." }
+};
+
+function renderModulePage(page) {
+  const module = moduleDefinitions[page];
+  $("#module-eyebrow").textContent = module.group;
+  $("#module-title").textContent = module.title + ".";
+  $("#module-description").textContent = module.description;
+  $("#module-status").textContent = "API integration required";
+  $("#module-content").innerHTML = '<section class="panel module-detail-panel"><div class="module-detail-heading"><strong>Planned administration capabilities</strong><span class="module-state">Not connected to live records</span></div><ul>' +
+    module.items.map((item) => '<li>' + escapeHtml(item) + '</li>').join("") +
+    '</ul><div class="module-integration-note"><strong>Implementation note</strong><p>' + escapeHtml(module.note) + '</p></div></section>';
+}
+
 function setPage(page) {
   const providers = page === "providers";
-  hide($("#overview-page")); hide($("#providers-page")); hide($("#staff-page"));
-  show(page === "providers" ? $("#providers-page") : page === "staff" ? $("#staff-page") : $("#overview-page"));
+  const module = Boolean(moduleDefinitions[page]);
+  hide($("#overview-page")); hide($("#providers-page")); hide($("#staff-page")); hide($("#module-page"));
+  if (providers) show($("#providers-page"));
+  else if (page === "staff") show($("#staff-page"));
+  else if (module) { show($("#module-page")); renderModulePage(page); }
+  else show($("#overview-page"));
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.page === page));
-  $("#breadcrumb").textContent = providers ? "Provider applications" : page === "staff" ? "Staff & permissions" : "Overview";
+  const labels = { overview: "Dashboard", providers: "Provider applications", staff: "Staff & permissions" };
+  $("#breadcrumb").textContent = labels[page] || moduleDefinitions[page]?.title || "Overview";
   if (providers) void loadApplications();
   if (page === "staff") void loadStaffMembers();
 }
