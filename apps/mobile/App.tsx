@@ -862,7 +862,7 @@ export default function App() {
             <Text style={s.kicker}>EMAIL VERIFIED</Text>
             <Text style={s.formTitle}>Finish your account</Text>
             <Text style={s.subtitle}>Your email is verified. Set a password to finish registration. Your profile can be completed later in steps.</Text>
-            <Field label="Create password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry />
+            <Field label="Create password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry textContentType="newPassword" autoComplete="new-password" />
             <Primary label="Complete registration" onPress={completeRegistration} disabled={busy || password.length < 12 || !registrationToken} />
           </View>}
 
