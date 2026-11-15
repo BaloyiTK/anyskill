@@ -80,7 +80,7 @@ export class GooglePlacesService {
   }
 
   async getPlaceDetails(placeId: string, sessionToken: string) {
-    if (!placeId || placeId.length > 255 || !/^[A-Za-z0-9_-]+$/.test(placeId)) {
+    if (!placeId || placeId.length > 255 || /[\u0000-\u001F]/.test(placeId)) {
       throw new BadRequestException("A valid Google Place ID is required.");
     }
     const token = this.validateSessionToken(sessionToken);
