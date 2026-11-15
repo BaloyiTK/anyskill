@@ -43,9 +43,20 @@ export class GooglePlacesService {
       regionCode: "ZA",
       includedRegionCodes: ["za"],
     };
-    // Keep autocomplete focused on South Africa. Do not apply a GPS-radius bias:
-    // approximate device coordinates can otherwise push valid local street matches
-    // out of the suggestion list.
+    // Prefer nearby South African addresses while retaining the 50 km search area.
+    if (latitude !== undefined || longitude !== undefined) {
+      const lat = Number(latitude);
+      const lng = Number(longitude);
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+        throw new BadRequestException("A valid latitude and longitude pair is required.");
+      }
+      body.locationBias = {
+        circle: {
+          center: { latitude: lat, longitude: lng },
+          radius: 50_000,
+        },
+      };
+    }
 
     const response = await fetch(`${this.placesUrl}/places:autocomplete`, {
       method: "POST",
