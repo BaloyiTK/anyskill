@@ -144,6 +144,7 @@ export type AccountSummary = {
   seekerRoleStatus: string;
   providerRoleStatus: string;
   activeMarketplaceMode: "SEEKER" | "PROVIDER" | null;
+  initialMode: "SEEKER" | "PROVIDER";
 };
 
 export type IdentitySummary = {
