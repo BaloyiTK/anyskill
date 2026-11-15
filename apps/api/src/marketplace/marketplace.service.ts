@@ -46,7 +46,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async listSkills(query: string) {
     const profiles = await this.prisma.providerProfile.findMany({
-      where: { skillCategories: { isEmpty: false } }, select: { skillCategories: true }, take: 2000,
+      where: { skillCategories: { isEmpty: false }, user: { is: { providerRoleStatus: "ACTIVE" } } }, select: { skillCategories: true }, take: 2000,
     });
     const counts = new Map<string, number>();
     for (const profile of profiles) for (const skill of profile.skillCategories) {
@@ -185,7 +185,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         liveLatitude: { not: null },
         liveLongitude: { not: null },
         liveLocationUpdatedAt: { gte: cutoff },
-        user: { is: { identityVerification: "VERIFIED" } },
+        user: { is: { identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE" } },
       },
       select: {
         id: true,
@@ -705,7 +705,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     id: string; seekerId: string; skillCategory: string; location: string | null; latitude?: number | null; longitude?: number | null; deliveryMode: string;
   }): Promise<RankedProvider[]> {
     const remoteProfiles = await this.prisma.providerProfile.findMany({
-      where: { isAvailable: true, skillCategories: { has: normalise(request.skillCategory) }, userId: { not: request.seekerId }, deliveryModes: { hasSome: request.deliveryMode === "EITHER" ? ["REMOTE", "EITHER"] : [request.deliveryMode, "EITHER"] } },
+      where: { isAvailable: true, user: { is: { providerRoleStatus: "ACTIVE" } }, skillCategories: { has: normalise(request.skillCategory) }, userId: { not: request.seekerId }, deliveryModes: { hasSome: request.deliveryMode === "EITHER" ? ["REMOTE", "EITHER"] : [request.deliveryMode, "EITHER"] } },
       select: { userId: true, serviceAreas: true, deliveryModes: true },
     });
     const ranked = new Map<string, number>();
@@ -726,7 +726,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             ST_SetSRID(ST_MakePoint(${request.longitude}, ${request.latitude}), 4326)::geography
           ) / 1000.0 AS "distanceKm"
         FROM provider_profiles pp
+        INNER JOIN users u ON u.id = pp.user_id
         WHERE pp.is_available = TRUE
+          AND u.provider_role_status = 'ACTIVE'
           AND pp.user_id <> ${request.seekerId}::uuid
           AND pp.skill_categories @> ARRAY[${normalise(request.skillCategory)}]::text[]
           AND pp.delivery_modes && ARRAY['ONSITE','EITHER']::text[]
