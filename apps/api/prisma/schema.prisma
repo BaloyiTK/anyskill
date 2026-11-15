@@ -12,6 +12,29 @@ enum RegistrationMode {
   PROVIDER
 }
 
+enum MarketplaceRoleStatus {
+  NOT_REQUESTED
+  PENDING
+  ACTIVE
+  REJECTED
+  REQUIRES_INFORMATION
+  SUSPENDED
+}
+
+enum ProviderApplicationStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  NEEDS_INFORMATION
+}
+
+enum StaffRole {
+  PROVIDER_REVIEWER
+  ADMIN
+  SUPER_ADMIN
+}
+
 enum IdentityVerificationStatus {
   NOT_STARTED
   PENDING
@@ -102,6 +125,9 @@ model User {
   phone                    String?                     @unique @db.VarChar(32)
   googleSubject            String?                     @unique @map("google_subject") @db.VarChar(255)
   initialMode              RegistrationMode            @default(SEEKER) @map("initial_mode")
+  seekerRoleStatus         MarketplaceRoleStatus       @default(ACTIVE) @map("seeker_role_status")
+  providerRoleStatus       MarketplaceRoleStatus       @default(NOT_REQUESTED) @map("provider_role_status")
+  activeMarketplaceMode    RegistrationMode            @default(SEEKER) @map("active_marketplace_mode")
   homeLocationLabel         String?                      @map("home_location_label") @db.VarChar(500)
   homeLatitude              Float?                       @map("home_latitude")
   homeLongitude             Float?                       @map("home_longitude")
@@ -123,6 +149,11 @@ model User {
   notifications            AppNotification[]
   mediaAssets              MediaAsset[]
   onboardingDraft           OnboardingDraft?
+  providerRoleApplication   ProviderRoleApplication?   @relation("ProviderApplicationApplicant")
+  reviewedProviderApplications ProviderRoleApplication[] @relation("ProviderApplicationReviewer")
+  staffMembership           StaffMembership?
+  staffActions              StaffAuditLog[]             @relation("StaffAuditActor")
+  staffTargets              StaffAuditLog[]             @relation("StaffAuditTarget")
 
   @@index([identityVerification])
   @@map("users")
@@ -423,4 +454,51 @@ model OnboardingDraft {
   updatedAt DateTime @updatedAt @map("updated_at")
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@map("onboarding_drafts")
+}
+
+model ProviderRoleApplication {
+  id              String                    @id @default(uuid()) @db.Uuid
+  userId          String                    @unique @db.Uuid @map("user_id")
+  status          ProviderApplicationStatus @default(PENDING)
+  applicationData Json                      @map("application_data")
+  submittedAt     DateTime                  @default(now()) @map("submitted_at")
+  reviewedAt      DateTime?                 @map("reviewed_at")
+  reviewerId      String?                   @db.Uuid @map("reviewer_id")
+  decisionReason  String?                   @map("decision_reason") @db.VarChar(1000)
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+  user            User                      @relation("ProviderApplicationApplicant", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer        User?                     @relation("ProviderApplicationReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status, submittedAt])
+  @@index([reviewerId, reviewedAt])
+  @@map("provider_role_applications")
+}
+
+model StaffMembership {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid @map("user_id")
+  role      StaffRole
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([role, isActive])
+  @@map("staff_memberships")
+}
+
+model StaffAuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  actorId      String   @db.Uuid @map("actor_id")
+  targetUserId String   @db.Uuid @map("target_user_id")
+  action       String   @db.VarChar(80)
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+  actor        User     @relation("StaffAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  targetUser   User     @relation("StaffAuditTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+
+  @@index([targetUserId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("staff_audit_logs")
 }
