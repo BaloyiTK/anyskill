@@ -8,11 +8,12 @@ import { DatabaseModule } from "../database/database.module";
 import { MarketplaceController, PublicProviderDiscoveryController } from "./marketplace.controller";
 import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
+import { GooglePlacesService } from "./google-places.service";
 
 @Module({
   imports: [DatabaseModule, IdentityModule, MarketplaceRolesModule, PassportModule],
   controllers: [MarketplaceController, PublicProviderDiscoveryController],
-  providers: [MarketplaceService, MediaService, JwtAuthGuard, MarketplaceRoleGuard],
+  providers: [MarketplaceService, MediaService, GooglePlacesService, JwtAuthGuard, MarketplaceRoleGuard],
   exports: [MediaService],
 })
 export class MarketplaceModule {}
