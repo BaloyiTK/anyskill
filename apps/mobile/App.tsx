@@ -21,6 +21,17 @@ type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" |
 type UserMode = "seeker" | "provider";
 type AppTab = "home" | "activities" | "notifications" | "account";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
+type MarketplaceRoleSummary = {
+  seekerStatus: string;
+  providerStatus: string;
+  activeMode: "SEEKER" | "PROVIDER";
+  providerApplication: {
+    status: string;
+    submittedAt: string;
+    reviewedAt: string | null;
+    decisionReason: string | null;
+  } | null;
+};
 
 const GOOGLE_DISCOVERY = {
   authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -53,6 +64,11 @@ export default function App() {
   const [newPassword, setNewPassword] = useState("");
   const [resetToken, setResetToken] = useState("");
   const [account, setAccount] = useState<AccountSummary | null>(null);
+  const [roleSummary, setRoleSummary] = useState<MarketplaceRoleSummary | null>(null);
+  const [providerApplicationName, setProviderApplicationName] = useState("");
+  const [providerApplicationSkills, setProviderApplicationSkills] = useState("");
+  const [providerApplicationPortfolio, setProviderApplicationPortfolio] = useState("");
+  const [providerApplicationQualifications, setProviderApplicationQualifications] = useState("");
   const [identity, setIdentity] = useState<IdentitySummary | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
@@ -124,6 +140,13 @@ export default function App() {
   const loadAccount = async () => {
     const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
     setAccount(me);
+    try {
+      const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
+      setRoleSummary(roles);
+      setMode(roles.activeMode.toLowerCase() as UserMode);
+    } catch {
+      setRoleSummary(null);
+    }
     setIdentity(null);
     setProfileComplete(false);
 
@@ -321,7 +344,7 @@ export default function App() {
     try {
       const result = await apiRequest<{ message: string; resendAfterSeconds?: number }>("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim(), mode: mode.toUpperCase() }),
       });
       setMessage(result.message);
       setOtp("");
@@ -592,11 +615,65 @@ export default function App() {
     finally { setBusy(false); }
   };
 
+  const switchMarketplaceMode = async (nextMode: UserMode) => {
+    if (busy) return;
+    feedback(); setBusy(true);
+    try {
+      const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
+        method: "PATCH",
+        body: JSON.stringify({ mode: nextMode.toUpperCase() }),
+      }, true);
+      setRoleSummary(roles);
+      setMode(roles.activeMode.toLowerCase() as UserMode);
+      setMessage(`Switched to ${nextMode === "seeker" ? "Seeker" : "Provider"} mode.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not switch marketplace mode.");
+    } finally { setBusy(false); }
+  };
+
+  const activateSeekerRole = async () => {
+    feedback(); setBusy(true);
+    try {
+      const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/seeker/activate", { method: "POST" }, true);
+      setRoleSummary(roles);
+      setMode("seeker");
+      setMessage("Seeker role activated.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not activate Seeker mode.");
+    } finally { setBusy(false); }
+  };
+
+  const submitProviderApplication = async () => {
+    const skills = providerApplicationSkills.split(",").map((value) => value.trim()).filter(Boolean);
+    const portfolio = providerApplicationPortfolio.split(",").map((value) => value.trim()).filter(Boolean);
+    const qualifications = providerApplicationQualifications.split(",").map((value) => value.trim()).filter(Boolean);
+    if (providerApplicationName.trim().length < 2 || skills.length === 0 || portfolio.length === 0) {
+      setError("Enter your public name, at least one skill and at least one portfolio item.");
+      return;
+    }
+    feedback(); setBusy(true);
+    try {
+      const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/provider/applications", {
+        method: "POST",
+        body: JSON.stringify({
+          publicName: providerApplicationName.trim(),
+          skills,
+          portfolio,
+          qualifications,
+        }),
+      }, true);
+      setRoleSummary(roles);
+      setMessage("Your Provider application has been submitted for manual review. You can continue using your active role.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not submit your Provider application.");
+    } finally { setBusy(false); }
+  };
+
   const logout = async () => {
     setBusy(true);
     try { await signOut(); }
     finally {
-      setAccount(null); setIdentity(null); setPassword(""); setScreen("welcome"); setBusy(false);
+      setAccount(null); setRoleSummary(null); setIdentity(null); setPassword(""); setScreen("welcome"); setBusy(false);
     }
   };
 
@@ -608,6 +685,7 @@ export default function App() {
       await apiRequest("/auth/account", { method: "DELETE" }, true);
       await clearTokens();
       setAccount(null);
+      setRoleSummary(null);
       setIdentity(null);
       setNotifications([]);
       setProfileComplete(false);
@@ -780,7 +858,7 @@ export default function App() {
         mode={mode}
         verified={verified}
         pendingRequestId={pendingAcceptRequestId}
-        onModeChange={setMode}
+        onModeChange={(nextMode) => { void switchMarketplaceMode(nextMode); }}
         onBack={() => setScreen("dashboard")}
         onIdentityRequired={(requestId) => {
           setPendingAcceptRequestId(requestId);
@@ -801,7 +879,7 @@ export default function App() {
         onRequestSkill={() => {
           feedback();
           if (canRequestSkill) {
-            setMode("seeker");
+            void switchMarketplaceMode("seeker");
             setScreen("marketplace");
           } else {
             setScreen("onboarding");
@@ -883,11 +961,35 @@ export default function App() {
             <Secondary label="Complete or update profile" onPress={() => goTo("onboarding")} />
             <Secondary label="Refresh identity-verification status" onPress={refreshIdentityStatus} />
             {!account.googleLinked && <Secondary label="Connect Google account" onPress={connectGoogle} />}
-            <Text style={s.sectionTitle}>Marketplace mode</Text>
-            <View style={s.modeList}>
-              <ModeCard title="Skill Seeker" description="Request skills and compare provider offers." selected={mode === "seeker"} onPress={() => setMode("seeker")} />
-              <ModeCard title="Skill Provider" description="Offer skills and respond to suitable requests." selected={mode === "provider"} onPress={() => setMode("provider")} />
-            </View>
+            <Text style={s.sectionTitle}>Marketplace roles</Text>
+            <Text style={s.helper}>One account can have both roles. Switching modes never creates another account.</Text>
+            {roleSummary?.seekerStatus === "ACTIVE"
+              ? <ModeCard title="Skill Seeker" description="Request skills and compare Provider offers." selected={mode === "seeker"} onPress={() => { void switchMarketplaceMode("seeker"); }} />
+              : <Secondary label="Activate Seeker role" onPress={() => { void activateSeekerRole(); }} />}
+            {roleSummary?.providerStatus === "ACTIVE"
+              ? <ModeCard title="Skill Provider" description="Offer skills and respond to suitable requests." selected={mode === "provider"} onPress={() => { void switchMarketplaceMode("provider"); }} />
+              : <View style={s.notice}>
+                  <Text style={s.noticeTitle}>Provider access requires manual approval</Text>
+                  <Text style={s.noticeText}>
+                    {roleSummary?.providerStatus === "PENDING"
+                      ? "Your Provider application is awaiting review. Your current active role remains available."
+                      : roleSummary?.providerStatus === "REQUIRES_INFORMATION"
+                        ? "More information is required before your Provider application can be approved."
+                        : roleSummary?.providerStatus === "REJECTED"
+                          ? "Your previous application was not approved. You can update your details and submit again."
+                          : "Submit your skills, portfolio and relevant qualifications. An authorised AnySkill reviewer will assess your application."}
+                  </Text>
+                  {roleSummary?.providerApplication?.decisionReason
+                    ? <Text style={s.helper}>Reviewer feedback: {roleSummary.providerApplication.decisionReason}</Text>
+                    : null}
+                  {roleSummary?.providerStatus !== "PENDING" && roleSummary?.providerStatus !== "SUSPENDED" && <>
+                    <Field label="Public Provider name" value={providerApplicationName} onChangeText={setProviderApplicationName} placeholder="Name shown to customers" />
+                    <Field label="Skills (comma-separated)" value={providerApplicationSkills} onChangeText={setProviderApplicationSkills} placeholder="Plumbing, electrical repairs, tutoring" />
+                    <Field label="Portfolio items (comma-separated)" value={providerApplicationPortfolio} onChangeText={setProviderApplicationPortfolio} placeholder="Describe completed work or add portfolio links" />
+                    <Field label="Qualifications or licences (optional)" value={providerApplicationQualifications} onChangeText={setProviderApplicationQualifications} placeholder="Trade certificate, licence, course" />
+                    <Primary label={roleSummary?.providerStatus === "REJECTED" || roleSummary?.providerStatus === "REQUIRES_INFORMATION" ? "Resubmit Provider application" : "Submit Provider application"} onPress={submitProviderApplication} disabled={busy} />
+                  </>}
+                </View>}
             <Secondary label="Sign out" onPress={logout} />
             <View style={s.deleteAccountSection}>
               <Text style={s.deleteAccountTitle}>Delete profile</Text>
