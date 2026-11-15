@@ -115,8 +115,8 @@ const eas = readJson("apps/mobile/eas.json");
 if (typeof eas.cli?.version !== "string" || !eas.cli.version.includes("27.10.0")) {
   fail("apps/mobile/eas.json must retain the approved EAS CLI compatibility floor (27.10.0).");
 }
-if (eas.cli?.appVersionSource !== "local") {
-  fail("apps/mobile/eas.json must explicitly preserve local app version management.");
+if (eas.cli?.appVersionSource !== "remote") {
+  fail("apps/mobile/eas.json must preserve remote EAS app version management.");
 }
 const requiredProfiles = ["development", "preview", "production"];
 for (const profile of requiredProfiles) {
