@@ -260,7 +260,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
           circles={mapCircle}
           markers={mapMarkers}
           onMarkerClick={(marker) => setSelectedProviderId(marker.id ?? null)}
-          properties={{ isBuildingEnabled: true, isIndoorEnabled: true, isMyLocationEnabled: true }}
+          properties={{ isBuildingEnabled: true, isIndoorEnabled: true, isMyLocationEnabled: false }}
           uiSettings={{ compassEnabled: true, zoomControlsEnabled: false, myLocationButtonEnabled: false, scrollGesturesEnabled: true, zoomGesturesEnabled: true }}
         /> : Platform.OS === "ios" ? <AppleMaps.View
           key={`apple-${mapCenter.latitude}-${mapCenter.longitude}-${radiusKm}`}
