@@ -140,6 +140,32 @@ export class MarketplaceRolesService {
     });
   }
 
+  async startProviderApplicationReview(reviewerId: string, applicationId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.providerRoleApplication.updateMany({
+        where: { id: applicationId, status: ProviderApplicationStatus.PENDING },
+        data: { status: ProviderApplicationStatus.UNDER_REVIEW, reviewerId },
+      });
+      if (changed.count !== 1) {
+        throw new ConflictException("This Provider application is not pending review.");
+      }
+      const application = await tx.providerRoleApplication.findUniqueOrThrow({
+        where: { id: applicationId },
+        select: { userId: true },
+      });
+      await tx.staffAuditLog.create({
+        data: {
+          actorId: reviewerId,
+          targetUserId: application.userId,
+          action: "PROVIDER_APPLICATION_REVIEW_STARTED",
+          metadata: { applicationId },
+        },
+      });
+      return { applicationId, status: ProviderApplicationStatus.UNDER_REVIEW };
+    });
+    return result;
+  }
+
   async decideProviderApplication(
     reviewerId: string,
     applicationId: string,
@@ -151,6 +177,7 @@ export class MarketplaceRolesService {
       select: { id: true, userId: true, status: true, applicationData: true },
     });
     if (!application) throw new NotFoundException("Provider application not found.");
+    if (application.userId === reviewerId) throw new ForbiddenException("Reviewers cannot decide their own Provider application.");
     if (application.status !== ProviderApplicationStatus.PENDING && application.status !== ProviderApplicationStatus.UNDER_REVIEW) {
       throw new ConflictException("This Provider application has already been decided.");
     }
