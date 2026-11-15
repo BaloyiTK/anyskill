@@ -41,6 +41,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         seekerRoleStatus: true,
         providerRoleStatus: true,
         activeMarketplaceMode: true,
+        initialMode: true,
       },
     });
 
@@ -54,6 +55,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       seekerRoleStatus: user.seekerRoleStatus,
       providerRoleStatus: user.providerRoleStatus,
       activeMarketplaceMode: user.activeMarketplaceMode,
+      initialMode: user.initialMode,
       googleLinked: Boolean(user.googleSubject),
     };
   }
