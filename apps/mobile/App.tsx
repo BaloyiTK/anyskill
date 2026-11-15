@@ -17,7 +17,7 @@ import { OnboardingScreen } from "./src/OnboardingScreen";
 import { WelcomeScreen } from "./src/WelcomeScreen";
 
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password" | "dashboard" | "marketplace" | "onboarding";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding";
 type UserMode = "seeker" | "provider";
 type AppTab = "home" | "activities" | "notifications" | "account";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
@@ -63,6 +63,7 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [resetToken, setResetToken] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [account, setAccount] = useState<AccountSummary | null>(null);
   const [roleSummary, setRoleSummary] = useState<MarketplaceRoleSummary | null>(null);
   const [providerApplicationName, setProviderApplicationName] = useState("");
@@ -168,14 +169,6 @@ export default function App() {
 
   const verifyEmailFromLink = async (url: string) => {
     const query = new URLSearchParams(url.split("?")[1] ?? "");
-    if (url.includes("reset-password")) {
-      const token = query.get("token");
-      if (token) {
-        setResetToken(token);
-        setScreen("reset-password");
-      }
-      return;
-    }
     if (!url.includes("verify-email")) return;
     const token = query.get("token");
     if (!token) return;
@@ -559,26 +552,63 @@ export default function App() {
   const requestPasswordReset = async () => {
     feedback(); setBusy(true);
     try {
-      const result = await apiRequest<{ message: string }>("/auth/forgot-password", {
+      const result = await apiRequest<{ message: string; resendAfterSeconds?: number }>("/auth/forgot-password", {
         method: "POST", body: JSON.stringify({ email: email.trim() }),
       });
+      setOtp("");
+      setOtpResendSeconds(result.resendAfterSeconds ?? 60);
       setMessage(result.message);
+      setScreen("reset-password-otp");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not request password reset.");
+    } finally { setBusy(false); }
+  };
+
+  const resendPasswordResetOtp = async () => {
+    if (busy || otpResendSeconds > 0) return;
+    feedback(); setBusy(true);
+    try {
+      const result = await apiRequest<{ message: string; resendAfterSeconds?: number }>("/auth/resend-password-reset-otp", {
+        method: "POST", body: JSON.stringify({ email: email.trim() }),
+      });
+      setOtp("");
+      setOtpResendSeconds(result.resendAfterSeconds ?? 60);
+      otpInputRef.current?.focus();
+      setMessage(result.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not resend password reset code.");
+    } finally { setBusy(false); }
+  };
+
+  const verifyPasswordResetOtp = async () => {
+    feedback(); setBusy(true);
+    try {
+      const result = await apiRequest<{ resetToken: string }>("/auth/verify-password-reset-otp", {
+        method: "POST", body: JSON.stringify({ email: email.trim(), otp }),
+      });
+      setResetToken(result.resetToken);
+      setNewPassword("");
+      setShowNewPassword(false);
+      setScreen("reset-password");
+      setMessage("Code verified. Choose a new password.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Code verification failed.");
     } finally { setBusy(false); }
   };
 
   const completePasswordReset = async () => {
     feedback(); setBusy(true);
     try {
-      await apiRequest("/auth/reset-password", {
+      const tokens = await apiRequest<Tokens>("/auth/reset-password", {
         method: "POST", body: JSON.stringify({ token: resetToken, newPassword }),
       });
-      await clearTokens();
-      setMessage("Password updated. Sign in with your new password.");
+      await saveTokens(tokens);
       setPassword("");
       setNewPassword("");
-      setScreen("login");
+      setResetToken("");
+      setOtp("");
+      await loadAccount();
+      setMessage("Password updated successfully. You are now signed in.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not reset password.");
     } finally { setBusy(false); }
@@ -850,17 +880,71 @@ export default function App() {
           {screen === "forgot-password" && <View style={s.form}>
             <Text style={s.kicker}>ACCOUNT RECOVERY</Text>
             <Text style={s.formTitle}>Reset your password</Text>
-            <Text style={s.subtitle}>Enter your account email. If an account exists, we will send a secure reset link.</Text>
+            <Text style={s.subtitle}>Enter your account email. If an account exists, we will send a six-digit reset code.</Text>
             <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
-            <Primary label="Send reset link" onPress={requestPasswordReset} disabled={busy || !email.trim()} />
+            <Primary label="Send reset code" onPress={requestPasswordReset} disabled={busy || !email.trim()} />
+            <TextButton label="Back to sign in" onPress={() => goTo("login")} />
+          </View>}
+
+          {screen === "reset-password-otp" && <View style={s.form}>
+            <Text style={s.kicker}>CHECK YOUR INBOX</Text>
+            <Text style={s.formTitle}>Enter your reset code</Text>
+            <Text style={s.subtitle}>If an account exists for {email}, a six-digit code has been sent. It expires in 10 minutes.</Text>
+            <View style={s.otpField}>
+              <Text style={s.fieldLabel}>Six-digit reset code</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Password reset code, ${otp.length} of 6 digits entered. Tap to enter code.`}
+                onPress={() => otpInputRef.current?.focus()}
+                style={s.otpBoxes}
+              >
+                {Array.from({ length: 6 }, (_, index) => (
+                  <View key={index} style={[
+                    s.otpBox,
+                    index === otp.length && otp.length < 6 && s.otpBoxActive,
+                    otp.length === 6 && s.otpBoxFilled,
+                  ]}>
+                    <Text style={s.otpDigit}>{otp[index] ?? ""}</Text>
+                  </View>
+                ))}
+                <TextInput
+                  ref={otpInputRef}
+                  value={otp}
+                  onChangeText={(value) => setOtp(value.replace(/\\D/g, "").slice(0, 6))}
+                  keyboardType="number-pad"
+                  textContentType="oneTimeCode"
+                  autoComplete="sms-otp"
+                  maxLength={6}
+                  accessibilityLabel="Six-digit password reset code"
+                  caretHidden
+                  style={s.otpInputOverlay}
+                />
+              </Pressable>
+            </View>
+            <Primary label="Verify code" onPress={verifyPasswordResetOtp} disabled={busy || !/^\\d{6}$/.test(otp)} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy || otpResendSeconds > 0 }}
+              disabled={busy || otpResendSeconds > 0}
+              onPress={resendPasswordResetOtp}
+              style={s.resendCodeButton}
+            >
+              <Text style={[s.resendCodeText, (busy || otpResendSeconds > 0) && s.resendCodeDisabled]}>
+                {otpResendSeconds > 0
+                  ? `Resend code in 00:${String(otpResendSeconds).padStart(2, "0")}`
+                  : "Resend code"}
+              </Text>
+            </Pressable>
             <TextButton label="Back to sign in" onPress={() => goTo("login")} />
           </View>}
 
           {screen === "reset-password" && <View style={s.form}>
             <Text style={s.kicker}>ACCOUNT RECOVERY</Text>
             <Text style={s.formTitle}>Choose a new password</Text>
-            <Text style={s.subtitle}>Use at least 12 characters. This will sign out your other active sessions.</Text>
-            <Field label="New password" value={newPassword} onChangeText={setNewPassword} placeholder="At least 12 characters" secureTextEntry />
+            <Text style={s.subtitle}>Your password must contain at least 12 characters. Other active sessions will be signed out.</Text>
+            <Field label="New password" value={newPassword} onChangeText={setNewPassword} placeholder="At least 12 characters" secureTextEntry={!showNewPassword} />
+            <TextButton label={showNewPassword ? "Hide password" : "Show password"} onPress={() => setShowNewPassword((visible) => !visible)} />
+            <Text style={s.helper}>{newPassword.length}/12 characters minimum</Text>
             <Primary label="Update password" onPress={completePasswordReset} disabled={busy || newPassword.length < 12 || !resetToken} />
           </View>}
 
