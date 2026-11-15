@@ -176,7 +176,7 @@ export class MarketplaceRolesService {
   ) {
     const application = await this.prisma.providerRoleApplication.findUnique({
       where: { id: applicationId },
-      select: { id: true, userId: true, status: true, applicationData: true },
+      select: { id: true, userId: true, status: true, applicationData: true, user: { select: { seekerRoleStatus: true } } },
     });
     if (!application) throw new NotFoundException("Provider application not found.");
     if (application.userId === reviewerId) throw new ForbiddenException("Reviewers cannot decide their own Provider application.");
@@ -247,7 +247,9 @@ export class MarketplaceRolesService {
         where: { id: application.userId },
         data: {
           providerRoleStatus: roleStatus,
-          ...(decision === "APPROVED" ? {} : { activeMarketplaceMode: RegistrationMode.SEEKER }),
+          activeMarketplaceMode: application.user.seekerRoleStatus === MarketplaceRoleStatus.ACTIVE
+            ? RegistrationMode.SEEKER
+            : decision === "APPROVED" ? RegistrationMode.PROVIDER : null,
         },
       });
       await tx.staffAuditLog.create({
