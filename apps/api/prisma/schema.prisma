@@ -127,7 +127,7 @@ model User {
   initialMode              RegistrationMode            @default(SEEKER) @map("initial_mode")
   seekerRoleStatus         MarketplaceRoleStatus       @default(ACTIVE) @map("seeker_role_status")
   providerRoleStatus       MarketplaceRoleStatus       @default(NOT_REQUESTED) @map("provider_role_status")
-  activeMarketplaceMode    RegistrationMode            @default(SEEKER) @map("active_marketplace_mode")
+  activeMarketplaceMode    RegistrationMode?           @default(SEEKER) @map("active_marketplace_mode")
   homeLocationLabel         String?                      @map("home_location_label") @db.VarChar(500)
   homeLatitude              Float?                       @map("home_latitude")
   homeLongitude             Float?                       @map("home_longitude")
