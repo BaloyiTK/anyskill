@@ -1,5 +1,5 @@
 const $ = (selector) => document.querySelector(selector);
-const state = { api: "http://localhost:3000/api/v1", accessToken: "", refreshToken: "", staff: null, applications: [], selected: null, busy: false };
+const state = { api: "http://localhost:3000/api/v1", accessToken: "", refreshToken: "", staff: null, applications: [], staffMembers: [], isSuperAdmin: false, selected: null, busy: false };
 
 const show = (element) => element.classList.remove("hidden");
 const hide = (element) => element.classList.add("hidden");
@@ -62,11 +62,12 @@ function signOut(callApi = true) {
 
 function setPage(page) {
   const providers = page === "providers";
-  hide($("#overview-page")); hide($("#providers-page"));
-  show(providers ? $("#providers-page") : $("#overview-page"));
+  hide($("#overview-page")); hide($("#providers-page")); hide($("#staff-page"));
+  show(page === "providers" ? $("#providers-page") : page === "staff" ? $("#staff-page") : $("#overview-page"));
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.page === page));
-  $("#breadcrumb").textContent = providers ? "Provider applications" : "Overview";
+  $("#breadcrumb").textContent = providers ? "Provider applications" : page === "staff" ? "Staff & permissions" : "Overview";
   if (providers) void loadApplications();
+  if (page === "staff") void loadStaffMembers();
 }
 
 async function login(event) {
@@ -85,6 +86,7 @@ async function login(event) {
     state.staff = me;
     const apps = await request("/admin/provider-applications");
     state.applications = Array.isArray(apps) ? apps : [];
+    try { await request("/admin/staff"); state.isSuperAdmin = true; show($("#staff-nav")); } catch { state.isSuperAdmin = false; hide($("#staff-nav")); }
     $("#staff-email").textContent = me.email || "Staff account";
     $("#staff-avatar").textContent = initials(me.email);
     $("#today-date").textContent = new Intl.DateTimeFormat("en-ZA", { dateStyle: "full" }).format(new Date());
@@ -113,6 +115,32 @@ function renderMetrics() {
   $("#queue-total").textContent = String(state.applications.length);
 }
 
+function renderStaffMembers() {
+  const list = $("#staff-list");
+  if (!state.staffMembers.length) { list.innerHTML = '<div class="empty-state">No staff memberships found.</div>'; return; }
+  const labels = { PROVIDER_REVIEWER: "Provider Reviewer", IDENTITY_REVIEWER: "Identity Reviewer", SUPPORT_AGENT: "Support Agent", FINANCE_OFFICER: "Finance Officer", FRAUD_OFFICER: "Fraud Officer", ADMIN: "Administrator", SUPER_ADMIN: "Super Administrator" };
+  list.innerHTML = state.staffMembers.map((member) => {
+    const email = escapeHtml(member.user?.email || "Staff account");
+    const id = escapeHtml(member.user?.id || "");
+    const locked = member.role === "SUPER_ADMIN";
+    return '<article class="application-row"><div class="applicant-main"><div class="applicant-avatar">' + escapeHtml(initials(email)) + '</div><div class="applicant-copy"><strong>' + email + '</strong><span>' + escapeHtml(labels[member.role] || member.role) + '</span></div></div><div class="applicant-actions"><select aria-label="Staff role" data-staff-role="' + id + '" ' + (locked ? "disabled" : "") + '><option value="PROVIDER_REVIEWER" ' + (member.role === "PROVIDER_REVIEWER" ? "selected" : "") + '>Provider Reviewer</option><option value="IDENTITY_REVIEWER" ' + (member.role === "IDENTITY_REVIEWER" ? "selected" : "") + '>Identity Reviewer</option><option value="SUPPORT_AGENT" ' + (member.role === "SUPPORT_AGENT" ? "selected" : "") + '>Support Agent</option><option value="FINANCE_OFFICER" ' + (member.role === "FINANCE_OFFICER" ? "selected" : "") + '>Finance Officer</option><option value="FRAUD_OFFICER" ' + (member.role === "FRAUD_OFFICER" ? "selected" : "") + '>Fraud Officer</option><option value="ADMIN" ' + (member.role === "ADMIN" ? "selected" : "") + '>Administrator</option></select><button class="button button-light" data-staff-toggle="' + id + '" data-active="' + member.isActive + '" ' + (locked ? "disabled" : "") + '>' + (member.isActive ? "Suspend" : "Reactivate") + '</button><span class="status-pill">' + (member.isActive ? "Active" : "Suspended") + '</span></div></article>';
+  }).join("");
+}
+async function loadStaffMembers() {
+  const error = $("#staff-error"); hide(error);
+  try { const result = await request("/admin/staff"); state.staffMembers = Array.isArray(result) ? result : []; renderStaffMembers(); }
+  catch (e) { error.textContent = e.message; show(error); }
+}
+async function createStaffMember(event) {
+  event.preventDefault(); const button = $("#staff-create-form button[type=submit]"); button.disabled = true;
+  try { await request("/admin/staff", { method: "POST", body: JSON.stringify({ email: $("#staff-new-email").value.trim(), role: $("#staff-new-role").value }) }); $("#staff-create-form").reset(); toast("Staff member added."); await loadStaffMembers(); }
+  catch (e) { const error = $("#staff-error"); error.textContent = e.message; show(error); }
+  finally { button.disabled = false; }
+}
+async function updateStaffMember(userId, patch) {
+  try { await request("/admin/staff/" + encodeURIComponent(userId), { method: "PATCH", body: JSON.stringify(patch) }); toast("Staff permissions updated."); await loadStaffMembers(); }
+  catch (e) { const error = $("#staff-error"); error.textContent = e.message; show(error); await loadStaffMembers(); }
+}
 function renderApplications() {
   const filter = $("#queue-filter").value;
   const items = state.applications.filter((item) => filter === "ALL" || item.status === filter);
@@ -219,6 +247,10 @@ $("#logout-button").addEventListener("click", () => signOut());
 $("#refresh-button").addEventListener("click", () => loadApplications().then(() => toast("Application data refreshed.")));
 $("#queue-refresh").addEventListener("click", loadApplications);
 $("#queue-filter").addEventListener("change", renderApplications);
+$("#staff-create-form").addEventListener("submit", createStaffMember);
+$("#staff-refresh").addEventListener("click", loadStaffMembers);
+$("#staff-list").addEventListener("change", (event) => { const el = event.target.closest("[data-staff-role]"); if (el) void updateStaffMember(el.dataset.staffRole, { role: el.value }); });
+$("#staff-list").addEventListener("click", (event) => { const el = event.target.closest("[data-staff-toggle]"); if (el) void updateStaffMember(el.dataset.staffToggle, { isActive: el.dataset.active !== "true" }); });
 document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => setPage(item.dataset.page)));
 document.querySelectorAll("[data-go]").forEach((item) => item.addEventListener("click", () => setPage(item.dataset.go)));
 $("#application-list").addEventListener("click", (event) => {
