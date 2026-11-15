@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { MarketplaceRoleStatus, ProviderApplicationStatus, RegistrationMode, StaffRole } from "@prisma/client";
+import { MarketplaceRoleStatus, ProviderApplicationStatus, RegistrationMode } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
 
 export type ProviderApplicationInput = {
