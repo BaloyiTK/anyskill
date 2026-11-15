@@ -34,7 +34,7 @@ export function isLocalIPv4Address(hostname, localAddresses) {
 
 export function createHealthUrl(baseUrl, hostname) {
   const url = new URL(baseUrl);
-  url.pathname = \`\${url.pathname.replace(/\/+$/, "")}/health\`.replace(/\/{2,}/g, "/");
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/health`.replace(/\/{2,}/g, "/");
   url.search = "";
   url.hash = "";
   if (hostname) url.hostname = hostname;
