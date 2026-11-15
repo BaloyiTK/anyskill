@@ -87,7 +87,7 @@ export class MarketplaceRolesService {
 
     const applicationData = {
       publicName: input.publicName.trim(),
-      skills: [...new Set(input.skills.map((value) => value.trim()).filter(Boolean))],
+      skills: [...new Set(input.skills.map((value) => value.trim().toLocaleLowerCase("en-ZA")).filter(Boolean))],
       portfolio: input.portfolio.map((value) => value.trim()).filter(Boolean),
       qualifications: (input.qualifications ?? []).map((value) => value.trim()).filter(Boolean),
     };
@@ -148,7 +148,7 @@ export class MarketplaceRolesService {
   ) {
     const application = await this.prisma.providerRoleApplication.findUnique({
       where: { id: applicationId },
-      select: { id: true, userId: true, status: true },
+      select: { id: true, userId: true, status: true, applicationData: true },
     });
     if (!application) throw new NotFoundException("Provider application not found.");
     if (application.status !== ProviderApplicationStatus.PENDING && application.status !== ProviderApplicationStatus.UNDER_REVIEW) {
@@ -180,6 +180,39 @@ export class MarketplaceRolesService {
         },
       });
       if (changed.count !== 1) throw new ConflictException("This Provider application has already been decided.");
+
+      if (decision === "APPROVED") {
+        const submitted = application.applicationData;
+        if (!submitted || typeof submitted !== "object" || Array.isArray(submitted)) {
+          throw new ConflictException("The submitted Provider profile is incomplete and cannot be approved.");
+        }
+        const data = submitted as Record<string, unknown>;
+        const publicName = typeof data.publicName === "string" ? data.publicName.trim() : "";
+        const skills = Array.isArray(data.skills)
+          ? data.skills.filter((value): value is string => typeof value === "string").map((value) => value.trim().toLocaleLowerCase("en-ZA")).filter(Boolean)
+          : [];
+        if (!publicName || skills.length === 0) {
+          throw new ConflictException("The submitted Provider profile is incomplete and cannot be approved.");
+        }
+        await tx.providerProfile.upsert({
+          where: { userId: application.userId },
+          create: {
+            userId: application.userId,
+            publicName,
+            skillCategories: skills,
+            isAvailable: false,
+          },
+          update: {
+            publicName,
+            skillCategories: skills,
+            isAvailable: false,
+            liveLatitude: null,
+            liveLongitude: null,
+            liveAccuracyM: null,
+            liveLocationUpdatedAt: null,
+          },
+        });
+      }
 
       await tx.user.update({
         where: { id: application.userId },
