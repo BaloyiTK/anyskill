@@ -141,6 +141,9 @@ export type AccountSummary = {
   emailVerified: boolean;
   identityVerification: string;
   googleLinked: boolean;
+  seekerRoleStatus: string;
+  providerRoleStatus: string;
+  activeMarketplaceMode: "SEEKER" | "PROVIDER";
 };
 
 export type IdentitySummary = {
