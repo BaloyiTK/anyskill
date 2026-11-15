@@ -84,3 +84,6 @@ ALTER TABLE "staff_audit_logs"
   FOREIGN KEY ("actor_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "staff_audit_logs_target_user_id_fkey"
   FOREIGN KEY ("target_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- Provider-first registrations have no active marketplace mode until manual approval.
+ALTER TABLE "users" ALTER COLUMN "active_marketplace_mode" DROP NOT NULL;
