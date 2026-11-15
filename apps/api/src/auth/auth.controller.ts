@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Post, UseGuards } from "@nestjs/common";
-import { IsEmail, IsString, MaxLength, MinLength } from "class-validator";
+import { IsEmail, IsString, Matches, MaxLength, MinLength } from "class-validator";
 import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
 import { CurrentUser, AuthenticatedUser } from "./current-user.decorator";
@@ -41,6 +41,16 @@ class RefreshDto {
   @MinLength(32)
   @MaxLength(128)
   refreshToken!: string;
+}
+
+class VerifyPasswordResetOtpDto {
+  @IsEmail()
+  @MaxLength(320)
+  email!: string;
+
+  @IsString()
+  @Matches(/^\\d{6}$/)
+  otp!: string;
 }
 
 class ForgotPasswordDto {
@@ -138,6 +148,18 @@ export class AuthController {
   @Post("forgot-password")
   forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.auth.requestPasswordReset(dto.email);
+  }
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("resend-password-reset-otp")
+  resendPasswordResetOtp(@Body() dto: ForgotPasswordDto) {
+    return this.auth.resendPasswordResetOtp(dto.email);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("verify-password-reset-otp")
+  verifyPasswordResetOtp(@Body() dto: VerifyPasswordResetOtpDto) {
+    return this.auth.verifyPasswordResetOtp(dto.email, dto.otp);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
