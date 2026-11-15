@@ -16,6 +16,7 @@ import {
 } from "./dto/service-request.dto";
 import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
+import { GooglePlacesService } from "./google-places.service";
 import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
 
 class CreateMediaUploadDto {
@@ -217,7 +218,33 @@ export class MarketplaceController {
 // Public, privacy-preserving discovery used by the signed-out welcome map.
 @Controller()
 export class PublicProviderDiscoveryController {
-  constructor(private readonly marketplace: MarketplaceService) {}
+  constructor(private readonly marketplace: MarketplaceService, private readonly places: GooglePlacesService) {}
+
+  @Get("marketplace/places/autocomplete")
+  autocompletePlaces(
+    @Query("input") input: string,
+    @Query("sessionToken") sessionToken: string,
+    @Query("latitude") latitude?: string,
+    @Query("longitude") longitude?: string,
+  ) {
+    return this.places.autocomplete(input, sessionToken, latitude, longitude);
+  }
+
+  @Get("marketplace/places/reverse-geocode")
+  reverseGeocode(
+    @Query("latitude") latitude: string,
+    @Query("longitude") longitude: string,
+  ) {
+    return this.places.reverseGeocode(latitude, longitude);
+  }
+
+  @Get("marketplace/places/details/:placeId")
+  getPlaceDetails(
+    @Param("placeId") placeId: string,
+    @Query("sessionToken") sessionToken: string,
+  ) {
+    return this.places.getPlaceDetails(placeId, sessionToken);
+  }
 
   @Get("marketplace/discover/providers")
   discoverProviders(
