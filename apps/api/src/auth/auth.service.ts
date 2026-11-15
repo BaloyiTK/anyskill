@@ -133,7 +133,7 @@ export class AuthService {
       const user=await this.prisma.$transaction(async tx=>{
         const used=await tx.pendingRegistration.updateMany({where:{id:row.id,registrationTokenHash:hash,registrationTokenExpiresAt:{gt:now}},data:{registrationTokenHash:null,registrationTokenExpiresAt:null}});
         if(used.count!==1) throw new UnauthorizedException("Registration session has already been used.");
-        const created=await tx.user.create({data:{email:row.email,passwordHash,emailVerifiedAt:now,initialMode:row.mode},select:{id:true,email:true,createdAt:true}});
+        const created=await tx.user.create({data:{email:row.email,passwordHash,emailVerifiedAt:now,initialMode:row.mode,seekerRoleStatus:row.mode === "SEEKER" ? "ACTIVE" : "NOT_REQUESTED",providerRoleStatus:"NOT_REQUESTED",activeMarketplaceMode:row.mode === "SEEKER" ? "SEEKER" : null},select:{id:true,email:true,createdAt:true}});
         await tx.pendingRegistration.delete({where:{id:row.id}}); return created;
       });
       return {user,...await this.issueTokens(user.id,user.email)};
