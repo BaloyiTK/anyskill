@@ -38,6 +38,12 @@ Only `verified` permits marketplace access. Suspension or revocation removes tha
 - Apply purpose limitation, data minimization and defined retention/deletion rules.
 - Prefer storing provider references and verification outcomes over retaining full identity documents when legally and operationally possible.
 
+## Separate Provider-role approval
+
+Identity verification is an account-level trust check and is shared when a user activates a second marketplace role. It does not grant Provider access by itself and does not prove professional competence. Provider access is a separate role that requires a submitted skills/portfolio application and manual approval by an authorised Provider Reviewer. An account may continue using another active role while its Provider application is pending, rejected or awaiting more information.
+
+See [Dual marketplace roles and Provider approval](dual-marketplace-roles.md) for the role lifecycle, switching rules and reviewer permissions.
+
 ## Not yet decided
 
 1. Identity-verification provider and integration.
