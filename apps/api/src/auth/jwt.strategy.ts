@@ -38,6 +38,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         identityVerification: true,
         googleSubject: true,
         deletedAt: true,
+        seekerRoleStatus: true,
+        providerRoleStatus: true,
+        activeMarketplaceMode: true,
       },
     });
 
@@ -48,6 +51,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       emailVerified: Boolean(user.emailVerifiedAt),
       identityVerification: user.identityVerification,
+      seekerRoleStatus: user.seekerRoleStatus,
+      providerRoleStatus: user.providerRoleStatus,
+      activeMarketplaceMode: user.activeMarketplaceMode,
       googleLinked: Boolean(user.googleSubject),
     };
   }
