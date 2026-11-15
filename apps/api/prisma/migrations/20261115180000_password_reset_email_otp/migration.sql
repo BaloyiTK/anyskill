@@ -17,3 +17,8 @@ ALTER TABLE "password_reset_otps"
 ADD CONSTRAINT "password_reset_otps_user_id_fkey"
 FOREIGN KEY ("user_id") REFERENCES "users"("id")
 ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Invalidate outstanding magic-link credentials during the OTP migration.
+UPDATE "password_reset_tokens"
+SET "consumed_at" = CURRENT_TIMESTAMP
+WHERE "consumed_at" IS NULL;
