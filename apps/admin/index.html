@@ -53,7 +53,16 @@
         <div id="overview-page">
           <div class="page-heading"><div><div class="eyebrow">PLATFORM OPERATIONS</div><h1>Good day<span class="heading-period">.</span></h1><p>Here’s what needs your attention across AnySkill.</p></div><div class="date-chip" id="today-date"></div></div>
           <div class="metric-grid">
-            <article class="metric-card"><div class="metric-top"><span>Awaiting review</span><span class="metric-symbol amber">◷</span></div><div id="metric-pending" class="metric-value">—</div><div class="metric-note">Provider applications in queue</div></article>
+            <article class="metric-card"><div class="metric-top"><span>Active providers</span><span class="metric-symbol green">◇</span></div><div id="metric-active-providers" class="metric-value">—</div><div class="metric-note">Approved and identity verified</div></article>
+            <article class="metric-card"><div class="metric-top"><span>Active seekers</span><span class="metric-symbol blue">♙</span></div><div id="metric-active-seekers" class="metric-value">—</div><div class="metric-note">Accounts with active Seeker access</div></article>
+            <article class="metric-card"><div class="metric-top"><span>Jobs in progress</span><span class="metric-symbol blue">↗</span></div><div id="metric-in-progress" class="metric-value">—</div><div class="metric-note">Work currently underway</div></article>
+            <article class="metric-card"><div class="metric-top"><span>Completed jobs</span><span class="metric-symbol green">✓</span></div><div id="metric-completed" class="metric-value">—</div><div class="metric-note">Successfully completed</div></article>
+            <article class="metric-card"><div class="metric-top"><span>Scheduled jobs</span><span class="metric-symbol blue">◷</span></div><div id="metric-scheduled" class="metric-value">—</div><div class="metric-note">Approved and scheduled for later</div></article>
+            <article class="metric-card"><div class="metric-top"><span>Pending jobs</span><span class="metric-symbol amber">!</span></div><div id="metric-pending-jobs" class="metric-value">—</div><div class="metric-note">Open requests awaiting matching</div></article>
+          </div>
+          <div class="section-heading"><div><h2>Provider application pipeline</h2><p>Manual provider activation and review queue.</p></div><button class="text-button" data-go="providers">Open applications →</button></div>
+          <div class="metric-grid pipeline-grid">
+            <article class="metric-card"><div class="metric-top"><span>Awaiting review</span><span class="metric-symbol amber">◷</span></div><div id="metric-pending" class="metric-value">—</div><div class="metric-note">Provider applications</div></article>
             <article class="metric-card"><div class="metric-top"><span>Under review</span><span class="metric-symbol blue">◎</span></div><div id="metric-review" class="metric-value">—</div><div class="metric-note">Applications being assessed</div></article>
             <article class="metric-card"><div class="metric-top"><span>Staff access</span><span class="metric-symbol green">✓</span></div><div id="metric-access" class="metric-value">Verified</div><div class="metric-note">Your session is authorised</div></article>
           </div>
