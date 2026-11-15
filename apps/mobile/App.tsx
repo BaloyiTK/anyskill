@@ -642,7 +642,7 @@ export default function App() {
         body: JSON.stringify({ mode: nextMode.toUpperCase() }),
       }, true);
       setRoleSummary(roles);
-      setMode(roles.activeMode.toLowerCase() as UserMode);
+      if (roles.activeMode) setMode(roles.activeMode.toLowerCase() as UserMode);
       setMessage(`Switched to ${nextMode === "seeker" ? "Seeker" : "Provider"} mode.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not switch marketplace mode.");
