@@ -65,6 +65,16 @@ export class MarketplaceRolesController {
     return this.roles.listProviderApplications();
   }
 
+  @Post("admin/provider-applications/:applicationId/start-review")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
+  startProviderApplicationReview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("applicationId", new ParseUUIDPipe()) applicationId: string,
+  ) {
+    return this.roles.startProviderApplicationReview(user.id, applicationId);
+  }
+
   @Post("admin/provider-applications/:applicationId/decision")
   @UseGuards(StaffAccessGuard)
   @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
