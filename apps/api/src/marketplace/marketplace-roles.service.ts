@@ -324,4 +324,24 @@ export class MarketplaceRolesService {
 
     return { applicationId, status: applicationStatus, providerRoleStatus: roleStatus };
   }
+
+  async getAdminDashboardMetrics() {
+    const now = new Date();
+    const [activeProviders, activeSeekers, jobsInProgress, completedJobs, scheduledJobs, pendingJobs, pendingApplications, applicationsUnderReview] = await Promise.all([
+      this.prisma.user.count({ where: { providerRoleStatus: MarketplaceRoleStatus.ACTIVE, identityVerification: "VERIFIED", deletedAt: null } }),
+      this.prisma.user.count({ where: { seekerRoleStatus: MarketplaceRoleStatus.ACTIVE, deletedAt: null } }),
+      this.prisma.jobEngagement.count({ where: { status: "IN_PROGRESS" } }),
+      this.prisma.jobEngagement.count({ where: { status: "COMPLETED" } }),
+      this.prisma.jobEngagement.count({ where: { status: "ESTIMATE_APPROVED", request: { preferredStartAt: { gt: now } } } }),
+      this.prisma.serviceRequest.count({ where: { status: "OPEN" } }),
+      this.prisma.providerRoleApplication.count({ where: { status: ProviderApplicationStatus.PENDING } }),
+      this.prisma.providerRoleApplication.count({ where: { status: ProviderApplicationStatus.UNDER_REVIEW } }),
+    ]);
+    return {
+      activeProviders, activeSeekers, jobsInProgress, completedJobs, scheduledJobs, pendingJobs,
+      pendingApplications, applicationsUnderReview, generatedAt: now.toISOString(),
+    };
+  }
+
+
 }
