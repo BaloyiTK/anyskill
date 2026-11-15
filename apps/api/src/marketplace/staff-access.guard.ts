@@ -25,8 +25,12 @@ export class StaffAccessGuard implements CanActivate {
       where: { userId: user.id },
       select: { role: true, isActive: true },
     });
-    const elevated = membership?.role === "ADMIN" || membership?.role === "SUPER_ADMIN";
-    if (!membership?.isActive || (!elevated && membership.role !== requiredRole)) {
+    const isSuperAdmin = membership?.role === "SUPER_ADMIN";
+    const isAdmin = membership?.role === "ADMIN";
+    const allowed = requiredRole === "SUPER_ADMIN"
+      ? isSuperAdmin
+      : isSuperAdmin || isAdmin || membership?.role === requiredRole;
+    if (!membership?.isActive || !allowed) {
       throw new ForbiddenException("You are not authorised to review Provider applications.");
     }
     return true;
