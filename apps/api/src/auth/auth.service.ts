@@ -593,7 +593,7 @@ export class AuthService {
     };
     if (existing) {
       const updated = await this.prisma.passwordResetOtp.updateMany({
-        where: { id: existing.id, consumedAt: null, resendAvailableAt: { lte: now } },
+        where: { id: existing.id, resendAvailableAt: { lte: now } },
         data,
       });
       if (updated.count !== 1) return { message: genericMessage, otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60 };
