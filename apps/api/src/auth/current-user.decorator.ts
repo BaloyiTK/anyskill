@@ -8,6 +8,7 @@ export interface AuthenticatedUser {
   seekerRoleStatus: string;
   providerRoleStatus: string;
   activeMarketplaceMode: "SEEKER" | "PROVIDER" | null;
+  initialMode: "SEEKER" | "PROVIDER";
 }
 
 export const CurrentUser = createParamDecorator(
