@@ -143,7 +143,7 @@ export default function App() {
     try {
       const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
       setRoleSummary(roles);
-      if (roles.activeMode) setMode(roles.activeMode.toLowerCase() as UserMode);
+      setMode((roles.activeMode ?? me.initialMode).toLowerCase() as UserMode);
     } catch {
       setRoleSummary({
         seekerStatus: me.seekerRoleStatus,
@@ -151,7 +151,7 @@ export default function App() {
         activeMode: me.activeMarketplaceMode,
         providerApplication: null,
       });
-      if (me.activeMarketplaceMode) setMode(me.activeMarketplaceMode.toLowerCase() as UserMode);
+      setMode((me.activeMarketplaceMode ?? me.initialMode).toLowerCase() as UserMode);
     }
     setIdentity(null);
     setProfileComplete(false);
@@ -721,7 +721,7 @@ export default function App() {
 
   const identityStatus = identity?.status ?? "not_started";
   const verified = identityStatus === "verified";
-  const canRequestSkill = profileComplete && verified;
+  const canRequestSkill = profileComplete && verified && roleSummary?.seekerStatus === "ACTIVE";
 
   return (
     <SafeAreaProvider>
@@ -896,7 +896,11 @@ export default function App() {
         canRequestSkill={canRequestSkill}
         onRequestSkill={() => {
           feedback();
-          if (canRequestSkill) {
+          if (roleSummary?.seekerStatus !== "ACTIVE") {
+            setActiveTab("account");
+            setScreen("dashboard");
+            setMessage("Activate your Seeker role to request services. Your existing role remains unchanged.");
+          } else if (profileComplete && verified) {
             void switchMarketplaceMode("seeker");
             setScreen("marketplace");
           } else {
@@ -918,7 +922,14 @@ export default function App() {
               <Text style={s.emptyStateTitle}>No activities yet</Text>
               <Text style={s.emptyStateText}>{mode === "seeker" ? "When you request a service, you will be able to follow its progress here." : "When you receive or accept a service request, it will appear here."}</Text>
             </View>
-            <Primary label={mode === "seeker" ? "Explore services" : "View available requests"} onPress={() => goTo("marketplace")} />
+            <Primary
+              label={mode === "seeker" ? "Explore services" : "View available requests"}
+              onPress={() => {
+                const active = mode === "seeker" ? roleSummary?.seekerStatus === "ACTIVE" : roleSummary?.providerStatus === "ACTIVE";
+                if (active) goTo("marketplace");
+                else { setActiveTab("account"); setScreen("dashboard"); setMessage("Activate or apply for this marketplace role before opening its workspace."); }
+              }}
+            />
           </View>}
 
           {screen === "dashboard" && account && activeTab === "notifications" && <View style={s.form}>
