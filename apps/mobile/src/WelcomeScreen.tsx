@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { AppleMaps, GoogleMaps } from "expo-maps";
 import * as Location from "expo-location";
+import * as Crypto from "expo-crypto";
 import { apiRequest } from "./api";
 
-type LocationSuggestion = { label: string; latitude: number; longitude: number };
+type LocationSuggestion = { placeId: string; label: string };
 
 type ProviderPin = {
   id: string;
@@ -52,6 +53,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
   const [areaLabel, setAreaLabel] = useState("Detecting your location…");
   const [manualLocation, setManualLocation] = useState("");
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
+  const [placesSessionToken, setPlacesSessionToken] = useState(() => Crypto.randomUUID());
   const [searchingLocation, setSearchingLocation] = useState(false);
   const [providers, setProviders] = useState<ProviderPin[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
@@ -103,14 +105,11 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
       setCoordinates(next);
       setAreaLabel("Your current area");
       try {
-        const places = await Location.reverseGeocodeAsync(next);
-        const place = places[0];
-        if (place) {
-          const label = [place.subregion, place.city, place.region].filter(Boolean).filter((value, index, all) => all.indexOf(value) === index).join(", ");
-          if (label) setAreaLabel(label);
-        }
+        const query = new URLSearchParams({ latitude: String(next.latitude), longitude: String(next.longitude) });
+        const result = await apiRequest<{ label: string | null }>(`/marketplace/places/reverse-geocode?${query.toString()}`);
+        if (result.label) setAreaLabel(result.label);
       } catch {
-        // GPS coordinates remain usable if reverse geocoding is unavailable.
+        // GPS coordinates remain usable if Google reverse geocoding is unavailable.
       }
     } catch (error) {
       setLocationError(error instanceof Error ? error.message : "Could not determine your location. Please try again.");
@@ -119,7 +118,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
     }
   };
 
-  // Look up matching places as the user types, with a short debounce.
+  // Search Google Places API (New) through the AnySkill API. The Google key stays server-side.
   useEffect(() => {
     const query = manualLocation.trim();
     if (query.length < 3) {
@@ -131,45 +130,15 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
     const timeout = setTimeout(async () => {
       setSearchingLocation(true);
       try {
-        // Use a dedicated places autocomplete endpoint rather than the device
-        // geocoder, which is not consistently available across Android devices.
-        const response = await fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5&lang=en`,
-          { headers: { Accept: "application/json" } },
+        const params = new URLSearchParams({ input: query, sessionToken: placesSessionToken });
+        if (coordinates) {
+          params.set("latitude", String(coordinates.latitude));
+          params.set("longitude", String(coordinates.longitude));
+        }
+        const result = await apiRequest<{ suggestions: LocationSuggestion[] }>(
+          `/marketplace/places/autocomplete?${params.toString()}`,
         );
-        if (!response.ok) throw new Error(`Location search returned ${response.status}`);
-        const payload = await response.json() as {
-          features?: Array<{
-            geometry?: { coordinates?: [number, number] };
-            properties?: {
-              name?: string;
-              street?: string;
-              district?: string;
-              locality?: string;
-              city?: string;
-              county?: string;
-              state?: string;
-              country?: string;
-            };
-          }>;
-        };
-        const suggestions = (payload.features ?? []).flatMap((feature) => {
-          const coords = feature.geometry?.coordinates;
-          if (!coords || coords.length < 2) return [];
-          const place = feature.properties ?? {};
-          const label = [
-            place.name,
-            place.street,
-            place.district,
-            place.locality,
-            place.city,
-            place.county,
-            place.state,
-            place.country,
-          ].filter((value, index, all) => Boolean(value) && all.indexOf(value) === index).join(", ");
-          return [{ label: label || query, longitude: coords[0], latitude: coords[1] }];
-        });
-        if (active) setLocationSuggestions(suggestions);
+        if (active) setLocationSuggestions(result.suggestions ?? []);
       } catch {
         if (active) {
           setLocationSuggestions([]);
@@ -178,19 +147,35 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
       } finally {
         if (active) setSearchingLocation(false);
       }
-    }, 500);
+    }, 350);
     return () => {
       active = false;
       clearTimeout(timeout);
     };
-  }, [manualLocation]);
+  }, [manualLocation, placesSessionToken, coordinates]);
 
-  const selectLocation = (suggestion: LocationSuggestion) => {
-    setCoordinates({ latitude: suggestion.latitude, longitude: suggestion.longitude });
-    setAreaLabel(suggestion.label);
-    setManualLocation("");
-    setLocationSuggestions([]);
+  const selectLocation = async (suggestion: LocationSuggestion) => {
+    setSearchingLocation(true);
     setLocationError("");
+    try {
+      const params = new URLSearchParams({ sessionToken: placesSessionToken });
+      const place = await apiRequest<{
+        placeId: string;
+        label: string;
+        latitude: number;
+        longitude: number;
+      }>(`/marketplace/places/details/${encodeURIComponent(suggestion.placeId)}?${params.toString()}`);
+      setCoordinates({ latitude: place.latitude, longitude: place.longitude });
+      setAreaLabel(place.label || suggestion.label);
+      setManualLocation("");
+      setLocationSuggestions([]);
+      // A Place Details request ends the current Google autocomplete session.
+      setPlacesSessionToken(Crypto.randomUUID());
+    } catch (error) {
+      setLocationError(error instanceof Error ? error.message : "Could not load the selected location.");
+    } finally {
+      setSearchingLocation(false);
+    }
   };
 
   // Detect the device location automatically when the welcome screen opens.
@@ -238,7 +223,10 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
       <TextInput
         accessibilityLabel="Search for a location"
         value={manualLocation}
-        onChangeText={setManualLocation}
+        onChangeText={(value) => {
+          if (!value.trim() && manualLocation.trim()) setPlacesSessionToken(Crypto.randomUUID());
+          setManualLocation(value);
+        }}
         placeholder="Search suburb, city or address"
         placeholderTextColor={THEME.muted}
         style={styles.locationSearchInput}
@@ -248,7 +236,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
     </View>
     {locationSuggestions.length > 0 ? <View style={styles.locationSuggestions}>
       {locationSuggestions.map((suggestion, index) => <Pressable
-        key={`${suggestion.latitude}:${suggestion.longitude}:${index}`}
+        key={suggestion.placeId || String(index)}
         accessibilityRole="button"
         onPress={() => selectLocation(suggestion)}
         style={styles.locationSuggestion}
