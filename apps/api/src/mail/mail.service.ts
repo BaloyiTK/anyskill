@@ -48,13 +48,4 @@ export class MailService {
     });
   }
 
-  async sendPasswordResetEmail(email: string, token: string): Promise<void> {
-    const url = `${process.env.APP_DEEP_LINK ?? "anyskill://"}reset-password?token=${encodeURIComponent(token)}`;
-    await this.getTransporter().sendMail({
-      from: process.env.MAIL_FROM!,
-      to: email,
-      subject: "Reset your AnySkill password",
-      text: `If you requested a password reset, open this link: ${url}`,
-    });
-  }
 }
