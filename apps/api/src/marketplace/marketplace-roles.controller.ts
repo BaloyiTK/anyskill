@@ -1,6 +1,6 @@
-import { Body, Controller, Get, IsIn, IsOptional, IsString, MaxLength, MinLength, Patch, Post, Param, ParseUUIDPipe, Query, UseGuards, IsArray, ArrayMaxSize, ArrayMinSize } from "@nestjs/common";
-import { RegistrationMode, ProviderApplicationStatus, StaffRole } from "@prisma/client";
-import { IsEnum } from "class-validator";
+import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards } from "@nestjs/common";
+import { RegistrationMode, StaffRole } from "@prisma/client";
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MarketplaceRolesService, ProviderApplicationInput } from "./marketplace-roles.service";
