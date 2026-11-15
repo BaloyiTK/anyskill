@@ -151,7 +151,7 @@ export class MarketplaceRolesService {
       select: { id: true, userId: true, status: true },
     });
     if (!application) throw new NotFoundException("Provider application not found.");
-    if (![ProviderApplicationStatus.PENDING, ProviderApplicationStatus.UNDER_REVIEW].includes(application.status)) {
+    if (application.status !== ProviderApplicationStatus.PENDING && application.status !== ProviderApplicationStatus.UNDER_REVIEW) {
       throw new ConflictException("This Provider application has already been decided.");
     }
 
