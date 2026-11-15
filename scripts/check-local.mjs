@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import net from "node:net";
+import { createHealthUrl, isLocalIPv4Address, parseEnvKeys, parseMobileApiUrl } from "./check-local-utils.mjs";
 
 const root = process.cwd();
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -15,10 +16,17 @@ const skipped = [];
 
 function run(label, command, args, options = {}) {
   console.log(`\n=== ${label} ===`);
-  const result = spawnSync(command, args, {
+  // pnpm exposes its JS entrypoint to lifecycle scripts. Invoke it with Node
+  // directly on Windows to avoid shell=true and Node's DEP0190 warning.
+  const pnpmEntrypoint = command === pnpm && process.env.npm_execpath && existsSync(process.env.npm_execpath)
+    ? process.env.npm_execpath
+    : null;
+  const executable = pnpmEntrypoint ? node : command;
+  const executableArgs = pnpmEntrypoint ? [pnpmEntrypoint, ...args] : args;
+  const result = spawnSync(executable, executableArgs, {
     cwd: options.cwd ?? root,
     stdio: "inherit",
-    shell: process.platform === "win32" && command === pnpm,
+    shell: !pnpmEntrypoint && process.platform === "win32" && command === pnpm,
     timeout: options.timeout ?? 180_000,
     env: { ...process.env, ...(options.env ?? {}) },
     windowsHide: true,
@@ -56,12 +64,7 @@ function checkApiEnvironment() {
     console.error("✗ apps/api/.env is missing. Create it locally; do not commit secrets.");
     return;
   }
-  const keys = new Set(
-    readFileSync(envPath, "utf8")
-      .split(/\r?\n/)
-      .map((line) => line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/)?.[1])
-      .filter(Boolean),
-  );
+  const keys = parseEnvKeys(readFileSync(envPath, "utf8"));
   const required = ["DATABASE_URL", "JWT_ACCESS_SECRET"];
   const missing = required.filter((key) => !keys.has(key));
   if (missing.length) {
@@ -93,7 +96,7 @@ function readMobileApiUrl() {
 function checkConfiguredLanAddress(url) {
   console.log("\n=== LAN address configuration ===");
   const localAddresses = getLocalIPv4Addresses();
-  if (net.isIP(url.hostname) === 4 && !localAddresses.includes(url.hostname)) {
+  if (!isLocalIPv4Address(url.hostname, localAddresses)) {
     failed = true;
     console.error(`✗ Configured API host ${url.hostname} is not assigned to this computer.`);
     console.error(`  Current non-loopback IPv4 address(es): ${localAddresses.join(", ") || "none detected"}`);
