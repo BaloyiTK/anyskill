@@ -24,7 +24,7 @@ type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; 
 type MarketplaceRoleSummary = {
   seekerStatus: string;
   providerStatus: string;
-  activeMode: "SEEKER" | "PROVIDER";
+  activeMode: "SEEKER" | "PROVIDER" | null;
   providerApplication: {
     status: string;
     submittedAt: string;
@@ -143,7 +143,7 @@ export default function App() {
     try {
       const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
       setRoleSummary(roles);
-      setMode(roles.activeMode.toLowerCase() as UserMode);
+      if (roles.activeMode) setMode(roles.activeMode.toLowerCase() as UserMode);
     } catch {
       setRoleSummary({
         seekerStatus: me.seekerRoleStatus,
@@ -151,7 +151,7 @@ export default function App() {
         activeMode: me.activeMarketplaceMode,
         providerApplication: null,
       });
-      setMode(me.activeMarketplaceMode.toLowerCase() as UserMode);
+      if (me.activeMarketplaceMode) setMode(me.activeMarketplaceMode.toLowerCase() as UserMode);
     }
     setIdentity(null);
     setProfileComplete(false);
@@ -626,7 +626,7 @@ export default function App() {
     try {
       const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
       setRoleSummary(roles);
-      setMode(roles.activeMode.toLowerCase() as UserMode);
+      if (roles.activeMode) setMode(roles.activeMode.toLowerCase() as UserMode);
       setMessage("Marketplace role status refreshed.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not refresh marketplace roles.");
