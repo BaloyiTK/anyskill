@@ -15,7 +15,9 @@ import { MediaService } from "../marketplace/media.service";
 const ACCESS_TOKEN_TTL = "15m";
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const EMAIL_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
-const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
+const RESET_TOKEN_TTL_MS = 10 * 60 * 1000;
+const RESET_OTP_TTL_MS = 10 * 60 * 1000;
+const RESET_OTP_RESEND_MS = 60 * 1000;
 const googleOAuthClient = new OAuth2Client();
 
 function opaqueToken(): string {
@@ -36,6 +38,12 @@ export class AuthService {
     private readonly mail: MailService,
     private readonly media: MediaService,
   ) {}
+
+  private passwordResetOtpHash(email: string, otp: string): string {
+    const secret = process.env.JWT_ACCESS_SECRET;
+    if (!secret || secret.length < 32) throw new Error("JWT_ACCESS_SECRET must be configured.");
+    return createHmac("sha256", secret).update(`password-reset:${email.toLowerCase()}:${otp}`).digest("hex");
+  }
 
   private registrationOtpHash(email: string, otp: string): string {
     const secret = process.env.JWT_ACCESS_SECRET;
@@ -522,6 +530,7 @@ export class AuthService {
       await tx.refreshSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
       await tx.emailVerificationToken.deleteMany({ where: { userId } });
       await tx.passwordResetToken.deleteMany({ where: { userId } });
+      await tx.passwordResetOtp.deleteMany({ where: { userId } });
       await tx.identityVerificationCase.deleteMany({ where: { userId } });
       await tx.pushDevice.deleteMany({ where: { userId } });
       await tx.appNotification.deleteMany({ where: { userId } });
@@ -564,32 +573,95 @@ export class AuthService {
   async requestPasswordReset(emailInput: string) {
     const email = emailInput.trim().toLowerCase();
     const user = await this.prisma.user.findUnique({ where: { email } });
+    const genericMessage = "If an account exists for that email, a six-digit password reset code has been sent.";
+    if (!user || user.deletedAt) return { message: genericMessage, otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60 };
 
-    // Always return the same response to avoid account enumeration.
-    if (user) {
-      const token = opaqueToken();
-      const now = new Date();
-      await this.prisma.$transaction([
-        this.prisma.passwordResetToken.updateMany({
-          where: { userId: user.id, consumedAt: null },
-          data: { consumedAt: now },
-        }),
-        this.prisma.passwordResetToken.create({
-          data: {
-            userId: user.id,
-            tokenHash: tokenHash(token),
-            expiresAt: new Date(now.getTime() + RESET_TOKEN_TTL_MS),
-          },
-        }),
-      ]);
+    const now = new Date();
+    const existing = await this.prisma.passwordResetOtp.findUnique({ where: { userId: user.id } });
+    if (existing && existing.resendAvailableAt > now) {
+      return { message: genericMessage, otpSent: true, expiresInSeconds: 600,
+        resendAfterSeconds: Math.ceil((existing.resendAvailableAt.getTime() - now.getTime()) / 1000) };
+    }
+
+    const otp = randomInt(0, 1_000_000).toString().padStart(6, "0");
+    const data = {
+      otpHash: this.passwordResetOtpHash(email, otp),
+      attempts: 0,
+      expiresAt: new Date(now.getTime() + RESET_OTP_TTL_MS),
+      resendAvailableAt: new Date(now.getTime() + RESET_OTP_RESEND_MS),
+      consumedAt: null,
+    };
+    if (existing) {
+      const updated = await this.prisma.passwordResetOtp.updateMany({
+        where: { id: existing.id, consumedAt: null, resendAvailableAt: { lte: now } },
+        data,
+      });
+      if (updated.count !== 1) return { message: genericMessage, otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60 };
+    } else {
       try {
-        await this.mail.sendPasswordResetEmail(user.email, token);
+        await this.prisma.passwordResetOtp.create({ data: { userId: user.id, ...data } });
       } catch (error) {
-        this.logger.error("Password reset email delivery failed.", error);
+        // A concurrent request may have created the row. Do not disclose account existence.
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
+          return { message: genericMessage, otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60 };
+        }
+        throw error;
       }
     }
 
-    return { message: "If an account exists for that email, password reset instructions have been sent." };
+    try {
+      await this.mail.sendPasswordResetOtp(user.email, otp);
+    } catch (error) {
+      await this.prisma.passwordResetOtp.updateMany({
+        where: { userId: user.id, consumedAt: null },
+        data: { resendAvailableAt: new Date() },
+      });
+      this.logger.error("Password reset OTP email delivery failed.", error);
+    }
+    return { message: genericMessage, otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60 };
+  }
+
+  async resendPasswordResetOtp(emailInput: string) {
+    return this.requestPasswordReset(emailInput);
+  }
+
+  async verifyPasswordResetOtp(emailInput: string, otp: string) {
+    const email = emailInput.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user || user.deletedAt) throw new UnauthorizedException("The code is invalid, expired or locked. Request a new code.");
+    const row = await this.prisma.passwordResetOtp.findUnique({ where: { userId: user.id } });
+    const now = new Date();
+    if (!row || row.consumedAt || row.expiresAt <= now || row.attempts >= 5) {
+      throw new UnauthorizedException("The code is invalid, expired or locked. Request a new code.");
+    }
+
+    const expected = Buffer.from(row.otpHash, "hex");
+    const actual = Buffer.from(this.passwordResetOtpHash(email, otp), "hex");
+    if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      await this.prisma.passwordResetOtp.updateMany({
+        where: { id: row.id, consumedAt: null, expiresAt: { gt: now }, attempts: { lt: 5 } },
+        data: { attempts: { increment: 1 } },
+      });
+      throw new UnauthorizedException("The verification code is incorrect.");
+    }
+
+    const resetCredential = opaqueToken();
+    const resetExpiresAt = new Date(now.getTime() + RESET_TOKEN_TTL_MS);
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.passwordResetOtp.updateMany({
+        where: { id: row.id, consumedAt: null, expiresAt: { gt: now }, attempts: { lt: 5 } },
+        data: { consumedAt: now },
+      });
+      if (consumed.count !== 1) throw new UnauthorizedException("The code has already been used.");
+      await tx.passwordResetToken.updateMany({
+        where: { userId: user.id, consumedAt: null },
+        data: { consumedAt: now },
+      });
+      await tx.passwordResetToken.create({
+        data: { userId: user.id, tokenHash: tokenHash(resetCredential), expiresAt: resetExpiresAt },
+      });
+    });
+    return { resetToken: resetCredential, expiresInSeconds: 600 };
   }
 
   async resetPassword(token: string, newPassword: string) {
@@ -637,6 +709,6 @@ export class AuthService {
       });
     });
 
-    return { passwordUpdated: true };
+    return { passwordUpdated: true, ...await this.issueTokens(record.userId, (await this.prisma.user.findUniqueOrThrow({ where: { id: record.userId }, select: { email: true } })).email) };
   }
 }
