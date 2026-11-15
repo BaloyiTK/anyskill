@@ -36,7 +36,7 @@
       <div class="workspace-label">WORKSPACE</div>
       <nav class="nav-list" aria-label="Main navigation">
         <button class="nav-item active" data-page="overview"><span class="nav-icon">▦</span> Overview</button>
-        <button class="nav-item" data-page="providers"><span class="nav-icon">◇</span> Provider applications <span id="nav-pending" class="nav-count">—</span></button>
+        <button class="nav-item" data-page="providers"><span class="nav-icon">◇</span> Provider applications <span id="nav-pending" class="nav-count">—</span></button><button id="staff-nav" class="nav-item hidden" data-page="staff"><span class="nav-icon">♙</span> Staff &amp; permissions</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="help-card"><div class="help-icon">?</div><strong>Need assistance?</strong><p>Contact your platform administrator for access or operational support.</p></div>
@@ -68,7 +68,10 @@
           </div>
         </div>
 
-        <div id="providers-page" class="hidden">
+        <div id="staff-page" class="hidden">
+<div class="page-heading"><div><div class="eyebrow">ACCESS CONTROL</div><h1>Staff &amp; permissions<span class="heading-period">.</span></h1><p>Only the Super Administrator can create staff members and assign operational roles.</p></div><button id="staff-refresh" class="button button-light">↻ Refresh staff</button></div>
+<div class="panel staff-create-panel"><form id="staff-create-form" class="staff-create-form"><div><label for="staff-new-email">Registered AnySkill email</label><input id="staff-new-email" type="email" placeholder="colleague@company.com" required /></div><div><label for="staff-new-role">Staff role</label><select id="staff-new-role" required><option value="PROVIDER_REVIEWER">Provider Reviewer</option><option value="IDENTITY_REVIEWER">Identity Reviewer</option><option value="SUPPORT_AGENT">Support Agent</option><option value="FINANCE_OFFICER">Finance Officer</option><option value="FRAUD_OFFICER">Fraud Officer</option><option value="ADMIN">Administrator</option></select></div><button class="button button-primary" type="submit">Add staff member</button></form><p class="staff-create-note">The person must already have an AnySkill account. Staff access is added to that account; no separate password is created here.</p></div>
+<div id="staff-error" class="alert alert-error hidden" role="alert"></div><div id="staff-list" class="application-list"><div class="loading-state">Loading staff…</div></div></div><div id="providers-page" class="hidden">
           <div class="page-heading"><div><div class="eyebrow">MARKETPLACE QUALITY</div><h1>Provider applications<span class="heading-period">.</span></h1><p>Assess applicants before granting Provider marketplace access.</p></div><button id="queue-refresh" class="button button-light">↻ Refresh queue</button></div>
           <div class="queue-summary"><div><span class="queue-dot pending-dot"></span><strong id="queue-total">—</strong><span>Open applications</span></div><div class="queue-filter"><label for="queue-filter">Status</label><select id="queue-filter"><option value="ALL">All open</option><option value="PENDING">Awaiting review</option><option value="UNDER_REVIEW">Under review</option></select></div></div>
           <div id="queue-error" class="alert alert-error hidden" role="alert"></div>
