@@ -39,3 +39,8 @@ Provider approval is not identity verification. The portal displays the identity
 Deploy `apps/admin` as a static site with the project root set to `apps/admin`. The static host must serve `index.html` for the root route. Configure the API's `CORS_ALLOWED_ORIGINS` to include the exact HTTPS admin origin. Configure the API base URL in the sign-in form to the deployed API URL.
 
 Use HTTPS for both the portal and API in production. Restrict staff account creation and staff-role grants to controlled administrative operations. Do not expose database credentials or service secrets in this frontend.
+
+
+## Super Administrator staff management
+
+A single Super Administrator can open **Staff & permissions** to add an existing AnySkill account, assign an operational role, change the role, or suspend/reactivate staff access. The staff page is shown only when the API confirms Super Administrator permission. The Super Administrator itself is bootstrapped once using the controlled SQL procedure in the security guide. Staff cannot create another Super Administrator. All staff changes are audit logged.
