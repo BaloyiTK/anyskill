@@ -587,6 +587,8 @@ export default function App() {
         method: "POST", body: JSON.stringify({ email: email.trim(), otp }),
       });
       setResetToken(result.resetToken);
+      setOtp("");
+      setOtpResendSeconds(0);
       setNewPassword("");
       setShowNewPassword(false);
       setScreen("reset-password");
