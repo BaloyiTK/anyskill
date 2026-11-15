@@ -145,7 +145,13 @@ export default function App() {
       setRoleSummary(roles);
       setMode(roles.activeMode.toLowerCase() as UserMode);
     } catch {
-      setRoleSummary(null);
+      setRoleSummary({
+        seekerStatus: me.seekerRoleStatus,
+        providerStatus: me.providerRoleStatus,
+        activeMode: me.activeMarketplaceMode,
+        providerApplication: null,
+      });
+      setMode(me.activeMarketplaceMode.toLowerCase() as UserMode);
     }
     setIdentity(null);
     setProfileComplete(false);
@@ -615,6 +621,18 @@ export default function App() {
     finally { setBusy(false); }
   };
 
+  const refreshMarketplaceRoles = async () => {
+    feedback(); setBusy(true);
+    try {
+      const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
+      setRoleSummary(roles);
+      setMode(roles.activeMode.toLowerCase() as UserMode);
+      setMessage("Marketplace role status refreshed.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not refresh marketplace roles.");
+    } finally { setBusy(false); }
+  };
+
   const switchMarketplaceMode = async (nextMode: UserMode) => {
     if (busy) return;
     feedback(); setBusy(true);
@@ -990,6 +1008,7 @@ export default function App() {
                     <Primary label={roleSummary?.providerStatus === "REJECTED" || roleSummary?.providerStatus === "REQUIRES_INFORMATION" ? "Resubmit Provider application" : "Submit Provider application"} onPress={submitProviderApplication} disabled={busy} />
                   </>}
                 </View>}
+            <Secondary label="Refresh marketplace role status" onPress={() => { void refreshMarketplaceRoles(); }} />
             <Secondary label="Sign out" onPress={logout} />
             <View style={s.deleteAccountSection}>
               <Text style={s.deleteAccountTitle}>Delete profile</Text>
