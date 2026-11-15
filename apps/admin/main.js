@@ -1,5 +1,5 @@
 const $ = (selector) => document.querySelector(selector);
-const state = { api: "http://localhost:3000/api/v1", accessToken: "", refreshToken: "", staff: null, applications: [], staffMembers: [], isSuperAdmin: false, selected: null, busy: false };
+const state = { api: "http://localhost:3000/api/v1", accessToken: "", refreshToken: "", staff: null, applications: [], staffMembers: [], dashboardMetrics: null, isSuperAdmin: false, selected: null, busy: false };
 
 const show = (element) => element.classList.remove("hidden");
 const hide = (element) => element.classList.add("hidden");
@@ -93,6 +93,7 @@ async function login(event) {
     hide($("#login-view")); show($("#app-view"));
     renderMetrics();
     renderApplications();
+    await loadDashboardMetrics();
     setPage("overview");
   } catch (error) {
     errorBox.textContent = error.status === 403
@@ -108,11 +109,25 @@ async function login(event) {
 function renderMetrics() {
   const pending = state.applications.filter((item) => item.status === "PENDING").length;
   const review = state.applications.filter((item) => item.status === "UNDER_REVIEW").length;
-  $("#metric-pending").textContent = String(pending);
-  $("#metric-review").textContent = String(review);
+  $("#metric-pending").textContent = String(state.dashboardMetrics?.pendingApplications ?? pending);
+  $("#metric-review").textContent = String(state.dashboardMetrics?.applicationsUnderReview ?? review);
   $("#priority-count").textContent = String(state.applications.length);
   $("#nav-pending").textContent = String(state.applications.length);
   $("#queue-total").textContent = String(state.applications.length);
+  const metrics = state.dashboardMetrics || {};
+  const values = {
+    "#metric-active-providers": metrics.activeProviders,
+    "#metric-active-seekers": metrics.activeSeekers,
+    "#metric-in-progress": metrics.jobsInProgress,
+    "#metric-completed": metrics.completedJobs,
+    "#metric-scheduled": metrics.scheduledJobs,
+    "#metric-pending-jobs": metrics.pendingJobs,
+  };
+  Object.entries(values).forEach(([selector, value]) => { $(selector).textContent = Number.isFinite(value) ? value.toLocaleString("en-ZA") : "—"; });
+}
+async function loadDashboardMetrics() {
+  try { state.dashboardMetrics = await request("/admin/dashboard/metrics"); renderMetrics(); }
+  catch (error) { state.dashboardMetrics = null; renderMetrics(); toast("Marketplace metrics unavailable: " + (error.message || "check dashboard access")); }
 }
 
 function renderStaffMembers() {
@@ -244,7 +259,7 @@ async function decide(decision) {
 
 $("#login-form").addEventListener("submit", login);
 $("#logout-button").addEventListener("click", () => signOut());
-$("#refresh-button").addEventListener("click", () => loadApplications().then(() => toast("Application data refreshed.")));
+$("#refresh-button").addEventListener("click", async () => { await Promise.all([loadApplications(), loadDashboardMetrics()]); toast("Dashboard data refreshed."); });
 $("#queue-refresh").addEventListener("click", loadApplications);
 $("#queue-filter").addEventListener("change", renderApplications);
 $("#staff-create-form").addEventListener("submit", createStaffMember);
