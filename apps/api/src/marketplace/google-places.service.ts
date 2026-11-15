@@ -40,8 +40,6 @@ export class GooglePlacesService {
       input: query,
       sessionToken: token,
       languageCode: "en",
-      regionCode: "ZA",
-      includedRegionCodes: ["za"],
     };
     // Prefer nearby South African addresses while retaining the 50 km search area.
     if (latitude !== undefined || longitude !== undefined) {
