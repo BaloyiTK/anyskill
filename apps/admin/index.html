@@ -35,8 +35,30 @@
       <a class="sidebar-brand" href="#"><span class="brand-mark">A</span><span>anyskill<span class="brand-dot">.</span><small>OPERATIONS</small></span></a>
       <div class="workspace-label">WORKSPACE</div>
       <nav class="nav-list" aria-label="Main navigation">
-        <button class="nav-item active" data-page="overview"><span class="nav-icon">▦</span> Overview</button>
-        <button class="nav-item" data-page="providers"><span class="nav-icon">◇</span> Provider applications <span id="nav-pending" class="nav-count">—</span></button><button id="staff-nav" class="nav-item hidden" data-page="staff"><span class="nav-icon">♙</span> Staff &amp; permissions</button>
+        <div class="nav-group-label">OVERVIEW</div>
+        <button class="nav-item active" data-page="overview"><span class="nav-icon">▦</span> Dashboard</button>
+        <div class="nav-group-label">MARKETPLACE</div>
+        <button class="nav-item" data-page="user-providers"><span class="nav-icon">◇</span> Providers</button>
+        <button class="nav-item" data-page="user-seekers"><span class="nav-icon">♙</span> Seekers</button>
+        <button class="nav-item" data-page="jobs"><span class="nav-icon">▤</span> Jobs &amp; requests</button>
+        <button class="nav-item" data-page="providers"><span class="nav-icon">▣</span> Provider applications <span id="nav-pending" class="nav-count">—</span></button>
+        <div class="nav-group-label">TRUST &amp; SAFETY</div>
+        <button class="nav-item" data-page="identity"><span class="nav-icon">✓</span> Identity verification</button>
+        <button class="nav-item" data-page="disputes"><span class="nav-icon">⚑</span> Disputes</button>
+        <button class="nav-item" data-page="fraud"><span class="nav-icon">!</span> Fraud &amp; risk</button>
+        <button class="nav-item" data-page="reviews"><span class="nav-icon">☆</span> Ratings &amp; reviews</button>
+        <div class="nav-group-label">FINANCIALS</div>
+        <button class="nav-item" data-page="transactions"><span class="nav-icon">↔</span> Transactions</button>
+        <button class="nav-item" data-page="commissions"><span class="nav-icon">%</span> Commissions</button>
+        <button class="nav-item" data-page="payouts"><span class="nav-icon">R</span> Payouts &amp; refunds</button>
+        <div class="nav-group-label">CUSTOMER OPERATIONS</div>
+        <button class="nav-item" data-page="support"><span class="nav-icon">?</span> Support tickets</button>
+        <button class="nav-item" data-page="notifications"><span class="nav-icon">♧</span> Notifications</button>
+        <div class="nav-group-label">ADMINISTRATION</div>
+        <button class="nav-item" data-page="reports"><span class="nav-icon">▥</span> Reports &amp; analytics</button>
+        <button class="nav-item" data-page="audit"><span class="nav-icon">≡</span> Audit logs</button>
+        <button id="staff-nav" class="nav-item hidden" data-page="staff"><span class="nav-icon">♙</span> Staff &amp; permissions</button>
+        <button class="nav-item" data-page="settings"><span class="nav-icon">⚙</span> System settings</button>
       </nav>
       <div class="sidebar-bottom">
         <div class="help-card"><div class="help-icon">?</div><strong>Need assistance?</strong><p>Contact your platform administrator for access or operational support.</p></div>
@@ -77,6 +99,10 @@
           </div>
         </div>
 
+        <div id="module-page" class="hidden">
+          <div class="page-heading"><div><div class="eyebrow" id="module-eyebrow">OPERATIONS</div><h1 id="module-title">Module<span class="heading-period">.</span></h1><p id="module-description"></p></div><span id="module-status" class="module-state">Integration required</span></div>
+          <div id="module-content" class="module-content"></div>
+        </div>
         <div id="staff-page" class="hidden">
 <div class="page-heading"><div><div class="eyebrow">ACCESS CONTROL</div><h1>Staff &amp; permissions<span class="heading-period">.</span></h1><p>Only the Super Administrator can create staff members and assign operational roles.</p></div><button id="staff-refresh" class="button button-light">↻ Refresh staff</button></div>
 <div class="panel staff-create-panel"><form id="staff-create-form" class="staff-create-form"><div><label for="staff-new-email">Registered AnySkill email</label><input id="staff-new-email" type="email" placeholder="colleague@company.com" required /></div><div><label for="staff-new-role">Staff role</label><select id="staff-new-role" required><option value="PROVIDER_REVIEWER">Provider Reviewer</option><option value="IDENTITY_REVIEWER">Identity Reviewer</option><option value="SUPPORT_AGENT">Support Agent</option><option value="FINANCE_OFFICER">Finance Officer</option><option value="FRAUD_OFFICER">Fraud Officer</option><option value="ADMIN">Administrator</option></select></div><button class="button button-primary" type="submit">Add staff member</button></form><p class="staff-create-note">The person must already have an AnySkill account. Staff access is added to that account; no separate password is created here.</p></div>
