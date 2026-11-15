@@ -46,7 +46,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async listSkills(query: string) {
     const profiles = await this.prisma.providerProfile.findMany({
-      where: { skillCategories: { isEmpty: false }, user: { is: { providerRoleStatus: "ACTIVE" } } }, select: { skillCategories: true }, take: 2000,
+      where: { skillCategories: { isEmpty: false }, user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } } }, select: { skillCategories: true }, take: 2000,
     });
     const counts = new Map<string, number>();
     for (const profile of profiles) for (const skill of profile.skillCategories) {
@@ -729,6 +729,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         INNER JOIN users u ON u.id = pp.user_id
         WHERE pp.is_available = TRUE
           AND u.provider_role_status = 'ACTIVE'
+          AND u.identity_verification_status = 'VERIFIED'
           AND pp.user_id <> ${request.seekerId}::uuid
           AND pp.skill_categories @> ARRAY[${normalise(request.skillCategory)}]::text[]
           AND pp.delivery_modes && ARRAY['ONSITE','EITHER']::text[]
