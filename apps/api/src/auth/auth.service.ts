@@ -124,7 +124,7 @@ export class AuthService {
     const expected=Buffer.from(row.otpHash,"hex"), actual=Buffer.from(this.registrationOtpHash(email,otp),"hex");
     if(expected.length!==actual.length || !timingSafeEqual(expected,actual)) {
       await this.prisma.pendingRegistration.updateMany({where:{id:row.id,verifiedAt:null,attempts:{lt:5}},data:{attempts:{increment:1}}});
-      throw new UnauthorizedException("The verification code is incorrect.");
+      throw new UnauthorizedException("The code is invalid, expired or locked. Request a new code.");
     }
     const registrationToken=opaqueToken();
     const consumed=await this.prisma.pendingRegistration.updateMany({where:{id:row.id,verifiedAt:null,expiresAt:{gt:now},attempts:{lt:5}},data:{verifiedAt:now,registrationTokenHash:tokenHash(registrationToken),registrationTokenExpiresAt:new Date(now.getTime()+900000)}});
