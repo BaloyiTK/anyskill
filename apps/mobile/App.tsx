@@ -790,7 +790,7 @@ export default function App() {
             <Text style={s.formTitle}>{screen === "register" ? "Create your account" : "Sign in to AnySkill"}</Text>
             <Text style={s.subtitle}>{screen === "register" ? "One account gives you access to both operating modes." : "Sign in to continue to your account."}</Text>
             <Field label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
-            {screen === "login" && <Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry />}
+            {screen === "login" && <Field label="Password" value={password} onChangeText={setPassword} placeholder="At least 12 characters" secureTextEntry textContentType="password" autoComplete="current-password" />}
             {screen === "register" && <Text style={s.helper}>First, enter only your email address. We will send a six-digit code before asking for any other details.</Text>}
             <Primary label={screen === "register" ? "Send verification code" : "Sign in"} onPress={screen === "register" ? register : login} disabled={busy || !email.trim() || (screen === "login" && password.length < 12)} />
             <View style={s.googleDivider}>
@@ -944,7 +944,7 @@ export default function App() {
             <Text style={s.kicker}>ACCOUNT RECOVERY</Text>
             <Text style={s.formTitle}>Choose a new password</Text>
             <Text style={s.subtitle}>Your password must contain at least 12 characters. Other active sessions will be signed out.</Text>
-            <Field label="New password" value={newPassword} onChangeText={setNewPassword} placeholder="At least 12 characters" secureTextEntry={!showNewPassword} />
+            <Field label="New password" value={newPassword} onChangeText={setNewPassword} placeholder="At least 12 characters" secureTextEntry={!showNewPassword} textContentType="newPassword" autoComplete="new-password" />
             <TextButton label={showNewPassword ? "Hide password" : "Show password"} onPress={() => setShowNewPassword((visible) => !visible)} />
             <Text style={s.helper}>{newPassword.length}/12 characters minimum</Text>
             <Primary label="Update password" onPress={completePasswordReset} disabled={busy || newPassword.length < 12 || !resetToken} />
@@ -1159,12 +1159,13 @@ function formatStatus(status: string) {
 function Field(p: {
   label: string; value: string; onChangeText: (v: string) => void; placeholder: string;
   secureTextEntry?: boolean; keyboardType?: "default" | "email-address" | "phone-pad";
+  textContentType?: "password" | "newPassword"; autoComplete?: "current-password" | "new-password";
 }) {
   return <View style={s.field}>
     <Text style={s.fieldLabel}>{p.label}</Text>
     <TextInput value={p.value} onChangeText={p.onChangeText} placeholder={p.placeholder}
       placeholderTextColor="#93A099" secureTextEntry={p.secureTextEntry}
-      keyboardType={p.keyboardType ?? "default"} autoCapitalize="none" autoCorrect={false} style={s.input} />
+      keyboardType={p.keyboardType ?? "default"} textContentType={p.textContentType} autoComplete={p.autoComplete} autoCapitalize="none" autoCorrect={false} style={s.input} />
   </View>;
 }
 
