@@ -577,6 +577,11 @@ export class AuthService {
     if (!user || user.deletedAt) return { message: genericMessage, otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60 };
 
     const now = new Date();
+    // Any legacy magic-link credentials are invalid as soon as a new OTP recovery is requested.
+    await this.prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, consumedAt: null },
+      data: { consumedAt: now },
+    });
     const existing = await this.prisma.passwordResetOtp.findUnique({ where: { userId: user.id } });
     if (existing && existing.resendAvailableAt > now) {
       return { message: genericMessage, otpSent: true, expiresInSeconds: 600,
@@ -670,7 +675,7 @@ export class AuthService {
     });
 
     if (!record || record.consumedAt || record.expiresAt <= new Date()) {
-      throw new UnauthorizedException("The password reset link is invalid or expired");
+      throw new UnauthorizedException("The password reset session is invalid or expired");
     }
 
     const passwordHash = await argon2.hash(newPassword, {
@@ -687,7 +692,7 @@ export class AuthService {
         data: { consumedAt: now },
       });
       if (consumed.count !== 1) {
-        throw new UnauthorizedException("The password reset link has already been used");
+        throw new UnauthorizedException("The password reset session has already been used");
       }
 
       await tx.user.update({
