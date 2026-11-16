@@ -233,6 +233,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
         <WelcomeMap
           center={mapCenter}
           zoom={mapZoom}
+          radiusKm={radiusKm}
           seekerLocation={coordinates}
           markers={mapMarkers}
           selectedMarkerId={selectedProviderId}
