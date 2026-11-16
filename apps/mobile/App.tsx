@@ -844,8 +844,10 @@ export default function App() {
   };
 
   const identityStatus = identity?.status ?? "not_started";
-  const verified = identityStatus.toLowerCase() === "verified";
   const identityCaseStatus = (identity?.latestCase?.status ?? identityStatus).toLowerCase();
+  // The latest verification case is authoritative when the account-level
+  // summary has not yet caught up with an administrator's decision.
+  const verified = identityStatus.toLowerCase() === "verified" || identityCaseStatus === "verified";
   const identityAwaitingReview = ["pending", "pending_review", "submitted", "in_review", "under_review"].includes(identityCaseStatus);
   const canRequestSkill = profileComplete && verified && roleSummary?.seekerStatus === "ACTIVE";
 
