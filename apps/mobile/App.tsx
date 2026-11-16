@@ -806,7 +806,10 @@ export default function App() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Open account"
-                onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }}
+                onPress={() => { void (async () => {
+                  const eligible = await routeFromProfileStatus(account?.initialMode);
+                  if (eligible) { setActiveTab("account"); setScreen("dashboard"); feedback(); }
+                })(); }}
                 style={s.headerAvatar}
               >
                 {identity?.previews?.ID_SELFIE
