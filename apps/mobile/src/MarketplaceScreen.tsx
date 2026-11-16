@@ -445,33 +445,89 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerAvailable || !providerLiveTrackingEnabled) return;
+
     let active = true;
     let subscription: Location.LocationSubscription | null = null;
-    const sendLocation = async (coords: Location.LocationObjectCoords) => {
-      if (!active || coords.accuracy == null || coords.accuracy > 250) return;
+    let heartbeat: ReturnType<typeof setInterval> | null = null;
+    let publishing = false;
+
+    const publishLocation = async (coords: Location.LocationObjectCoords) => {
+      if (!active || publishing) return;
+      if (coords.accuracy == null || coords.accuracy > 250) {
+        if (active) setError("Waiting for a more accurate GPS reading. Keep location enabled and try again.");
+        return;
+      }
+
+      publishing = true;
       try {
         await apiRequest("/marketplace/provider-location/live", {
           method: "POST",
-          body: JSON.stringify({ latitude: coords.latitude, longitude: coords.longitude, accuracyM: coords.accuracy }),
+          body: JSON.stringify({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracyM: coords.accuracy,
+          }),
         }, true);
       } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : "Live location update failed.");
+        // The next GPS callback or heartbeat retries with a fresh location.
+        if (active) setError(e instanceof Error ? e.message : "Live location update failed. Retrying automatically.");
+      } finally {
+        publishing = false;
       }
     };
+
+    const readAndPublishCurrentLocation = async () => {
+      if (!active || publishing) return;
+      try {
+        const current = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        await publishLocation(current.coords);
+      } catch (e) {
+        if (active) setError(e instanceof Error ? e.message : "Could not obtain a current GPS location. Retrying automatically.");
+      }
+    };
+
     void (async () => {
       try {
         const permission = await Location.requestForegroundPermissionsAsync();
-        if (!permission.granted) throw new Error("Location permission is needed to show your live location on the Provider map.");
-        const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        await sendLocation(initial.coords);
+        if (!permission.granted) {
+          throw new Error("Location permission is needed to show your live location on the Provider map.");
+        }
         if (!active) return;
-        subscription = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 50 },
-          (position) => { void sendLocation(position.coords); },
-        );
-      } catch (e) { if (active) setError(e instanceof Error ? e.message : "Could not start live location."); }
+
+        // Start movement updates first. A failed initial GPS fix must not prevent
+        // the watcher or periodic heartbeat from being installed.
+        try {
+          subscription = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.High,
+              timeInterval: 15000,
+              distanceInterval: 25,
+            },
+            (position) => { void publishLocation(position.coords); },
+          );
+        } catch (e) {
+          if (active) setError(e instanceof Error ? e.message : "GPS movement tracking could not start. Retrying with periodic location checks.");
+        }
+
+        if (!active) return;
+        heartbeat = setInterval(() => {
+          void readAndPublishCurrentLocation();
+        }, 15000);
+
+        // Initial acquisition is deliberately separate from watcher setup.
+        await readAndPublishCurrentLocation();
+      } catch (e) {
+        if (active) setError(e instanceof Error ? e.message : "Could not start live location sharing.");
+      }
     })();
-    return () => { active = false; subscription?.remove(); };
+
+    return () => {
+      active = false;
+      if (heartbeat) clearInterval(heartbeat);
+      subscription?.remove();
+    };
   }, [p.mode, providerAvailable, providerLiveTrackingEnabled]);
 
   const saveProviderProfile = async () => {
