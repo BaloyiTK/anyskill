@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { MarketplaceRoleStatus, Prisma, ProviderApplicationStatus, RegistrationMode } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
 
 type SectionInput = { profile?: Record<string, unknown>; skills?: unknown[]; portfolio?: unknown[] };
@@ -119,14 +119,127 @@ export class OnboardingService {
       );
     }
 
-    // Never create or mark an empty/incomplete draft as submitted.
-    const draft = await this.prisma.onboardingDraft.update({
-      where: { userId },
-      data: { submittedAt: new Date() },
+    // The initial registration mode is always a requested role, even when
+    // older clients have not yet persisted marketplaceRoles in the profile.
+    const requestedRoles = new Set<string>(
+      roles.filter((role): role is string => role === "SEEKER" || role === "PROVIDER"),
+    );
+    if (user?.initialMode === "SEEKER" || user?.initialMode === "PROVIDER") {
+      requestedRoles.add(user.initialMode);
+    }
+    if (requestedRoles.size === 0) {
+      throw new BadRequestException("Select at least one marketplace role before submitting.");
+    }
+
+    const profileData = profile as Record<string, unknown>;
+    const skills = Array.isArray(onboarding.skills)
+      ? onboarding.skills
+          .map((item: any) => typeof item?.category === "string" ? item.category.trim() : "")
+          .filter(Boolean)
+      : [];
+    const portfolio = Array.isArray(onboarding.portfolio)
+      ? onboarding.portfolio
+          .map((item: any) => typeof item?.title === "string" ? item.title.trim() : "")
+          .filter(Boolean)
+      : [];
+    const publicName = [
+      profileData.businessName,
+      [profileData.firstName, profileData.lastName].filter((value) => typeof value === "string" && value.trim()).join(" "),
+    ].find((value) => typeof value === "string" && value.trim()) as string | undefined;
+
+    // Submission must update the role lifecycle as well as the onboarding
+    // draft. Provider access remains pending until a reviewer approves it.
+    const submittedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.onboardingDraft.update({
+        where: { userId },
+        data: { submittedAt },
+      });
+
+      const currentUser = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: {
+          seekerRoleStatus: true,
+          providerRoleStatus: true,
+        },
+      });
+
+      const wantsSeeker = requestedRoles.has("SEEKER");
+      const wantsProvider = requestedRoles.has("PROVIDER");
+      let seekerRoleStatus = currentUser.seekerRoleStatus;
+      let providerRoleStatus = currentUser.providerRoleStatus;
+
+      if (wantsSeeker && seekerRoleStatus !== MarketplaceRoleStatus.SUSPENDED) {
+        seekerRoleStatus = MarketplaceRoleStatus.ACTIVE;
+      }
+
+      if (wantsProvider) {
+        if (!publicName || skills.length === 0 || portfolio.length === 0) {
+          throw new BadRequestException("Provider applications require a public name, at least one skill and at least one portfolio item.");
+        }
+
+        if (
+          providerRoleStatus !== MarketplaceRoleStatus.ACTIVE &&
+          providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED &&
+          providerRoleStatus !== MarketplaceRoleStatus.PENDING
+        ) {
+          const applicationData = {
+            publicName: publicName.trim(),
+            skills: [...new Set(skills.map((value) => value.toLocaleLowerCase("en-ZA")))],
+            portfolio,
+            qualifications: [],
+          };
+          await tx.providerRoleApplication.upsert({
+            where: { userId },
+            create: {
+              userId,
+              status: ProviderApplicationStatus.PENDING,
+              applicationData,
+              submittedAt,
+            },
+            update: {
+              status: ProviderApplicationStatus.PENDING,
+              applicationData,
+              submittedAt,
+              reviewedAt: null,
+              reviewerId: null,
+              decisionReason: null,
+            },
+          });
+          providerRoleStatus = MarketplaceRoleStatus.PENDING;
+          await tx.appNotification.create({
+            data: {
+              userId,
+              title: "Provider application submitted",
+              body: "Your Provider application is awaiting manual review. Your existing marketplace access remains available.",
+              data: { type: "PROVIDER_ROLE_APPLICATION_SUBMITTED" },
+            },
+          });
+        }
+      }
+
+      const activeMarketplaceMode =
+        seekerRoleStatus === MarketplaceRoleStatus.ACTIVE
+          ? RegistrationMode.SEEKER
+          : providerRoleStatus === MarketplaceRoleStatus.ACTIVE
+            ? RegistrationMode.PROVIDER
+            : null;
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          seekerRoleStatus,
+          providerRoleStatus,
+          activeMarketplaceMode,
+        },
+      });
     });
+
     return {
-      submittedAt: draft.submittedAt,
-      message: "Your profile has been submitted successfully.",
+      submittedAt,
+      message: wantsProvider
+        ? "Your profile has been submitted. Your Provider application is awaiting review."
+        : "Your profile has been submitted successfully.",
     };
   }
 }
