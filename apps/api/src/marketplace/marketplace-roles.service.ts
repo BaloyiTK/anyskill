@@ -218,11 +218,36 @@ export class MarketplaceRolesService {
             }
           }),
       );
+      const draftSkills = Array.isArray(application.user.onboardingDraft?.skills)
+        ? application.user.onboardingDraft.skills as Array<Record<string, unknown>>
+        : [];
+      const evidenceIds = new Set<string>();
+      for (const skill of draftSkills) {
+        for (const qualification of Array.isArray(skill.licencesQualifications) ? skill.licencesQualifications : []) {
+          if (qualification && typeof qualification === "object" && typeof (qualification as Record<string, unknown>).attachmentUrl === "string") {
+            evidenceIds.add(String((qualification as Record<string, unknown>).attachmentUrl));
+          }
+        }
+        for (const item of Array.isArray(skill.portfolio) ? skill.portfolio : []) {
+          if (item && typeof item === "object" && Array.isArray((item as Record<string, unknown>).imageUrls)) {
+            for (const assetId of (item as Record<string, unknown>).imageUrls as unknown[]) if (typeof assetId === "string") evidenceIds.add(assetId);
+          }
+        }
+      }
+      const providerEvidence = Object.fromEntries(await Promise.all([...evidenceIds].map(async (assetId) => {
+        try {
+          const preview = await this.media.getProviderEvidencePreviewUrl(userId, assetId);
+          return [assetId, preview?.url ?? null] as const;
+        } catch {
+          return [assetId, null] as const;
+        }
+      })));
       const { identityCases, ...user } = application.user;
       return {
         ...application,
         user: { ...user, identityCase: identityCases[0] ?? null },
         identityDocuments: Object.fromEntries(identityDocuments),
+        providerEvidence,
       };
     }));
   }
