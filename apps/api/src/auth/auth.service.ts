@@ -514,20 +514,48 @@ export class AuthService {
   }
 
   async deleteAccount(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, deletedAt: true } });
-    if (!user || user.deletedAt) throw new UnauthorizedException("This account is no longer active.");
-
-    const now = new Date();
-    const replacementEmail = `deleted-${userId}@deleted.anyskill.invalid`;
-    const replacementPasswordHash = await argon2.hash(opaqueToken(), {
-      type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1,
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, deletedAt: true },
     });
+    if (!user || user.deletedAt) {
+      throw new UnauthorizedException("This account is no longer active.");
+    }
 
-    // Remove private identity images from Cloudinary before anonymising the account.
-    await this.media.deleteIdentityAssets(userId);
+    // Remove every uploaded file owned by this account before deleting its
+    // database records. If remote deletion fails, retain the account so the
+    // user can retry instead of leaving private files orphaned.
+    await this.media.deleteUserAssets(userId);
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.refreshSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
+      // Remove audit entries involving this account so no foreign key keeps
+      // the account row alive.
+      await tx.staffAuditLog.deleteMany({
+        where: { OR: [{ actorId: userId }, { targetUserId: userId }] },
+      });
+
+      // Remove engagements first because they reference both requests and
+      // provider responses. Their dependent cost adjustments and completion
+      // submissions are removed by the database cascades.
+      await tx.jobEngagement.deleteMany({
+        where: { OR: [{ seekerId: userId }, { providerId: userId }] },
+      });
+
+      // Remove matches where this account was the suggested provider, even
+      // when the underlying request belongs to another seeker.
+      await tx.requestMatch.deleteMany({ where: { providerId: userId } });
+
+      // Remove the account's responses to other people's requests.
+      await tx.providerResponse.deleteMany({ where: { providerId: userId } });
+
+      // Remove requests created by this account. Their responses, matches and
+      // related engagement data are dependent records and are deleted too.
+      await tx.serviceRequest.deleteMany({ where: { seekerId: userId } });
+
+      // Delete all remaining account-owned records. Most of these have
+      // onDelete: Cascade, but explicit deletion keeps the operation clear.
+      await tx.mediaAsset.deleteMany({ where: { userId } });
+      await tx.refreshSession.deleteMany({ where: { userId } });
       await tx.emailVerificationToken.deleteMany({ where: { userId } });
       await tx.passwordResetToken.deleteMany({ where: { userId } });
       await tx.passwordResetOtp.deleteMany({ where: { userId } });
@@ -536,30 +564,15 @@ export class AuthService {
       await tx.appNotification.deleteMany({ where: { userId } });
       await tx.onboardingDraft.deleteMany({ where: { userId } });
       await tx.providerProfile.deleteMany({ where: { userId } });
+      await tx.providerRoleApplication.deleteMany({ where: { userId } });
+      await tx.staffMembership.deleteMany({ where: { userId } });
+      await tx.pendingRegistration.deleteMany({ where: { email: user.email } });
 
-      // Keep job and response records needed for disputes, payments and audit history,
-      // but remove the account holder's free-text response message.
-      await tx.providerResponse.updateMany({ where: { providerId: userId }, data: { message: null } });
-
-      await tx.user.update({
-        where: { id: userId },
-        data: {
-          email: replacementEmail,
-          phone: null,
-          googleSubject: null,
-          passwordHash: replacementPasswordHash,
-          emailVerifiedAt: null,
-          identityVerification: "REVOKED",
-          identityVerifiedAt: null,
-          homeLocationLabel: null,
-          homeLatitude: null,
-          homeLongitude: null,
-          deletedAt: now,
-        },
-      });
+      // This is a physical DELETE, not anonymisation or a deletedAt update.
+      await tx.user.delete({ where: { id: userId } });
     });
 
-    return { deleted: true };
+    return { deleted: true, message: "Your AnySkill account and associated data have been permanently deleted." };
   }
 
   async logout(refreshToken: string) {
