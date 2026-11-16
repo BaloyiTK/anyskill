@@ -294,9 +294,10 @@ export class AuthService {
     code: string,
     codeVerifier: string,
     redirectUri: string,
+    mode?: "SEEKER" | "PROVIDER",
   ) {
     const idToken = await this.exchangeGoogleAuthorizationCode(code, codeVerifier, redirectUri);
-    return this.googleSignIn(idToken);
+    return this.googleSignIn(idToken, mode);
   }
 
   async linkGoogleAccountWithAuthorizationCode(
@@ -309,7 +310,7 @@ export class AuthService {
     return this.linkGoogleAccount(userId, idToken);
   }
 
-  async googleSignIn(idToken: string) {
+  async googleSignIn(idToken: string, mode: "SEEKER" | "PROVIDER" = "SEEKER") {
     const google = await this.verifyGoogleIdToken(idToken);
     const linkedUser = await this.prisma.user.findUnique({
       where: { googleSubject: google.subject },
@@ -378,6 +379,10 @@ export class AuthService {
           passwordHash,
           googleSubject: google.subject,
           emailVerifiedAt: new Date(),
+          initialMode: mode,
+          seekerRoleStatus: mode === "SEEKER" ? "ACTIVE" : "NOT_REQUESTED",
+          providerRoleStatus: "NOT_REQUESTED",
+          activeMarketplaceMode: mode === "SEEKER" ? "SEEKER" : null,
         },
         select: { id: true, email: true },
       });
