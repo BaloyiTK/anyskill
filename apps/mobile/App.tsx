@@ -752,7 +752,9 @@ export default function App() {
   };
 
   const identityStatus = identity?.status ?? "not_started";
-  const verified = identityStatus === "verified";
+  const verified = identityStatus.toLowerCase() === "verified";
+  const identityCaseStatus = (identity?.latestCase?.status ?? identityStatus).toLowerCase();
+  const identityAwaitingReview = ["pending", "pending_review", "submitted", "in_review", "under_review"].includes(identityCaseStatus);
   const canRequestSkill = profileComplete && verified && roleSummary?.seekerStatus === "ACTIVE";
 
   return (
@@ -976,8 +978,10 @@ export default function App() {
 
       {screen === "dashboard" && account && activeTab === "home" && <>
       {!verified && <View style={s.notice}>
-        <Text style={s.noticeTitle}>Account pending verification</Text>
-        <Text style={s.noticeText}>Your account is not verified yet. Submit your identity documents for review. You can explore AnySkill, but restricted marketplace actions remain locked until approval.</Text>
+        <Text style={s.noticeTitle}>{identityAwaitingReview ? "Identity documents received" : "Identity verification required"}</Text>
+        <Text style={s.noticeText}>{identityAwaitingReview
+          ? "Your identity documents have been submitted and are awaiting review by our team. You do not need to submit them again. We will update your account when the review is complete. You can explore AnySkill, but restricted marketplace actions remain locked until approval."
+          : "Complete identity verification by submitting your required documents and live selfie for review. You can explore AnySkill, but restricted marketplace actions remain locked until approval."}</Text>
       </View>}
       <WelcomeScreen
         showAuthActions={false}
@@ -1071,9 +1075,11 @@ export default function App() {
               <Text style={s.successText}>Your identity check is approved.</Text>
             </View>}
             {!verified && <View style={s.notice}>
-              <Text style={s.noticeTitle}>Identity verification required for key actions</Text>
-              <Text style={s.noticeText}>You can explore AnySkill before verifying. Skill Seekers must verify before submitting a request. Skill Providers must verify before accepting one.</Text>
-              {["not_started", "failed", "requires_information"].includes(identityStatus) && <Primary label="Start identity verification request" onPress={startIdentityVerification} disabled={busy} />}
+              <Text style={s.noticeTitle}>{identityAwaitingReview ? "Verification in progress" : "Identity verification required for key actions"}</Text>
+              <Text style={s.noticeText}>{identityAwaitingReview
+                ? "Your documents have been received and are awaiting review. No further action is needed from you unless our team requests more information. Skill Seekers must be verified before submitting a request; Skill Providers must be verified before accepting one."
+                : "You can explore AnySkill before verifying. Skill Seekers must verify before submitting a request. Skill Providers must verify before accepting one."}</Text>
+              {["not_started", "failed", "requires_information"].includes(identityStatus.toLowerCase()) && <Primary label="Start identity verification request" onPress={startIdentityVerification} disabled={busy} />}
             </View>}
             <Secondary label="Complete or update profile" onPress={() => goTo("onboarding")} />
             <Secondary label="Refresh identity-verification status" onPress={refreshIdentityStatus} />
