@@ -23,6 +23,7 @@ type Props = {
   showAuthActions?: boolean;
   onRequestSkill?: () => void;
   canRequestSkill?: boolean;
+  profileComplete?: boolean;
   accountPendingReview?: boolean;
   onSelectRole?: (role: "provider" | "seeker") => void;
 };
@@ -47,7 +48,7 @@ const THEME = {
 };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRequestSkill, canRequestSkill = false, accountPendingReview = false, onSelectRole }: Props) {
+export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRequestSkill, canRequestSkill = false, profileComplete = false, accountPendingReview = false, onSelectRole }: Props) {
   const [radiusKm, setRadiusKm] = useState<number>(10);
   const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -287,18 +288,24 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
 
 
     {!showAuthActions ? <>
-      <Pressable accessibilityRole="button" onPress={onRequestSkill} style={styles.requestSkillButton}>
-        <Text style={styles.requestSkillIcon}>{canRequestSkill ? "＋" : "✓"}</Text>
+      {!profileComplete ? <Pressable accessibilityRole="button" onPress={onRequestSkill} style={styles.requestSkillButton}>
+        <View style={styles.incompleteProfileDot} />
         <View style={styles.requestSkillCopy}>
-          <Text style={styles.requestSkillTitle}>{canRequestSkill ? "Request a Skill" : "Complete your profile"}</Text>
-          <Text style={styles.requestSkillSubtitle}>{canRequestSkill ? "Tell us what you need help with" : "Complete your profile to request a skill"}</Text>
+          <Text style={styles.requestSkillTitle}>Complete your profile</Text>
+          <Text style={styles.requestSkillSubtitle}>Complete your profile to get started on AnySkill.</Text>
         </View>
         <Text style={styles.requestSkillArrow}>›</Text>
-      </Pressable>
-      {accountPendingReview ? <View accessibilityRole="text" style={styles.pendingReview}>
+      </Pressable> : accountPendingReview ? <View accessibilityRole="text" style={styles.pendingReview}>
         <View style={styles.pendingReviewDot} />
         <Text style={styles.pendingReviewText}>Account Pending Review</Text>
-      </View> : null}
+      </View> : canRequestSkill ? <Pressable accessibilityRole="button" onPress={onRequestSkill} style={styles.requestSkillButton}>
+        <Text style={styles.requestSkillIcon}>＋</Text>
+        <View style={styles.requestSkillCopy}>
+          <Text style={styles.requestSkillTitle}>Request a Skill</Text>
+          <Text style={styles.requestSkillSubtitle}>Tell us what you need help with</Text>
+        </View>
+        <Text style={styles.requestSkillArrow}>›</Text>
+      </Pressable> : null}
     </> : null}
 
     {showAuthActions ? <>
@@ -321,6 +328,7 @@ const styles = StyleSheet.create({
   headerSpacer: { flex: 1 },
   requestSkillButton: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 15, paddingVertical: 12, backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.blue, borderRadius: 15 },
   requestSkillIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: THEME.softBlue, color: THEME.blue, textAlign: "center", textAlignVertical: "center", fontSize: 23, fontWeight: "800", overflow: "hidden" },
+  incompleteProfileDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#DC2626" },
   requestSkillCopy: { flex: 1, gap: 3 },
   requestSkillTitle: { color: THEME.navy, fontSize: 13, fontWeight: "900" },
   requestSkillSubtitle: { color: THEME.muted, fontSize: 10, lineHeight: 14 },
