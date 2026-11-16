@@ -184,6 +184,9 @@ async function bootstrap(): Promise<void> {
     (latitude, longitude, radiusKm) =>
       app.get(MarketplaceService).discoverNearbyProviders(latitude, longitude, radiusKm),
   );
+  // Expire pins promptly when a Provider disconnects without explicitly going offline.
+  const staleLocationSweep = setInterval(() => app.get(LiveProviderMapService).notifyChanged(), 30_000);
+  staleLocationSweep.unref();
   logger.log(`API listening on http://0.0.0.0:${port}/api/v1`);
   logger.log(`API error log file: ${ERROR_LOG_FILE}`);
   logger.log(
