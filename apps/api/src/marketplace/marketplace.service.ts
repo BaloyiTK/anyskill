@@ -760,9 +760,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { id: requestId },
       select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, deliveryMode: true, status: true },
     });
-    if (!request || request.status !== "OPEN" || !request.seekerId) return { notified: 0, wave };
+    if (!request || request.status !== "OPEN") return { notified: 0, wave };
+    const seekerId = request.seekerId;
+    if (!seekerId) return { notified: 0, wave };
 
-    const ranked = await this.rankedProviders(request);
+    const ranked = await this.rankedProviders({ ...request, seekerId });
     const alreadyMatched = await this.prisma.requestMatch.findMany({
       where: { requestId },
       select: { providerId: true },
