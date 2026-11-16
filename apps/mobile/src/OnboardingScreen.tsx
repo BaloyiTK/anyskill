@@ -22,7 +22,8 @@ const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, 
 const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#4CAF50", forest: "#1B5E20", border: "#DCE5EF", surface: "#FFFFFF", bg: "#F6F8FA", hero: "#0B2545", soft: "#EAF3FF" };
 
 export function OnboardingScreen(p: { identityStatus: string; initialMode: MarketplaceRole; seekerRoleStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
-  const isProvider = p.initialMode === "PROVIDER";
+  const [alsoProvider, setAlsoProvider] = useState(false);
+  const isProvider = p.initialMode === "PROVIDER" || alsoProvider;
   const tabs: Section[] = isProvider
     ? ["Profile", "Verification", "Skills", "Portfolio", "Submit"]
     : ["Profile", "Verification", "Submit"];
@@ -114,7 +115,8 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       const savedRoles = Array.isArray(profile.marketplaceRoles)
         ? profile.marketplaceRoles.filter((role: unknown): role is MarketplaceRole => role === "SEEKER" || role === "PROVIDER")
         : profile.marketplaceRole === "SEEKER" || profile.marketplaceRole === "PROVIDER" ? [profile.marketplaceRole] : [p.initialMode];
-      setAlsoSeeker(isProvider && (savedRoles.includes("SEEKER") || p.seekerRoleStatus.toUpperCase() === "ACTIVE"));
+      setAlsoSeeker(p.initialMode === "PROVIDER" && (savedRoles.includes("SEEKER") || p.seekerRoleStatus.toUpperCase() === "ACTIVE"));
+      setAlsoProvider(p.initialMode === "SEEKER" && savedRoles.includes("PROVIDER"));
       setFirstName(profile.firstName ?? ""); setLastName(profile.lastName ?? ""); setPhone(profile.phone ?? "");
       setPhoneDialCode(profile.phoneDialCode ?? "+27");
       setCountry(profile.country ?? "South Africa"); setCountryCode(profile.countryCode ?? "ZA"); setProvince(profile.province ?? ""); setCity(profile.city ?? "");
@@ -178,7 +180,10 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     setBusy(true); setError(""); setMessage("");
     try {
       const body = section === "profile" ? { profile: {
-        accountType, marketplaceRoles: isProvider ? ["PROVIDER", ...(alsoSeeker ? ["SEEKER" as const] : [])] : ["SEEKER"], firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address, houseNumber,
+        accountType, marketplaceRoles: p.initialMode === "PROVIDER"
+          ? ["PROVIDER", ...(alsoSeeker ? ["SEEKER" as const] : [])]
+          : ["SEEKER", ...(alsoProvider ? ["PROVIDER" as const] : [])],
+        firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address, houseNumber,
         businessName, businessRegistrationNumber, businessType, businessEmail, businessPhone, businessCountry, businessProvince, businessCity, businessAddress,
         contactFirstName, contactLastName, contactJobTitle, contactEmail, contactPhone,
       } }
@@ -521,10 +526,19 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
           <Choice label="Individual" description="A personal profile" selected={accountType === "INDIVIDUAL"} onPress={() => setAccountType("INDIVIDUAL")} />
           <Choice label="Business" description="A company or organisation" selected={accountType === "BUSINESS"} onPress={() => setAccountType("BUSINESS")} />
         </View>
-        {isProvider ? <>
+        {p.initialMode === "PROVIDER" ? <>
           <Text style={st.label}>Additional marketplace role</Text>
           <RoleChoice label="I also want to register as a Skill Seeker" description="Use the same account to request services from other providers." selected={alsoSeeker} onPress={() => setAlsoSeeker((current) => !current)} />
-        </> : null}
+        </> : <>
+          <Text style={st.label}>Additional marketplace role</Text>
+          <RoleChoice label="I also want to register as a Skill Provider" description="Offer your skills and services to people using AnySkill. Skills and portfolio details will be required." selected={alsoProvider} onPress={() => {
+            setAlsoProvider((current) => {
+              const next = !current;
+              if (!next && (active === "Skills" || active === "Portfolio")) setActive("Submit");
+              return next;
+            });
+          }} />
+        </>}
         {accountType === "BUSINESS" ? <>
           <Text style={st.sectionHeading}>Business information</Text>
           {Field("Business name", businessName, setBusinessName)}
