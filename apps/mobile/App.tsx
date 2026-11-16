@@ -765,16 +765,21 @@ export default function App() {
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
           <View style={s.brandRow}>
             <Image source={require("./assets/branding/anyskill-logo.png")} style={s.brandLogo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
-            {account ? <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open account"
-              onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }}
-              style={s.headerAvatar}
-            >
-              {identity?.previews?.ID_SELFIE
-                ? <Image source={{ uri: identity.previews.ID_SELFIE }} style={s.headerAvatarImage} resizeMode="cover" accessibilityLabel="Your profile photo" />
-                : <Text style={s.headerAvatarText}>{(account.email?.trim()?.[0] ?? "U").toUpperCase()}</Text>}
-            </Pressable> : null}
+            {account ? <View style={s.headerAvatarWrap}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open account"
+                onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }}
+                style={s.headerAvatar}
+              >
+                {identity?.previews?.ID_SELFIE
+                  ? <Image source={{ uri: identity.previews.ID_SELFIE }} style={s.headerAvatarImage} resizeMode="cover" accessibilityLabel="Your profile photo" />
+                  : <Text style={s.headerAvatarText}>{(account.email?.trim()?.[0] ?? "U").toUpperCase()}</Text>}
+              </Pressable>
+              <View pointerEvents="none" accessibilityLabel={verified ? "Identity verified" : "Identity not verified"} style={[s.identityAvatarBadge, verified ? s.identityAvatarBadgeVerified : s.identityAvatarBadgeUnverified]}>
+                <Text style={s.identityAvatarBadgeText}>{verified ? "✓" : "×"}</Text>
+              </View>
+            </View> : null}
           </View>
 
           {screen === "welcome" && <WelcomeScreen
@@ -979,6 +984,7 @@ export default function App() {
       {screen === "dashboard" && account && activeTab === "home" && <>
       <WelcomeScreen
         showAuthActions={false}
+        profileComplete={profileComplete}
         canRequestSkill={canRequestSkill}
         accountPendingReview={identityAwaitingReview}
         onRequestSkill={() => {
@@ -1198,7 +1204,12 @@ const s = StyleSheet.create({
   content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 32 },
   brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginHorizontal: -20, marginBottom: 20, paddingLeft: 20, paddingRight: 20 },
   brandLogo: { width: 150, height: 52, alignSelf: "flex-start" },
+  headerAvatarWrap: { width: 46, height: 46, position: "relative", alignItems: "center", justifyContent: "center" },
   headerAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#EAF3FF", borderWidth: 2, borderColor: "#0066CC", alignItems: "center", justifyContent: "center", alignSelf: "flex-end", overflow: "hidden" },
+  identityAvatarBadge: { position: "absolute", right: -1, bottom: -1, width: 19, height: 19, borderRadius: 10, borderWidth: 2, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", zIndex: 2 },
+  identityAvatarBadgeVerified: { backgroundColor: "#287FE0" },
+  identityAvatarBadgeUnverified: { backgroundColor: "#EF3340" },
+  identityAvatarBadgeText: { color: "#FFFFFF", fontSize: 12, lineHeight: 14, fontWeight: "900", textAlign: "center" },
   headerAvatarImage: { width: "100%", height: "100%", borderRadius: 21 },
   headerAvatarText: { color: "#0B2545", fontSize: 16, fontWeight: "900" },
   googleDivider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 18 },
