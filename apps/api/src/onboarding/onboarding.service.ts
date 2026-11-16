@@ -178,10 +178,18 @@ export class OnboardingService {
           throw new BadRequestException("Provider applications require a public name, at least one skill and at least one portfolio item.");
         }
 
+        const existingApplication = await tx.providerRoleApplication.findUnique({
+          where: { userId },
+          select: { status: true },
+        });
+        const applicationAlreadyInReview =
+          existingApplication?.status === ProviderApplicationStatus.PENDING ||
+          existingApplication?.status === ProviderApplicationStatus.UNDER_REVIEW;
+
         if (
           providerRoleStatus !== MarketplaceRoleStatus.ACTIVE &&
           providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED &&
-          providerRoleStatus !== MarketplaceRoleStatus.PENDING
+          !applicationAlreadyInReview
         ) {
           const applicationData = {
             publicName: publicName.trim(),
