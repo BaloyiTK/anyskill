@@ -141,6 +141,25 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
+    if (input.isAvailable) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { providerRoleStatus: true, identityVerification: true },
+      });
+      if (!user || user.providerRoleStatus !== "ACTIVE") {
+        throw new ForbiddenException({
+          code: "PROVIDER_APPROVAL_REQUIRED",
+          message: "Provider availability is only available after your Provider application is approved.",
+        });
+      }
+      if (user.identityVerification !== "VERIFIED") {
+        throw new ForbiddenException({
+          code: "IDENTITY_VERIFICATION_REQUIRED",
+          action: "PROVIDER_GO_ONLINE",
+          message: "Complete identity verification before going online.",
+        });
+      }
+    }
     const skillCategories = [...new Set(input.skillCategories.map(normalise).filter(Boolean))];
     const serviceAreas = [...new Set(input.serviceAreas.map(normalise).filter(Boolean))];
     const deliveryModes = [...new Set(input.deliveryModes)];
