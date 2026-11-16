@@ -120,11 +120,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async updateProviderLiveLocation(userId: string, input: UpdateLiveLocationDto) {
     if (input.accuracyM > 250) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix.");
     const updatedAt = new Date();
-    // Guard the write in the database itself. A separate read followed by update
-    // could race with the Provider switching to Unavailable and restore a GPS fix
-    // after the availability update had cleared it.
+    // Any online Provider shares a live map location, regardless of skill or
+    // delivery mode. Going offline clears the location and stops this heartbeat.
     const result = await this.prisma.providerProfile.updateMany({
-      where: { userId, isAvailable: true, deliveryModes: { hasSome: ["ONSITE", "EITHER"] } },
+      where: { userId, isAvailable: true },
       data: {
         liveLatitude: input.latitude,
         liveLongitude: input.longitude,
@@ -135,7 +134,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (result.count !== 1) {
       const profile = await this.prisma.providerProfile.findUnique({ where: { userId }, select: { userId: true } });
       if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
-      throw new ConflictException("Set your Provider status to Available and enable on-site delivery before sharing live location.");
+      throw new ConflictException("Set your Provider status to Available before sharing your live location.");
     }
     return { isAvailable: true, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
   }
@@ -175,7 +174,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.providerProfile.upsert({
       where: { userId },
       create: { userId, publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, maxTravelDistanceKm: input.maxTravelDistanceKm ?? 25 },
-      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, maxTravelDistanceKm: input.maxTravelDistanceKm ?? 25, ...(!input.isAvailable || (!deliveryModes.includes("ONSITE") && !deliveryModes.includes("EITHER")) ? { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null } : {}) },
+      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, maxTravelDistanceKm: input.maxTravelDistanceKm ?? 25, ...(!input.isAvailable ? { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null } : {}) },
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
     });
   }
@@ -187,35 +186,32 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async discoverNearbyProviders(latitude: number, longitude: number, radiusKm: number) {
+  async discoverNearbyProviders(latitude: number, longitude: number) {
     if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
-        !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
-        ![1, 5, 10, 20, 50].includes(radiusKm)) {
-      throw new BadRequestException("Provide valid coordinates and a supported search radius.");
+        !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      throw new BadRequestException("Provide valid coordinates for the map.");
     }
 
-    // Only show Providers who are explicitly Available and have sent a fresh
-    // foreground GPS fix. Never expose their exact live coordinates publicly.
+    // Discovery is deliberately broader than request matching: show every
+    // online Provider with a fresh shared location when the Seeker is inside
+    // that Provider's own configured travel radius. Do not apply role,
+    // identity, delivery-mode, or skill eligibility filters here.
     const cutoff = new Date(Date.now() - 5 * 60 * 1000);
     const profiles = await this.prisma.providerProfile.findMany({
       where: {
         isAvailable: true,
-        deliveryModes: { hasSome: ["ONSITE", "EITHER"] },
         liveLatitude: { not: null },
         liveLongitude: { not: null },
         liveLocationUpdatedAt: { gte: cutoff },
-        user: { is: { identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE" } },
       },
       select: {
         id: true,
-        publicName: true,
         skillCategories: true,
         liveLatitude: true,
         liveLongitude: true,
         maxTravelDistanceKm: true,
       },
       orderBy: { liveLocationUpdatedAt: "desc" },
-      take: 500,
     });
 
     const radians = (degrees: number) => degrees * Math.PI / 180;
@@ -228,19 +224,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     };
 
     return profiles.flatMap((profile) => {
-      if (profile.liveLatitude == null || profile.liveLongitude == null || !profile.skillCategories.length) return [];
-      const distance = distanceKm(profile.liveLatitude, profile.liveLongitude);
-      if (distance > radiusKm || distance > profile.maxTravelDistanceKm) return [];
+      if (profile.liveLatitude == null || profile.liveLongitude == null) return [];
+      if (distanceKm(profile.liveLatitude, profile.liveLongitude) > profile.maxTravelDistanceKm) return [];
       return [{
         id: profile.id,
-        name: profile.publicName || "Available Provider",
-        skill: profile.skillCategories[0],
-        distanceKm: Math.round(distance * 10) / 10,
-        // Approximately 100 m precision is sufficient for a discovery pin.
+        skill: profile.skillCategories[0] || "Skill not added",
+        // Approximately 100 m precision is sufficient for a public discovery pin.
         latitude: Math.round(profile.liveLatitude * 1000) / 1000,
         longitude: Math.round(profile.liveLongitude * 1000) / 1000,
       }];
-    }).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 100);
+    });
   }
 
   async registerPushDevice(userId: string, input: RegisterPushDeviceDto) {
