@@ -46,7 +46,7 @@ export default function WelcomeMap({
 }: WelcomeMapProps) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapInstance = useRef<any>(null);
-  const markerInstances = useRef<any[]>([]);
+  const markerOverlays = useRef<any[]>([]);
   const circleInstance = useRef<any>(null);
   const [mapError, setMapError] = useState("");
   const [mapReady, setMapReady] = useState(false);
@@ -87,24 +87,106 @@ export default function WelcomeMap({
     map.setCenter({ lat: center.latitude, lng: center.longitude });
     map.setZoom(zoom);
 
-    markerInstances.current.forEach((marker) => marker.setMap(null));
-    markerInstances.current = markers.map((marker) => {
+    markerOverlays.current.forEach((overlay) => overlay.setMap(null));
+    markerOverlays.current = markers.map((marker) => {
       const selected = marker.id === selectedMarkerId;
-      const instance = new google.maps.Marker({
-        map,
-        position: { lat: marker.coordinates.latitude, lng: marker.coordinates.longitude },
-        title: `${marker.title} — ${marker.snippet}`,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: selected ? 9 : 7,
-          fillColor: selected ? "#0066CC" : "#4CAF50",
-          fillOpacity: 1,
-          strokeColor: "#FFFFFF",
-          strokeWeight: 2,
-        },
-      });
-      instance.addListener("click", () => onSelectMarker(marker.id));
-      return instance;
+      const overlay = new google.maps.OverlayView() as any;
+      let element: HTMLDivElement | null = null;
+
+      overlay.onAdd = () => {
+        element = document.createElement("div");
+        element.setAttribute("role", "button");
+        element.setAttribute("tabindex", "0");
+        element.setAttribute("aria-label", `${marker.title}, ${marker.snippet}`);
+        element.title = `${marker.title} — ${marker.snippet}`;
+        Object.assign(element.style, {
+          position: "absolute",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          whiteSpace: "nowrap",
+          cursor: "pointer",
+          userSelect: "none",
+          zIndex: selected ? "2" : "1",
+        });
+
+        const pin = document.createElement("div");
+        pin.setAttribute("aria-hidden", "true");
+        pin.innerHTML = '<svg width="28" height="36" viewBox="0 0 28 36" xmlns="http://www.w3.org/2000/svg"><path d="M14 1C6.82 1 1 6.82 1 14c0 9.1 13 21 13 21s13-11.9 13-21C27 6.82 21.18 1 14 1Z" fill="#13875E" stroke="#FFFFFF" stroke-width="2"/><circle cx="14" cy="14" r="4.5" fill="#FFFFFF"/></svg>';
+        Object.assign(pin.style, {
+          width: "28px",
+          height: "36px",
+          flex: "0 0 28px",
+          filter: "drop-shadow(0 1px 2px rgba(20, 45, 32, 0.28))",
+        });
+
+        const card = document.createElement("div");
+        Object.assign(card.style, {
+          display: "flex",
+          flexDirection: "column",
+          gap: "2px",
+          padding: "6px 9px",
+          borderRadius: "8px",
+          background: "#FFFFFF",
+          border: selected ? "1px solid #13875E" : "1px solid #DCE5DF",
+          boxShadow: "0 2px 8px rgba(20, 45, 32, 0.16)",
+          fontFamily: "Arial, sans-serif",
+          lineHeight: "1.25",
+        });
+
+        const skill = document.createElement("span");
+        skill.textContent = marker.title;
+        Object.assign(skill.style, {
+          color: "#18352C",
+          fontSize: "12px",
+          fontWeight: "700",
+        });
+
+        const distance = document.createElement("span");
+        distance.textContent = marker.snippet;
+        Object.assign(distance.style, {
+          color: "#687970",
+          fontSize: "10px",
+          fontWeight: "400",
+        });
+
+        card.append(skill, distance);
+        element.append(pin, card);
+
+        const select = (event: Event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelectMarker(marker.id);
+        };
+        element.addEventListener("click", select);
+        element.addEventListener("keydown", (event: KeyboardEvent) => {
+          if (event.key === "Enter" || event.key === " ") select(event);
+        });
+
+        const panes = overlay.getPanes();
+        panes?.overlayMouseTarget?.appendChild(element);
+      };
+
+      overlay.draw = () => {
+        if (!element) return;
+        const projection = overlay.getProjection();
+        const pixel = projection?.fromLatLngToDivPixel(
+          new google.maps.LatLng(marker.coordinates.latitude, marker.coordinates.longitude),
+        );
+        if (!pixel) return;
+        element.style.left = `${pixel.x}px`;
+        element.style.top = `${pixel.y}px`;
+        // The pin tip is anchored to the Provider's actual map coordinate.
+        element.style.transform = "translate(-14px, -36px)";
+      };
+
+      overlay.onRemove = () => {
+        element?.remove();
+        element = null;
+      };
+
+      overlay.setMap(map);
+      return overlay;
     });
 
     if (circleInstance.current) circleInstance.current.setMap(null);
