@@ -256,11 +256,23 @@ async function openReview(id) {
   const profileContent = profileDetails.length
     ? `<dl class="review-facts">${profileDetails.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`
     : "<p>Profile details were not included in the application snapshot.</p>";
+  const evidence = (assetId, label) => {
+    const url = application.providerEvidence?.[assetId];
+    return url
+      ? `<a class="evidence-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)} — view attachment</a>`
+      : `<span class="evidence-unavailable">${escapeHtml(label)} — attachment unavailable</span>`;
+  };
   const skillContent = skillDetails.length
     ? skillDetails.map((skill) => {
         const qualifications = Array.isArray(skill.licencesQualifications) ? skill.licencesQualifications : [];
         const portfolio = Array.isArray(skill.portfolio) ? skill.portfolio : [];
-        return `<div class="skill-review"><strong>${escapeHtml(skill.category || "Skill")}</strong><p>${escapeHtml(skill.description || "No overview supplied")}</p><p>Experience: ${escapeHtml(skill.yearsOfExperience ?? "Not supplied")}</p>${list(qualifications.map((item) => item.name || "Qualification"))}${portfolio.length ? list(portfolio.map((item) => item.title || "Work example")) : "<p>No portfolio examples supplied.</p>"}</div>`;
+        const qualificationContent = qualifications.length
+          ? `<ul>${qualifications.map((item) => `<li>${escapeHtml(item.name || "Qualification")}<br />${evidence(item.attachmentUrl, item.attachmentName || "Supporting document")}</li>`).join("")}</ul>`
+          : "<p>No qualifications supplied.</p>";
+        const portfolioContent = portfolio.length
+          ? portfolio.map((item) => `<div class="portfolio-review"><strong>${escapeHtml(item.title || "Work example")}</strong><p>${escapeHtml(item.description || "No description supplied")}</p>${Array.isArray(item.imageUrls) ? item.imageUrls.map((assetId, index) => evidence(assetId, `Work image ${index + 1}`)).join("<br />") : ""}${item.linkUrl ? `<p><a href="${escapeHtml(item.linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.linkTitle || "Portfolio link")}</a></p>` : ""}</div>`).join("")
+          : "<p>No portfolio examples supplied.</p>";
+        return `<div class="skill-review"><strong>${escapeHtml(skill.category || "Skill")}</strong><p>${escapeHtml(skill.description || "No overview supplied")}</p><p>Experience: ${escapeHtml(skill.yearsOfExperience ?? "Not supplied")}</p><h4>Qualifications and licences</h4>${qualificationContent}<h4>Portfolio and work examples</h4>${portfolioContent}</div>`;
       }).join("")
     : list(data.skills);
   const identityCase = application.user?.identityCase;
