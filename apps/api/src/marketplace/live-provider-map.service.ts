@@ -56,7 +56,8 @@ export class LiveProviderMapService {
       socket.on("error", () => this.clients.delete(client));
       socket.on("data", (data: Buffer) => {
         // The map stream is server-to-client. Honour a browser close frame.
-        if (data.length > 0 && ((data.at(0) ?? 0) & 0x0f) === 0x08) socket.end();
+        const firstByte = data[0];
+        if (firstByte !== undefined && (firstByte & 0x0f) === 0x08) socket.end();
       });
       void this.sendSnapshot(client);
     });
