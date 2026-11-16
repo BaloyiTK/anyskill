@@ -3,7 +3,7 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, Vi
 import WelcomeMap from "./WelcomeMap";
 import * as Location from "expo-location";
 import * as Crypto from "expo-crypto";
-import { apiRequest } from "./api";
+import { apiRequest, liveWebSocketUrl } from "./api";
 
 type LocationSuggestion = { placeId: string; label: string };
 
@@ -63,29 +63,48 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
   const mapCenter = coordinates ?? DEFAULT_CENTER;
   const mapZoom = Math.max(5, Math.min(14, 11 - Math.log2(radiusKm / 10)));
 
+  // A persistent WebSocket stream pushes map snapshots whenever a Provider
+  // goes online/offline or publishes a new GPS position. No manual refresh.
   useEffect(() => {
     if (!coordinates) return;
     let active = true;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let socket: WebSocket | null = null;
     setLoadingProviders(true);
-    setProviders([]);
-    setSelectedProviderId(null);
     setProviderError("");
     const query = new URLSearchParams({
       latitude: String(coordinates.latitude),
       longitude: String(coordinates.longitude),
       radiusKm: String(radiusKm),
     });
-    apiRequest<ProviderPin[]>(`/marketplace/discover/providers?${query.toString()}`)
-      .then((result) => {
-        if (!active) return;
-        setProviders(result);
-        setSelectedProviderId(null);
-      })
-      .catch((error) => {
-        if (active) setProviderError(error instanceof Error ? error.message : "Nearby Providers could not be loaded.");
-      })
-      .finally(() => { if (active) setLoadingProviders(false); });
-    return () => { active = false; };
+    const connect = () => {
+      if (!active) return;
+      socket = new WebSocket(liveWebSocketUrl(`/marketplace/discover/providers/live?${query.toString()}`));
+      socket.onmessage = (event) => {
+        if (!active || typeof event.data !== "string") return;
+        try {
+          const result = JSON.parse(event.data) as ProviderPin[];
+          setProviders(result);
+          setSelectedProviderId((current) =>
+            current && result.some((provider) => provider.id === current) ? current : null,
+          );
+          setLoadingProviders(false);
+          setProviderError("");
+        } catch {
+          setProviderError("A live Provider map update could not be read.");
+        }
+      };
+      socket.onerror = () => socket?.close();
+      socket.onclose = () => {
+        if (active) reconnectTimer = setTimeout(connect, 2000);
+      };
+    };
+    connect();
+    return () => {
+      active = false;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      socket?.close();
+    };
   }, [coordinates, radiusKm]);
 
   const chooseLocation = async () => {
