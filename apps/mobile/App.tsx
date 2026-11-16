@@ -112,9 +112,9 @@ export default function App() {
   const feedback = () => { setMessage(""); setError(""); };
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
 
-  const refreshHomeEligibility = async () => {
-    // Home reflects completion of every section required by the user's
-    // registered marketplace roles, not just the basic Profile section.
+  const refreshHomeEligibility = async (initialMode?: string) => {
+    // Profile completion controls the first screen after login. Identity
+    // verification is tracked separately and must not force onboarding.
     const [profileResult, identityResult] = await Promise.allSettled([
       apiRequest<{
         profile?: { marketplaceRoles?: string[]; marketplaceRole?: string };
@@ -132,19 +132,17 @@ export default function App() {
         ? [onboarding.profile.marketplaceRole]
         : [];
     const providerRequired = registeredRoles.includes("PROVIDER")
-      || (registeredRoles.length === 0 && account?.initialMode === "PROVIDER");
+      || (registeredRoles.length === 0 && (initialMode ?? account?.initialMode) === "PROVIDER");
     const requiredSectionsComplete = Boolean(
       onboarding?.sections?.profile === true
       && (!providerRequired
         || (onboarding?.sections?.skills === true && onboarding?.sections?.portfolio === true)),
     );
 
-    setProfileComplete(profileResult.status === "fulfilled" && requiredSectionsComplete);
+    const complete = profileResult.status === "fulfilled" && requiredSectionsComplete;
+    setProfileComplete(complete);
     setIdentity(identityResult.status === "fulfilled" ? identityResult.value : null);
-    return profileResult.status === "fulfilled"
-      && requiredSectionsComplete
-      && identityResult.status === "fulfilled"
-      && identityResult.value.status === "verified";
+    return complete;
   };
 
   const loadNotifications = async () => {
@@ -178,14 +176,11 @@ export default function App() {
     setIdentity(null);
     setProfileComplete(false);
 
-    // Profile Setup is the first authenticated destination. Keep the app
-    // tabs available so users can move to Home or other sections at any time.
+    // Completed profiles go straight to Home. Only incomplete profiles need
+    // the onboarding flow; identity review remains a separate account status.
     setActiveTab("home");
-    setScreen("onboarding");
-
-    // Eligibility data is supplementary; a failure must not turn successful
-    // authentication into a failed login. Home will remain safely unverified.
-    await refreshHomeEligibility();
+    const completed = await refreshHomeEligibility(me.initialMode);
+    setScreen(completed ? "dashboard" : "onboarding");
   };
 
   const verifyEmailFromLink = async (url: string) => {
