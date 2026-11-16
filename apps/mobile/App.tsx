@@ -954,7 +954,6 @@ export default function App() {
             identityStatus={identityStatus}
             initialMode={account.initialMode}
             seekerRoleStatus={account.seekerRoleStatus}
-            providerRoleStatus={account.providerRoleStatus}
             onBack={() => { void (async () => { await refreshHomeEligibility(); goTo("dashboard"); })(); }}
             onStartVerification={() => { void startIdentityVerification(); }}
             onIdentityUpdated={refreshHomeEligibility}
