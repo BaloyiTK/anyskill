@@ -154,16 +154,18 @@ export default function App() {
   };
 
   const routeFromProfileStatus = async (initialMode?: string) => {
-    setScreen("profile-check");
+    // Profile completion controls eligibility for selected actions, not access
+    // to the app. Always return authenticated users to the normal tab shell.
+    setScreen("dashboard");
     try {
       const complete = await refreshHomeEligibility(initialMode);
       setActiveTab("home");
-      setScreen(complete ? "dashboard" : "onboarding");
+      setScreen("dashboard");
       return complete;
     } catch (e) {
       setProfileComplete(false);
-      setError(e instanceof Error ? e.message : "We could not verify your saved profile. Please try again.");
-      setScreen("profile-check");
+      setError(e instanceof Error ? e.message : "We could not refresh your profile status. Please try again.");
+      setScreen("dashboard");
       return false;
     }
   };
@@ -810,10 +812,11 @@ export default function App() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Open account"
-                onPress={() => { void (async () => {
-                  const eligible = await routeFromProfileStatus(account?.initialMode);
-                  if (eligible) { setActiveTab("account"); setScreen("dashboard"); feedback(); }
-                })(); }}
+                onPress={() => {
+                  setActiveTab("account");
+                  setScreen("dashboard");
+                  feedback();
+                }}
                 style={s.headerAvatar}
               >
                 {identity?.previews?.ID_SELFIE
@@ -1200,7 +1203,7 @@ export default function App() {
           <Text style={s.footer}>Connecting individuals and businesses through skills.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
-      {account && (screen === "dashboard" || screen === "marketplace") && <View style={s.bottomTabBar}>
+      {account && <View style={s.bottomTabBar}>
         <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { void (async () => { await routeFromProfileStatus(account?.initialMode); feedback(); })(); }} />
         <BottomTab label="Activities" icon="▤" selected={activeTab === "activities"} onPress={() => { setActiveTab("activities"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
