@@ -9,9 +9,7 @@ type LocationSuggestion = { placeId: string; label: string };
 
 type ProviderPin = {
   id: string;
-  name: string;
   skill: string;
-  distanceKm: number;
   latitude: number;
   longitude: number;
 };
@@ -28,7 +26,6 @@ type Props = {
   onSelectRole?: (role: "provider" | "seeker") => void;
 };
 
-const RADII = [5, 10, 20, 50] as const;
 const DEFAULT_CENTER = { latitude: -26.2041, longitude: 28.0473 };
 
 // AnySkill brand palette, based on the colours supplied from the approved logo.
@@ -49,8 +46,6 @@ const THEME = {
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRequestSkill, canRequestSkill = false, profileComplete = false, accountPendingReview = false, onSelectRole }: Props) {
-  const [radiusKm, setRadiusKm] = useState<number>(10);
-  const [radiusOpen, setRadiusOpen] = useState(false);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [areaLabel, setAreaLabel] = useState("Detecting your location…");
   const [manualLocation, setManualLocation] = useState("");
@@ -64,8 +59,8 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
   const [locationError, setLocationError] = useState("");
   const [providerError, setProviderError] = useState("");
 
-  const mapZoom = useMemo(() => clamp(11.2 - Math.log2(radiusKm / 10), 5, 16), [radiusKm]);
   const mapCenter = coordinates ?? DEFAULT_CENTER;
+  const mapZoom = 12;
 
   useEffect(() => {
     if (!coordinates) return;
@@ -77,7 +72,6 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
     const query = new URLSearchParams({
       latitude: String(coordinates.latitude),
       longitude: String(coordinates.longitude),
-      radiusKm: String(radiusKm),
     });
     apiRequest<ProviderPin[]>(`/marketplace/discover/providers?${query.toString()}`)
       .then((result) => {
@@ -90,7 +84,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
       })
       .finally(() => { if (active) setLoadingProviders(false); });
     return () => { active = false; };
-  }, [coordinates, radiusKm]);
+  }, [coordinates]);
 
   const chooseLocation = async () => {
     setLocating(true);
@@ -196,15 +190,12 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
     const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
     return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
   };
-  const visibleProviders = useMemo(() => providers.filter((provider) =>
-    (coordinates ? distanceBetween(coordinates, provider) : provider.distanceKm) <= radiusKm + 1e-6
-  ), [providers, coordinates, radiusKm]);
+  const visibleProviders = providers;
   const selectedProvider = visibleProviders.find((provider) => provider.id === selectedProviderId);
   const mapMarkers = useMemo(() => visibleProviders.map((provider) => ({
     id: provider.id,
     coordinates: { latitude: provider.latitude, longitude: provider.longitude },
     title: provider.skill,
-    snippet: `${provider.name} · ${provider.distanceKm.toFixed(1)} km away`,
   })), [visibleProviders]);
 
   return <View style={styles.container}>
@@ -246,40 +237,26 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
         <WelcomeMap
           center={mapCenter}
           zoom={mapZoom}
-          radiusKm={radiusKm}
+          seekerLocation={coordinates}
           markers={mapMarkers}
           selectedMarkerId={selectedProviderId}
           onSelectMarker={setSelectedProviderId}
         />
         {selectedProvider ? <View pointerEvents="none" style={styles.providerCallout}>
-          <Text style={styles.calloutName}>{selectedProvider.name}</Text>
-          <Text style={styles.calloutSkill}>{selectedProvider.skill} · {selectedProvider.distanceKm.toFixed(1)} km away</Text>
+          <Text style={styles.calloutSkill}>{selectedProvider.skill}</Text>
         </View> : null}
         {!coordinates ? <View style={styles.mapPrompt}>
           <Text style={styles.mapPromptTitle}>Set your location</Text>
-          <Text style={styles.mapPromptText}>Choose your area to see available Providers on the map.</Text>
+          <Text style={styles.mapPromptText}>Choose your location to see online Providers within their own service radius.</Text>
         </View> : null}
         {coordinates && !loadingProviders && visibleProviders.length === 0 ? <View style={styles.mapPrompt}>
           <Text style={styles.mapPromptTitle}>No available Providers yet</Text>
-          <Text style={styles.mapPromptText}>Try a wider radius or check again later.</Text>
+          <Text style={styles.mapPromptText}>Online Providers within their own service radius will appear here.</Text>
         </View> : null}
         {loadingProviders ? <View style={styles.mapLoading}><ActivityIndicator color={THEME.blue} /><Text style={styles.mapLoadingText}>Finding nearby Providers…</Text></View> : null}
       </View>
-      {providerError ? <Text style={styles.error}>{providerError}</Text> : <Text style={styles.mapFoot}>{coordinates ? `${visibleProviders.length} available ${visibleProviders.length === 1 ? "Provider" : "Providers"} within ${radiusKm} km` : "Only online and available Providers will appear here."}</Text>}
+      {providerError ? <Text style={styles.error}>{providerError}</Text> : <Text style={styles.mapFoot}>{coordinates ? `${visibleProviders.length} online ${visibleProviders.length === 1 ? "Provider" : "Providers"} within their own service radius` : "Your location and online Provider locations appear here."}</Text>}
     </View>
-
-    <View style={styles.radiusControlRow}>
-      <Text style={styles.radiusLabel}>Search distance</Text>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: radiusOpen }} onPress={() => setRadiusOpen((open) => !open)} style={styles.radiusDropdown}>
-      <Text style={styles.radiusDropdownValue}>{radiusKm} km</Text>
-      <Text style={styles.radiusDropdownChevron}>{radiusOpen ? "▲" : "▼"}</Text>
-      </Pressable>
-    </View>
-    {radiusOpen ? <View style={styles.radiusDropdownOptions}>
-      {RADII.map((radius) => <Pressable key={radius} accessibilityRole="button" accessibilityState={{ selected: radiusKm === radius }} onPress={() => { setRadiusKm(radius); setRadiusOpen(false); }} style={[styles.radiusDropdownOption, radiusKm === radius && styles.radiusDropdownOptionSelected]}>
-        <Text style={[styles.radiusDropdownOptionText, radiusKm === radius && styles.radiusDropdownOptionTextSelected]}>{radius} km</Text>
-      </Pressable>)}
-    </View> : null}
 
 
     {!showAuthActions ? <>
@@ -352,16 +329,6 @@ const styles = StyleSheet.create({
   locationSuggestionText: { flex: 1, color: THEME.navy, fontSize: 11, fontWeight: "700" },
   locationHint: { color: THEME.muted, fontSize: 10, paddingHorizontal: 3 },
   error: { color: THEME.danger, fontSize: 11, lineHeight: 16 },
-  radiusControlRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  radiusLabel: { color: THEME.muted, fontSize: 11, fontWeight: "800" },
-  radiusDropdown: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, borderRadius: 11, borderWidth: 1, borderColor: THEME.border, backgroundColor: THEME.surface },
-  radiusDropdownValue: { color: THEME.navy, fontSize: 13, fontWeight: "800" },
-  radiusDropdownChevron: { color: THEME.blue, fontSize: 11, fontWeight: "900" },
-  radiusDropdownOptions: { backgroundColor: THEME.surface, borderColor: THEME.border, borderWidth: 1, borderRadius: 11, overflow: "hidden", marginTop: -5 },
-  radiusDropdownOption: { minHeight: 38, justifyContent: "center", paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: THEME.border },
-  radiusDropdownOptionSelected: { backgroundColor: THEME.softBlue },
-  radiusDropdownOptionText: { color: THEME.navy, fontSize: 12, fontWeight: "700" },
-  radiusDropdownOptionTextSelected: { color: THEME.blue, fontWeight: "900" },
   mapFrame: { backgroundColor: THEME.surface, borderWidth: 1, borderColor: THEME.border, borderRadius: 15, padding: 7 },
   mapHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 6, marginBottom: 6 },
   mapTitle: { color: THEME.ink, fontSize: 12, fontWeight: "900" },
@@ -376,7 +343,6 @@ const styles = StyleSheet.create({
   markerDot: { width: 17, height: 17, borderRadius: 9, backgroundColor: THEME.green, borderWidth: 2, borderColor: THEME.surface },
   markerDotSelected: { backgroundColor: THEME.blue, width: 20, height: 20, borderRadius: 10 },
   providerCallout: { position: "absolute", top: 10, left: 10, right: 10, backgroundColor: THEME.surface, borderRadius: 12, padding: 10, elevation: 5 },
-  calloutName: { color: THEME.ink, fontSize: 12, fontWeight: "900" },
   calloutSkill: { color: THEME.muted, fontSize: 11, marginTop: 3 },
   mapPrompt: { position: "absolute", left: 18, right: 18, top: "37%", backgroundColor: "rgba(255,255,255,0.94)", borderRadius: 14, padding: 15, alignItems: "center" },
   mapPromptTitle: { color: THEME.ink, fontSize: 13, fontWeight: "900" },
