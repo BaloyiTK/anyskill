@@ -90,11 +90,11 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
           setLocationStatus("Location permission is disabled. Allow location access while using AnySkill to appear on the Provider map.");
           return;
         }
-        const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
         await sendLocation(initial.coords);
         if (!active) return;
         subscription = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 50 },
+          { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 10 },
           (position) => { void sendLocation(position.coords); },
         );
       } catch (e) {
