@@ -42,6 +42,7 @@ const GOOGLE_WEB_AUTH_KEYS = {
   verifier: "anyskill.google.oauth.verifier",
   redirectUri: "anyskill.google.oauth.redirect-uri",
   flow: "anyskill.google.oauth.flow",
+  mode: "anyskill.google.oauth.mode",
 };
 
 const C = {
@@ -276,6 +277,7 @@ export default function App() {
     const codeVerifier = window.sessionStorage.getItem(GOOGLE_WEB_AUTH_KEYS.verifier);
     const redirectUri = window.sessionStorage.getItem(GOOGLE_WEB_AUTH_KEYS.redirectUri);
     const flow = window.sessionStorage.getItem(GOOGLE_WEB_AUTH_KEYS.flow);
+    const selectedMode = window.sessionStorage.getItem(GOOGLE_WEB_AUTH_KEYS.mode);
 
     // Remove the authorization response from the address bar before making
     // any API calls, and consume the one-time browser state.
@@ -316,7 +318,10 @@ export default function App() {
         } else {
           const tokens = await apiRequest<Tokens>("/auth/google/exchange", {
             method: "POST",
-            body: JSON.stringify(authorizationCode),
+            body: JSON.stringify({
+              ...authorizationCode,
+              mode: selectedMode === "PROVIDER" ? "PROVIDER" : "SEEKER",
+            }),
           });
           await saveTokens(tokens);
           await loadAccount();
@@ -346,6 +351,7 @@ export default function App() {
       window.sessionStorage.setItem(GOOGLE_WEB_AUTH_KEYS.verifier, googleRequest.codeVerifier);
       window.sessionStorage.setItem(GOOGLE_WEB_AUTH_KEYS.redirectUri, googleRequest.redirectUri);
       window.sessionStorage.setItem(GOOGLE_WEB_AUTH_KEYS.flow, flow);
+      window.sessionStorage.setItem(GOOGLE_WEB_AUTH_KEYS.mode, mode.toUpperCase());
       window.location.assign(authorizationUrl);
     } catch (e) {
       googleAuthInProgress.current = false;
@@ -487,7 +493,7 @@ export default function App() {
 
       const tokens = await apiRequest<Tokens>("/auth/google", {
         method: "POST",
-        body: JSON.stringify({ idToken }),
+        body: JSON.stringify({ idToken, mode: mode.toUpperCase() }),
       });
       await saveTokens(tokens);
       await loadAccount();
