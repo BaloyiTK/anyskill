@@ -148,6 +148,9 @@ export class OnboardingService {
           .map((item: any) => typeof item?.title === "string" ? item.title.trim() : "")
           .filter(Boolean)
       : [];
+    const skillDetails: Array<Record<string, unknown>> = Array.isArray(onboarding.skills)
+      ? onboarding.skills.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      : [];
     const publicName = [
       profileData.businessName,
       [profileData.firstName, profileData.lastName].filter((value) => typeof value === "string" && value.trim()).join(" "),
@@ -200,9 +203,9 @@ export class OnboardingService {
           const applicationData = {
             publicName: publicName.trim(),
             skills: [...new Set(skills.map((value) => value.toLocaleLowerCase("en-ZA")))],
-            skillDetails: onboarding.skills,
-            portfolio: onboarding.skills.flatMap((skill: any) => Array.isArray(skill?.portfolio) ? skill.portfolio : []).map((item: any) => item.title),
-            qualifications: onboarding.skills.flatMap((skill: any) => Array.isArray(skill?.licencesQualifications) ? skill.licencesQualifications : []),
+            skillDetails,
+            portfolio: skillDetails.flatMap((skill) => Array.isArray(skill.portfolio) ? skill.portfolio : []).flatMap((item) => item && typeof item === "object" && "title" in item && typeof item.title === "string" ? [item.title] : []),
+            qualifications: skillDetails.flatMap((skill) => Array.isArray(skill.licencesQualifications) ? skill.licencesQualifications : []),
           };
           await tx.providerRoleApplication.upsert({
             where: { userId },
