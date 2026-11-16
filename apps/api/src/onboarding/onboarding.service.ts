@@ -148,8 +148,8 @@ export class OnboardingService {
           .map((item: any) => typeof item?.title === "string" ? item.title.trim() : "")
           .filter(Boolean)
       : [];
-    const skillDetails: Array<Record<string, unknown>> = Array.isArray(onboarding.skills)
-      ? onboarding.skills.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    const skillDetails: Prisma.JsonObject[] = Array.isArray(onboarding.skills)
+      ? onboarding.skills.filter((item): item is Prisma.JsonObject => item !== null && typeof item === "object" && !Array.isArray(item))
       : [];
     const publicName = [
       profileData.businessName,
@@ -200,13 +200,13 @@ export class OnboardingService {
           providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED &&
           !applicationAlreadyInReview
         ) {
-          const applicationData = {
+          const applicationData = JSON.parse(JSON.stringify({
             publicName: publicName.trim(),
             skills: [...new Set(skills.map((value) => value.toLocaleLowerCase("en-ZA")))],
             skillDetails,
             portfolio: skillDetails.flatMap((skill) => Array.isArray(skill.portfolio) ? skill.portfolio : []).flatMap((item) => item && typeof item === "object" && "title" in item && typeof item.title === "string" ? [item.title] : []),
             qualifications: skillDetails.flatMap((skill) => Array.isArray(skill.licencesQualifications) ? skill.licencesQualifications : []),
-          };
+          })) as Prisma.InputJsonObject;
           await tx.providerRoleApplication.upsert({
             where: { userId },
             create: {
