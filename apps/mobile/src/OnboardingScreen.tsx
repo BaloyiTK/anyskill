@@ -471,10 +471,14 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       // profile as complete.
       const latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
       setData(latest);
+      const savedRoles = Array.isArray(latest.profile?.marketplaceRoles)
+        ? latest.profile.marketplaceRoles
+        : latest.profile?.marketplaceRole ? [latest.profile.marketplaceRole] : [];
+      const providerRequired = p.initialMode === "PROVIDER" || savedRoles.includes("PROVIDER");
       const missingSections = [
         ...(!latest.sections?.profile ? ["Profile"] : []),
-        ...(isProvider && !latest.sections?.skills ? ["Skills"] : []),
-        ...(isProvider && !latest.sections?.portfolio ? ["Portfolio"] : []),
+        ...(providerRequired && !latest.sections?.skills ? ["Skills"] : []),
+        ...(providerRequired && !latest.sections?.portfolio ? ["Portfolio"] : []),
       ];
       if (missingSections.length > 0) {
         setOnboardingSubmitted(false);
