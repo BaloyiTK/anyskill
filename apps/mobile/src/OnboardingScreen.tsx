@@ -22,7 +22,7 @@ const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, 
 const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#4CAF50", forest: "#1B5E20", border: "#DCE5EF", surface: "#FFFFFF", bg: "#F6F8FA", hero: "#0B2545", soft: "#EAF3FF" };
 
 export function OnboardingScreen(p: { identityStatus: string; initialMode: MarketplaceRole; seekerRoleStatus: string; providerRoleStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
-  const isProvider = p.initialMode === "PROVIDER" || ["ACTIVE", "PENDING", "PENDING_REVIEW", "APPROVED"].includes(p.providerRoleStatus.toUpperCase());
+  const isProvider = p.initialMode === "PROVIDER";
   const tabs: Section[] = isProvider
     ? ["Profile", "Verification", "Skills", "Portfolio", "Submit"]
     : ["Profile", "Verification", "Submit"];
