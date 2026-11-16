@@ -270,7 +270,7 @@ export class MarketplaceRolesService {
         const data = submitted as Record<string, unknown>;
         const publicName = typeof data.publicName === "string" ? data.publicName.trim() : "";
         const skills = Array.isArray(data.skills)
-          ? data.skills.filter((value): value is string => typeof value === "string").map((value) => value.trim().toLocaleLowerCase("en-ZA")).filter(Boolean)
+          ? data.skills.map((value) => typeof value === "string" ? value : value && typeof value === "object" && typeof (value as Record<string, unknown>).category === "string" ? String((value as Record<string, unknown>).category) : "").map((value) => value.trim().toLocaleLowerCase("en-ZA")).filter(Boolean)
           : [];
         if (!publicName || skills.length === 0) {
           throw new ConflictException("The submitted Provider profile is incomplete and cannot be approved.");
