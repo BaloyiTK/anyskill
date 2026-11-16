@@ -240,7 +240,7 @@ model IdentityVerificationCase {
  
 model ServiceRequest {
   id                 String                @id @default(uuid()) @db.Uuid
-  seekerId           String                @db.Uuid @map("seeker_id")
+  seekerId           String?               @db.Uuid @map("seeker_id")
   title              String                @db.VarChar(120)
   skillCategory      String                @map("skill_category") @db.VarChar(100)
   description        String                @db.VarChar(5000)
@@ -257,7 +257,7 @@ model ServiceRequest {
   matchingExhaustedAt DateTime?            @map("matching_exhausted_at")
   createdAt          DateTime              @default(now()) @map("created_at")
   updatedAt          DateTime              @updatedAt @map("updated_at")
-  seeker             User                  @relation(fields: [seekerId], references: [id], onDelete: Restrict)
+  seeker             User?                 @relation(fields: [seekerId], references: [id], onDelete: SetNull)
   providerResponses ProviderResponse[]
   matches           RequestMatch[]
   jobEngagement     JobEngagement?
@@ -270,7 +270,7 @@ model ServiceRequest {
 model ProviderResponse {
   id          String                 @id @default(uuid()) @db.Uuid
   requestId   String                 @db.Uuid @map("request_id")
-  providerId  String                 @db.Uuid @map("provider_id")
+  providerId  String?                @db.Uuid @map("provider_id")
   status      ProviderResponseStatus @default(OFFERED)
   message     String?                @db.VarChar(2000)
   hourlyRateAtOffer Decimal?           @map("hourly_rate_at_offer") @db.Decimal(10, 2)
@@ -278,7 +278,7 @@ model ProviderResponse {
   createdAt   DateTime               @default(now()) @map("created_at")
   updatedAt   DateTime               @updatedAt @map("updated_at")
   request     ServiceRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  provider    User                   @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  provider    User?                  @relation(fields: [providerId], references: [id], onDelete: SetNull)
   jobEngagement JobEngagement?
 
   @@unique([requestId, providerId])
@@ -363,8 +363,8 @@ model JobEngagement {
   id                    String              @id @default(uuid()) @db.Uuid
   requestId             String              @unique @db.Uuid @map("request_id")
   responseId            String              @unique @db.Uuid @map("response_id")
-  seekerId              String              @db.Uuid @map("seeker_id")
-  providerId            String              @db.Uuid @map("provider_id")
+  seekerId              String?             @db.Uuid @map("seeker_id")
+  providerId            String?             @db.Uuid @map("provider_id")
   status                JobEngagementStatus @default(ASSESSMENT_PENDING)
   hourlyRate            Decimal             @map("hourly_rate") @db.Decimal(10, 2)
   assessmentFee         Decimal             @default(0) @map("assessment_fee") @db.Decimal(10, 2)
@@ -410,7 +410,7 @@ model JobCostAdjustment {
 model JobCompletionSubmission {
   id             String                           @id @default(uuid()) @db.Uuid
   engagementId   String                           @db.Uuid @map("engagement_id")
-  providerId     String                           @db.Uuid @map("provider_id")
+  providerId     String?                          @db.Uuid @map("provider_id")
   notes          String                           @db.VarChar(3000)
   evidenceUrls   String[]                         @default([]) @map("evidence_urls")
   evidenceAssets MediaAsset[]
