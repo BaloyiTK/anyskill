@@ -10,6 +10,11 @@ const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 const API_BASE_URL = Platform.OS === "web" && configuredApiBaseUrl?.includes("10.0.2.2")
   ? "http://localhost:3000/api/v1"
   : configuredApiBaseUrl ?? DEFAULT_API_BASE_URL;
+
+export function liveWebSocketUrl(path: string): string {
+  const base = API_BASE_URL.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
+  return `${base}${path}`;
+}
 const ACCESS_TOKEN_KEY = "anyskill.access-token";
 const REFRESH_TOKEN_KEY = "anyskill.refresh-token";
 
