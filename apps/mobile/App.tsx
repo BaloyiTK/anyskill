@@ -13,6 +13,7 @@ import {
   AppNotification, fetchNotifications, markNotificationRead,
 } from "./src/api";
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
+import { ProviderHomeScreen } from "./src/ProviderHomeScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
 import { WelcomeScreen } from "./src/WelcomeScreen";
 
@@ -1054,8 +1055,26 @@ export default function App() {
         onStartVerification={() => { void startIdentityVerification(); }}
       />}
 
-      {screen === "dashboard" && account && activeTab === "home" && <>
-      <WelcomeScreen
+      {screen === "dashboard" && account && activeTab === "home" && mode === "provider" && (
+        verified && roleSummary?.providerStatus === "ACTIVE"
+          ? <ProviderHomeScreen onManageProfile={() => { setMode("provider"); setScreen("marketplace"); }} />
+          : <View style={s.form}>
+              <Text style={s.kicker}>PROVIDER ACCESS</Text>
+              <Text style={s.formTitle}>Your Provider workspace is not available yet</Text>
+              <Text style={s.subtitle}>You can complete your profile and check your application status, but going online is only enabled after both identity verification and Provider approval.</Text>
+              <View style={s.statusCard}>
+                <Text style={s.statusLabel}>IDENTITY VERIFICATION</Text>
+                <Text style={s.statusValue}>{verified ? "Verified" : formatStatus(identityStatus)}</Text>
+                <View style={s.divider} />
+                <Text style={s.statusLabel}>PROVIDER APPROVAL</Text>
+                <Text style={s.statusValue}>{formatStatus(roleSummary?.providerStatus ?? "pending")}</Text>
+              </View>
+              {!verified && <Primary label="Complete identity verification" onPress={() => { void startIdentityVerification(); }} />}
+              {roleSummary?.providerStatus !== "ACTIVE" && <Primary label="View Provider application" onPress={() => { setActiveTab("account"); setScreen("dashboard"); }} />}
+            </View>
+      )}
+
+      {screen === "dashboard" && account && activeTab === "home" && mode === "seeker" && <WelcomeScreen
         showAuthActions={false}
         profileComplete={profileComplete}
         canRequestSkill={canRequestSkill}
@@ -1076,8 +1095,7 @@ export default function App() {
         onSignIn={() => {}}
         onSignUp={() => {}}
         onGoogle={() => {}}
-      />
-      </>}
+      />}
 
           {screen === "dashboard" && account && activeTab === "activities" && <View style={s.form}>
             <Text style={s.kicker}>YOUR WORK</Text>
