@@ -239,11 +239,39 @@ async function openReview(id) {
   const block = (title, content) => `<section class="detail-block"><h3>${escapeHtml(title)}</h3>${content}</section>`;
   const list = (values) => Array.isArray(values) && values.length ? `<ul>${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul>` : "<p>Not supplied</p>";
   const identity = application.user?.identityVerification || "UNKNOWN";
+  const profile = application.user?.onboardingDraft?.profile && typeof application.user.onboardingDraft.profile === "object"
+    ? application.user.onboardingDraft.profile : {};
+  const skillDetails = Array.isArray(data.skillDetails) ? data.skillDetails : [];
+  const docs = application.identityDocuments || {};
+  const image = (label, url) => url
+    ? `<div class="evidence-item"><span>${escapeHtml(label)}</span><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" /></a></div>`
+    : `<div class="evidence-item evidence-missing"><span>${escapeHtml(label)}</span><small>Not available</small></div>`;
+  const profileDetails = [
+    ["Name", [profile.firstName, profile.lastName].filter(Boolean).join(" ")],
+    ["Account type", profile.accountType],
+    ["Phone", profile.phone],
+    ["Business", profile.businessName],
+    ["Location", [profile.suburb, profile.city, profile.province, profile.country].filter(Boolean).join(", ")],
+  ].filter(([, value]) => value);
+  const profileContent = profileDetails.length
+    ? `<dl class="review-facts">${profileDetails.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`
+    : "<p>Profile details were not included in the application snapshot.</p>";
+  const skillContent = skillDetails.length
+    ? skillDetails.map((skill) => {
+        const qualifications = Array.isArray(skill.licencesQualifications) ? skill.licencesQualifications : [];
+        const portfolio = Array.isArray(skill.portfolio) ? skill.portfolio : [];
+        return `<div class="skill-review"><strong>${escapeHtml(skill.category || "Skill")}</strong><p>${escapeHtml(skill.description || "No overview supplied")}</p><p>Experience: ${escapeHtml(skill.yearsOfExperience ?? "Not supplied")}</p>${list(qualifications.map((item) => item.name || "Qualification"))}${portfolio.length ? list(portfolio.map((item) => item.title || "Work example")) : "<p>No portfolio examples supplied.</p>"}</div>`;
+      }).join("")
+    : list(data.skills);
+  const identityCase = application.user?.identityCase;
+  const identityContent = `<p>Identity status: <strong>${escapeHtml(identity)}</strong></p><p>Case status: <strong>${escapeHtml(identityCase?.status || (identity === "VERIFIED" ? "Previously verified" : "No submitted case"))}</strong></p><div class="evidence-grid">${image("ID document — front", docs.ID_DOCUMENT_FRONT)}${image("ID document — back", docs.ID_DOCUMENT_BACK)}${image("Green ID book — page 1", docs.ID_BOOK_PAGE_1)}${image("Green ID book — page 2", docs.ID_BOOK_PAGE_2)}${image("Live selfie", docs.ID_SELFIE)}</div>`;
   $("#review-details").innerHTML =
-    block("Skills", list(data.skills)) +
-    block("Portfolio and work examples", list(data.portfolio)) +
+    block("Applicant profile", profileContent) +
+    block("Identity documents and selfie — review as part of this application", identityContent) +
+    block("Skills, experience and descriptions", skillContent) +
     block("Qualifications and licences", list(data.qualifications)) +
-    block("Account checks", `<p>Email: ${escapeHtml(application.user?.email || "Not available")}</p><p>Identity verification status: <strong>${escapeHtml(identity)}</strong></p><p>Application status: ${escapeHtml(application.status)}</p>`);
+    block("Portfolio and work examples", list(data.portfolio)) +
+    block("Account checks", `<p>Email: ${escapeHtml(application.user?.email || "Not available")}</p><p>Application status: ${escapeHtml(application.status)}</p><p>Submitted: ${escapeHtml(dateLabel(application.submittedAt))}</p>`);
   $("#decision-reason").value = "";
   hide($("#decision-error"));
   $("#decision-form").dataset.id = id;
