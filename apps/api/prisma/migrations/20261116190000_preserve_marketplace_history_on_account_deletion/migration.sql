@@ -53,6 +53,14 @@ SET "provider_id" = NULL
 FROM "users" u
 WHERE rm."provider_id" = u."id" AND u."deleted_at" IS NOT NULL;
 
+UPDATE "job_cost_adjustments" jca
+SET "reason" = 'Adjustment details removed following account deletion.',
+    "decision_note" = NULL
+FROM "job_engagements" je, "users" u
+WHERE jca."engagement_id" = je."id"
+  AND (je."seeker_id" = u."id" OR je."provider_id" = u."id")
+  AND u."deleted_at" IS NOT NULL;
+
 UPDATE "job_engagements" je
 SET "seeker_id" = NULL,
     "provider_id" = NULL,
@@ -60,14 +68,6 @@ SET "seeker_id" = NULL,
     "estimate_decision_note" = NULL
 FROM "users" u
 WHERE (je."seeker_id" = u."id" OR je."provider_id" = u."id")
-  AND u."deleted_at" IS NOT NULL;
-
-UPDATE "job_cost_adjustments" jca
-SET "reason" = 'Adjustment details removed following account deletion.',
-    "decision_note" = NULL
-FROM "job_engagements" je, "users" u
-WHERE jca."engagement_id" = je."id"
-  AND (je."seeker_id" = u."id" OR je."provider_id" = u."id")
   AND u."deleted_at" IS NOT NULL;
 
 UPDATE "job_completion_submissions" jcs
