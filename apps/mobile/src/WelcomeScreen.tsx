@@ -43,7 +43,6 @@ const THEME = {
   border: "#E1E8F0",
   danger: "#A12D2D",
 };
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRequestSkill, canRequestSkill = false, profileComplete = false, accountPendingReview = false, onSelectRole }: Props) {
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -183,13 +182,6 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const distanceBetween = (a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) => {
-    const radians = (value: number) => value * Math.PI / 180;
-    const dLat = radians(b.latitude - a.latitude), dLon = radians(b.longitude - a.longitude);
-    const lat1 = radians(a.latitude), lat2 = radians(b.latitude);
-    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-    return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-  };
   const visibleProviders = providers;
   const selectedProvider = visibleProviders.find((provider) => provider.id === selectedProviderId);
   const mapMarkers = useMemo(() => visibleProviders.map((provider) => ({
@@ -230,7 +222,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
 
     <View style={styles.mapFrame}>
       <View style={styles.mapHeader}>
-        <Text style={styles.mapTitle}>People near you</Text>
+        <Text style={styles.mapTitle}>Online Providers & your location</Text>
         <Text numberOfLines={1} style={styles.mapAreaLabel}>{areaLabel}</Text>
       </View>
       <View style={styles.map}>
