@@ -13,6 +13,8 @@ import {
 } from "@nestjs/common";
 import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { MarketplaceService } from "./marketplace/marketplace.service";
+import { LiveProviderMapService } from "./marketplace/live-provider-map.service";
 
 const MAX_ERROR_LOG_BYTES = 5 * 1024 * 1024;
 const LOG_DIRECTORY = join(__dirname, "..", "logs");
@@ -177,6 +179,11 @@ async function bootstrap(): Promise<void> {
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, "0.0.0.0");
+  app.get(LiveProviderMapService).attach(
+    app.getHttpServer(),
+    (latitude, longitude, radiusKm) =>
+      app.get(MarketplaceService).discoverNearbyProviders(latitude, longitude, radiusKm),
+  );
   logger.log(`API listening on http://0.0.0.0:${port}/api/v1`);
   logger.log(`API error log file: ${ERROR_LOG_FILE}`);
   logger.log(
