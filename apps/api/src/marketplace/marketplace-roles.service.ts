@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { MarketplaceRoleStatus, ProviderApplicationStatus, RegistrationMode, StaffRole } from "@prisma/client";
+import { IdentityVerificationStatus, MarketplaceRoleStatus, ProviderApplicationStatus, RegistrationMode, StaffRole, VerificationCaseStatus } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
+import { MediaService } from "./media.service";
 
 export type StaffMemberUpdate = { role?: StaffRole; isActive?: boolean };
 
@@ -13,7 +14,7 @@ export type ProviderApplicationInput = {
 
 @Injectable()
 export class MarketplaceRolesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly media: MediaService) {}
 
   async getRoles(userId: string) {
     const [user, application] = await Promise.all([
@@ -178,7 +179,7 @@ export class MarketplaceRolesService {
   }
 
   async listProviderApplications() {
-    return this.prisma.providerRoleApplication.findMany({
+    const applications = await this.prisma.providerRoleApplication.findMany({
       where: { status: { in: [ProviderApplicationStatus.PENDING, ProviderApplicationStatus.UNDER_REVIEW] } },
       orderBy: { submittedAt: "asc" },
       take: 100,
@@ -187,9 +188,43 @@ export class MarketplaceRolesService {
         status: true,
         applicationData: true,
         submittedAt: true,
-        user: { select: { id: true, email: true, identityVerification: true } },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            identityVerification: true,
+            initialMode: true,
+            onboardingDraft: { select: { profile: true, skills: true, portfolio: true, submittedAt: true } },
+            identityCases: {
+              orderBy: { submittedAt: "desc" },
+              take: 1,
+              select: { id: true, status: true, submittedAt: true, reviewedAt: true, decisionReason: true },
+            },
+          },
+        },
       },
     });
+
+    return Promise.all(applications.map(async (application) => {
+      const userId = application.user.id;
+      const identityDocuments = await Promise.all(
+        (["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] as const)
+          .map(async (purpose) => {
+            try {
+              const preview = await this.media.getIdentityPreviewUrl(userId, purpose);
+              return [purpose, preview?.url ?? null] as const;
+            } catch {
+              return [purpose, null] as const;
+            }
+          }),
+      );
+      const { identityCases, ...user } = application.user;
+      return {
+        ...application,
+        user: { ...user, identityCase: identityCases[0] ?? null },
+        identityDocuments: Object.fromEntries(identityDocuments),
+      };
+    }));
   }
 
   async startProviderApplicationReview(reviewerId: string, applicationId: string) {
@@ -228,7 +263,7 @@ export class MarketplaceRolesService {
   ) {
     const application = await this.prisma.providerRoleApplication.findUnique({
       where: { id: applicationId },
-      select: { id: true, userId: true, status: true, applicationData: true, user: { select: { seekerRoleStatus: true } } },
+      select: { id: true, userId: true, status: true, applicationData: true, user: { select: { seekerRoleStatus: true, initialMode: true, identityVerification: true } } },
     });
     if (!application) throw new NotFoundException("Provider application not found.");
     if (application.userId === reviewerId) throw new ForbiddenException("Reviewers cannot decide their own Provider application.");
@@ -261,6 +296,18 @@ export class MarketplaceRolesService {
         },
       });
       if (changed.count !== 1) throw new ConflictException("This Provider application has already been decided.");
+
+      const latestIdentityCase = await tx.identityVerificationCase.findFirst({
+        where: { userId: application.userId },
+        orderBy: { submittedAt: "desc" },
+        select: { id: true, status: true },
+      });
+      const identityCaseAwaitingDecision = latestIdentityCase
+        && [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW, VerificationCaseStatus.NEEDS_INFORMATION].includes(latestIdentityCase.status);
+
+      if (decision === "APPROVED" && application.user.identityVerification !== IdentityVerificationStatus.VERIFIED && !identityCaseAwaitingDecision) {
+        throw new ConflictException("Identity documents must be submitted and reviewed as part of Provider onboarding before approval.");
+      }
 
       if (decision === "APPROVED") {
         const submitted = application.applicationData;
@@ -295,13 +342,37 @@ export class MarketplaceRolesService {
         });
       }
 
+      if (identityCaseAwaitingDecision && latestIdentityCase) {
+        const identityCaseStatus = decision === "APPROVED"
+          ? VerificationCaseStatus.APPROVED
+          : decision === "REJECTED"
+            ? VerificationCaseStatus.REJECTED
+            : VerificationCaseStatus.NEEDS_INFORMATION;
+        await tx.identityVerificationCase.update({
+          where: { id: latestIdentityCase.id },
+          data: { status: identityCaseStatus, reviewerId, reviewedAt: new Date(), decisionReason: reason.trim() },
+        });
+      }
+
       await tx.user.update({
         where: { id: application.userId },
         data: {
           providerRoleStatus: roleStatus,
-          activeMarketplaceMode: application.user.seekerRoleStatus === MarketplaceRoleStatus.ACTIVE
-            ? RegistrationMode.SEEKER
-            : decision === "APPROVED" ? RegistrationMode.PROVIDER : null,
+          ...(identityCaseAwaitingDecision ? {
+            identityVerification: decision === "APPROVED"
+              ? IdentityVerificationStatus.VERIFIED
+              : decision === "REJECTED"
+                ? IdentityVerificationStatus.FAILED
+                : IdentityVerificationStatus.REQUIRES_INFORMATION,
+            identityVerifiedAt: decision === "APPROVED" ? new Date() : null,
+          } : {}),
+          // Provider-first registrations should land in Provider Home immediately.
+          // Dual-role users who added Provider later keep their existing Seeker mode.
+          activeMarketplaceMode: decision === "APPROVED" && application.user.initialMode === RegistrationMode.PROVIDER
+            ? RegistrationMode.PROVIDER
+            : application.user.seekerRoleStatus === MarketplaceRoleStatus.ACTIVE
+              ? RegistrationMode.SEEKER
+              : decision === "APPROVED" ? RegistrationMode.PROVIDER : null,
         },
       });
       await tx.staffAuditLog.create({
