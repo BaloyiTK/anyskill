@@ -435,15 +435,15 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       return;
     }
     if (active === "Verification") {
-      if (!identityRequirementsComplete) {
-        setError(idType === "SMART_ID_CARD"
-          ? "Upload the front and back of your Smart ID card and take your live selfie to continue."
-          : "Upload the photo/details page of your Green ID book and take your live selfie to continue.");
-        return;
+      // Identity verification is independent of profile completion. Submit it
+      // when all required images are ready, but never block onboarding on review.
+      if (identityRequirementsComplete && !identitySubmitted) {
+        if (!await submitIdentityVerification()) return;
       }
-      if (!identitySubmitted && !await submitIdentityVerification()) return;
       setError("");
-      setMessage("Identity verification submitted for review.");
+      setMessage(identitySubmitted || identityRequirementsComplete
+        ? "Identity verification is submitted or ready for review. You can continue while it is pending."
+        : "You can complete identity verification separately. Continue with your profile setup.");
       setActive(isProvider ? "Skills" : "Submit");
       return;
     }
@@ -504,8 +504,8 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const completionStates = isProvider
     ? [Boolean(data.sections?.profile), verificationComplete, Boolean(data.sections?.skills), Boolean(data.sections?.portfolio), onboardingSubmitted]
     : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
-  const completedSectionCount = [Boolean(data.sections?.profile), verificationComplete, ...(isProvider ? [Boolean(data.sections?.skills), Boolean(data.sections?.portfolio)] : [])].filter(Boolean).length;
-  const completionPercentage = Math.round((completedSectionCount / (isProvider ? 4 : 2)) * 100);
+  const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills), Boolean(data.sections?.portfolio)] : [])].filter(Boolean).length;
+  const completionPercentage = Math.round((completedSectionCount / (isProvider ? 3 : 1)) * 100);
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Not complete";
   const Field = (label: string, value: string, change: (v: string) => void, multiline = false) => (
     <View style={st.field} key={label}><Text style={st.label}>{label}</Text><TextInput value={value} onChangeText={change} multiline={multiline} placeholder={label} placeholderTextColor="#93A099" style={[st.input, multiline && st.multiline]} /></View>
