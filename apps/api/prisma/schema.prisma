@@ -313,7 +313,7 @@ model ProviderProfile {
 model RequestMatch {
   id          String            @id @default(uuid()) @db.Uuid
   requestId   String            @db.Uuid @map("request_id")
-  providerId  String            @db.Uuid @map("provider_id")
+  providerId  String?           @db.Uuid @map("provider_id")
   score       Int
   wave        Int
   status      RequestMatchStatus @default(NOTIFIED)
