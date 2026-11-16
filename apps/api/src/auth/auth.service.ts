@@ -543,6 +543,7 @@ export class AuthService {
         where: { seekerId: userId },
         data: {
           seekerId: null,
+          title: "Request retained after account deletion",
           description: "Request details removed following account deletion.",
           location: null,
           latitude: null,
@@ -570,6 +571,11 @@ export class AuthService {
           estimateNotes: null,
           estimateDecisionNote: null,
         },
+      });
+
+      await tx.jobCostAdjustment.updateMany({
+        where: { engagement: { OR: [{ seekerId: userId }, { providerId: userId }] } },
+        data: { reason: "Adjustment details removed following account deletion.", decisionNote: null },
       });
 
       await tx.jobCompletionSubmission.updateMany({
