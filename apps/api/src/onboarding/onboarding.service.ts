@@ -41,8 +41,14 @@ export class OnboardingService {
       const item = skill as Record<string, unknown>;
       if (typeof item.category !== "string" || item.category.trim().length < 2 || item.category.length > 100) throw new BadRequestException("Each skill needs a valid category.");
       if (item.description !== undefined && (typeof item.description !== "string" || item.description.length > 2000)) throw new BadRequestException("Skill descriptions must be 2,000 characters or fewer.");
-      if (item.supportingDocuments !== undefined && !Array.isArray(item.supportingDocuments)) throw new BadRequestException("Supporting documents must be attached to their relevant skill.");
+      if (item.yearsOfExperience !== undefined && !(typeof item.yearsOfExperience === "string" || (typeof item.yearsOfExperience === "number" && Number.isFinite(item.yearsOfExperience)))) throw new BadRequestException("Years of experience must be text or a number.");
+      if (item.licencesQualifications !== undefined && (!Array.isArray(item.licencesQualifications) || item.licencesQualifications.length > 20)) throw new BadRequestException("Each skill can have up to 20 licences or qualifications.");
+      for (const qualification of (item.licencesQualifications as unknown[] | undefined) ?? []) { const q = qualification as Record<string, unknown>; if (!q || typeof q !== "object" || Array.isArray(q) || typeof q.name !== "string" || q.name.trim().length < 2 || q.name.length > 200 || typeof q.attachmentUrl !== "string" || q.attachmentUrl.length > 2000) throw new BadRequestException("Each qualification needs a name and attachment reference."); }
+      if (item.portfolio !== undefined && (!Array.isArray(item.portfolio) || item.portfolio.length > 30)) throw new BadRequestException("Each skill can have up to 30 portfolio items.");
+      for (const portfolioItem of (item.portfolio as unknown[] | undefined) ?? []) { const work = portfolioItem as Record<string, unknown>; if (!work || typeof work !== "object" || Array.isArray(work) || typeof work.title !== "string" || work.title.trim().length < 2 || work.title.length > 200) throw new BadRequestException("Each portfolio item needs a valid title."); for (const key of ["links", "imageUrls"]) if (work[key] !== undefined && (!Array.isArray(work[key]) || (work[key] as unknown[]).length > 20 || (work[key] as unknown[]).some((url) => typeof url !== "string" || url.length > 2000))) throw new BadRequestException(`Portfolio ${key} must be a list of valid URLs.`); }
     }
+    const normalizedSkills = (input.skills ?? []).map((skill) => String((skill as Record<string, unknown>).category ?? "").trim().toLocaleLowerCase("en-ZA")).filter(Boolean);
+    if (new Set(normalizedSkills).size !== normalizedSkills.length) throw new BadRequestException("Duplicate skills are not allowed. Keep one entry for each skill.");
     for (const item of input.portfolio ?? []) {
       if (!item || typeof item !== "object" || Array.isArray(item) || typeof (item as Record<string, unknown>).title !== "string") {
         throw new BadRequestException("Each portfolio item needs a title.");
@@ -67,7 +73,7 @@ export class OnboardingService {
       // One valid skill category satisfies the agreed minimum. A description
       // is useful detail, but it is not a separate completion requirement.
       skills: skills.some((s) => typeof s?.category === "string" && s.category.trim()),
-      portfolio: portfolio.some((item) => typeof item?.title === "string" && item.title.trim()),
+      portfolio: skills.some((skill) => Array.isArray(skill?.portfolio) && skill.portfolio.some((item: any) => typeof item?.title === "string" && item.title.trim())) || portfolio.some((item) => typeof item?.title === "string" && item.title.trim()),
     };
     const completed = Object.values(sections).filter(Boolean).length;
     return { percentage: Math.round((completed / 3) * 100), sections };
@@ -111,7 +117,7 @@ export class OnboardingService {
     const missingSections = [
       ...(!onboarding.sections.profile ? ["Profile"] : []),
       ...(providerRequired && !onboarding.sections.skills ? ["Skills"] : []),
-      ...(providerRequired && !onboarding.sections.portfolio ? ["Portfolio"] : []),
+
     ];
     if (missingSections.length) {
       throw new BadRequestException(
@@ -174,8 +180,8 @@ export class OnboardingService {
       }
 
       if (wantsProvider) {
-        if (!publicName || skills.length === 0 || portfolio.length === 0) {
-          throw new BadRequestException("Provider applications require a public name, at least one skill and at least one portfolio item.");
+        if (!publicName || skills.length === 0) {
+          throw new BadRequestException("Provider applications require a public name and at least one skill.");
         }
 
         const existingApplication = await tx.providerRoleApplication.findUnique({
@@ -194,8 +200,9 @@ export class OnboardingService {
           const applicationData = {
             publicName: publicName.trim(),
             skills: [...new Set(skills.map((value) => value.toLocaleLowerCase("en-ZA")))],
-            portfolio,
-            qualifications: [],
+            skillDetails: onboarding.skills,
+            portfolio: onboarding.skills.flatMap((skill: any) => Array.isArray(skill?.portfolio) ? skill.portfolio : []).map((item: any) => item.title),
+            qualifications: onboarding.skills.flatMap((skill: any) => Array.isArray(skill?.licencesQualifications) ? skill.licencesQualifications : []),
           };
           await tx.providerRoleApplication.upsert({
             where: { userId },
