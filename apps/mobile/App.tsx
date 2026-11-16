@@ -149,6 +149,21 @@ export default function App() {
     return requiredSectionsComplete;
   };
 
+  const routeFromProfileStatus = async (initialMode?: string) => {
+    setScreen("profile-check");
+    try {
+      const complete = await refreshHomeEligibility(initialMode);
+      setActiveTab("home");
+      setScreen(complete ? "dashboard" : "onboarding");
+      return complete;
+    } catch (e) {
+      setProfileComplete(false);
+      setError(e instanceof Error ? e.message : "We could not verify your saved profile. Please try again.");
+      setScreen("profile-check");
+      return false;
+    }
+  };
+
   const loadNotifications = async () => {
     if (!account) return;
     setNotificationsLoading(true);
@@ -180,18 +195,8 @@ export default function App() {
     setIdentity(null);
     setProfileComplete(false);
 
-    // Keep the authenticated user out of Home/onboarding until the server
-    // confirms whether their saved profile is complete.
-    setActiveTab("home");
-    setScreen("profile-check");
-    try {
-      const completed = await refreshHomeEligibility(me.initialMode);
-      setScreen(completed ? "dashboard" : "onboarding");
-    } catch (e) {
-      setProfileComplete(false);
-      setError(e instanceof Error ? e.message : "We could not verify your saved profile. Please try again.");
-      setScreen("profile-check");
-    }
+    // The same server-backed routing decision is used after every sign-in.
+    await routeFromProfileStatus(me.initialMode);
   };
 
   const verifyEmailFromLink = async (url: string) => {
@@ -1005,10 +1010,10 @@ export default function App() {
             identityStatus={identityStatus}
             initialMode={account.initialMode}
             seekerRoleStatus={account.seekerRoleStatus}
-            onBack={() => { void (async () => { await refreshHomeEligibility(); goTo("dashboard"); })(); }}
+            onBack={() => { void routeFromProfileStatus(account.initialMode); }}
             onStartVerification={() => { void startIdentityVerification(); }}
             onIdentityUpdated={refreshHomeEligibility}
-            onComplete={async () => { await refreshHomeEligibility(); setActiveTab("home"); setScreen("dashboard"); feedback(); }}
+            onComplete={async () => { await routeFromProfileStatus(account.initialMode); feedback(); }}
           />}
 
           {screen === "marketplace" && account && <MarketplaceScreen
@@ -1188,7 +1193,7 @@ export default function App() {
         </ScrollView>
       </KeyboardAvoidingView>
       {account && (screen === "dashboard" || screen === "marketplace" || screen === "onboarding") && <View style={s.bottomTabBar}>
-        <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { void (async () => { await refreshHomeEligibility(); setActiveTab("home"); setScreen("dashboard"); feedback(); })(); }} />
+        <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { void (async () => { await routeFromProfileStatus(account?.initialMode); feedback(); })(); }} />
         <BottomTab label="Activities" icon="▤" selected={activeTab === "activities"} onPress={() => { setActiveTab("activities"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Account" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }} />
