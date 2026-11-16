@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import * as Location from "expo-location";
 import { apiRequest } from "./api";
 
 type ProviderProfile = {
@@ -27,6 +28,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [locationStatus, setLocationStatus] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -48,6 +50,65 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Provider Home owns availability, so it must also maintain the fresh GPS
+  // heartbeat required by on-site discovery. Previously this only ran inside
+  // MarketplaceScreen, meaning an online Provider on Home had no live location.
+  useEffect(() => {
+    const supportsOnsite = profile?.deliveryModes.some((mode) => mode === "ONSITE" || mode === "EITHER") ?? false;
+    if (!profile?.isAvailable || !supportsOnsite) {
+      setLocationStatus("");
+      return;
+    }
+
+    let active = true;
+    let subscription: Location.LocationSubscription | null = null;
+    const sendLocation = async (coords: Location.LocationObjectCoords) => {
+      if (!active) return;
+      if (coords.accuracy == null || coords.accuracy > 250) {
+        setLocationStatus("Waiting for a more accurate GPS signal for on-site matching.");
+        return;
+      }
+      try {
+        await apiRequest("/marketplace/provider-location/live", {
+          method: "POST",
+          body: JSON.stringify({
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            accuracyM: coords.accuracy,
+          }),
+        }, true);
+        if (active) setLocationStatus("Your live location is shared for on-site matching.");
+      } catch (e) {
+        if (active) setLocationStatus(e instanceof Error ? e.message : "Live location update failed.");
+      }
+    };
+
+    void (async () => {
+      try {
+        setLocationStatus("Requesting location permission for on-site matching...");
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!permission.granted) {
+          setLocationStatus("Location permission is disabled. Allow location access while using AnySkill to appear in on-site matches.");
+          return;
+        }
+        const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        await sendLocation(initial.coords);
+        if (!active) return;
+        subscription = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 50 },
+          (position) => { void sendLocation(position.coords); },
+        );
+      } catch (e) {
+        if (active) setLocationStatus(e instanceof Error ? e.message : "Could not start live location.");
+      }
+    })();
+
+    return () => {
+      active = false;
+      subscription?.remove();
+    };
+  }, [profile?.isAvailable, profile?.deliveryModes]);
 
   const setAvailability = async (next: boolean) => {
     if (!profile || saving) return;
@@ -119,6 +180,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
             </Pressable>
           </>
         )}
+        {!!locationStatus && <Text accessibilityRole="alert" style={styles.locationStatus}>{locationStatus}</Text>}
         <Text style={styles.footnote}>You control when you are available. Going offline stops new matching; it does not remove your skills.</Text>
       </View>
 
@@ -172,6 +234,7 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "900" },
   disabled: { opacity: 0.55 },
   footnote: { color: C.muted, fontSize: 10, lineHeight: 15, textAlign: "center" },
+  locationStatus: { color: C.muted, fontSize: 11, lineHeight: 16, textAlign: "center" },
   cardTitle: { color: C.ink, fontSize: 16, fontWeight: "900" },
   link: { color: C.primary, fontSize: 12, fontWeight: "800" },
   skillRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 11, borderTopWidth: 1, borderTopColor: "#EEF2F6" },
