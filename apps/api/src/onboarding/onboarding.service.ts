@@ -100,9 +100,13 @@ export class OnboardingService {
       this.get(userId),
       this.prisma.user.findUnique({ where: { id: userId }, select: { initialMode: true } }),
     ]);
-    const roles = Array.isArray(onboarding.profile?.marketplaceRoles)
-      ? onboarding.profile.marketplaceRoles
-      : onboarding.profile?.marketplaceRole ? [onboarding.profile.marketplaceRole] : [];
+    const profile =
+      onboarding.profile && typeof onboarding.profile === "object" && !Array.isArray(onboarding.profile)
+        ? (onboarding.profile as Record<string, unknown>)
+        : {};
+    const roles: unknown[] = Array.isArray(profile.marketplaceRoles)
+      ? profile.marketplaceRoles
+      : typeof profile.marketplaceRole === "string" ? [profile.marketplaceRole] : [];
     const providerRequired = user?.initialMode === "PROVIDER" || roles.includes("PROVIDER");
     const missingSections = [
       ...(!onboarding.sections.profile ? ["Profile"] : []),
