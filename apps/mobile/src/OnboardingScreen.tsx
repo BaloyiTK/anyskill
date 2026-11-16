@@ -466,11 +466,28 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const submit = async () => {
     setBusy(true); setError(""); setMessage("");
     try {
+      // Re-read the saved sections before final submission. A successful draft
+      // save or permissive submit endpoint must never mark an incomplete
+      // profile as complete.
+      const latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
+      setData(latest);
+      const missingSections = [
+        ...(!latest.sections?.profile ? ["Profile"] : []),
+        ...(isProvider && !latest.sections?.skills ? ["Skills"] : []),
+        ...(isProvider && !latest.sections?.portfolio ? ["Portfolio"] : []),
+      ];
+      if (missingSections.length > 0) {
+        setOnboardingSubmitted(false);
+        setMessage("Profile not complete yet.");
+        setError(`Complete the following section${missingSections.length > 1 ? "s" : ""} before submitting: ${missingSections.join(", ")}.`);
+        return;
+      }
+
       const result = await apiRequest<{ message: string }>("/profile/onboarding/submit", { method: "POST", body: "{}" }, true);
       setOnboardingSubmitted(true);
       setMessage(result.message);
       await p.onComplete();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your available information."); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your profile."); }
     finally { setBusy(false); }
   };
 
@@ -485,7 +502,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
   const completedSectionCount = [Boolean(data.sections?.profile), verificationComplete, ...(isProvider ? [Boolean(data.sections?.skills), Boolean(data.sections?.portfolio)] : [])].filter(Boolean).length;
   const completionPercentage = Math.round((completedSectionCount / (isProvider ? 4 : 2)) * 100);
-  const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Draft / not complete";
+  const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Not complete";
   const Field = (label: string, value: string, change: (v: string) => void, multiline = false) => (
     <View style={st.field} key={label}><Text style={st.label}>{label}</Text><TextInput value={value} onChangeText={change} multiline={multiline} placeholder={label} placeholderTextColor="#93A099" style={[st.input, multiline && st.multiline]} /></View>
   );
