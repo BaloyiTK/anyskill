@@ -145,9 +145,10 @@ export default function WelcomeMap({
               accessibilityRole="button"
               accessibilityLabel={marker.title}
               onPress={() => onSelectMarker(marker.id)}
-              style={[styles.webMarker, { left: left - 11, top: top - 25 }, selected && styles.webMarkerSelected]}
+              style={[styles.webMarker, { left: left - 12, top: top - 27 }, selected && styles.webMarkerSelected]}
             >
               <Text style={styles.webMarkerText}>📍</Text>
+              <Text numberOfLines={1} style={styles.webMarkerSkill}>{marker.title}</Text>
             </Pressable>
           );
         })}
@@ -178,24 +179,34 @@ const styles = StyleSheet.create({
   },
   webMarker: {
     position: "absolute",
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: "#0066CC",
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
+    minHeight: 28,
+    maxWidth: 180,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 4,
+    borderRadius: 15,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#0066CC",
+    paddingHorizontal: 7,
+    paddingVertical: 3,
     zIndex: 2,
+    elevation: 3,
   },
   webMarkerSelected: {
     backgroundColor: "#0B2545",
     transform: [{ scale: 1.2 }],
   },
   webMarkerText: {
-    color: "#FFFFFF",
+    color: "#0066CC",
     fontSize: 13,
     lineHeight: 17,
+  },
+  webMarkerSkill: {
+    color: "#0B2545",
+    fontSize: 10,
+    fontWeight: "800",
+    maxWidth: 145,
   },
   seekerMarker: {
     position: "absolute",
