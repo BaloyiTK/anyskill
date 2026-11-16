@@ -977,15 +977,10 @@ export default function App() {
       />}
 
       {screen === "dashboard" && account && activeTab === "home" && <>
-      {!verified && <View style={s.notice}>
-        <Text style={s.noticeTitle}>{identityAwaitingReview ? "Identity documents received" : "Identity verification required"}</Text>
-        <Text style={s.noticeText}>{identityAwaitingReview
-          ? "Your identity documents have been submitted and are awaiting review by our team. You do not need to submit them again. We will update your account when the review is complete. You can explore AnySkill, but restricted marketplace actions remain locked until approval."
-          : "Complete identity verification by submitting your required documents and live selfie for review. You can explore AnySkill, but restricted marketplace actions remain locked until approval."}</Text>
-      </View>}
       <WelcomeScreen
         showAuthActions={false}
         canRequestSkill={canRequestSkill}
+        accountPendingReview={identityAwaitingReview}
         onRequestSkill={() => {
           feedback();
           if (roleSummary?.seekerStatus !== "ACTIVE") {
