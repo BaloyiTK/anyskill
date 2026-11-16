@@ -157,9 +157,10 @@ export default function WelcomeMap({
             <View
               key="seeker-location"
               accessibilityLabel="Your location"
-              style={[styles.seekerMarker, { left: left - 12, top: top - 27 }]}
+              style={[styles.seekerMarker, { left: left - 15, top: top - 30 }]}
             >
-              <Text style={styles.seekerMarkerText}>⌖</Text>
+              <View style={styles.seekerMarkerDot}><Text style={styles.seekerMarkerText}>●</Text></View>
+              <Text style={styles.seekerMarkerLabel}>YOU</Text>
             </View>
           );
         })() : null}
@@ -179,8 +180,8 @@ export default function WelcomeMap({
             >
               <Text style={styles.webMarkerText}>📍</Text>
               <View style={styles.webMarkerCopy}>
-                <Text numberOfLines={1} style={styles.webMarkerSkill}>{marker.title}</Text>
-                <Text style={styles.webMarkerDistance}>{marker.snippet}</Text>
+                <Text numberOfLines={1} style={[styles.webMarkerSkill, selected && styles.webMarkerSkillSelected]}>{marker.title}</Text>
+                <Text style={[styles.webMarkerDistance, selected && styles.webMarkerDistanceSelected]}>{marker.snippet}</Text>
               </View>
             </Pressable>
           );
@@ -235,7 +236,8 @@ const styles = StyleSheet.create({
   },
   webMarkerSelected: {
     backgroundColor: "#0B2545",
-    transform: [{ scale: 1.2 }],
+    borderColor: "#0B2545",
+    transform: [{ scale: 1.08 }],
   },
   webMarkerText: {
     color: "#0066CC",
@@ -248,29 +250,50 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
   },
+  webMarkerSkillSelected: { color: "#FFFFFF" },
   webMarkerDistance: {
     color: "#607080",
     fontSize: 9,
     fontWeight: "600",
   },
+  webMarkerDistanceSelected: { color: "#DCEBFF" },
   seekerMarker: {
     position: "absolute",
-    width: 27,
-    height: 27,
+    alignItems: "center",
+    gap: 2,
+    zIndex: 4,
+    elevation: 6,
+  },
+  seekerMarkerDot: {
+    width: 28,
+    height: 28,
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#0066CC",
     borderWidth: 3,
-    borderColor: "#0066CC",
+    borderColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 3,
-    elevation: 5,
+    shadowColor: "#000000",
+    shadowOpacity: 0.28,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
   },
   seekerMarkerText: {
-    color: "#0066CC",
-    fontSize: 18,
+    color: "#FFFFFF",
+    fontSize: 10,
     fontWeight: "900",
-    lineHeight: 20,
+    lineHeight: 12,
+  },
+  seekerMarkerLabel: {
+    overflow: "hidden",
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: "#0066CC",
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.4,
   },
   mapAttribution: {
     position: "absolute",
