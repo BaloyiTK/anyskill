@@ -43,7 +43,6 @@
         <button class="nav-item" data-page="jobs"><span class="nav-icon">▤</span> Jobs &amp; requests</button>
         <button class="nav-item" data-page="providers"><span class="nav-icon">▣</span> Provider applications <span id="nav-pending" class="nav-count">—</span></button>
         <div class="nav-group-label">TRUST &amp; SAFETY</div>
-        <button class="nav-item" data-page="identity"><span class="nav-icon">✓</span> Identity verification</button>
         <button class="nav-item" data-page="disputes"><span class="nav-icon">⚑</span> Disputes</button>
         <button class="nav-item" data-page="fraud"><span class="nav-icon">!</span> Fraud &amp; risk</button>
         <button class="nav-item" data-page="reviews"><span class="nav-icon">☆</span> Ratings &amp; reviews</button>
@@ -93,7 +92,7 @@
           <div class="section-heading lower"><div><h2>Operations modules</h2><p>More administration tools will connect as their API services are introduced.</p></div></div>
           <div class="module-grid">
             <article class="module-card"><span class="module-icon">♙</span><strong>User management</strong><span class="module-state">Planned module</span><p>Account search, access controls and user support.</p></article>
-            <article class="module-card"><span class="module-icon">▣</span><strong>Identity verification</strong><span class="module-state">Planned module</span><p>Identity review and verification case handling.</p></article>
+            <article class="module-card"><span class="module-icon">▣</span><strong>Provider onboarding review</strong><span class="module-state">In Provider applications</span><p>Review identity, profile, skills, qualifications and portfolio together.</p></article>
             <article class="module-card"><span class="module-icon">↗</span><strong>Payments & finance</strong><span class="module-state">Planned module</span><p>Transactions, refunds and commission reconciliation.</p></article>
             <article class="module-card"><span class="module-icon">⚑</span><strong>Trust & safety</strong><span class="module-state">Planned module</span><p>Reports, disputes and fraud investigation.</p></article>
           </div>
@@ -119,7 +118,7 @@
   <div id="review-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="review-title">
     <section class="review-modal">
       <button id="close-modal" class="modal-close" aria-label="Close">×</button>
-      <div class="eyebrow">APPLICATION DECISION</div><h2 id="review-title">Review provider</h2><p id="review-subtitle" class="modal-subtitle"></p>
+      <div class="eyebrow">APPLICATION DECISION</div><h2 id="review-title">Review Provider onboarding</h2><p id="review-subtitle" class="modal-subtitle"></p>
       <div id="review-details" class="review-details"></div>
       <form id="decision-form">
         <label for="decision-reason">Decision notes <span class="required">*</span></label>
@@ -127,7 +126,7 @@
         <div class="decision-actions">
           <button type="button" id="needs-info" class="button button-light">Request information</button>
           <button type="button" id="reject-application" class="button button-danger">Reject</button>
-          <button type="submit" class="button button-primary" id="approve-application">Approve provider</button>
+          <button type="submit" class="button button-primary" id="approve-application">Approve Provider onboarding</button>
         </div>
       </form>
       <div id="decision-error" class="alert alert-error hidden" role="alert"></div>
