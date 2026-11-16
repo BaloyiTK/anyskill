@@ -527,38 +527,62 @@ export class AuthService {
       throw new UnauthorizedException("This account is no longer active.");
     }
 
-    // Remove every uploaded file owned by this account before deleting its
-    // database records. If remote deletion fails, retain the account so the
-    // user can retry instead of leaving private files orphaned.
+    // Remove private files first. If storage cleanup fails, keep the account
+    // intact so deletion can be retried without leaving private files behind.
     await this.media.deleteUserAssets(userId);
 
     await this.prisma.$transaction(async (tx) => {
-      // Remove audit entries involving this account so no foreign key keeps
-      // the account row alive.
+      // Audit records contain account identifiers and are not marketplace history.
       await tx.staffAuditLog.deleteMany({
         where: { OR: [{ actorId: userId }, { targetUserId: userId }] },
       });
 
-      // Remove engagements first because they reference both requests and
-      // provider responses. Their dependent cost adjustments and completion
-      // submissions are removed by the database cascades.
-      await tx.jobEngagement.deleteMany({
-        where: { OR: [{ seekerId: userId }, { providerId: userId }] },
+      // Preserve requests, responses, matches and jobs, but detach the deleted
+      // account and remove user-supplied personal/contact/location information.
+      await tx.serviceRequest.updateMany({
+        where: { seekerId: userId },
+        data: {
+          seekerId: null,
+          description: "Request details removed following account deletion.",
+          location: null,
+          latitude: null,
+          longitude: null,
+          instructions: null,
+          imageUrls: [],
+        },
       });
 
-      // Remove matches where this account was the suggested provider, even
-      // when the underlying request belongs to another seeker.
-      await tx.requestMatch.deleteMany({ where: { providerId: userId } });
+      await tx.providerResponse.updateMany({
+        where: { providerId: userId },
+        data: { providerId: null, message: null },
+      });
 
-      // Remove the account's responses to other people's requests.
-      await tx.providerResponse.deleteMany({ where: { providerId: userId } });
+      await tx.requestMatch.updateMany({
+        where: { providerId: userId },
+        data: { providerId: null },
+      });
 
-      // Remove requests created by this account. Their responses, matches and
-      // related engagement data are dependent records and are deleted too.
-      await tx.serviceRequest.deleteMany({ where: { seekerId: userId } });
+      await tx.jobEngagement.updateMany({
+        where: { OR: [{ seekerId: userId }, { providerId: userId }] },
+        data: {
+          seekerId: null,
+          providerId: null,
+          estimateNotes: null,
+          estimateDecisionNote: null,
+        },
+      });
 
-      // Delete all remaining account-owned records. Most of these have
-      // onDelete: Cascade, but explicit deletion keeps the operation clear.
+      await tx.jobCompletionSubmission.updateMany({
+        where: { providerId: userId },
+        data: {
+          providerId: null,
+          notes: "Completion details removed following account deletion.",
+          evidenceUrls: [],
+          reviewNote: null,
+        },
+      });
+
+      // Remove all remaining account-owned data and credentials.
       await tx.mediaAsset.deleteMany({ where: { userId } });
       await tx.refreshSession.deleteMany({ where: { userId } });
       await tx.emailVerificationToken.deleteMany({ where: { userId } });
@@ -573,11 +597,14 @@ export class AuthService {
       await tx.staffMembership.deleteMany({ where: { userId } });
       await tx.pendingRegistration.deleteMany({ where: { email: user.email } });
 
-      // This is a physical DELETE, not anonymisation or a deletedAt update.
+      // Permanently remove the user row. No deletedAt tombstone remains.
       await tx.user.delete({ where: { id: userId } });
     });
 
-    return { deleted: true, message: "Your AnySkill account and associated data have been permanently deleted." };
+    return {
+      deleted: true,
+      message: "Your AnySkill account and personal data have been permanently deleted. Requests and job history have been retained without your account details.",
+    };
   }
 
   async logout(refreshToken: string) {
