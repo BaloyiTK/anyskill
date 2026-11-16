@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
+import { LiveProviderMapService } from "./live-provider-map.service";
 import {
   CreateServiceRequestDto,
   ProviderResponseDto,
@@ -30,7 +31,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private worker: ReturnType<typeof setInterval> | undefined;
   private workerRunning = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly liveProviderMap: LiveProviderMapService,
+  ) {}
 
   onModuleInit() {
     // Matching deadlines and notification retries are persisted in PostgreSQL.
@@ -136,6 +140,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
       throw new ConflictException("Set your Provider status to Available before sharing your live location.");
     }
+    this.liveProviderMap.notifyChanged();
     return { isAvailable: true, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
   }
 
@@ -171,12 +176,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (deliveryModes.includes("ONSITE") && serviceAreas.length === 0) {
       throw new ConflictException("Add at least one service area for on-site work.");
     }
-    return this.prisma.providerProfile.upsert({
+    const updated = await this.prisma.providerProfile.upsert({
       where: { userId },
       create: { userId, publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, maxTravelDistanceKm: input.maxTravelDistanceKm ?? 25 },
       update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, maxTravelDistanceKm: input.maxTravelDistanceKm ?? 25, ...(!input.isAvailable ? { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null } : {}) },
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
     });
+    this.liveProviderMap.notifyChanged();
+    return updated;
   }
 
   async getProviderProfile(userId: string) {
