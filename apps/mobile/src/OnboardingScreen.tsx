@@ -10,22 +10,27 @@ import { apiRequest } from "./api";
 type Section = "Profile" | "Verification" | "Skills" | "Portfolio" | "Submit";
 type AccountType = "INDIVIDUAL" | "BUSINESS";
 type MarketplaceRole = "SEEKER" | "PROVIDER";
+type Qualification = { name: string; attachmentUrl: string };
+type SkillPortfolio = { title: string; description: string; links: string[]; imageUrls: string[] };
+type SkillEntry = { category: string; description: string; yearsOfExperience: string; licencesQualifications: Qualification[]; portfolio: SkillPortfolio[] };
 type Payload = {
   profile: Record<string, string> & { marketplaceRoles?: MarketplaceRole[] };
-  skills: Array<{ category: string; description: string; supportingDocuments: Array<{ name: string; url: string }> }>;
+  skills: SkillEntry[];
   portfolio: Array<{ title: string; description: string }>;
   percentage: number;
   sections: { profile: boolean; skills: boolean; portfolio: boolean };
 };
 
 const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, sections: { profile: false, skills: false, portfolio: false } };
+const emptySkill = (): SkillEntry => ({ category: "", description: "", yearsOfExperience: "", licencesQualifications: [], portfolio: [] });
+const SKILL_CATALOGUE = ["Accounting", "Automotive Repair", "Beauty Therapy", "Carpentry", "Cleaning", "Electrical", "Graphic Design", "Hairdressing", "Landscaping", "Painting", "Photography", "Plumbing", "Software Development", "Tutoring", "Web Development"];
 const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#4CAF50", forest: "#1B5E20", border: "#DCE5EF", surface: "#FFFFFF", bg: "#F6F8FA", hero: "#0B2545", soft: "#EAF3FF" };
 
 export function OnboardingScreen(p: { identityStatus: string; initialMode: MarketplaceRole; seekerRoleStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
   const [alsoProvider, setAlsoProvider] = useState(false);
   const isProvider = p.initialMode === "PROVIDER" || alsoProvider;
   const tabs: Section[] = isProvider
-    ? ["Profile", "Verification", "Skills", "Portfolio", "Submit"]
+    ? ["Profile", "Verification", "Skills", "Submit"]
     : ["Profile", "Verification", "Submit"];
   const [active, setActive] = useState<Section>("Profile");
   const scrollViewRef = useRef<ComponentRef<typeof ScrollView>>(null);
@@ -92,12 +97,8 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const [homeLongitude, setHomeLongitude] = useState("");
   const [addressSearchBusy, setAddressSearchBusy] = useState(false);
   const [addressSuggestions, setAddressSuggestions] = useState<AddressSuggestion[]>([]);
-  const [category, setCategory] = useState("");
-  const [description, setDescription] = useState("");
-  const [documentName, setDocumentName] = useState("");
-  const [documentUrl, setDocumentUrl] = useState("");
-  const [portfolioTitle, setPortfolioTitle] = useState("");
-  const [portfolioDescription, setPortfolioDescription] = useState("");
+  const [skills, setSkills] = useState<SkillEntry[]>([emptySkill()]);
+  const [skillSearch, setSkillSearch] = useState("");
   const [busy, setBusy] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -129,9 +130,9 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       setContactJobTitle(profile.contactJobTitle ?? ""); setContactEmail(profile.contactEmail ?? ""); setContactPhone(profile.contactPhone ?? "");
       setHomeLatitude(home?.homeLatitude == null ? "" : String(home.homeLatitude));
       setHomeLongitude(home?.homeLongitude == null ? "" : String(home.homeLongitude));
-      const skill = result.skills?.[0]; setCategory(skill?.category ?? ""); setDescription(skill?.description ?? "");
-      const document = skill?.supportingDocuments?.[0]; setDocumentName(document?.name ?? ""); setDocumentUrl(document?.url ?? "");
-      const item = result.portfolio?.[0]; setPortfolioTitle(item?.title ?? ""); setPortfolioDescription(item?.description ?? "");
+      const restored = Array.isArray(result.skills) ? result.skills.map((item: any) => ({ category: String(item?.category ?? ""), description: String(item?.description ?? ""), yearsOfExperience: String(item?.yearsOfExperience ?? ""), licencesQualifications: Array.isArray(item?.licencesQualifications) ? item.licencesQualifications.map((q: any) => ({ name: String(q?.name ?? ""), attachmentUrl: String(q?.attachmentUrl ?? q?.url ?? "") })) : Array.isArray(item?.supportingDocuments) ? item.supportingDocuments.map((q: any) => ({ name: String(q?.name ?? ""), attachmentUrl: String(q?.url ?? "") })) : [], portfolio: Array.isArray(item?.portfolio) ? item.portfolio.map((v: any) => ({ title: String(v?.title ?? ""), description: String(v?.description ?? ""), links: Array.isArray(v?.links) ? v.links.map(String) : [], imageUrls: Array.isArray(v?.imageUrls) ? v.imageUrls.map(String) : [] })) : [] })) : [];
+      if (!restored.length && result.portfolio?.length) restored.push({ ...emptySkill(), portfolio: result.portfolio.map((v: any) => ({ title: String(v?.title ?? ""), description: String(v?.description ?? ""), links: [], imageUrls: [] })) });
+      setSkills(restored.length ? restored : [emptySkill()]);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load your saved profile."); }
     finally { setBusy(false); }
   };
@@ -187,8 +188,8 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         businessName, businessRegistrationNumber, businessType, businessEmail, businessPhone, businessCountry, businessProvince, businessCity, businessAddress,
         contactFirstName, contactLastName, contactJobTitle, contactEmail, contactPhone,
       } }
-        : section === "skills" ? { skills: category.trim() ? [{ category: category.trim(), description, supportingDocuments: documentName.trim() && documentUrl.trim() ? [{ name: documentName.trim(), url: documentUrl.trim() }] : [] }] : [] }
-        : { portfolio: portfolioTitle.trim() ? [{ title: portfolioTitle.trim(), description: portfolioDescription }] : [] };
+        : section === "skills" ? { skills: skills.filter((v) => v.category.trim()).map((v) => ({ ...v, category: v.category.trim(), licencesQualifications: v.licencesQualifications.filter((q) => q.name.trim() && q.attachmentUrl.trim()), portfolio: v.portfolio.filter((item) => item.title.trim()) })), portfolio: [] }
+        : { portfolio: [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
       setData(result);
       if (section === "profile" && (homeLatitude.trim() || homeLongitude.trim())) {
@@ -415,7 +416,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const saveCurrent = async () => {
     if (active === "Profile") return save("profile");
     if (active === "Skills") return save("skills");
-    if (active === "Portfolio") return save("portfolio");
+    if (active === "Portfolio") return save("skills");
     if (active === "Verification") {
       setMessage(identitySubmitted
         ? "Your identity documents have already been submitted and are awaiting review. You do not need to submit them again."
@@ -424,8 +425,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     }
     if (!await save("profile")) return false;
     if (!isProvider) return true;
-    if (!await save("skills")) return false;
-    return save("portfolio");
+    return save("skills");
   };
 
   const continueCurrent = async () => {
@@ -449,17 +449,12 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       return;
     }
     if (active === "Skills") {
-      if (!category.trim()) { setError("Add at least one skill before continuing."); return; }
-      if (await save("skills")) setActive("Portfolio");
+      if (!skills.some((v) => v.category.trim())) { setError("Add at least one skill before continuing."); return; }
+      if (await save("skills")) setActive("Submit");
       return;
     }
-    if (active === "Portfolio") {
-      if (!portfolioTitle.trim()) { setError("Add at least one portfolio item before continuing."); return; }
-      if (await save("portfolio")) setActive("Submit");
-      return;
-    }
-    if (isProvider && (!category.trim() || !portfolioTitle.trim())) {
-      setError("Complete at least one skill and one portfolio item before submitting Provider onboarding.");
+    if (isProvider && !skills.some((v) => v.category.trim())) {
+      setError("Add at least one skill before submitting Provider onboarding.");
       return;
     }
     if (await saveCurrent()) await submit();
@@ -479,7 +474,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       const missingSections = [
         ...(!latest.sections?.profile ? ["Profile"] : []),
         ...(providerRequired && !latest.sections?.skills ? ["Skills"] : []),
-        ...(providerRequired && !latest.sections?.portfolio ? ["Portfolio"] : []),
+
       ];
       if (missingSections.length > 0) {
         setOnboardingSubmitted(false);
@@ -502,11 +497,9 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     ? idFrontReady && idBackReady && selfieReady
     : bookPage1Ready && selfieReady;
   const verificationComplete = identitySubmitted && identityRequirementsComplete;
-  const completionStates = isProvider
-    ? [Boolean(data.sections?.profile), verificationComplete, Boolean(data.sections?.skills), Boolean(data.sections?.portfolio), onboardingSubmitted]
-    : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
-  const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills), Boolean(data.sections?.portfolio)] : [])].filter(Boolean).length;
-  const completionPercentage = Math.round((completedSectionCount / (isProvider ? 3 : 1)) * 100);
+  const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, Boolean(data.sections?.skills), onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
+  const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills)] : [])].filter(Boolean).length;
+  const completionPercentage = Math.round((completedSectionCount / (isProvider ? 2 : 1)) * 100);
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Not complete";
   const Field = (label: string, value: string, change: (v: string) => void, multiline = false) => (
     <View style={st.field} key={label}><Text style={st.label}>{label}</Text><TextInput value={value} onChangeText={change} multiline={multiline} placeholder={label} placeholderTextColor="#93A099" style={[st.input, multiline && st.multiline]} /></View>
@@ -716,24 +709,42 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
           : "Your images are stored securely and reviewed by an administrator. Uploading alone does not verify your identity; tap Save & Continue below to submit them for review."}</Text>
       </>}
       {active === "Skills" && <>
-        <Text style={st.heading}>Skills and experience</Text><Text style={st.help}>Add the skills and services you offer. At least one skill is required to submit your Provider onboarding.</Text>
-        {Field("Skill category", category, setCategory)}{Field("Experience and service description", description, setDescription, true)}
-        {Field("Supporting document name", documentName, setDocumentName)}{Field("Supporting document URL (temporary)", documentUrl, setDocumentUrl)}
-        <Text style={st.help}>Document upload to AnySkill-managed cloud storage will be connected separately; this field currently records a document reference only.</Text>
-        {documentName.trim() && documentUrl.trim() ? <Text style={st.status}>Document status: Pending verification</Text> : null}
+        <Text style={st.heading}>Skills, experience and portfolio</Text>
+        <Text style={st.help}>Search existing skills or enter a new skill. Each skill has its own description, experience, qualifications and portfolio.</Text>
+        {skills.map((skill, si) => <View key={`skill-${si}`} style={st.card}>
+          <View style={st.inlineFields}><Text style={st.sectionHeading}>Skill {si + 1}</Text>{skills.length > 1 ? <Pressable onPress={() => setSkills((all) => all.filter((_, i) => i !== si))}><Text style={st.error}>Remove</Text></Pressable> : null}</View>
+          <Text style={st.label}>Search or add skill</Text>
+          <TextInput value={skill.category} onChangeText={(value) => { setSkills((all) => all.map((v, i) => i === si ? { ...v, category: value } : v)); setSkillSearch(value); }} placeholder="e.g. Plumbing" style={st.input}/>
+          {skillSearch.trim() && skill.category === skillSearch ? <View style={st.optionPanel}>{SKILL_CATALOGUE.filter((name) => name.toLowerCase().includes(skillSearch.toLowerCase()) && !skills.some((v, i) => i !== si && v.category.trim().toLowerCase() === name.toLowerCase())).slice(0, 6).map((name) => <Pressable key={name} style={st.option} onPress={() => { setSkills((all) => all.map((v, i) => i === si ? { ...v, category: name } : v)); setSkillSearch(""); }}><Text style={st.optionText}>{name}</Text></Pressable>)}<Text style={st.optionHint}>Not listed? Keep typing to add your own skill.</Text></View> : null}
+          {Field("Skill overview / description", skill.description, (value) => setSkills((all) => all.map((v, i) => i === si ? { ...v, description: value } : v)), true)}
+          {Field("Years of experience", skill.yearsOfExperience, (value) => setSkills((all) => all.map((v, i) => i === si ? { ...v, yearsOfExperience: value } : v)))}
+          <Text style={st.sectionHeading}>Licences and qualifications</Text>
+          <Text style={st.help}>Every licence or qualification has its own name and attachment reference.</Text>
+          {skill.licencesQualifications.map((q, qi) => <View key={`q-${si}-${qi}`} style={st.card}>
+            {Field("Licence / qualification name", q.name, (value) => setSkills((all) => all.map((v, i) => i === si ? { ...v, licencesQualifications: v.licencesQualifications.map((item, j) => j === qi ? { ...item, name: value } : item) } : v)))}
+            {Field("Attachment URL", q.attachmentUrl, (value) => setSkills((all) => all.map((v, i) => i === si ? { ...v, licencesQualifications: v.licencesQualifications.map((item, j) => j === qi ? { ...item, attachmentUrl: value } : item) } : v)))}
+            <Pressable onPress={() => setSkills((all) => all.map((v, i) => i === si ? { ...v, licencesQualifications: v.licencesQualifications.filter((_, j) => j !== qi) } : v))}><Text style={st.error}>Remove qualification</Text></Pressable>
+          </View>)}
+          <Action label="Add licence or qualification" onPress={() => setSkills((all) => all.map((v, i) => i === si ? { ...v, licencesQualifications: [...v.licencesQualifications, { name: "", attachmentUrl: "" }] } : v))}/>
+          <Text style={st.sectionHeading}>Portfolio for this skill</Text>
+          {skill.portfolio.map((item, pi) => <View key={`p-${si}-${pi}`} style={st.card}>
+            {Field("Project / work title", item.title, (value) => setSkills((all) => all.map((v, i) => i === si ? { ...v, portfolio: v.portfolio.map((x, j) => j === pi ? { ...x, title: value } : x) } : v)))}
+            {Field("Description", item.description, (value) => setSkills((all) => all.map((v, i) => i === si ? { ...v, portfolio: v.portfolio.map((x, j) => j === pi ? { ...x, description: value } : x) } : v)), true)}
+            {Field("Links (comma-separated)", item.links.join(", "), (value) => setSkills((all) => all.map((v, i) => i === si ? { ...v, portfolio: v.portfolio.map((x, j) => j === pi ? { ...x, links: value.split(",").map((url) => url.trim()).filter(Boolean) } : x) } : v)))}
+            {Field("Image URLs (comma-separated)", item.imageUrls.join(", "), (value) => setSkills((all) => all.map((v, i) => i === si ? { ...v, portfolio: v.portfolio.map((x, j) => j === pi ? { ...x, imageUrls: value.split(",").map((url) => url.trim()).filter(Boolean) } : x) } : v)))}
+            <Pressable onPress={() => setSkills((all) => all.map((v, i) => i === si ? { ...v, portfolio: v.portfolio.filter((_, j) => j !== pi) } : v))}><Text style={st.error}>Remove portfolio item</Text></Pressable>
+          </View>)}
+          <Action label="Add portfolio item" onPress={() => setSkills((all) => all.map((v, i) => i === si ? { ...v, portfolio: [...v.portfolio, { title: "", description: "", links: [], imageUrls: [] }] } : v))}/>
+        </View>)}
+        <Action label="Add another skill" onPress={() => setSkills((all) => [...all, emptySkill()])}/>
         <Text style={st.status}>Section: {status("skills")}</Text>
-      </>}
-      {active === "Portfolio" && <>
-        <Text style={st.heading}>Portfolio</Text><Text style={st.help}>Add examples of previous work. At least one portfolio item is required to submit your Provider onboarding.</Text>
-        {Field("Project or work title", portfolioTitle, setPortfolioTitle)}{Field("Description", portfolioDescription, setPortfolioDescription, true)}
-        <Text style={st.status}>Section: {status("portfolio")}</Text>
       </>}
       {active === "Submit" && <>
         <Text style={st.heading}>Review and submit</Text><Text style={st.help}>Submitting saves the information currently available. It does not make your profile mandatory or grant identity-verified permissions. You can edit drafts later.</Text>
         <View style={st.card}>
           <Text style={st.status}>Profile: {status("profile")}</Text>
           <Text style={st.status}>Identity: {identityStatus.toLowerCase().includes("pending") || ["submitted", "in_review", "under_review"].includes(identityStatus.toLowerCase()) ? "Pending review" : identityStatus.replace(/_/g, " ")}</Text>
-          {isProvider ? <><Text style={st.status}>Skills: {status("skills")}</Text><Text style={st.status}>Portfolio: {status("portfolio")}</Text></> : null}
+          {isProvider ? <Text style={st.status}>Skills and portfolio: {status("skills")}</Text> : null}
         </View>
 
       </>}
