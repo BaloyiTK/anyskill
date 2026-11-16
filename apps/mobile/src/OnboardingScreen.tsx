@@ -447,6 +447,10 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       if (await save("portfolio")) setActive("Submit");
       return;
     }
+    if (isProvider && (!category.trim() || !portfolioTitle.trim())) {
+      setError("Complete at least one skill and one portfolio item before submitting Provider onboarding.");
+      return;
+    }
     if (await saveCurrent()) await submit();
   };
   const submit = async () => {
