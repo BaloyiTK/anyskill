@@ -435,15 +435,16 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       return;
     }
     if (active === "Verification") {
-      // Identity verification is independent of profile completion. Submit it
-      // when all required images are ready, but never block onboarding on review.
+      // Attempt submission when the documents are ready, but a verification
+      // service error must never trap the user in onboarding.
+      let identitySent = identitySubmitted;
       if (identityRequirementsComplete && !identitySubmitted) {
-        if (!await submitIdentityVerification()) return;
+        identitySent = await submitIdentityVerification();
       }
       setError("");
-      setMessage(identitySubmitted || identityRequirementsComplete
-        ? "Identity verification is submitted or ready for review. You can continue while it is pending."
-        : "You can complete identity verification separately. Continue with your profile setup.");
+      setMessage(identitySent
+        ? "Identity verification is submitted and may remain pending while you continue."
+        : "Identity verification can be completed separately. Continue with your profile setup.");
       setActive(isProvider ? "Skills" : "Submit");
       return;
     }
