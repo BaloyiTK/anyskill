@@ -51,12 +51,10 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // Provider Home owns availability, so it must also maintain the fresh GPS
-  // heartbeat required by on-site discovery. Previously this only ran inside
-  // MarketplaceScreen, meaning an online Provider on Home had no live location.
+  // Provider Home maintains the live map location for every online Provider.
+  // Discovery is not restricted by delivery mode or skill; matching is separate.
   useEffect(() => {
-    const supportsOnsite = profile?.deliveryModes.some((mode) => mode === "ONSITE" || mode === "EITHER") ?? false;
-    if (!profile?.isAvailable || !supportsOnsite) {
+    if (!profile?.isAvailable) {
       setLocationStatus("");
       return;
     }
@@ -66,7 +64,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
     const sendLocation = async (coords: Location.LocationObjectCoords) => {
       if (!active) return;
       if (coords.accuracy == null || coords.accuracy > 250) {
-        setLocationStatus("Waiting for a more accurate GPS signal for on-site matching.");
+        setLocationStatus("Waiting for a more accurate GPS signal to update your map location.");
         return;
       }
       try {
@@ -78,7 +76,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
             accuracyM: coords.accuracy,
           }),
         }, true);
-        if (active) setLocationStatus("Your live location is shared for on-site matching.");
+        if (active) setLocationStatus("Your live location is shared while you are online.");
       } catch (e) {
         if (active) setLocationStatus(e instanceof Error ? e.message : "Live location update failed.");
       }
@@ -86,10 +84,10 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
     void (async () => {
       try {
-        setLocationStatus("Requesting location permission for on-site matching...");
+        setLocationStatus("Requesting location permission to show you on the Provider map...");
         const permission = await Location.requestForegroundPermissionsAsync();
         if (!permission.granted) {
-          setLocationStatus("Location permission is disabled. Allow location access while using AnySkill to appear in on-site matches.");
+          setLocationStatus("Location permission is disabled. Allow location access while using AnySkill to appear on the Provider map.");
           return;
         }
         const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
@@ -108,7 +106,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
       active = false;
       subscription?.remove();
     };
-  }, [profile?.isAvailable, profile?.deliveryModes]);
+  }, [profile?.isAvailable]);
 
   const setAvailability = async (next: boolean) => {
     if (!profile || saving) return;
