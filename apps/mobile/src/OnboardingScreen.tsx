@@ -131,7 +131,12 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       setHomeLatitude(home?.homeLatitude == null ? "" : String(home.homeLatitude));
       setHomeLongitude(home?.homeLongitude == null ? "" : String(home.homeLongitude));
       const restored = Array.isArray(result.skills) ? result.skills.map((item: any) => ({ category: String(item?.category ?? ""), description: String(item?.description ?? ""), yearsOfExperience: String(item?.yearsOfExperience ?? ""), licencesQualifications: Array.isArray(item?.licencesQualifications) ? item.licencesQualifications.map((q: any) => ({ name: String(q?.name ?? ""), attachmentUrl: String(q?.attachmentUrl ?? q?.url ?? "") })) : Array.isArray(item?.supportingDocuments) ? item.supportingDocuments.map((q: any) => ({ name: String(q?.name ?? ""), attachmentUrl: String(q?.url ?? "") })) : [], portfolio: Array.isArray(item?.portfolio) ? item.portfolio.map((v: any) => ({ title: String(v?.title ?? ""), description: String(v?.description ?? ""), links: Array.isArray(v?.links) ? v.links.map(String) : [], imageUrls: Array.isArray(v?.imageUrls) ? v.imageUrls.map(String) : [] })) : [] })) : [];
-      if (!restored.length && result.portfolio?.length) restored.push({ ...emptySkill(), portfolio: result.portfolio.map((v: any) => ({ title: String(v?.title ?? ""), description: String(v?.description ?? ""), links: [], imageUrls: [] })) });
+      if (Array.isArray(result.portfolio) && result.portfolio.length) {
+        const legacyPortfolio = result.portfolio.map((v: any) => ({ title: String(v?.title ?? ""), description: String(v?.description ?? ""), links: [], imageUrls: [] }));
+        if (restored.length) {
+          if (!restored.some((item: SkillEntry) => item.portfolio.length)) restored[0] = { ...restored[0], portfolio: legacyPortfolio };
+        } else restored.push({ ...emptySkill(), portfolio: legacyPortfolio });
+      }
       setSkills(restored.length ? restored : [emptySkill()]);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load your saved profile."); }
     finally { setBusy(false); }
