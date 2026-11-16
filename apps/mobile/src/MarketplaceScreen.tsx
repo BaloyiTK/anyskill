@@ -444,8 +444,7 @@ export function MarketplaceScreen(p: Props) {
   }, [p.mode, p.pendingRequestId, requests]);
 
   useEffect(() => {
-    if (p.mode !== "provider" || !providerAvailable || !providerLiveTrackingEnabled ||
-        (!providerModes.split(",").map((v) => v.trim()).includes("ONSITE") && !providerModes.split(",").map((v) => v.trim()).includes("EITHER"))) return;
+    if (p.mode !== "provider" || !providerAvailable || !providerLiveTrackingEnabled) return;
     let active = true;
     let subscription: Location.LocationSubscription | null = null;
     const sendLocation = async (coords: Location.LocationObjectCoords) => {
@@ -462,7 +461,7 @@ export function MarketplaceScreen(p: Props) {
     void (async () => {
       try {
         const permission = await Location.requestForegroundPermissionsAsync();
-        if (!permission.granted) throw new Error("Location permission is needed for on-site matching. You remain unavailable for geographic matching until you allow it.");
+        if (!permission.granted) throw new Error("Location permission is needed to show your live location on the Provider map.");
         const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         await sendLocation(initial.coords);
         if (!active) return;
@@ -473,7 +472,7 @@ export function MarketplaceScreen(p: Props) {
       } catch (e) { if (active) setError(e instanceof Error ? e.message : "Could not start live location."); }
     })();
     return () => { active = false; subscription?.remove(); };
-  }, [p.mode, providerAvailable, providerLiveTrackingEnabled, providerModes]);
+  }, [p.mode, providerAvailable, providerLiveTrackingEnabled]);
 
   const saveProviderProfile = async () => {
     setSavingProfile(true); setError(""); setNotice("");
@@ -492,7 +491,7 @@ export function MarketplaceScreen(p: Props) {
         }),
       }, true);
       setProviderLiveTrackingEnabled(profile.isAvailable);
-      setNotice(profile.isAvailable ? "Provider profile saved. Live location will be shared while the app is in use if on-site matching is enabled." : "Provider profile saved. You are currently unavailable; live location sharing has stopped.");
+      setNotice(profile.isAvailable ? "Provider profile saved. Your live location will be shared while you are online and using the app." : "Provider profile saved. You are currently offline; live location sharing has stopped.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save Provider profile."); }
     finally { setSavingProfile(false); }
   };
