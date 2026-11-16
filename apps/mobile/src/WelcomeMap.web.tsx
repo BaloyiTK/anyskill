@@ -49,6 +49,7 @@ export default function WelcomeMap({
   const markerInstances = useRef<any[]>([]);
   const circleInstance = useRef<any>(null);
   const [mapError, setMapError] = useState("");
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -69,6 +70,7 @@ export default function WelcomeMap({
           clickableIcons: false,
           gestureHandling: "greedy",
         });
+        setMapReady(true);
       })
       .catch((error: unknown) => {
         if (active) setMapError(error instanceof Error ? error.message : "Google Maps could not be loaded.");
@@ -80,7 +82,7 @@ export default function WelcomeMap({
   useEffect(() => {
     const map = mapInstance.current;
     const google = window.google;
-    if (!map || !google?.maps) return;
+    if (!mapReady || !map || !google?.maps) return;
 
     map.setCenter({ lat: center.latitude, lng: center.longitude });
     map.setZoom(zoom);
@@ -117,7 +119,7 @@ export default function WelcomeMap({
       strokeWeight: 2,
       clickable: false,
     });
-  }, [center.latitude, center.longitude, zoom, radiusKm, markers, selectedMarkerId, onSelectMarker]);
+  }, [mapReady, center.latitude, center.longitude, zoom, radiusKm, markers, selectedMarkerId, onSelectMarker]);
 
   return <View style={StyleSheet.absoluteFill}>
     <div
