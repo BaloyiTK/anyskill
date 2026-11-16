@@ -137,7 +137,7 @@ export default function App() {
         ? [onboarding.profile.marketplaceRole]
         : [];
     const providerRequired = registeredRoles.includes("PROVIDER")
-      || (registeredRoles.length === 0 && (initialMode ?? account?.initialMode) === "PROVIDER");
+      || (initialMode ?? account?.initialMode) === "PROVIDER";
     const requiredSectionsComplete = Boolean(
       onboarding?.sections?.profile === true
       && (!providerRequired
@@ -826,6 +826,7 @@ export default function App() {
             <Primary label={busy ? "Please wait..." : "Retry profile check"} onPress={async () => {
               feedback(); setBusy(true);
               try { await loadAccount(); }
+              catch (e) { setError(e instanceof Error ? e.message : "Could not reload your account. Please try again."); }
               finally { setBusy(false); }
             }} disabled={busy} />
             <Secondary label="Sign out" onPress={() => { void logout(); }} />
@@ -1192,7 +1193,7 @@ export default function App() {
           <Text style={s.footer}>Connecting individuals and businesses through skills.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
-      {account && (screen === "dashboard" || screen === "marketplace" || screen === "onboarding") && <View style={s.bottomTabBar}>
+      {account && (screen === "dashboard" || screen === "marketplace") && <View style={s.bottomTabBar}>
         <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { void (async () => { await routeFromProfileStatus(account?.initialMode); feedback(); })(); }} />
         <BottomTab label="Activities" icon="▤" selected={activeTab === "activities"} onPress={() => { setActiveTab("activities"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
