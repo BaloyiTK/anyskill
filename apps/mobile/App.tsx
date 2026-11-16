@@ -122,6 +122,7 @@ export default function App() {
         skills?: unknown[];
         portfolio?: unknown[];
         sections?: { profile?: boolean; skills?: boolean; portfolio?: boolean };
+        submittedAt?: string | null;
       }>("/profile/onboarding", {}, true),
       apiRequest<IdentitySummary>("/identity-verification/status", {}, true),
     ]);
@@ -138,10 +139,13 @@ export default function App() {
         : [];
     const providerRequired = registeredRoles.includes("PROVIDER")
       || (initialMode ?? account?.initialMode) === "PROVIDER";
+    // A draft with all fields filled is still incomplete until the user
+    // explicitly submits it. Identity verification is intentionally separate.
     const requiredSectionsComplete = Boolean(
-      onboarding?.sections?.profile === true
+      onboarding?.submittedAt
+      && onboarding.sections?.profile === true
       && (!providerRequired
-        || (onboarding?.sections?.skills === true && onboarding?.sections?.portfolio === true)),
+        || (onboarding.sections?.skills === true && onboarding.sections?.portfolio === true)),
     );
 
     setProfileComplete(requiredSectionsComplete);
