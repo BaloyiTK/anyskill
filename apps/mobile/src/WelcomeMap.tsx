@@ -6,13 +6,12 @@ type ProviderMarker = {
   id: string;
   coordinates: Coordinate;
   title: string;
-  snippet: string;
 };
 
 type Props = {
   center: Coordinate;
   zoom: number;
-  radiusKm: number;
+  seekerLocation: Coordinate | null;
   markers: ProviderMarker[];
   selectedMarkerId: string | null;
   onSelectMarker: (id: string) => void;
@@ -26,34 +25,36 @@ type Props = {
 export default function WelcomeMap({
   center,
   zoom,
-  radiusKm,
+  seekerLocation,
   markers,
   selectedMarkerId,
   onSelectMarker,
 }: Props) {
   const cameraPosition = { coordinates: center, zoom };
-  const circles = [{
-    id: "search-radius",
-    center,
-    radius: radiusKm * 1000,
-    color: "rgba(0, 102, 204, 0.10)",
-    lineColor: "rgba(0, 102, 204, 0.65)",
-    lineWidth: 2,
-  }];
+  const seekerMarker = seekerLocation ? [{
+    id: "seeker-location",
+    coordinates: seekerLocation,
+    title: "Your location",
+  }] : [];
 
   if (Platform.OS === "android") {
     return (
       <GoogleMaps.View
         style={StyleSheet.absoluteFill}
         cameraPosition={cameraPosition}
-        circles={circles}
-        markers={markers.map((marker) => ({
-          id: marker.id,
-          coordinates: marker.coordinates,
-          title: marker.title,
-          snippet: marker.snippet,
-          showCallout: marker.id === selectedMarkerId,
-        }))}
+        markers={[
+          ...markers.map((marker) => ({
+            id: marker.id,
+            coordinates: marker.coordinates,
+            title: marker.title,
+            showCallout: marker.id === selectedMarkerId,
+          })),
+          ...seekerMarker.map((marker) => ({
+            id: marker.id,
+            coordinates: marker.coordinates,
+            title: marker.title,
+          })),
+        ]}
         onMarkerClick={(marker) => {
           if (marker.id) onSelectMarker(marker.id);
         }}
@@ -66,13 +67,18 @@ export default function WelcomeMap({
       <AppleMaps.View
         style={StyleSheet.absoluteFill}
         cameraPosition={cameraPosition}
-        circles={circles}
-        annotations={markers.map((marker) => ({
-          id: marker.id,
-          coordinates: marker.coordinates,
-          title: marker.title,
-          text: marker.snippet,
-        }))}
+        annotations={[
+          ...markers.map((marker) => ({
+            id: marker.id,
+            coordinates: marker.coordinates,
+            title: marker.title,
+          })),
+          ...seekerMarker.map((marker) => ({
+            id: marker.id,
+            coordinates: marker.coordinates,
+            title: marker.title,
+          })),
+        ]}
       />
     );
   }
@@ -112,6 +118,21 @@ export default function WelcomeMap({
         {tiles.map((tile) => (
           <Image key={tile.key} source={{ uri: tile.uri }} style={[styles.webTile, { left: tile.left, top: tile.top }]} />
         ))}
+        {seekerLocation ? (() => {
+          const point = toWorld(seekerLocation);
+          const left = 384 + point.x - centerWorld.x;
+          const top = 384 + point.y - centerWorld.y;
+          if (left < 0 || left > 768 || top < 0 || top > 768) return null;
+          return (
+            <View
+              key="seeker-location"
+              accessibilityLabel="Your location"
+              style={[styles.seekerMarker, { left: left - 12, top: top - 27 }]}
+            >
+              <Text style={styles.seekerMarkerText}>⌖</Text>
+            </View>
+          );
+        })() : null}
         {markers.map((marker) => {
           const point = toWorld(marker.coordinates);
           const left = 384 + point.x - centerWorld.x;
@@ -126,7 +147,7 @@ export default function WelcomeMap({
               onPress={() => onSelectMarker(marker.id)}
               style={[styles.webMarker, { left: left - 11, top: top - 25 }, selected && styles.webMarkerSelected]}
             >
-              <Text style={styles.webMarkerText}>●</Text>
+              <Text style={styles.webMarkerText}>📍</Text>
             </Pressable>
           );
         })}
@@ -173,8 +194,27 @@ const styles = StyleSheet.create({
   },
   webMarkerText: {
     color: "#FFFFFF",
-    fontSize: 10,
-    lineHeight: 13,
+    fontSize: 13,
+    lineHeight: 17,
+  },
+  seekerMarker: {
+    position: "absolute",
+    width: 27,
+    height: 27,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 3,
+    borderColor: "#0066CC",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 3,
+    elevation: 5,
+  },
+  seekerMarkerText: {
+    color: "#0066CC",
+    fontSize: 18,
+    fontWeight: "900",
+    lineHeight: 20,
   },
   mapAttribution: {
     position: "absolute",
