@@ -9,11 +9,12 @@ import { MarketplaceController, PublicProviderDiscoveryController } from "./mark
 import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
+import { LiveProviderMapService } from "./live-provider-map.service";
 
 @Module({
   imports: [DatabaseModule, IdentityModule, MarketplaceRolesModule, PassportModule],
   controllers: [MarketplaceController, PublicProviderDiscoveryController],
-  providers: [MarketplaceService, MediaService, GooglePlacesService, JwtAuthGuard, MarketplaceRoleGuard],
-  exports: [MediaService],
+  providers: [MarketplaceService, MediaService, GooglePlacesService, LiveProviderMapService, JwtAuthGuard, MarketplaceRoleGuard],
+  exports: [MediaService, MarketplaceService, LiveProviderMapService],
 })
 export class MarketplaceModule {}
