@@ -64,7 +64,9 @@ export class OnboardingService {
     );
     const sections = {
       profile: Boolean(p.accountType && hasRole && (p.accountType === "BUSINESS" ? businessComplete : individualComplete)),
-      skills: skills.some((s) => typeof s?.category === "string" && s.category.trim() && typeof s?.description === "string" && s.description.trim()),
+      // One valid skill category satisfies the agreed minimum. A description
+      // is useful detail, but it is not a separate completion requirement.
+      skills: skills.some((s) => typeof s?.category === "string" && s.category.trim()),
       portfolio: portfolio.some((item) => typeof item?.title === "string" && item.title.trim()),
     };
     const completed = Object.values(sections).filter(Boolean).length;
@@ -94,10 +96,33 @@ export class OnboardingService {
   }
 
   async submit(userId: string) {
-    const draft = await this.prisma.onboardingDraft.upsert({
-      where: { userId }, create: { userId, profile: {}, skills: [], portfolio: [], submittedAt: new Date() },
-      update: { submittedAt: new Date() },
+    const [onboarding, user] = await Promise.all([
+      this.get(userId),
+      this.prisma.user.findUnique({ where: { id: userId }, select: { initialMode: true } }),
+    ]);
+    const roles = Array.isArray(onboarding.profile?.marketplaceRoles)
+      ? onboarding.profile.marketplaceRoles
+      : onboarding.profile?.marketplaceRole ? [onboarding.profile.marketplaceRole] : [];
+    const providerRequired = user?.initialMode === "PROVIDER" || roles.includes("PROVIDER");
+    const missingSections = [
+      ...(!onboarding.sections.profile ? ["Profile"] : []),
+      ...(providerRequired && !onboarding.sections.skills ? ["Skills"] : []),
+      ...(providerRequired && !onboarding.sections.portfolio ? ["Portfolio"] : []),
+    ];
+    if (missingSections.length) {
+      throw new BadRequestException(
+        `Profile not complete yet. Complete the following section${missingSections.length > 1 ? "s" : ""}: ${missingSections.join(", ")}.`,
+      );
+    }
+
+    // Never create or mark an empty/incomplete draft as submitted.
+    const draft = await this.prisma.onboardingDraft.update({
+      where: { userId },
+      data: { submittedAt: new Date() },
     });
-    return { submittedAt: draft.submittedAt, message: "Your available onboarding information has been saved. You can continue editing incomplete sections later." };
+    return {
+      submittedAt: draft.submittedAt,
+      message: "Your profile has been submitted successfully.",
+    };
   }
 }
