@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import WelcomeMap from "./WelcomeMap";
 import * as Location from "expo-location";
 import * as Crypto from "expo-crypto";
@@ -100,7 +100,9 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
         setLocationError("Location permission is needed to find available Providers near you.");
         return;
       }
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Platform.OS === "web" ? Location.Accuracy.High : Location.Accuracy.Balanced,
+      });
       const next = { latitude: position.coords.latitude, longitude: position.coords.longitude };
       setCoordinates(next);
       setAreaLabel("Your current area");
