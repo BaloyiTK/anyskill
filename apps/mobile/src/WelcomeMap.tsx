@@ -123,6 +123,7 @@ export default function WelcomeMap({
       y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * worldSize,
     };
   };
+  const webRadiusPixels = radiusKm * 1000 / (156543.03392 * Math.max(0.01, Math.cos((center.latitude * Math.PI) / 180)) / (2 ** tileZoom));
   const centerWorld = toWorld(center);
   const centerTileX = Math.floor(centerWorld.x / 256);
   const centerTileY = Math.floor(centerWorld.y / 256);
@@ -143,10 +144,10 @@ export default function WelcomeMap({
   return (
     <View style={[StyleSheet.absoluteFill, styles.webMap]} accessibilityLabel="Provider locations map" onLayout={(event) => setMapSize(event.nativeEvent.layout)}>
       <View style={styles.webTileCanvas}>
-        {radiusCircle ? <View pointerEvents="none" style={[styles.radiusCircle, { width: circleDiameter, height: circleDiameter, borderRadius: radiusPixels, left: 384 - radiusPixels, top: 384 - radiusPixels }]} /> : null}
         {tiles.map((tile) => (
           <Image key={tile.key} source={{ uri: tile.uri }} style={[styles.webTile, { left: tile.left, top: tile.top }]} />
         ))}
+        <View pointerEvents="none" style={[styles.radiusCircle, { width: webRadiusPixels * 2, height: webRadiusPixels * 2, borderRadius: webRadiusPixels, left: 384 - webRadiusPixels, top: 384 - webRadiusPixels }]} />
         {seekerLocation ? (() => {
           const point = toWorld(seekerLocation);
           const left = 384 + point.x - centerWorld.x;
