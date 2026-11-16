@@ -61,7 +61,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
   const [providerError, setProviderError] = useState("");
 
   const mapCenter = coordinates ?? DEFAULT_CENTER;
-  const mapZoom = Math.max(5, Math.min(14, 12 - Math.log2(radiusKm / 10)));
+  const mapZoom = Math.max(5, Math.min(14, 11 - Math.log2(radiusKm / 10)));
 
   useEffect(() => {
     if (!coordinates) return;
