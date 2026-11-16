@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Post, UseGuards } from "@nestjs/common";
-import { IsEmail, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import { IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
 import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
 import { CurrentUser, AuthenticatedUser } from "./current-user.decorator";
@@ -17,6 +17,10 @@ class GoogleIdTokenDto {
   @MinLength(100)
   @MaxLength(8192)
   idToken!: string;
+
+  @IsOptional()
+  @IsIn(["SEEKER", "PROVIDER"])
+  mode?: "SEEKER" | "PROVIDER";
 }
 
 class GoogleAuthorizationCodeDto {
@@ -34,6 +38,10 @@ class GoogleAuthorizationCodeDto {
   @MinLength(8)
   @MaxLength(2048)
   redirectUri!: string;
+
+  @IsOptional()
+  @IsIn(["SEEKER", "PROVIDER"])
+  mode?: "SEEKER" | "PROVIDER";
 }
 
 class RefreshDto {
@@ -87,13 +95,13 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("google")
   googleSignIn(@Body() dto: GoogleIdTokenDto) {
-    return this.auth.googleSignIn(dto.idToken);
+    return this.auth.googleSignIn(dto.idToken, dto.mode);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("google/exchange")
   googleSignInWithAuthorizationCode(@Body() dto: GoogleAuthorizationCodeDto) {
-    return this.auth.googleSignInWithAuthorizationCode(dto.code, dto.codeVerifier, dto.redirectUri);
+    return this.auth.googleSignInWithAuthorizationCode(dto.code, dto.codeVerifier, dto.redirectUri, dto.mode);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
