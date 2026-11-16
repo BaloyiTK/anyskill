@@ -18,11 +18,14 @@ type Payload = {
   sections: { profile: boolean; skills: boolean; portfolio: boolean };
 };
 
-const tabs: Section[] = ["Profile", "Verification", "Skills", "Portfolio", "Submit"];
 const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, sections: { profile: false, skills: false, portfolio: false } };
 const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#4CAF50", forest: "#1B5E20", border: "#DCE5EF", surface: "#FFFFFF", bg: "#F6F8FA", hero: "#0B2545", soft: "#EAF3FF" };
 
-export function OnboardingScreen(p: { identityStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
+export function OnboardingScreen(p: { identityStatus: string; initialMode: MarketplaceRole; seekerRoleStatus: string; providerRoleStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
+  const isProvider = p.initialMode === "PROVIDER" || ["ACTIVE", "PENDING", "PENDING_REVIEW", "APPROVED"].includes(p.providerRoleStatus.toUpperCase());
+  const tabs: Section[] = isProvider
+    ? ["Profile", "Verification", "Skills", "Portfolio", "Submit"]
+    : ["Profile", "Verification", "Submit"];
   const [active, setActive] = useState<Section>("Profile");
   const scrollViewRef = useRef<ComponentRef<typeof ScrollView>>(null);
   useEffect(() => {
@@ -32,7 +35,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
   const [onboardingSubmitted, setOnboardingSubmitted] = useState(false);
   const [data, setData] = useState<Payload>(empty);
   const [accountType, setAccountType] = useState<AccountType | "">("");
-  const [marketplaceRoles, setMarketplaceRoles] = useState<MarketplaceRole[]>([]);
+  const [alsoSeeker, setAlsoSeeker] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -108,9 +111,10 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       setData(result);
       const profile = result.profile ?? {};
       setAccountType(profile.accountType === "INDIVIDUAL" || profile.accountType === "BUSINESS" ? profile.accountType : "");
-      setMarketplaceRoles(Array.isArray(profile.marketplaceRoles)
+      const savedRoles = Array.isArray(profile.marketplaceRoles)
         ? profile.marketplaceRoles.filter((role: unknown): role is MarketplaceRole => role === "SEEKER" || role === "PROVIDER")
-        : profile.marketplaceRole === "SEEKER" || profile.marketplaceRole === "PROVIDER" ? [profile.marketplaceRole] : []);
+        : profile.marketplaceRole === "SEEKER" || profile.marketplaceRole === "PROVIDER" ? [profile.marketplaceRole] : [p.initialMode];
+      setAlsoSeeker(isProvider && (savedRoles.includes("SEEKER") || p.seekerRoleStatus.toUpperCase() === "ACTIVE"));
       setFirstName(profile.firstName ?? ""); setLastName(profile.lastName ?? ""); setPhone(profile.phone ?? "");
       setPhoneDialCode(profile.phoneDialCode ?? "+27");
       setCountry(profile.country ?? "South Africa"); setCountryCode(profile.countryCode ?? "ZA"); setProvince(profile.province ?? ""); setCity(profile.city ?? "");
@@ -174,7 +178,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     setBusy(true); setError(""); setMessage("");
     try {
       const body = section === "profile" ? { profile: {
-        accountType, marketplaceRoles, firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address, houseNumber,
+        accountType, marketplaceRoles: isProvider ? ["PROVIDER", ...(alsoSeeker ? ["SEEKER" as const] : [])] : ["SEEKER"], firstName, lastName, phone, phoneDialCode, country, countryCode, province, city, suburb, address, houseNumber,
         businessName, businessRegistrationNumber, businessType, businessEmail, businessPhone, businessCountry, businessProvince, businessCity, businessAddress,
         contactFirstName, contactLastName, contactJobTitle, contactEmail, contactPhone,
       } }
@@ -408,14 +412,15 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     if (active === "Skills") return save("skills");
     if (active === "Portfolio") return save("portfolio");
     if (active === "Verification") { setMessage("Your ID images and live selfie are saved securely as you upload them. Tap Save & Continue to submit them for review."); return true; }
-    if (!await save("profile") || !await save("skills")) return false;
+    if (!await save("profile")) return false;
+    if (!isProvider) return true;
+    if (!await save("skills")) return false;
     return save("portfolio");
   };
 
   const continueCurrent = async () => {
     if (active === "Profile") {
       if (!accountType) { setError("Choose Individual or Business before continuing."); return; }
-      if (marketplaceRoles.length === 0) { setError("Select Skill Seeker, Skill Provider, or both before continuing."); return; }
       if (await save("profile")) setActive("Verification");
       return;
     }
@@ -429,11 +434,19 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
       if (!identitySubmitted && !await submitIdentityVerification()) return;
       setError("");
       setMessage("Identity verification submitted for review.");
-      setActive("Skills");
+      setActive(isProvider ? "Skills" : "Submit");
       return;
     }
-    if (active === "Skills") { if (await save("skills")) setActive("Portfolio"); return; }
-    if (active === "Portfolio") { if (await save("portfolio")) setActive("Submit"); return; }
+    if (active === "Skills") {
+      if (!category.trim()) { setError("Add at least one skill before continuing."); return; }
+      if (await save("skills")) setActive("Portfolio");
+      return;
+    }
+    if (active === "Portfolio") {
+      if (!portfolioTitle.trim()) { setError("Add at least one portfolio item before continuing."); return; }
+      if (await save("portfolio")) setActive("Submit");
+      return;
+    }
     if (await saveCurrent()) await submit();
   };
   const submit = async () => {
@@ -453,13 +466,11 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     ? idFrontReady && idBackReady && selfieReady
     : bookPage1Ready && selfieReady;
   const verificationComplete = identitySubmitted && identityRequirementsComplete;
-  const completedSectionCount = [
-    Boolean(data.sections?.profile),
-    verificationComplete,
-    Boolean(data.sections?.skills),
-    Boolean(data.sections?.portfolio),
-  ].filter(Boolean).length;
-  const completionPercentage = Math.round((completedSectionCount / 4) * 100);
+  const completionStates = isProvider
+    ? [Boolean(data.sections?.profile), verificationComplete, Boolean(data.sections?.skills), Boolean(data.sections?.portfolio), onboardingSubmitted]
+    : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
+  const completedSectionCount = [Boolean(data.sections?.profile), verificationComplete, ...(isProvider ? [Boolean(data.sections?.skills), Boolean(data.sections?.portfolio)] : [])].filter(Boolean).length;
+  const completionPercentage = Math.round((completedSectionCount / (isProvider ? 4 : 2)) * 100);
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Draft / not complete";
   const Field = (label: string, value: string, change: (v: string) => void, multiline = false) => (
     <View style={st.field} key={label}><Text style={st.label}>{label}</Text><TextInput value={value} onChangeText={change} multiline={multiline} placeholder={label} placeholderTextColor="#93A099" style={[st.input, multiline && st.multiline]} /></View>
@@ -475,26 +486,15 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
     </View>
     <View style={st.progressWrap}>
       <View style={st.progressMeta}>
-        <View><Text style={st.stepCount}>Step {tabs.indexOf(active) + 1} of 5</Text><Text style={st.percent}>Profile, Skills & Portfolio</Text></View>
+        <View><Text style={st.stepCount}>Step {tabs.indexOf(active) + 1} of {tabs.length}</Text><Text style={st.percent}>{isProvider ? "Profile, Skills & Portfolio" : "Seeker Profile Setup"}</Text></View>
         <Text style={st.percentStrong}>{completionPercentage}% complete</Text>
       </View>
       <View style={st.track}><View style={[st.fill, { width: `${completionPercentage}%` }]} /></View>
       <View style={st.tabs}>
         {tabs.map((tab, index) => {
-          const completed = [
-            Boolean(data.sections?.profile),
-            verificationComplete,
-            Boolean(data.sections?.skills),
-            Boolean(data.sections?.portfolio),
-            onboardingSubmitted,
-          ][index];
+          const completed = completionStates[index];
           const isActive = active === tab;
-          const leftConnected = index > 0 && [
-            Boolean(data.sections?.profile),
-            verificationComplete,
-            Boolean(data.sections?.skills),
-            Boolean(data.sections?.portfolio),
-          ][index - 1];
+          const leftConnected = index > 0 && completionStates[index - 1];
           return <Pressable key={tab} onPress={() => setActive(tab)} accessibilityRole="button" accessibilityState={{ selected: isActive }} style={st.tab}>
             <View style={st.stepRow}>
               <View style={[st.connector, index === 0 && st.connectorHidden, leftConnected && st.connectorDone]} />
@@ -517,13 +517,10 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
           <Choice label="Individual" description="A personal profile" selected={accountType === "INDIVIDUAL"} onPress={() => setAccountType("INDIVIDUAL")} />
           <Choice label="Business" description="A company or organisation" selected={accountType === "BUSINESS"} onPress={() => setAccountType("BUSINESS")} />
         </View>
-        <Text style={st.label}>How will you use AnySkill?</Text>
-        <Text style={st.help}>Select one or both. You can change this later.</Text>
-        <View style={st.choiceRow}>
-          <RoleChoice label="Skill Seeker" description="Find and hire service providers." selected={marketplaceRoles.includes("SEEKER")} onPress={() => setMarketplaceRoles((current) => current.includes("SEEKER") ? current.filter((role) => role !== "SEEKER") : [...current, "SEEKER"])} />
-          <RoleChoice label="Skill Provider" description="Offer your skills and services." selected={marketplaceRoles.includes("PROVIDER")} onPress={() => setMarketplaceRoles((current) => current.includes("PROVIDER") ? current.filter((role) => role !== "PROVIDER") : [...current, "PROVIDER"])} />
-        </View>
-        <Text style={st.roleHelp}>{marketplaceRoles.length === 0 ? "Select at least one role to continue." : "Selected: " + marketplaceRoles.map((role) => role === "SEEKER" ? "Skill Seeker" : "Skill Provider").join(" + ")}</Text>
+        {isProvider ? <>
+          <Text style={st.label}>Additional marketplace role</Text>
+          <RoleChoice label="I also want to register as a Skill Seeker" description="Use the same account to request services from other providers." selected={alsoSeeker} onPress={() => setAlsoSeeker((current) => !current)} />
+        </> : null}
         {accountType === "BUSINESS" ? <>
           <Text style={st.sectionHeading}>Business information</Text>
           {Field("Business name", businessName, setBusinessName)}
@@ -668,7 +665,7 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         <Text style={st.help}>Your images are stored privately and reviewed by an administrator. Uploading alone does not verify your identity; tap Save & Continue below to submit them for review.</Text>
       </>}
       {active === "Skills" && <>
-        <Text style={st.heading}>Skills and experience</Text><Text style={st.help}>Add each skill and attach its supporting documents to that skill. You can skip this section and complete it later.</Text>
+        <Text style={st.heading}>Skills and experience</Text><Text style={st.help}>Add the skills and services you offer. At least one skill is required to submit your Provider onboarding.</Text>
         {Field("Skill category", category, setCategory)}{Field("Experience and service description", description, setDescription, true)}
         {Field("Supporting document name", documentName, setDocumentName)}{Field("Supporting document URL (temporary)", documentUrl, setDocumentUrl)}
         <Text style={st.help}>Document upload to AnySkill-managed cloud storage will be connected separately; this field currently records a document reference only.</Text>
@@ -676,13 +673,17 @@ export function OnboardingScreen(p: { identityStatus: string; onBack: () => void
         <Text style={st.status}>Section: {status("skills")}</Text>
       </>}
       {active === "Portfolio" && <>
-        <Text style={st.heading}>Portfolio</Text><Text style={st.help}>Add examples of previous work. This section is optional and can be completed later.</Text>
+        <Text style={st.heading}>Portfolio</Text><Text style={st.help}>Add examples of previous work. At least one portfolio item is required to submit your Provider onboarding.</Text>
         {Field("Project or work title", portfolioTitle, setPortfolioTitle)}{Field("Description", portfolioDescription, setPortfolioDescription, true)}
         <Text style={st.status}>Section: {status("portfolio")}</Text>
       </>}
       {active === "Submit" && <>
         <Text style={st.heading}>Review and submit</Text><Text style={st.help}>Submitting saves the information currently available. It does not make your profile mandatory or grant identity-verified permissions. You can edit drafts later.</Text>
-        <View style={st.card}><Text style={st.status}>Profile: {status("profile")}</Text><Text style={st.status}>Skills: {status("skills")}</Text><Text style={st.status}>Portfolio: {status("portfolio")}</Text><Text style={st.status}>Identity: {identityStatus.replace(/_/g, " ")}</Text></View>
+        <View style={st.card}>
+          <Text style={st.status}>Profile: {status("profile")}</Text>
+          <Text style={st.status}>Identity: {identityStatus.replace(/_/g, " ")}</Text>
+          {isProvider ? <><Text style={st.status}>Skills: {status("skills")}</Text><Text style={st.status}>Portfolio: {status("portfolio")}</Text></> : null}
+        </View>
 
       </>}
       {!!message && <Text style={st.success}>{message}</Text>}
