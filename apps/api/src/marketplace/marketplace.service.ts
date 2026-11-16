@@ -304,7 +304,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     };
     const items = requests.slice(0, 20).map(({ providerResponses, seeker, ...request }) => {
-      const profile = seeker.onboardingDraft?.profile;
+      const profile = seeker?.onboardingDraft?.profile;
       const seekerProfile = profile && typeof profile === "object" && !Array.isArray(profile)
         ? profile as Record<string, unknown>
         : {};
@@ -320,7 +320,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           firstName,
           lastName,
           profilePhotoUrl: photo || null,
-          identityVerified: seeker.identityVerification === "VERIFIED",
+          identityVerified: seeker?.identityVerification === "VERIFIED",
         },
         providerLocation,
         distanceKm,
@@ -374,7 +374,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { id: responseId, requestId, status: "OFFERED" },
         select: { id: true, providerId: true },
       });
-      if (!offer) throw new NotFoundException("This Provider offer is no longer available.");
+      if (!offer || !offer.providerId) throw new NotFoundException("This Provider offer is no longer available.");
 
       // Conditional update is the final concurrency guard: only one selection can close an open request.
       const claimed = await tx.serviceRequest.updateMany({
@@ -426,7 +426,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
-      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit completion.");
+      if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit completion.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("The job must be in progress before completion can be submitted.");
       if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Resume the work timer before submitting completion.");
       const completionTime = new Date();
@@ -471,7 +471,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
-      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can review completion.");
+      if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can review completion.");
       if (job.status !== "COMPLETION_PENDING") throw new ConflictException("There is no completion awaiting your review.");
       const submission = await tx.jobCompletionSubmission.findFirst({ where: { id: submissionId, engagementId: job.id, status: "PENDING" } });
       if (!submission) throw new NotFoundException("Pending completion submission not found.");
@@ -507,7 +507,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
-      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit this estimate.");
+      if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit this estimate.");
       if (!["ASSESSMENT_PENDING", "ESTIMATE_REJECTED"].includes(job.status)) throw new ConflictException("An estimate cannot be submitted at this stage.");
       const hours = new Prisma.Decimal(input.estimatedHours);
       const total = hours.mul(job.hourlyRate).toDecimalPlaces(2);
@@ -521,7 +521,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Job estimate not found.");
-      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide this estimate.");
+      if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide this estimate.");
       if (job.status !== "ESTIMATE_SUBMITTED") throw new ConflictException("There is no estimate awaiting your decision.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the estimate.");
       const updated = await tx.jobEngagement.update({ where: { id: job.id }, data: { status: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", estimateDecisionNote: input.note?.trim() || null, estimateDecidedAt: new Date() } });
@@ -534,7 +534,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
-      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
+      if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
       if (job.status !== "ESTIMATE_APPROVED") throw new ConflictException("The Seeker must approve the estimate before work can start.");
       const now = new Date();
       const claimed = await tx.jobEngagement.updateMany({
@@ -593,7 +593,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
-      if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
+      if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("Extra hours can only be requested while work is in progress.");
       if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Additional hours can only be requested while the work timer is running.");
       // Claim the active timer state before creating the request so a concurrent break cannot
@@ -617,7 +617,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
-      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide additional hours.");
+      if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide additional hours.");
       const adjustment = await tx.jobCostAdjustment.findFirst({ where: { id: adjustmentId, engagementId: job.id, status: "PENDING" } });
       if (!adjustment) throw new NotFoundException("Pending additional-hours request not found.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the additional hours.");
@@ -651,6 +651,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           select: { id: true, seekerId: true, status: true },
         });
         if (!request) throw new NotFoundException("This service request could not be found.");
+        if (!request.seekerId) throw new ConflictException("This request is no longer available.");
         if (request.seekerId === providerId) throw new ForbiddenException("You cannot respond to your own service request.");
         if (request.status !== "OPEN") throw new ConflictException("This service request is no longer available.");
 
@@ -759,7 +760,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { id: requestId },
       select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, deliveryMode: true, status: true },
     });
-    if (!request || request.status !== "OPEN") return { notified: 0, wave };
+    if (!request || request.status !== "OPEN" || !request.seekerId) return { notified: 0, wave };
 
     const ranked = await this.rankedProviders(request);
     const alreadyMatched = await this.prisma.requestMatch.findMany({
