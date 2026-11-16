@@ -153,23 +153,33 @@ export default function App() {
     return requiredSectionsComplete;
   };
 
-  const routeFromProfileStatus = async (initialMode?: string) => {
-    // Do not show the dashboard until the server has confirmed whether the
-    // authenticated user's profile has been submitted and is complete.
+  const routeAfterAuthentication = async (initialMode?: string) => {
+    // Every authenticated Seeker and Provider starts in onboarding. Profile
+    // completion is still refreshed here, but it never controls Home access.
     setScreen("profile-check");
     setError("");
     try {
-      const complete = await refreshHomeEligibility(initialMode);
-      setActiveTab("home");
-      setScreen(complete ? "dashboard" : "onboarding");
-      return complete;
+      await refreshHomeEligibility(initialMode);
     } catch (e) {
-      // If the profile check fails, keep the user on the retry screen rather
-      // than incorrectly treating the profile as complete or incomplete.
+      // A profile-status outage must not prevent an authenticated user from
+      // entering onboarding or navigating to Home.
       setProfileComplete(false);
-      setError(e instanceof Error ? e.message : "We could not refresh your profile status. Please try again.");
-      setScreen("profile-check");
-      return false;
+      console.warn("[AnySkill profile] Could not refresh completion status.", e);
+    }
+    setActiveTab("home");
+    setScreen("onboarding");
+  };
+
+  const navigateHome = async () => {
+    feedback();
+    setActiveTab("home");
+    setScreen("dashboard");
+    try {
+      await refreshHomeEligibility(account?.initialMode);
+    } catch (e) {
+      // Home remains available even if the profile-status endpoint is down.
+      setProfileComplete(false);
+      setError(e instanceof Error ? e.message : "Could not refresh profile status.");
     }
   };
 
@@ -204,8 +214,8 @@ export default function App() {
     setIdentity(null);
     setProfileComplete(false);
 
-    // The same server-backed routing decision is used after every sign-in.
-    await routeFromProfileStatus(me.initialMode);
+    // Both Seeker and Provider accounts start in onboarding after authentication.
+    await routeAfterAuthentication(me.initialMode);
   };
 
   const verifyEmailFromLink = async (url: string) => {
@@ -1024,10 +1034,10 @@ export default function App() {
             identityStatus={identityStatus}
             initialMode={account.initialMode}
             seekerRoleStatus={account.seekerRoleStatus}
-            onBack={() => { void routeFromProfileStatus(account.initialMode); }}
+            onBack={() => { void navigateHome(); }}
             onStartVerification={() => { void startIdentityVerification(); }}
             onIdentityUpdated={refreshHomeEligibility}
-            onComplete={async () => { await routeFromProfileStatus(account.initialMode); feedback(); }}
+            onComplete={async () => { await navigateHome(); }}
           />}
 
           {screen === "marketplace" && account && <MarketplaceScreen
@@ -1207,7 +1217,7 @@ export default function App() {
         </ScrollView>
       </KeyboardAvoidingView>
       {account && <View style={s.bottomTabBar}>
-        <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { void (async () => { await routeFromProfileStatus(account?.initialMode); feedback(); })(); }} />
+        <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { void navigateHome(); }} />
         <BottomTab label="Activities" icon="▤" selected={activeTab === "activities"} onPress={() => { setActiveTab("activities"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Account" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }} />
