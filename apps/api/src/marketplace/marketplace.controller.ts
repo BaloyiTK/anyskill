@@ -250,13 +250,15 @@ export class PublicProviderDiscoveryController {
   discoverProviders(
     @Query("latitude") latitudeValue: string,
     @Query("longitude") longitudeValue: string,
+    @Query("radiusKm") radiusValue: string,
   ) {
     const latitude = Number(latitudeValue);
     const longitude = Number(longitudeValue);
-    if (!latitudeValue || !longitudeValue ||
-        !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      throw new BadRequestException("Latitude and longitude are required.");
+    const radiusKm = Number(radiusValue);
+    if (!latitudeValue || !longitudeValue || !radiusValue ||
+        !Number.isFinite(latitude) || !Number.isFinite(longitude) || !Number.isFinite(radiusKm)) {
+      throw new BadRequestException("Latitude, longitude and radiusKm are required.");
     }
-    return this.marketplace.discoverNearbyProviders(latitude, longitude);
+    return this.marketplace.discoverNearbyProviders(latitude, longitude, radiusKm);
   }
 }
