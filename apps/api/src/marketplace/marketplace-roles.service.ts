@@ -328,7 +328,7 @@ export class MarketplaceRolesService {
         select: { id: true, status: true },
       });
       const identityCaseAwaitingDecision = latestIdentityCase
-        && [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW, VerificationCaseStatus.NEEDS_INFORMATION].includes(latestIdentityCase.status);
+        && new Set<VerificationCaseStatus>([VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW, VerificationCaseStatus.NEEDS_INFORMATION]).has(latestIdentityCase.status);
 
       if (decision === "APPROVED" && application.user.identityVerification !== IdentityVerificationStatus.VERIFIED && !identityCaseAwaitingDecision) {
         throw new ConflictException("Identity documents must be submitted and reviewed as part of Provider onboarding before approval.");
