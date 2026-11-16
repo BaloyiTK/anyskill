@@ -273,6 +273,41 @@ export default function App() {
     void loadNotifications();
   }, [account?.id, activeTab]);
 
+  // Provider approvals can be completed by an administrator while the app is
+  // already open. Refresh role and identity state on the Home tab so a Provider
+  // account moves into its Provider dashboard without requiring sign-out.
+  useEffect(() => {
+    if (!account || account.initialMode !== "PROVIDER" || screen !== "dashboard" || activeTab !== "home") return;
+    let cancelled = false;
+    const syncProviderApproval = async () => {
+      try {
+        const [roles, identityStatus] = await Promise.all([
+          apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true),
+          apiRequest<IdentitySummary>("/identity-verification/status", {}, true),
+        ]);
+        if (cancelled) return;
+        setRoleSummary(roles);
+        setIdentity(identityStatus);
+        const currentIdentityStatus = (identityStatus.latestCase?.status ?? identityStatus.status).toLowerCase();
+        if (roles.providerStatus === "ACTIVE" && currentIdentityStatus === "verified") {
+          setMode("provider");
+          if (roles.activeMode !== "PROVIDER") {
+            const updatedRoles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
+              method: "PATCH",
+              body: JSON.stringify({ mode: "PROVIDER" }),
+            }, true);
+            if (!cancelled) setRoleSummary(updatedRoles);
+          }
+        }
+      } catch {
+        // Keep the last known Home state if a background refresh temporarily fails.
+      }
+    };
+    void syncProviderApproval();
+    const interval = setInterval(() => { void syncProviderApproval(); }, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [account?.id, account?.initialMode, screen, activeTab]);
+
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(() => {
       setActiveTab("notifications");
