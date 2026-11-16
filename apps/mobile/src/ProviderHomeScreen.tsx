@@ -69,8 +69,9 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
       }, true);
       setProfile(updated);
     } catch (e) {
+      // Keep the API error visible. Calling refresh() here clears the error
+      // immediately and makes a failed availability update look like no action.
       setError(e instanceof Error ? e.message : "Could not update your availability.");
-      await refresh();
     } finally {
       setSaving(false);
     }
@@ -101,16 +102,20 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
               : "Go online when you're ready. Seekers can then find your eligible skills and send you service requests."}
           </Text>
         </View>
-        {loading ? <ActivityIndicator color={C.primary} /> : profile ? (
+        {loading ? <ActivityIndicator color={C.primary} /> : profile && Number(profile.hourlyRate) >= 1 ? (
           <Pressable accessibilityRole="button" disabled={saving} onPress={() => void setAvailability(!profile.isAvailable)}
-            style={[styles.primaryButton, (saving) && styles.disabled]}>
+            style={[styles.primaryButton, saving && styles.disabled]}>
             <Text style={styles.primaryButtonText}>{saving ? "Updating..." : profile.isAvailable ? "Go Offline" : "Go Online"}</Text>
           </Pressable>
         ) : (
           <>
-            <Text style={styles.helper}>Set up your Provider service profile before you can receive requests.</Text>
+            <Text style={styles.helper}>
+              {!profile
+                ? "Set up your Provider service profile before you can receive requests."
+                : "Add a valid hourly rate (at least R1.00) before going online."}
+            </Text>
             <Pressable accessibilityRole="button" onPress={onManageProfile} style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>Complete Provider setup</Text>
+              <Text style={styles.primaryButtonText}>{profile ? "Complete service profile" : "Complete Provider setup"}</Text>
             </Pressable>
           </>
         )}
