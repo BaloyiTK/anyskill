@@ -416,7 +416,12 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     if (active === "Profile") return save("profile");
     if (active === "Skills") return save("skills");
     if (active === "Portfolio") return save("portfolio");
-    if (active === "Verification") { setMessage("Your ID images and live selfie are saved securely as you upload them. Tap Save & Continue to submit them for review."); return true; }
+    if (active === "Verification") {
+      setMessage(identitySubmitted
+        ? "Your identity documents have already been submitted and are awaiting review. You do not need to submit them again."
+        : "Your ID images and live selfie are saved securely as you upload them. Tap Save & Continue when all required items are ready to submit them for review.");
+      return true;
+    }
     if (!await save("profile")) return false;
     if (!isProvider) return true;
     if (!await save("skills")) return false;
@@ -609,7 +614,13 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       {active === "Verification" && <>
         <Text style={st.heading}>Identity verification</Text>
         <Text style={st.help}>Choose one South African ID type, upload the required images and take a live selfie. All three steps must be completed before you can continue.</Text>
-        <View style={st.card}><Text style={st.label}>Current identity status</Text><Text style={st.statusValue}>{identityStatus.replace(/_/g, " ")}</Text></View>
+        <View style={st.card}>
+          <Text style={st.label}>Current identity status</Text>
+          <Text style={st.statusValue}>{identityStatus.toLowerCase().includes("pending") || ["submitted", "in_review", "under_review"].includes(identityStatus.toLowerCase()) ? "Pending review" : identityStatus.replace(/_/g, " ")}</Text>
+          {identitySubmitted
+            ? <Text style={st.status}>Your documents have been received and are awaiting review. You do not need to upload or submit them again unless our team requests more information.</Text>
+            : <Text style={st.status}>Upload the required ID images and live selfie, then submit them for review.</Text>}
+        </View>
         <Text style={st.label}>1. Choose your South African ID type <Text style={st.requiredStar}>*</Text></Text>
         <View style={st.choiceRow}>
           <Choice label="Smart ID card" required description="Front and back of the card" selected={idType === "SMART_ID_CARD"} onPress={() => setIdType("SMART_ID_CARD")} />
@@ -678,7 +689,9 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
           <View style={st.identityProgressTrack}><View style={[st.identityProgressFill, { width: `${identityUploadPercent}%` }]} /></View>
         </View> : null}
         <Text style={st.status}>{selfieReady ? (identitySubmitted ? "Selfie pending verification" : "Live selfie uploaded — awaiting submission") : "Live selfie required"}</Text>
-        <Text style={st.help}>Your images are stored privately and reviewed by an administrator. Uploading alone does not verify your identity; tap Save & Continue below to submit them for review.</Text>
+        <Text style={st.help}>{identitySubmitted
+          ? "Your images are stored securely. Your submission is awaiting administrator review; you do not need to submit these documents again."
+          : "Your images are stored securely and reviewed by an administrator. Uploading alone does not verify your identity; tap Save & Continue below to submit them for review."}</Text>
       </>}
       {active === "Skills" && <>
         <Text style={st.heading}>Skills and experience</Text><Text style={st.help}>Add the skills and services you offer. At least one skill is required to submit your Provider onboarding.</Text>
