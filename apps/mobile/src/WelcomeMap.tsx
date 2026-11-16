@@ -6,6 +6,7 @@ type ProviderMarker = {
   id: string;
   coordinates: Coordinate;
   title: string;
+  snippet: string;
 };
 
 type Props = {
@@ -47,6 +48,7 @@ export default function WelcomeMap({
             id: marker.id,
             coordinates: marker.coordinates,
             title: marker.title,
+            snippet: marker.snippet,
             showCallout: marker.id === selectedMarkerId,
           })),
           ...seekerMarker.map((marker) => ({
@@ -72,6 +74,7 @@ export default function WelcomeMap({
             id: marker.id,
             coordinates: marker.coordinates,
             title: marker.title,
+            text: marker.snippet,
           })),
           ...seekerMarker.map((marker) => ({
             id: marker.id,
@@ -148,7 +151,10 @@ export default function WelcomeMap({
               style={[styles.webMarker, { left: left - 12, top: top - 27 }, selected && styles.webMarkerSelected]}
             >
               <Text style={styles.webMarkerText}>📍</Text>
-              <Text numberOfLines={1} style={styles.webMarkerSkill}>{marker.title}</Text>
+              <View style={styles.webMarkerCopy}>
+                <Text numberOfLines={1} style={styles.webMarkerSkill}>{marker.title}</Text>
+                <Text style={styles.webMarkerDistance}>{marker.snippet}</Text>
+              </View>
             </Pressable>
           );
         })}
@@ -202,11 +208,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 17,
   },
+  webMarkerCopy: { flexShrink: 1, gap: 1, maxWidth: 145 },
   webMarkerSkill: {
     color: "#0B2545",
     fontSize: 10,
     fontWeight: "800",
-    maxWidth: 145,
+  },
+  webMarkerDistance: {
+    color: "#607080",
+    fontSize: 9,
+    fontWeight: "600",
   },
   seekerMarker: {
     position: "absolute",
