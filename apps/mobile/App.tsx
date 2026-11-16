@@ -17,7 +17,7 @@ import { OnboardingScreen } from "./src/OnboardingScreen";
 import { WelcomeScreen } from "./src/WelcomeScreen";
 
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding" | "profile-check";
 type UserMode = "seeker" | "provider";
 type AppTab = "home" | "activities" | "notifications" | "account";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
@@ -126,7 +126,11 @@ export default function App() {
       apiRequest<IdentitySummary>("/identity-verification/status", {}, true),
     ]);
 
-    const onboarding = profileResult.status === "fulfilled" ? profileResult.value : null;
+    if (profileResult.status === "rejected") {
+      throw new Error("We could not verify your saved profile right now. Please try again.");
+    }
+
+    const onboarding = profileResult.value;
     const registeredRoles = Array.isArray(onboarding?.profile?.marketplaceRoles)
       ? onboarding.profile.marketplaceRoles
       : onboarding?.profile?.marketplaceRole
@@ -140,10 +144,9 @@ export default function App() {
         || (onboarding?.sections?.skills === true && onboarding?.sections?.portfolio === true)),
     );
 
-    const complete = profileResult.status === "fulfilled" && requiredSectionsComplete;
-    setProfileComplete(complete);
+    setProfileComplete(requiredSectionsComplete);
     setIdentity(identityResult.status === "fulfilled" ? identityResult.value : null);
-    return complete;
+    return requiredSectionsComplete;
   };
 
   const loadNotifications = async () => {
@@ -177,11 +180,18 @@ export default function App() {
     setIdentity(null);
     setProfileComplete(false);
 
-    // Completed profiles go straight to Home. Only incomplete profiles need
-    // the onboarding flow; identity review remains a separate account status.
+    // Keep the authenticated user out of Home/onboarding until the server
+    // confirms whether their saved profile is complete.
     setActiveTab("home");
-    const completed = await refreshHomeEligibility(me.initialMode);
-    setScreen(completed ? "dashboard" : "onboarding");
+    setScreen("profile-check");
+    try {
+      const completed = await refreshHomeEligibility(me.initialMode);
+      setScreen(completed ? "dashboard" : "onboarding");
+    } catch (e) {
+      setProfileComplete(false);
+      setError(e instanceof Error ? e.message : "We could not verify your saved profile. Please try again.");
+      setScreen("profile-check");
+    }
   };
 
   const verifyEmailFromLink = async (url: string) => {
@@ -803,6 +813,18 @@ export default function App() {
               </View>
             </View> : null}
           </View>
+
+          {screen === "profile-check" && <View style={s.form}>
+            <Text style={s.kicker}>ACCOUNT CHECK</Text>
+            <Text style={s.formTitle}>Checking your profile</Text>
+            <Text style={s.subtitle}>{error || "Please wait while AnySkill checks your saved profile and registered roles."}</Text>
+            <Primary label={busy ? "Please wait..." : "Retry profile check"} onPress={async () => {
+              feedback(); setBusy(true);
+              try { await loadAccount(); }
+              finally { setBusy(false); }
+            }} disabled={busy} />
+            <Secondary label="Sign out" onPress={() => { void logout(); }} />
+          </View>}
 
           {screen === "welcome" && <WelcomeScreen
             onSignIn={() => goTo("login")}
