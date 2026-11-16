@@ -154,18 +154,21 @@ export default function App() {
   };
 
   const routeFromProfileStatus = async (initialMode?: string) => {
-    // Profile completion controls eligibility for selected actions, not access
-    // to the app. Always return authenticated users to the normal tab shell.
-    setScreen("dashboard");
+    // Do not show the dashboard until the server has confirmed whether the
+    // authenticated user's profile has been submitted and is complete.
+    setScreen("profile-check");
+    setError("");
     try {
       const complete = await refreshHomeEligibility(initialMode);
       setActiveTab("home");
-      setScreen("dashboard");
+      setScreen(complete ? "dashboard" : "onboarding");
       return complete;
     } catch (e) {
+      // If the profile check fails, keep the user on the retry screen rather
+      // than incorrectly treating the profile as complete or incomplete.
       setProfileComplete(false);
       setError(e instanceof Error ? e.message : "We could not refresh your profile status. Please try again.");
-      setScreen("dashboard");
+      setScreen("profile-check");
       return false;
     }
   };
