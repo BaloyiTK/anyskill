@@ -289,7 +289,7 @@ export default function App() {
         setRoleSummary(roles);
         setIdentity(identityStatus);
         const currentIdentityStatus = (identityStatus.latestCase?.status ?? identityStatus.status).toLowerCase();
-        if (roles.providerStatus === "ACTIVE" && currentIdentityStatus === "verified") {
+        if (roles.providerStatus === "ACTIVE" && ["verified", "approved"].includes(currentIdentityStatus)) {
           setMode("provider");
           if (roles.activeMode !== "PROVIDER") {
             const updatedRoles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
@@ -847,7 +847,7 @@ export default function App() {
   const identityCaseStatus = (identity?.latestCase?.status ?? identityStatus).toLowerCase();
   // The latest verification case is authoritative when the account-level
   // summary has not yet caught up with an administrator's decision.
-  const verified = identityStatus.toLowerCase() === "verified" || identityCaseStatus === "verified";
+  const verified = identityStatus.toLowerCase() === "verified" || identityCaseStatus === "verified" || identityCaseStatus === "approved";
   const identityAwaitingReview = ["pending", "pending_review", "submitted", "in_review", "under_review"].includes(identityCaseStatus);
   const canRequestSkill = profileComplete && verified && roleSummary?.seekerStatus === "ACTIVE";
 
