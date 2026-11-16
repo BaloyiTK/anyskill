@@ -186,16 +186,17 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async discoverNearbyProviders(latitude: number, longitude: number) {
+  async discoverNearbyProviders(latitude: number, longitude: number, seekerRadiusKm: number) {
     if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
-        !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
-      throw new BadRequestException("Provide valid coordinates for the map.");
+        !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
+        ![5, 10, 20, 50].includes(seekerRadiusKm)) {
+      throw new BadRequestException("Provide valid coordinates and a supported map radius (5, 10, 20 or 50 km).");
     }
 
-    // Discovery is deliberately broader than request matching: show every
-    // online Provider with a fresh shared location when the Seeker is inside
-    // that Provider's own configured travel radius. Do not apply role,
-    // identity, delivery-mode, or skill eligibility filters here.
+    // Discovery is independent of service-request matching. Show online
+    // Providers who are within BOTH the Seeker's selected map radius and
+    // each Provider's own configured travel radius. Do not filter by skill,
+    // identity status, Provider role status, or delivery mode.
     const cutoff = new Date(Date.now() - 5 * 60 * 1000);
     const profiles = await this.prisma.providerProfile.findMany({
       where: {
@@ -225,10 +226,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
     return profiles.flatMap((profile) => {
       if (profile.liveLatitude == null || profile.liveLongitude == null) return [];
-      if (distanceKm(profile.liveLatitude, profile.liveLongitude) > profile.maxTravelDistanceKm) return [];
+      const distance = distanceKm(profile.liveLatitude, profile.liveLongitude);
+      if (distance > profile.maxTravelDistanceKm || distance > seekerRadiusKm) return [];
       return [{
         id: profile.id,
         skill: profile.skillCategories[0] || "Skill not added",
+        distanceKm: Math.round(distance * 10) / 10,
         // Approximately 100 m precision is sufficient for a public discovery pin.
         latitude: Math.round(profile.liveLatitude * 1000) / 1000,
         longitude: Math.round(profile.liveLongitude * 1000) / 1000,
