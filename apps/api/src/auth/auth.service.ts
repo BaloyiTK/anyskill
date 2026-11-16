@@ -563,6 +563,11 @@ export class AuthService {
         data: { providerId: null },
       });
 
+      await tx.jobCostAdjustment.updateMany({
+        where: { engagement: { is: { OR: [{ seekerId: userId }, { providerId: userId }] } } },
+        data: { reason: "Adjustment details removed following account deletion.", decisionNote: null },
+      });
+
       await tx.jobEngagement.updateMany({
         where: { OR: [{ seekerId: userId }, { providerId: userId }] },
         data: {
@@ -571,11 +576,6 @@ export class AuthService {
           estimateNotes: null,
           estimateDecisionNote: null,
         },
-      });
-
-      await tx.jobCostAdjustment.updateMany({
-        where: { engagement: { is: { OR: [{ seekerId: userId }, { providerId: userId }] } } },
-        data: { reason: "Adjustment details removed following account deletion.", decisionNote: null },
       });
 
       await tx.jobCompletionSubmission.updateMany({
