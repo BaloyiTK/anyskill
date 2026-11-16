@@ -560,7 +560,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
           <RoleChoice label="I also want to register as a Skill Provider" description="Offer your skills and services to people using AnySkill. Skills and portfolio details will be required." selected={alsoProvider} onPress={() => {
             const next = !alsoProvider;
             setAlsoProvider(next);
-            if (!next && (active === "Skills" || active === "Portfolio")) setActive("Submit");
+            // This checkbox is only rendered on the Profile step, so no step reset is needed.
           }} />
         </>}
         {accountType === "BUSINESS" ? <>
