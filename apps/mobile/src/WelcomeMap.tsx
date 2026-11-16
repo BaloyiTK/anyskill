@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AppleMaps, GoogleMaps } from "expo-maps";
 import { Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
@@ -12,6 +13,7 @@ type ProviderMarker = {
 type Props = {
   center: Coordinate;
   zoom: number;
+  radiusKm: number;
   seekerLocation: Coordinate | null;
   markers: ProviderMarker[];
   selectedMarkerId: string | null;
@@ -26,11 +28,28 @@ type Props = {
 export default function WelcomeMap({
   center,
   zoom,
+  radiusKm,
   seekerLocation,
   markers,
   selectedMarkerId,
   onSelectMarker,
 }: Props) {
+  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
+  const radiusPixels = radiusKm * 1000 / (156543.03392 * Math.max(0.01, Math.cos((center.latitude * Math.PI) / 180)) / (2 ** zoom));
+  const circleDiameter = radiusPixels * 2;
+  const radiusCircle = mapSize.width > 0 && mapSize.height > 0 ? (
+    <View
+      pointerEvents="none"
+      accessibilityLabel={`Search radius ${radiusKm} kilometres`}
+      style={[styles.radiusCircle, {
+        width: circleDiameter,
+        height: circleDiameter,
+        borderRadius: radiusPixels,
+        left: (mapSize.width - circleDiameter) / 2,
+        top: (mapSize.height - circleDiameter) / 2,
+      }]}
+    />
+  ) : null;
   const cameraPosition = { coordinates: center, zoom };
   const seekerMarker = seekerLocation ? [{
     id: "seeker-location",
@@ -40,6 +59,7 @@ export default function WelcomeMap({
 
   if (Platform.OS === "android") {
     return (
+      <View style={StyleSheet.absoluteFill} onLayout={(event) => setMapSize(event.nativeEvent.layout)}>
       <GoogleMaps.View
         style={StyleSheet.absoluteFill}
         cameraPosition={cameraPosition}
@@ -61,11 +81,14 @@ export default function WelcomeMap({
           if (marker.id) onSelectMarker(marker.id);
         }}
       />
+      {radiusCircle}
+      </View>
     );
   }
 
   if (Platform.OS === "ios") {
     return (
+      <View style={StyleSheet.absoluteFill} onLayout={(event) => setMapSize(event.nativeEvent.layout)}>
       <AppleMaps.View
         style={StyleSheet.absoluteFill}
         cameraPosition={cameraPosition}
@@ -83,6 +106,8 @@ export default function WelcomeMap({
           })),
         ]}
       />
+      {radiusCircle}
+      </View>
     );
   }
 
@@ -116,8 +141,9 @@ export default function WelcomeMap({
   })).filter((tile): tile is NonNullable<typeof tile> => tile !== null);
 
   return (
-    <View style={[StyleSheet.absoluteFill, styles.webMap]} accessibilityLabel="Provider locations map">
+    <View style={[StyleSheet.absoluteFill, styles.webMap]} accessibilityLabel="Provider locations map" onLayout={(event) => setMapSize(event.nativeEvent.layout)}>
       <View style={styles.webTileCanvas}>
+        {radiusCircle ? <View pointerEvents="none" style={[styles.radiusCircle, { width: circleDiameter, height: circleDiameter, borderRadius: radiusPixels, left: 384 - radiusPixels, top: 384 - radiusPixels }]} /> : null}
         {tiles.map((tile) => (
           <Image key={tile.key} source={{ uri: tile.uri }} style={[styles.webTile, { left: tile.left, top: tile.top }]} />
         ))}
@@ -165,6 +191,13 @@ export default function WelcomeMap({
 }
 
 const styles = StyleSheet.create({
+  radiusCircle: {
+    position: "absolute",
+    borderWidth: 2,
+    borderColor: "rgba(0, 102, 204, 0.85)",
+    backgroundColor: "rgba(0, 102, 204, 0.10)",
+    zIndex: 1,
+  },
   webMap: {
     overflow: "hidden",
     backgroundColor: "#EAF1F8",
