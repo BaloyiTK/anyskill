@@ -1,11 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import type { Server } from "node:http";
-import type { Socket } from "node:net";
+import type { Duplex } from "node:stream";
 
 type Discovery = (latitude: number, longitude: number, radiusKm: number) => Promise<unknown>;
 type MapClient = {
-  socket: Socket;
+  socket: Duplex;
   latitude: number;
   longitude: number;
   radiusKm: number;
@@ -56,7 +56,7 @@ export class LiveProviderMapService {
       socket.on("error", () => this.clients.delete(client));
       socket.on("data", (data: Buffer) => {
         // The map stream is server-to-client. Honour a browser close frame.
-        if (data.length > 0 && (data[0] & 0x0f) === 0x08) socket.end();
+        if (data.length > 0 && ((data.at(0) ?? 0) & 0x0f) === 0x08) socket.end();
       });
       void this.sendSnapshot(client);
     });
@@ -79,7 +79,7 @@ export class LiveProviderMapService {
     }
   }
 
-  private sendFrame(socket: Socket, message: string): void {
+  private sendFrame(socket: Duplex, message: string): void {
     const payload = Buffer.from(message);
     let header: Buffer;
     if (payload.length < 126) {
