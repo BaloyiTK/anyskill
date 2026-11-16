@@ -763,39 +763,49 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         {skills[selectedSkillIndex] ? (() => {
           const skill = skills[selectedSkillIndex];
           const updateSkill = (patch: Partial<SkillEntry>) => setSkills((all) => all.map((item, index) => index === selectedSkillIndex ? { ...item, ...patch } : item));
-          return <View style={st.card}>
-            <View style={st.inlineFields}><Text style={st.sectionHeading}>Skill details</Text>{skills.length > 1 ? <Pressable onPress={() => { setSkills((all) => all.filter((_, index) => index !== selectedSkillIndex)); setSelectedSkillIndex(Math.max(0, selectedSkillIndex - 1)); }}><Text style={st.error}>Remove skill</Text></Pressable> : null}</View>
-            <Text style={st.label}>Find a skill or add your own</Text>
-            <TextInput value={skill.category} onChangeText={(value) => { updateSkill({ category: value }); setSkillSearch(value); }} placeholder="Search skills, e.g. Electrical" style={st.input}/>
-            {skillSearch.trim() ? <View style={st.optionPanel}>{SKILL_CATALOGUE.filter((name) => name.toLowerCase().includes(skillSearch.toLowerCase()) && !skills.some((item, index) => index !== selectedSkillIndex && item.category.trim().toLowerCase() === name.toLowerCase())).slice(0, 6).map((name) => <Pressable key={name} style={st.option} onPress={() => { updateSkill({ category: name }); setSkillSearch(""); }}><Text style={st.optionText}>{name}</Text></Pressable>)}<Text style={st.optionHint}>Not listed? Keep your own skill name.</Text></View> : null}
-            {Field("What do you offer? Describe your skill and services", skill.description, (value) => updateSkill({ description: value }), true)}
-            {Field("Years of experience", skill.yearsOfExperience, (value) => updateSkill({ yearsOfExperience: value }))}
-            <View style={st.evidenceHeader}><Text style={st.sectionHeading}>Licences & qualifications</Text><Text style={st.help}>Add each qualification separately and attach a supporting image.</Text></View>
-            {skill.licencesQualifications.map((qualification, index) => <View key={`qualification-${selectedSkillIndex}-${index}`} style={st.evidenceCard}>
-              {Field("Licence or qualification name", qualification.name, (value) => updateSkill({ licencesQualifications: skill.licencesQualifications.map((item, i) => i === index ? { ...item, name: value } : item) }))}
-              <Pressable disabled={busy} style={st.uploadTile} onPress={() => void uploadSkillEvidence("PROVIDER_QUALIFICATION", (assetId, fileName) => updateSkill({ licencesQualifications: skill.licencesQualifications.map((item, i) => i === index ? { ...item, attachmentUrl: assetId, attachmentName: fileName } : item) }))}>
-                <Text style={st.uploadTileIcon}>↥</Text><View style={st.uploadTileCopy}><Text style={st.uploadTileTitle}>{qualification.attachmentUrl ? "Replace attachment" : "Attach qualification"}</Text><Text style={st.uploadTileHint}>{qualification.attachmentName ?? (qualification.attachmentUrl ? "Uploaded securely" : "Choose an image from your device")}</Text></View>
-                <Text style={st.uploadTileAction}>{qualification.attachmentUrl ? "Change" : "Browse"}</Text>
-              </Pressable>
-              <Pressable onPress={() => updateSkill({ licencesQualifications: skill.licencesQualifications.filter((_, i) => i !== index) })}><Text style={st.removeText}>Remove qualification</Text></Pressable>
-            </View>)}
-            <Action label="＋ Add qualification" onPress={() => updateSkill({ licencesQualifications: [...skill.licencesQualifications, { name: "", attachmentUrl: "" }] })} disabled={busy}/>
-            <View style={st.evidenceHeader}><Text style={st.sectionHeading}>Your portfolio</Text><Text style={st.help}>Show examples of work completed under this skill. Add images and links separately.</Text></View>
-            {skill.portfolio.map((item, index) => <View key={`portfolio-${selectedSkillIndex}-${index}`} style={st.evidenceCard}>
-              {Field("Project or work title", item.title, (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, title: value } : entry) }))}
-              {Field("Short description", item.description, (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, description: value } : entry) }), true)}
-              <Text style={st.label}>Work photos</Text>
-              <View style={st.portfolioImages}>{item.imageUrls.map((imageId, imageIndex) => <View key={imageId + imageIndex} style={st.portfolioImageItem}>{item.imagePreviews?.[imageIndex] ? <Image source={{ uri: item.imagePreviews[imageIndex] }} style={st.portfolioImagePreview}/> : <View style={st.portfolioImagePlaceholder}><Text style={st.uploadedFileIcon}>▧</Text></View>}<Text numberOfLines={1} style={st.uploadedFileText}>Image {imageIndex + 1}</Text></View>)}</View>
-              <Pressable disabled={busy} style={st.uploadTile} onPress={() => void uploadSkillEvidence("PROVIDER_PORTFOLIO_IMAGE", (assetId, _fileName, uri) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, imageUrls: [...entry.imageUrls, assetId], imagePreviews: [...(entry.imagePreviews ?? []), uri] } : entry) }))}>
-                <Text style={st.uploadTileIcon}>＋</Text><View style={st.uploadTileCopy}><Text style={st.uploadTileTitle}>Add work photos</Text><Text style={st.uploadTileHint}>Choose images from your device</Text></View><Text style={st.uploadTileAction}>Browse</Text>
-              </Pressable>
-              {Field("Link title", item.linkTitle ?? "", (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, linkTitle: value } : entry) }))}
-              {Field("Link URL", item.linkUrl ?? item.links[0] ?? "", (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, linkUrl: value, links: value.trim() ? [value.trim()] : [] } : entry) }))}
-              <Pressable onPress={() => updateSkill({ portfolio: skill.portfolio.filter((_, i) => i !== index) })}><Text style={st.removeText}>Remove portfolio item</Text></Pressable>
-            </View>)}
-            <Action label="＋ Add portfolio item" onPress={() => updateSkill({ portfolio: [...skill.portfolio, { title: "", description: "", links: [], imageUrls: [], linkTitle: "", linkUrl: "", imagePreviews: [] }] })} disabled={busy}/>
-            <Text style={st.status}>Skill {selectedSkillIndex + 1} of {skills.length}</Text>
-          </View>;
+          const experienceOptions = ["1–2 years", "3–5 years", "6–10 years", "10+ years"];
+          return <>
+            <View style={st.card}>
+              <View style={st.inlineFields}><Text style={st.sectionHeading}>Your skills</Text>{skills.length > 1 ? <Pressable onPress={() => { setSkills((all) => all.filter((_, index) => index !== selectedSkillIndex)); setSelectedSkillIndex(Math.max(0, selectedSkillIndex - 1)); }}><Text style={st.error}>Remove skill</Text></Pressable> : null}</View>
+              <Text style={st.label}>Find a skill or add your own</Text>
+              <View style={st.searchField}><Text style={st.searchGlyph}>⌕</Text><TextInput value={skill.category} onChangeText={(value) => { updateSkill({ category: value }); setSkillSearch(value); }} placeholder="Search skills, e.g. Electrical" placeholderTextColor="#93A099" style={st.searchFieldInput}/></View>
+              {skillSearch.trim() ? <View style={st.optionPanel}>{SKILL_CATALOGUE.filter((name) => name.toLowerCase().includes(skillSearch.toLowerCase()) && !skills.some((item, index) => index !== selectedSkillIndex && item.category.trim().toLowerCase() === name.toLowerCase())).slice(0, 6).map((name) => <Pressable key={name} style={st.option} onPress={() => { updateSkill({ category: name }); setSkillSearch(""); }}><Text style={st.optionText}>{name}</Text></Pressable>)}<Text style={st.optionHint}>Not listed? Keep your own skill name.</Text></View> : null}
+              {Field("Skill overview / description", skill.description, (value) => updateSkill({ description: value }), true)}
+              <Text style={st.label}>Years of experience</Text>
+              <View style={st.experienceOptions}>{experienceOptions.map((option) => <Pressable key={option} accessibilityRole="button" accessibilityState={{ selected: skill.yearsOfExperience === option }} onPress={() => updateSkill({ yearsOfExperience: option })} style={[st.experienceOption, skill.yearsOfExperience === option && st.experienceOptionSelected]}><Text style={[st.experienceOptionText, skill.yearsOfExperience === option && st.experienceOptionTextSelected]}>{option}</Text></Pressable>)}</View>
+            </View>
+            <View style={st.card}>
+              <Text style={st.sectionHeading}>Licences & qualifications</Text>
+              <Text style={st.help}>Add each qualification separately and attach its supporting document.</Text>
+              {skill.licencesQualifications.map((qualification, index) => <View key={`qualification-${selectedSkillIndex}-${index}`} style={st.evidenceCard}>
+                {Field("Qualification name", qualification.name, (value) => updateSkill({ licencesQualifications: skill.licencesQualifications.map((item, i) => i === index ? { ...item, name: value } : item) }))}
+                <Pressable disabled={busy} style={st.uploadTile} onPress={() => void uploadSkillEvidence("PROVIDER_QUALIFICATION", (assetId, fileName) => updateSkill({ licencesQualifications: skill.licencesQualifications.map((item, i) => i === index ? { ...item, attachmentUrl: assetId, attachmentName: fileName } : item) }))}>
+                  <Text style={st.uploadTileIcon}>↥</Text><View style={st.uploadTileCopy}><Text style={st.uploadTileTitle}>{qualification.attachmentUrl ? "Replace attachment" : "Attach document"}</Text><Text style={st.uploadTileHint}>{qualification.attachmentName ?? (qualification.attachmentUrl ? "Uploaded securely" : "Choose an image from your device")}</Text></View>
+                  <Text style={st.uploadTileAction}>{qualification.attachmentUrl ? "Change" : "Browse files"}</Text>
+                </Pressable>
+                <Pressable onPress={() => updateSkill({ licencesQualifications: skill.licencesQualifications.filter((_, i) => i !== index) })}><Text style={st.removeText}>Remove qualification</Text></Pressable>
+              </View>)}
+              <Action label="＋ Add qualification" onPress={() => updateSkill({ licencesQualifications: [...skill.licencesQualifications, { name: "", attachmentUrl: "" }] })} disabled={busy}/>
+            </View>
+            <View style={st.card}>
+              <Text style={st.sectionHeading}>Your portfolio</Text>
+              <Text style={st.help}>Show examples of work completed under this skill. Add photos and links separately.</Text>
+              {skill.portfolio.map((item, index) => <View key={`portfolio-${selectedSkillIndex}-${index}`} style={st.evidenceCard}>
+                {Field("Project or work title", item.title, (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, title: value } : entry) }))}
+                {Field("Short description", item.description, (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, description: value } : entry) }), true)}
+                <Text style={st.label}>Work photos</Text>
+                <View style={st.portfolioImages}>{item.imageUrls.map((imageId, imageIndex) => <View key={imageId + imageIndex} style={st.portfolioImageItem}>{item.imagePreviews?.[imageIndex] ? <Image source={{ uri: item.imagePreviews[imageIndex] }} style={st.portfolioImagePreview}/> : <View style={st.portfolioImagePlaceholder}><Text style={st.uploadedFileIcon}>▧</Text></View>}<Text numberOfLines={1} style={st.uploadedFileText}>Image {imageIndex + 1}</Text></View>)}</View>
+                <Pressable disabled={busy} style={st.uploadTile} onPress={() => void uploadSkillEvidence("PROVIDER_PORTFOLIO_IMAGE", (assetId, _fileName, uri) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, imageUrls: [...entry.imageUrls, assetId], imagePreviews: [...(entry.imagePreviews ?? []), uri] } : entry) }))}>
+                  <Text style={st.uploadTileIcon}>＋</Text><View style={st.uploadTileCopy}><Text style={st.uploadTileTitle}>Add work photos</Text><Text style={st.uploadTileHint}>Choose images from your device</Text></View><Text style={st.uploadTileAction}>Browse</Text>
+                </Pressable>
+                {Field("Link title", item.linkTitle ?? "", (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, linkTitle: value } : entry) }))}
+                {Field("Link URL", item.linkUrl ?? item.links[0] ?? "", (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, linkUrl: value, links: value.trim() ? [value.trim()] : [] } : entry) }))}
+                <Pressable onPress={() => updateSkill({ portfolio: skill.portfolio.filter((_, i) => i !== index) })}><Text style={st.removeText}>Remove portfolio item</Text></Pressable>
+              </View>)}
+              <Action label="＋ Add portfolio item" onPress={() => updateSkill({ portfolio: [...skill.portfolio, { title: "", description: "", links: [], imageUrls: [], linkTitle: "", linkUrl: "", imagePreviews: [] }] })} disabled={busy}/>
+              <Text style={st.status}>Skill {selectedSkillIndex + 1} of {skills.length}</Text>
+            </View>
+          </>;
         })() : null}
         <Text style={st.status}>Section: {status("skills")}</Text>
       </>}
@@ -811,8 +821,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       {!!message && <Text style={st.success}>{message}</Text>}
       {!!error && <Text style={st.error}>{error}</Text>}
       <View style={st.saveButtons}>
-        <View style={st.saveButtonHalf}><Action label="Save" onPress={() => void saveCurrent()} disabled={busy} /></View>
-        <View style={st.saveButtonHalf}><Action label={active === "Submit" ? "Save & Submit" : "Save & Continue"} onPress={() => void continueCurrent()} disabled={busy} /></View>
+        <Action label="Save and Continue" onPress={() => void continueCurrent()} disabled={busy} />
       </View>
     </ScrollView>
   </View>;
@@ -902,7 +911,15 @@ const st = StyleSheet.create({
   searchInput: { minHeight: 46, borderBottomWidth: 1, borderBottomColor: "#E8EDF3", paddingHorizontal: 13, color: colors.ink },
   option: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#F0F3F7" },
   optionText: { color: colors.ink, fontSize: 13 }, optionHint: { color: colors.muted, padding: 13, fontSize: 12 },
-  saveButtons: { flexDirection: "row", gap: 9, marginTop: 10, paddingBottom: 8 }, saveButtonHalf: { flex: 1 },
+  saveButtons: { width: "100%", marginTop: 10, paddingBottom: 8 },
+  searchField: { minHeight: 52, flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#DCE5EF", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 13, marginBottom: 14 },
+  searchGlyph: { color: colors.muted, fontSize: 23, marginRight: 9 },
+  searchFieldInput: { flex: 1, minHeight: 50, color: colors.ink, fontSize: 14 },
+  experienceOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
+  experienceOption: { borderWidth: 1, borderColor: "#DCE5EF", borderRadius: 22, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: "#FFFFFF" },
+  experienceOptionSelected: { borderColor: colors.primary, backgroundColor: colors.soft },
+  experienceOptionText: { color: colors.muted, fontSize: 11, fontWeight: "800" },
+  experienceOptionTextSelected: { color: colors.primary },
   input: { minHeight: 52, borderWidth: 1, borderColor: "#DCE5EF", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 14, color: colors.ink, fontSize: 14 },
   multiline: { minHeight: 96, paddingTop: 13, textAlignVertical: "top" },
   status: { color: colors.muted, fontSize: 12, marginVertical: 7 }, statusValue: { color: colors.ink, fontWeight: "800", marginTop: 7, textTransform: "capitalize" },
