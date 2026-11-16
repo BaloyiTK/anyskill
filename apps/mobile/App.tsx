@@ -113,15 +113,36 @@ export default function App() {
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
 
   const refreshHomeEligibility = async () => {
-    // Fail closed: Home only enables skill requests when both checks are confirmed.
+    // Home reflects completion of every section required by the user's
+    // registered marketplace roles, not just the basic Profile section.
     const [profileResult, identityResult] = await Promise.allSettled([
-      apiRequest<{ sections?: { profile?: boolean } }>("/profile/onboarding", {}, true),
+      apiRequest<{
+        profile?: { marketplaceRoles?: string[]; marketplaceRole?: string };
+        skills?: unknown[];
+        portfolio?: unknown[];
+        sections?: { profile?: boolean; skills?: boolean; portfolio?: boolean };
+      }>("/profile/onboarding", {}, true),
       apiRequest<IdentitySummary>("/identity-verification/status", {}, true),
     ]);
-    setProfileComplete(profileResult.status === "fulfilled" && profileResult.value.sections?.profile === true);
+
+    const onboarding = profileResult.status === "fulfilled" ? profileResult.value : null;
+    const registeredRoles = Array.isArray(onboarding?.profile?.marketplaceRoles)
+      ? onboarding.profile.marketplaceRoles
+      : onboarding?.profile?.marketplaceRole
+        ? [onboarding.profile.marketplaceRole]
+        : [];
+    const providerRequired = registeredRoles.includes("PROVIDER")
+      || (registeredRoles.length === 0 && account?.initialMode === "PROVIDER");
+    const requiredSectionsComplete = Boolean(
+      onboarding?.sections?.profile === true
+      && (!providerRequired
+        || (onboarding?.sections?.skills === true && onboarding?.sections?.portfolio === true)),
+    );
+
+    setProfileComplete(profileResult.status === "fulfilled" && requiredSectionsComplete);
     setIdentity(identityResult.status === "fulfilled" ? identityResult.value : null);
     return profileResult.status === "fulfilled"
-      && profileResult.value.sections?.profile === true
+      && requiredSectionsComplete
       && identityResult.status === "fulfilled"
       && identityResult.value.status === "verified";
   };
