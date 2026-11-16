@@ -208,11 +208,6 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
   })), [visibleProviders]);
 
   return <View style={styles.container}>
-    <View style={styles.compactHeader}>
-      <View style={styles.brandMark}><Text style={styles.brandMarkText}>A</Text></View>
-      <View style={styles.headerSpacer} />
-      <Text style={styles.eyebrow}>LOCAL SKILLS. REAL PEOPLE.</Text>
-    </View>
     <Text style={styles.heading}>Find help nearby.</Text>
     <View style={styles.locationSearchRow}><Text style={styles.locationSearchIcon}>⌕</Text>
       <TextInput
