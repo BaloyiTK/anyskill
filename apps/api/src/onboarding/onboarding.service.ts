@@ -150,6 +150,7 @@ export class OnboardingService {
     // Submission must update the role lifecycle as well as the onboarding
     // draft. Provider access remains pending until a reviewer approves it.
     const submittedAt = new Date();
+    const wantsProvider = requestedRoles.has("PROVIDER");
     await this.prisma.$transaction(async (tx) => {
       await tx.onboardingDraft.update({
         where: { userId },
@@ -165,7 +166,6 @@ export class OnboardingService {
       });
 
       const wantsSeeker = requestedRoles.has("SEEKER");
-      const wantsProvider = requestedRoles.has("PROVIDER");
       let seekerRoleStatus = currentUser.seekerRoleStatus;
       let providerRoleStatus = currentUser.providerRoleStatus;
 
