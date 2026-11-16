@@ -1,5 +1,5 @@
 import { AppleMaps, GoogleMaps } from "expo-maps";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Image, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 type Coordinate = { latitude: number; longitude: number };
 type ProviderMarker = {
@@ -77,25 +77,112 @@ export default function WelcomeMap({
     );
   }
 
+  // Expo Maps is native-only. On Expo Web, render real OpenStreetMap tiles
+  // and provider pins rather than leaving the map area blank.
+  const tileZoom = Math.max(3, Math.min(18, Math.round(zoom)));
+  const worldSize = 256 * 2 ** tileZoom;
+  const toWorld = ({ latitude, longitude }: Coordinate) => {
+    const lat = Math.max(-85.05112878, Math.min(85.05112878, latitude));
+    const sin = Math.sin((lat * Math.PI) / 180);
+    return {
+      x: ((longitude + 180) / 360) * worldSize,
+      y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * worldSize,
+    };
+  };
+  const centerWorld = toWorld(center);
+  const centerTileX = Math.floor(centerWorld.x / 256);
+  const centerTileY = Math.floor(centerWorld.y / 256);
+  const tiles = [-1, 0, 1].flatMap((row) => [-1, 0, 1].map((column) => {
+    const x = centerTileX + column;
+    const y = centerTileY + row;
+    const count = 2 ** tileZoom;
+    const wrappedX = ((x % count) + count) % count;
+    if (y < 0 || y >= count) return null;
+    return {
+      key: `${tileZoom}-${wrappedX}-${y}`,
+      uri: `https://tile.openstreetmap.org/${tileZoom}/${wrappedX}/${y}.png`,
+      left: 256 + column * 256 - (centerWorld.x - centerTileX * 256),
+      top: 256 + row * 256 - (centerWorld.y - centerTileY * 256),
+    };
+  })).filter((tile): tile is NonNullable<typeof tile> => tile !== null);
+
   return (
-    <View style={[StyleSheet.absoluteFill, styles.webFallback]}>
-      <Text style={styles.webFallbackText}>
-        Open AnySkill on Android or iOS to view the interactive provider map.
-      </Text>
+    <View style={[StyleSheet.absoluteFill, styles.webMap]} accessibilityLabel="Provider locations map">
+      <View style={styles.webTileCanvas}>
+        {tiles.map((tile) => (
+          <Image key={tile.key} source={{ uri: tile.uri }} style={[styles.webTile, { left: tile.left, top: tile.top }]} />
+        ))}
+        {markers.map((marker) => {
+          const point = toWorld(marker.coordinates);
+          const left = 384 + point.x - centerWorld.x;
+          const top = 384 + point.y - centerWorld.y;
+          if (left < 0 || left > 768 || top < 0 || top > 768) return null;
+          const selected = marker.id === selectedMarkerId;
+          return (
+            <Pressable
+              key={marker.id}
+              accessibilityRole="button"
+              accessibilityLabel={marker.title}
+              onPress={() => onSelectMarker(marker.id)}
+              style={[styles.webMarker, { left: left - 11, top: top - 25 }, selected && styles.webMarkerSelected]}
+            >
+              <Text style={styles.webMarkerText}>●</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <Text style={styles.mapAttribution}>© OpenStreetMap contributors</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  webFallback: {
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
+  webMap: {
+    overflow: "hidden",
     backgroundColor: "#EAF1F8",
   },
-  webFallbackText: {
-    color: "#526579",
-    fontSize: 12,
-    textAlign: "center",
+  webTileCanvas: {
+    position: "absolute",
+    width: 768,
+    height: 768,
+    left: "50%",
+    top: "50%",
+    marginLeft: -384,
+    marginTop: -384,
+  },
+  webTile: {
+    position: "absolute",
+    width: 256,
+    height: 256,
+  },
+  webMarker: {
+    position: "absolute",
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#0066CC",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+  },
+  webMarkerSelected: {
+    backgroundColor: "#0B2545",
+    transform: [{ scale: 1.2 }],
+  },
+  webMarkerText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    lineHeight: 13,
+  },
+  mapAttribution: {
+    position: "absolute",
+    right: 5,
+    bottom: 3,
+    paddingHorizontal: 4,
+    backgroundColor: "rgba(255,255,255,0.8)",
+    color: "#334155",
+    fontSize: 8,
   },
 });
