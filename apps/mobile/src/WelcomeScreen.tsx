@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { AppleMaps, GoogleMaps } from "expo-maps";
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import WelcomeMap from "./WelcomeMap";
 import * as Location from "expo-location";
 import * as Crypto from "expo-crypto";
 import { apiRequest } from "./api";
@@ -192,25 +192,16 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
     const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
     return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
   };
-  const visibleProviders = providers.filter((provider) =>
+  const visibleProviders = useMemo(() => providers.filter((provider) =>
     (coordinates ? distanceBetween(coordinates, provider) : provider.distanceKm) <= radiusKm + 1e-6
-  );
+  ), [providers, coordinates, radiusKm]);
   const selectedProvider = visibleProviders.find((provider) => provider.id === selectedProviderId);
-  const mapMarkers = visibleProviders.map((provider) => ({
+  const mapMarkers = useMemo(() => visibleProviders.map((provider) => ({
     id: provider.id,
     coordinates: { latitude: provider.latitude, longitude: provider.longitude },
     title: provider.skill,
     snippet: `${provider.name} · ${provider.distanceKm.toFixed(1)} km away`,
-    showCallout: true,
-  }));
-  const mapCircle = [{
-    id: "search-radius",
-    center: mapCenter,
-    radius: radiusKm * 1000,
-    color: "rgba(76,175,80,0.10)",
-    lineColor: "#26845F",
-    lineWidth: 2,
-  }];
+  })), [visibleProviders]);
 
   return <View style={styles.container}>
     <View style={styles.compactHeader}>
@@ -253,23 +244,14 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
         <Text numberOfLines={1} style={styles.mapAreaLabel}>{areaLabel}</Text>
       </View>
       <View style={styles.map}>
-        {Platform.OS === "android" ? <GoogleMaps.View
-          key={`google-${mapCenter.latitude}-${mapCenter.longitude}-${radiusKm}`}
-          style={StyleSheet.absoluteFill}
-          cameraPosition={{ coordinates: mapCenter, zoom: mapZoom }}
-          circles={mapCircle}
+        <WelcomeMap
+          center={mapCenter}
+          zoom={mapZoom}
+          radiusKm={radiusKm}
           markers={mapMarkers}
-          onMarkerClick={(marker) => setSelectedProviderId(marker.id ?? null)}
-          properties={{ isBuildingEnabled: true, isIndoorEnabled: true, isMyLocationEnabled: false }}
-          uiSettings={{ compassEnabled: true, zoomControlsEnabled: false, myLocationButtonEnabled: false, scrollGesturesEnabled: true, zoomGesturesEnabled: true }}
-        /> : Platform.OS === "ios" ? <AppleMaps.View
-          key={`apple-${mapCenter.latitude}-${mapCenter.longitude}-${radiusKm}`}
-          style={StyleSheet.absoluteFill}
-          cameraPosition={{ coordinates: mapCenter, zoom: mapZoom }}
-          circles={mapCircle}
-          annotations={mapMarkers.map((marker) => ({ id: marker.id, coordinates: marker.coordinates, title: marker.title }))}
-          onAnnotationClick={(marker) => setSelectedProviderId(marker.id ?? null)}
-        /> : <View style={styles.mapPrompt}><Text style={styles.mapPromptTitle}>Map unavailable</Text></View>}
+          selectedMarkerId={selectedProviderId}
+          onSelectMarker={setSelectedProviderId}
+        />
         {selectedProvider ? <View pointerEvents="none" style={styles.providerCallout}>
           <Text style={styles.calloutName}>{selectedProvider.name}</Text>
           <Text style={styles.calloutSkill}>{selectedProvider.skill} · {selectedProvider.distanceKm.toFixed(1)} km away</Text>
