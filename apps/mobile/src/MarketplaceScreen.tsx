@@ -447,13 +447,27 @@ export function MarketplaceScreen(p: Props) {
     if (p.mode !== "provider" || !providerAvailable || !providerLiveTrackingEnabled) return;
 
     let active = true;
-    let subscription: Location.LocationSubscription | null = null;
+    let nativeSubscription: Location.LocationSubscription | null = null;
+    let browserWatchId: number | null = null;
     let heartbeat: ReturnType<typeof setInterval> | null = null;
     let publishing = false;
+    let acquiring = false;
 
-    const publishLocation = async (coords: Location.LocationObjectCoords) => {
+    type LiveCoordinates = {
+      latitude: number;
+      longitude: number;
+      accuracy: number | null;
+    };
+
+    const publishLocation = async (coords: LiveCoordinates) => {
       if (!active || publishing) return;
-      if (coords.accuracy == null || coords.accuracy > 250) {
+      if (
+        !Number.isFinite(coords.latitude) ||
+        !Number.isFinite(coords.longitude) ||
+        coords.accuracy == null ||
+        !Number.isFinite(coords.accuracy) ||
+        coords.accuracy > 250
+      ) {
         if (active) setError("Waiting for a more accurate GPS reading. Keep location enabled and try again.");
         return;
       }
@@ -476,57 +490,133 @@ export function MarketplaceScreen(p: Props) {
       }
     };
 
-    const readAndPublishCurrentLocation = async () => {
-      if (!active || publishing) return;
+    const publishBrowserPosition = (position: GeolocationPosition) => {
+      void publishLocation({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+      });
+    };
+
+    const readBrowserLocation = () => {
+      if (!active || acquiring || publishing) return;
+      if (!navigator.geolocation) {
+        setError("This browser does not support location sharing. Open AnySkill in a browser with geolocation enabled.");
+        return;
+      }
+      acquiring = true;
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          acquiring = false;
+          if (active) publishBrowserPosition(position);
+        },
+        (error) => {
+          acquiring = false;
+          if (!active) return;
+          const message = error.code === error.PERMISSION_DENIED
+            ? "Allow location access for AnySkill in your browser to share your Provider location."
+            : error.code === error.POSITION_UNAVAILABLE
+              ? "Your browser cannot determine your location yet. Check device location services and try again."
+              : "The browser location request timed out. AnySkill will retry automatically.";
+          setError(message);
+        },
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 },
+      );
+    };
+
+    const startBrowserLocationSharing = () => {
+      if (!window.isSecureContext && window.location.hostname !== "localhost") {
+        setError("Browser location sharing requires HTTPS. Open AnySkill using its secure HTTPS address.");
+        return;
+      }
+      if (!navigator.geolocation) {
+        setError("This browser does not support location sharing. Open AnySkill in a browser with geolocation enabled.");
+        return;
+      }
+
+      // Install the browser watcher before requesting the first fix. The
+      // heartbeat also refreshes stationary Providers and retries failed posts.
+      browserWatchId = navigator.geolocation.watchPosition(
+        publishBrowserPosition,
+        (error) => {
+          if (!active) return;
+          const message = error.code === error.PERMISSION_DENIED
+            ? "Allow location access for AnySkill in your browser to share your Provider location."
+            : error.code === error.POSITION_UNAVAILABLE
+              ? "Your browser cannot determine your location yet. Check device location services."
+              : "The browser location request timed out. Retrying automatically.";
+          setError(message);
+        },
+        { enableHighAccuracy: true, timeout: 20000, maximumAge: 5000 },
+      );
+
+      heartbeat = setInterval(readBrowserLocation, 15000);
+      readBrowserLocation();
+    };
+
+    const startNativeLocationSharing = async () => {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error("Location permission is needed to show your live location on the Provider map.");
+      }
+      if (!active) return;
+
+      // Start movement updates first. A failed initial GPS fix must not prevent
+      // the watcher or periodic heartbeat from being installed.
       try {
-        const current = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        await publishLocation(current.coords);
+        nativeSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 15000,
+            distanceInterval: 25,
+          },
+          (position) => { void publishLocation(position.coords); },
+        );
       } catch (e) {
-        if (active) setError(e instanceof Error ? e.message : "Could not obtain a current GPS location. Retrying automatically.");
+        if (active) setError(e instanceof Error ? e.message : "GPS movement tracking could not start. Retrying with periodic location checks.");
+      }
+
+      if (!active) return;
+      heartbeat = setInterval(() => {
+        if (active && !acquiring && !publishing) {
+          acquiring = true;
+          void Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
+            .then((position) => publishLocation(position.coords))
+            .catch((e) => {
+              if (active) setError(e instanceof Error ? e.message : "Could not obtain a current GPS location. Retrying automatically.");
+            })
+            .finally(() => { acquiring = false; });
+        }
+      }, 15000);
+
+      if (!acquiring && !publishing) {
+        acquiring = true;
+        try {
+          const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          await publishLocation(current.coords);
+        } catch (e) {
+          if (active) setError(e instanceof Error ? e.message : "Could not obtain a current GPS location. Retrying automatically.");
+        } finally {
+          acquiring = false;
+        }
       }
     };
 
-    void (async () => {
-      try {
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (!permission.granted) {
-          throw new Error("Location permission is needed to show your live location on the Provider map.");
-        }
-        if (!active) return;
-
-        // Start movement updates first. A failed initial GPS fix must not prevent
-        // the watcher or periodic heartbeat from being installed.
-        try {
-          subscription = await Location.watchPositionAsync(
-            {
-              accuracy: Location.Accuracy.High,
-              timeInterval: 15000,
-              distanceInterval: 25,
-            },
-            (position) => { void publishLocation(position.coords); },
-          );
-        } catch (e) {
-          if (active) setError(e instanceof Error ? e.message : "GPS movement tracking could not start. Retrying with periodic location checks.");
-        }
-
-        if (!active) return;
-        heartbeat = setInterval(() => {
-          void readAndPublishCurrentLocation();
-        }, 15000);
-
-        // Initial acquisition is deliberately separate from watcher setup.
-        await readAndPublishCurrentLocation();
-      } catch (e) {
+    if (Platform.OS === "web") {
+      startBrowserLocationSharing();
+    } else {
+      void startNativeLocationSharing().catch((e) => {
         if (active) setError(e instanceof Error ? e.message : "Could not start live location sharing.");
-      }
-    })();
+      });
+    }
 
     return () => {
       active = false;
       if (heartbeat) clearInterval(heartbeat);
-      subscription?.remove();
+      if (browserWatchId != null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(browserWatchId);
+      }
+      nativeSubscription?.remove();
     };
   }, [p.mode, providerAvailable, providerLiveTrackingEnabled]);
 
