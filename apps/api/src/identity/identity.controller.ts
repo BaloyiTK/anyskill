@@ -18,7 +18,7 @@ class CreateIdentityUploadDto {
   @IsString() @MaxLength(255) fileName!: string;
   @IsString() @MaxLength(100) contentType!: string;
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
-  @IsString() purpose!: "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE";
+  @IsString() purpose!: "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE" | "PROVIDER_QUALIFICATION" | "PROVIDER_PORTFOLIO_IMAGE";
 }
 class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
 class IdentityUploadFailureDto {
@@ -35,7 +35,7 @@ export class IdentityController {
 
   @Post("uploads")
   createUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateIdentityUploadDto) {
-    if (!["ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"].includes(dto.purpose)) throw new BadRequestException("Unsupported identity upload purpose.");
+    if (!["ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE", "PROVIDER_QUALIFICATION", "PROVIDER_PORTFOLIO_IMAGE"].includes(dto.purpose)) throw new BadRequestException("Unsupported identity upload purpose.");
     if (!Number.isInteger(dto.sizeBytes) || dto.sizeBytes < 1 || dto.sizeBytes > 10 * 1024 * 1024) throw new BadRequestException("Each image must be between 1 byte and 10 MB.");
     return this.media.createUpload(user.id, dto);
   }
