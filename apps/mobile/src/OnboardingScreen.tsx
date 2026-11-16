@@ -199,7 +199,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         businessName, businessRegistrationNumber, businessType, businessEmail, businessPhone, businessCountry, businessProvince, businessCity, businessAddress,
         contactFirstName, contactLastName, contactJobTitle, contactEmail, contactPhone,
       } }
-        : section === "skills" ? { skills: skills.filter((v) => v.category.trim()).map((v) => ({ ...v, category: v.category.trim(), licencesQualifications: v.licencesQualifications.filter((q) => q.name.trim() && q.attachmentUrl.trim()), portfolio: v.portfolio.filter((item) => item.title.trim()) })), portfolio: [] }
+        : section === "skills" ? { skills: skills.filter((v) => v.category.trim()).map((v) => ({ ...v, category: v.category.trim(), licencesQualifications: v.licencesQualifications.filter((q) => q.name.trim() && q.attachmentUrl.trim()), portfolio: v.portfolio.filter((item) => item.title.trim()).map(({ imagePreviews: _imagePreviews, ...item }) => item) })), portfolio: [] }
         : { portfolio: [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
       setData(result);
@@ -786,7 +786,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
               {Field("Short description", item.description, (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, description: value } : entry) }), true)}
               <Text style={st.label}>Work photos</Text>
               <View style={st.portfolioImages}>{item.imageUrls.map((imageId, imageIndex) => <View key={imageId + imageIndex} style={st.portfolioImageItem}>{item.imagePreviews?.[imageIndex] ? <Image source={{ uri: item.imagePreviews[imageIndex] }} style={st.portfolioImagePreview}/> : <View style={st.portfolioImagePlaceholder}><Text style={st.uploadedFileIcon}>▧</Text></View>}<Text numberOfLines={1} style={st.uploadedFileText}>Image {imageIndex + 1}</Text></View>)}</View>
-              <Pressable disabled={busy} style={st.uploadTile} onPress={() => void uploadSkillEvidence("PROVIDER_PORTFOLIO_IMAGE", (assetId) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, imageUrls: [...entry.imageUrls, assetId] } : entry) }))}>
+              <Pressable disabled={busy} style={st.uploadTile} onPress={() => void uploadSkillEvidence("PROVIDER_PORTFOLIO_IMAGE", (assetId, _fileName, uri) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, imageUrls: [...entry.imageUrls, assetId], imagePreviews: [...(entry.imagePreviews ?? []), uri] } : entry) }))}>
                 <Text style={st.uploadTileIcon}>＋</Text><View style={st.uploadTileCopy}><Text style={st.uploadTileTitle}>Add work photos</Text><Text style={st.uploadTileHint}>Choose images from your device</Text></View><Text style={st.uploadTileAction}>Browse</Text>
               </Pressable>
               {Field("Link title", item.linkTitle ?? "", (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, linkTitle: value } : entry) }))}
