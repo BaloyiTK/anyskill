@@ -574,7 +574,7 @@ export class AuthService {
       });
 
       await tx.jobCostAdjustment.updateMany({
-        where: { engagement: { OR: [{ seekerId: userId }, { providerId: userId }] } },
+        where: { engagement: { is: { OR: [{ seekerId: userId }, { providerId: userId }] } } },
         data: { reason: "Adjustment details removed following account deletion.", decisionNote: null },
       });
 
