@@ -532,11 +532,9 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         </> : <>
           <Text style={st.label}>Additional marketplace role</Text>
           <RoleChoice label="I also want to register as a Skill Provider" description="Offer your skills and services to people using AnySkill. Skills and portfolio details will be required." selected={alsoProvider} onPress={() => {
-            setAlsoProvider((current) => {
-              const next = !current;
-              if (!next && (active === "Skills" || active === "Portfolio")) setActive("Submit");
-              return next;
-            });
+            const next = !alsoProvider;
+            setAlsoProvider(next);
+            if (!next && (active === "Skills" || active === "Portfolio")) setActive("Submit");
           }} />
         </>}
         {accountType === "BUSINESS" ? <>
