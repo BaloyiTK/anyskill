@@ -213,6 +213,30 @@ export class MediaService {
     }
   }
 
+  async getProviderEvidencePreviewUrl(userId: string, assetId: string) {
+    this.ensureConfigured();
+    const asset = await this.prisma.mediaAsset.findFirst({
+      where: {
+        id: assetId,
+        userId,
+        status: "READY",
+        purpose: { in: ["PROVIDER_QUALIFICATION", "PROVIDER_PORTFOLIO_IMAGE"] },
+      },
+      select: { objectKey: true, contentType: true, purpose: true },
+    });
+    if (!asset) return null;
+    const formatByMime: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+    const format = formatByMime[asset.contentType];
+    const folder = FOLDERS[asset.purpose];
+    if (!format || !folder) return null;
+    const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
+    const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
+    const url = cloudinary.utils.private_download_url(publicId, format, {
+      resource_type: "image", type: "authenticated", expires_at: expiresAt, attachment: false,
+    });
+    return { url, expiresAt: new Date(expiresAt * 1000).toISOString() };
+  }
+
   async getIdentityPreviewUrl(userId: string, purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE") {
     this.ensureConfigured();
     const asset = await this.prisma.mediaAsset.findFirst({
