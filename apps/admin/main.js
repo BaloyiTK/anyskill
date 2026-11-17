@@ -1,12 +1,11 @@
 const $ = (selector) => document.querySelector(selector);
-const state = { api: "http://localhost:3000/api/v1", accessToken: "", refreshToken: "", staff: null, applications: [], staffMembers: [], dashboardMetrics: null, isSuperAdmin: false, selected: null, busy: false };
+const state = { api: "http://localhost:3000/api/v1", accessToken: "", refreshToken: "", staff: null, staffMembers: [], dashboardMetrics: null };
 
 const show = (element) => element.classList.remove("hidden");
 const hide = (element) => element.classList.add("hidden");
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const initials = (value) => String(value || "S").trim().split(/[\s@._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join("") || "S";
 const dateLabel = (value) => value ? new Intl.DateTimeFormat("en-ZA", { dateStyle: "medium" }).format(new Date(value)) : "Date unavailable";
-const dataOf = (application) => application?.applicationData && typeof application.applicationData === "object" ? application.applicationData : {};
 const messageOf = (payload) => typeof payload?.message === "string" ? payload.message : Array.isArray(payload?.message) ? payload.message.join(", ") : "The request could not be completed.";
 
 async function request(path, options = {}) {
@@ -54,7 +53,6 @@ function signOut(callApi = true) {
   state.accessToken = "";
   state.refreshToken = "";
   state.staff = null;
-  state.applications = [];
   show($("#login-view"));
   hide($("#app-view"));
   $("#password").value = "";
@@ -165,7 +163,7 @@ async function loadSkillQueue(){
 function renderAdminAccounts(){
  const list=$("#accounts-list");if(!state.accounts.length){list.innerHTML='<div class="empty-state">No accounts found.</div>';return;}
  list.innerHTML=state.accounts.map(a=>{
-  const modes=(a.mode||[]).join(" + ")||"—";
+  const modes=(Array.isArray(a.mode)?a.mode:[]).map(mode=>'<span class="status-pill">'+escapeHtml(mode)+'</span>').join(" ")||"—";
   const skills=(a.skills||[]).map(s=>'<div class="account-skill"><span>'+escapeHtml(s.name)+'</span><span class="status-pill">'+escapeHtml(s.status)+'</span>'+(s.reason?'<small>'+escapeHtml(s.reason)+'</small>':"")+'</div>').join("")||'<span class="applicant-meta">No provider skills recorded</span>';
   const ready=a.identity?.status==="VERIFIED"&&(a.skills||[]).some(s=>s.status==="APPROVED");
   return '<article class="application-row account-row"><div class="applicant-main"><div class="applicant-avatar">'+escapeHtml(initials(a.email))+'</div><div class="applicant-copy"><strong>'+escapeHtml(a.email)+'</strong><span>Mode: '+escapeHtml(modes)+'</span><div class="applicant-meta">Identity: '+escapeHtml(a.identity?.status||"NOT_STARTED")+(a.identity?.reason?" · "+escapeHtml(a.identity.reason):"")+'</div><div class="account-skills"><strong>Skills</strong>'+skills+'</div><div class="applicant-meta">Provider access: '+(ready?"Available":"Not yet available")+' — verified identity and at least one approved skill</div></div></div></article>';
@@ -178,7 +176,7 @@ async function loadAdminAccounts(){
 }
 function openSeparateReview(type,id){
  const item=(type==="identity"?state.identityCases:state.skillReviews).find(x=>x.id===id);if(!item)return;
- state.selected={type,item};$("#decision-form").dataset.type=type;$("#decision-form").dataset.id=id;$("#decision-reason").value="";hide($("#decision-error"));hide($("#needs-info"));
+ $("#decision-form").dataset.type=type;$("#decision-form").dataset.id=id;$("#decision-reason").value="";hide($("#decision-error"));
  if(type==="identity"){
   $("#review-title").textContent="Review identity documents";$("#review-subtitle").textContent=(item.user?.email||"Account")+" · Submitted "+dateLabel(item.submittedAt);
   const labels={ID_DOCUMENT_FRONT:"Smart ID — front",ID_DOCUMENT_BACK:"Smart ID — back",ID_BOOK_PAGE_1:"Green ID book — details page",ID_BOOK_PAGE_2:"Green ID book — second page",ID_SELFIE:"Live selfie"};
@@ -190,6 +188,7 @@ function openSeparateReview(type,id){
   const evidence=(assetId,label)=>{const url=item.providerEvidence?.[assetId];return url?'<a class="evidence-link" href="'+escapeHtml(url)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(label)+' — view attachment</a>':'<span class="evidence-unavailable">'+escapeHtml(label)+' — attachment unavailable</span>';};
   $("#review-details").innerHTML='<section class="detail-block"><h3>Skill overview</h3><p>'+escapeHtml(d.description||"No description supplied")+'</p><p>Experience: '+escapeHtml(d.yearsOfExperience??"Not supplied")+'</p></section><section class="detail-block"><h3>Qualifications and licences</h3>'+(q.length?'<ul>'+q.map(x=>'<li>'+escapeHtml(x.name||"Qualification")+'<br>'+(x.attachmentUrl?evidence(x.attachmentUrl,"Supporting document"):"No attachment supplied")+'</li>').join("")+'</ul>':"<p>None supplied.</p>")+'</section><section class="detail-block"><h3>Portfolio and work examples</h3>'+(p.length?p.map(x=>'<div class="portfolio-review"><strong>'+escapeHtml(x.title||"Work example")+'</strong><p>'+escapeHtml(x.description||"")+'</p>'+(Array.isArray(x.imageUrls)&&x.imageUrls.length?'<div class="evidence-grid">'+x.imageUrls.map((assetId,index)=>{const url=item.providerEvidence?.[assetId];return url?'<div class="evidence-item"><span>Work image '+(index+1)+'</span><a href="'+escapeHtml(url)+'" target="_blank" rel="noopener noreferrer"><img src="'+escapeHtml(url)+'" alt="Portfolio work image '+(index+1)+'" loading="lazy"></a></div>':'<span class="evidence-unavailable">Work image unavailable</span>';}).join("")+'</div>':"")+(x.linkUrl?'<p><a href="'+escapeHtml(x.linkUrl)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(x.linkTitle||x.linkUrl)+'</a></p>':"")+'</div>').join(""):"<p>None supplied.</p>")+'</section>';
   $("#approve-application").textContent="Approve skill";$("#reject-application").textContent="Reject skill";$("#approve-application").disabled=item.user?.identityVerification!=="VERIFIED";
+  if(item.user?.identityVerification!=="VERIFIED") $("#review-details").insertAdjacentHTML("beforeend",'<p class="detail-block" role="status">Identity must be verified before this skill can be approved.</p>');
  }
  show($("#review-modal"));
 }
