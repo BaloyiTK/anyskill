@@ -106,8 +106,6 @@ export class UpdateProviderProfileDto {
   @IsIn([true, false])
   isAvailable!: boolean;
 
-  @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(1) @Max(200)
-  maxTravelDistanceKm?: number;
 }
 
 export class RegisterPushDeviceDto {
