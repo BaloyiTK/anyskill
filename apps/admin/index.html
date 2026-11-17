@@ -41,7 +41,9 @@
         <button class="nav-item" data-page="user-providers"><span class="nav-icon">◇</span> Providers</button>
         <button class="nav-item" data-page="user-seekers"><span class="nav-icon">♙</span> Seekers</button>
         <button class="nav-item" data-page="jobs"><span class="nav-icon">▤</span> Jobs &amp; requests</button>
-        <button class="nav-item" data-page="providers"><span class="nav-icon">▣</span> Provider applications <span id="nav-pending" class="nav-count">—</span></button>
+        <button class="nav-item" data-page="identity"><span class="nav-icon">▣</span> Identity verification <span id="nav-identity-count" class="nav-count">—</span></button>
+        <button class="nav-item" data-page="skills"><span class="nav-icon">◇</span> Skills review <span id="nav-skills-count" class="nav-count">—</span></button>
+        <button class="nav-item" data-page="accounts"><span class="nav-icon">♙</span> Accounts</button>
         <div class="nav-group-label">TRUST &amp; SAFETY</div>
         <button class="nav-item" data-page="disputes"><span class="nav-icon">⚑</span> Disputes</button>
         <button class="nav-item" data-page="fraud"><span class="nav-icon">!</span> Fraud &amp; risk</button>
@@ -81,14 +83,14 @@
             <article class="metric-card"><div class="metric-top"><span>Scheduled jobs</span><span class="metric-symbol blue">◷</span></div><div id="metric-scheduled" class="metric-value">—</div><div class="metric-note">Approved and scheduled for later</div></article>
             <article class="metric-card"><div class="metric-top"><span>Pending jobs</span><span class="metric-symbol amber">!</span></div><div id="metric-pending-jobs" class="metric-value">—</div><div class="metric-note">Open requests awaiting matching</div></article>
           </div>
-          <div class="section-heading"><div><h2>Provider application pipeline</h2><p>Manual provider activation and review queue.</p></div><button class="text-button" data-go="providers">Open applications →</button></div>
+          <div class="section-heading"><div><h2>Verification &amp; skills review</h2><p>Identity and each skill are assessed independently. Provider access follows automatically when identity is verified and at least one skill is approved.</p></div></div>
           <div class="metric-grid pipeline-grid">
-            <article class="metric-card"><div class="metric-top"><span>Awaiting review</span><span class="metric-symbol amber">◷</span></div><div id="metric-pending" class="metric-value">—</div><div class="metric-note">Provider applications</div></article>
-            <article class="metric-card"><div class="metric-top"><span>Under review</span><span class="metric-symbol blue">◎</span></div><div id="metric-review" class="metric-value">—</div><div class="metric-note">Applications being assessed</div></article>
+            <article class="metric-card"><div class="metric-top"><span>Identity reviews</span><span class="metric-symbol amber">◷</span></div><div id="metric-pending" class="metric-value">—</div><div class="metric-note">Awaiting identity decision</div><button class="text-button" data-go="identity">Open identity queue →</button></article>
+            <article class="metric-card"><div class="metric-top"><span>Skills awaiting review</span><span class="metric-symbol blue">◇</span></div><div id="metric-review" class="metric-value">—</div><div class="metric-note">Individual skills pending decision</div><button class="text-button" data-go="skills">Open skills queue →</button></article>
             <article class="metric-card"><div class="metric-top"><span>Staff access</span><span class="metric-symbol green">✓</span></div><div id="metric-access" class="metric-value">Verified</div><div class="metric-note">Your session is authorised</div></article>
           </div>
-          <div class="section-heading"><div><h2>Priority work</h2><p>Items requiring staff attention.</p></div><button class="text-button" data-go="providers">View application queue <span>→</span></button></div>
-          <div class="panel priority-panel"><div class="priority-icon">◇</div><div class="priority-copy"><strong>Provider application reviews</strong><p>Review skills, portfolios and applicant details before activating Provider access.</p></div><div class="priority-action"><span id="priority-count" class="priority-number">—</span><button class="button button-dark" data-go="providers">Open queue</button></div></div>
+          <div class="section-heading"><div><h2>Independent decisions</h2><p>No combined Provider approval or separate Provider approval step.</p></div></div>
+          <div class="panel priority-panel"><div class="priority-icon">✓</div><div class="priority-copy"><strong>Review identity first, then each skill</strong><p>A dual-mode account keeps Seeker access regardless of Provider review outcomes. One approved skill plus verified identity enables Provider access.</p></div><div class="priority-action"><button class="button button-dark" data-go="accounts">View accounts</button></div></div>
           <div class="section-heading lower"><div><h2>Operations modules</h2><p>More administration tools will connect as their API services are introduced.</p></div></div>
           <div class="module-grid">
             <article class="module-card"><span class="module-icon">♙</span><strong>User management</strong><span class="module-state">Planned module</span><p>Account search, access controls and user support.</p></article>
@@ -105,7 +107,19 @@
         <div id="staff-page" class="hidden">
 <div class="page-heading"><div><div class="eyebrow">ACCESS CONTROL</div><h1>Staff &amp; permissions<span class="heading-period">.</span></h1><p>Only the Super Administrator can create staff members and assign operational roles.</p></div><button id="staff-refresh" class="button button-light">↻ Refresh staff</button></div>
 <div class="panel staff-create-panel"><form id="staff-create-form" class="staff-create-form"><div><label for="staff-new-email">Registered AnySkill email</label><input id="staff-new-email" type="email" placeholder="colleague@company.com" required /></div><div><label for="staff-new-role">Staff role</label><select id="staff-new-role" required><option value="PROVIDER_REVIEWER">Provider Reviewer</option><option value="IDENTITY_REVIEWER">Identity Reviewer</option><option value="SUPPORT_AGENT">Support Agent</option><option value="FINANCE_OFFICER">Finance Officer</option><option value="FRAUD_OFFICER">Fraud Officer</option><option value="ADMIN">Administrator</option></select></div><button class="button button-primary" type="submit">Add staff member</button></form><p class="staff-create-note">The person must already have an AnySkill account. Staff access is added to that account; no separate password is created here.</p></div>
-<div id="staff-error" class="alert alert-error hidden" role="alert"></div><div id="staff-list" class="application-list"><div class="loading-state">Loading staff…</div></div></div><div id="providers-page" class="hidden">
+<div id="staff-error" class="alert alert-error hidden" role="alert"></div><div id="staff-list" class="application-list"><div class="loading-state">Loading staff…</div></div></div><div id="identity-page" class="hidden">
+  <div class="page-heading"><div><div class="eyebrow">TRUST &amp; SAFETY</div><h1>Identity verification<span class="heading-period">.</span></h1><p>Review identity documents and the live selfie. Identity must be verified before skills can be approved.</p></div><button id="identity-refresh" class="button button-light">↻ Refresh queue</button></div>
+  <div id="identity-error" class="alert alert-error hidden" role="alert"></div><div id="identity-list" class="application-list"><div class="loading-state">Loading identity reviews…</div></div>
+</div>
+<div id="skills-page" class="hidden">
+  <div class="page-heading"><div><div class="eyebrow">PROVIDER QUALITY</div><h1>Skills review<span class="heading-period">.</span></h1><p>Assess each submitted skill independently. Identity must already be verified before approval.</p></div><button id="skills-refresh" class="button button-light">↻ Refresh queue</button></div>
+  <div id="skills-error" class="alert alert-error hidden" role="alert"></div><div id="skills-list" class="application-list"><div class="loading-state">Loading skills…</div></div>
+</div>
+<div id="accounts-page" class="hidden">
+  <div class="page-heading"><div><div class="eyebrow">MARKETPLACE ACCOUNTS</div><h1>Accounts<span class="heading-period">.</span></h1><p>View account modes, identity status and individual skill decisions.</p></div><button id="accounts-refresh" class="button button-light">↻ Refresh accounts</button></div>
+  <div id="accounts-error" class="alert alert-error hidden" role="alert"></div><div id="accounts-list" class="application-list"><div class="loading-state">Loading accounts…</div></div>
+</div>
+<div id="providers-page" class="hidden">
           <div class="page-heading"><div><div class="eyebrow">MARKETPLACE QUALITY</div><h1>Provider applications<span class="heading-period">.</span></h1><p>Assess applicants before granting Provider marketplace access.</p></div><button id="queue-refresh" class="button button-light">↻ Refresh queue</button></div>
           <div class="queue-summary"><div><span class="queue-dot pending-dot"></span><strong id="queue-total">—</strong><span>Open applications</span></div><div class="queue-filter"><label for="queue-filter">Status</label><select id="queue-filter"><option value="ALL">All open</option><option value="PENDING">Awaiting review</option><option value="UNDER_REVIEW">Under review</option></select></div></div>
           <div id="queue-error" class="alert alert-error hidden" role="alert"></div>
