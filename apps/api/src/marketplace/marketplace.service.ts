@@ -725,50 +725,87 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async rankedProviders(request: {
     id: string; seekerId: string; skillCategory: string; location: string | null; latitude?: number | null; longitude?: number | null; deliveryMode: string;
   }): Promise<RankedProvider[]> {
-    const remoteProfiles = await this.prisma.providerProfile.findMany({
-      where: { isAvailable: true, user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } }, skillCategories: { has: normalise(request.skillCategory) }, userId: { not: request.seekerId }, deliveryModes: { hasSome: request.deliveryMode === "EITHER" ? ["REMOTE", "EITHER"] : [request.deliveryMode, "EITHER"] } },
-      select: { userId: true, serviceAreas: true, deliveryModes: true },
+    // Do not use PostgreSQL array equality for skills here: older profiles may
+    // contain title-case or differently spaced values. Normalise in application
+    // code so "Plumbing", "plumbing", and " plumbing " match consistently.
+    const profiles = await this.prisma.providerProfile.findMany({
+      where: {
+        isAvailable: true,
+        user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } },
+        userId: { not: request.seekerId },
+      },
+      select: {
+        userId: true,
+        skillCategories: true,
+        serviceAreas: true,
+        deliveryModes: true,
+        liveLatitude: true,
+        liveLongitude: true,
+        liveAccuracyM: true,
+        liveLocationUpdatedAt: true,
+      },
     });
+
+    const compact = (value: string) => normalise(value).replace(/[^\\p{L}\\p{N}]+/gu, "");
+    const requestedSkill = compact(request.skillCategory);
+    const requestedArea = compact(request.location ?? "");
+    const now = Date.now();
+    const radians = (degrees: number) => degrees * Math.PI / 180;
+    const distanceKm = (latitude: number, longitude: number) => {
+      if (request.latitude == null || request.longitude == null) return null;
+      const dLat = radians(latitude - request.latitude);
+      const dLon = radians(longitude - request.longitude);
+      const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(radians(request.latitude)) * Math.cos(radians(latitude)) * Math.sin(dLon / 2) ** 2;
+      return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+
     const ranked = new Map<string, number>();
-    for (const profile of remoteProfiles) {
-      const modeMatches = request.deliveryMode === "REMOTE"
-        ? profile.deliveryModes.includes("REMOTE") || profile.deliveryModes.includes("EITHER")
-        : request.deliveryMode === "EITHER"
-          ? profile.deliveryModes.some((mode) => mode === "REMOTE" || mode === "EITHER")
-          : false;
-      if (modeMatches) ranked.set(profile.userId, 110);
+    for (const profile of profiles) {
+      const hasSkill = profile.skillCategories.some((skill) => {
+        const candidate = compact(skill);
+        return candidate.length > 0 && candidate === requestedSkill;
+      });
+      if (!hasSkill) continue;
+
+      const supportsRemote = profile.deliveryModes.includes("REMOTE") || profile.deliveryModes.includes("EITHER");
+      const supportsOnsite = profile.deliveryModes.includes("ONSITE") || profile.deliveryModes.includes("EITHER");
+      let score = 0;
+
+      if (request.deliveryMode === "REMOTE" || request.deliveryMode === "EITHER") {
+        if (supportsRemote) score = 110;
+      }
+
+      if ((request.deliveryMode === "ONSITE" || request.deliveryMode === "EITHER") && supportsOnsite) {
+        // A saved service area is a valid coverage signal; a continuously
+        // refreshed GPS location is an additional ranking signal, not a
+        // mandatory prerequisite for receiving an on-site request.
+        const areaMatches = requestedArea.length > 0 && profile.serviceAreas.some((area) => {
+          const candidate = compact(area);
+          return candidate.length >= 3 && (requestedArea.includes(candidate) || candidate.includes(requestedArea));
+        });
+
+        const hasFreshLocation = profile.liveLatitude != null
+          && profile.liveLongitude != null
+          && profile.liveLocationUpdatedAt != null
+          && now - profile.liveLocationUpdatedAt.getTime() <= 10 * 60 * 1000
+          && profile.liveAccuracyM != null
+          && profile.liveAccuracyM <= 250;
+        const distance = hasFreshLocation
+          ? distanceKm(profile.liveLatitude!, profile.liveLongitude!)
+          : null;
+        const isNearby = distance != null && distance <= 200;
+
+        if (areaMatches) score = Math.max(score, 115);
+        if (isNearby) score = Math.max(score, 120 + Math.max(0, 40 - Math.floor(distance!)));
+      }
+
+      if (score > 0) ranked.set(profile.userId, score);
     }
 
-    if (request.deliveryMode !== "REMOTE" && request.latitude != null && request.longitude != null) {
-      const geo = await this.prisma.$queryRaw(Prisma.sql`
-        SELECT pp.user_id AS "userId",
-          ST_Distance(
-            ST_SetSRID(ST_MakePoint(pp.live_longitude, pp.live_latitude), 4326)::geography,
-            ST_SetSRID(ST_MakePoint(${request.longitude}, ${request.latitude}), 4326)::geography
-          ) / 1000.0 AS "distanceKm"
-        FROM provider_profiles pp
-        INNER JOIN users u ON u.id = pp.user_id
-        WHERE pp.is_available = TRUE
-          AND u.provider_role_status = 'ACTIVE'
-          AND u.identity_verification_status = 'VERIFIED'
-          AND pp.user_id <> ${request.seekerId}::uuid
-          AND pp.skill_categories @> ARRAY[${normalise(request.skillCategory)}]::text[]
-          AND pp.delivery_modes && ARRAY['ONSITE','EITHER']::text[]
-          AND pp.live_latitude IS NOT NULL AND pp.live_longitude IS NOT NULL
-          AND pp.live_accuracy_m <= 250
-          AND pp.live_location_updated_at >= NOW() - INTERVAL '10 minutes'
-          AND ST_DWithin(
-            ST_SetSRID(ST_MakePoint(pp.live_longitude, pp.live_latitude), 4326)::geography,
-            ST_SetSRID(ST_MakePoint(${request.longitude}, ${request.latitude}), 4326)::geography,
-            200000.0
-          )
-      `) as Array<{ userId: string; distanceKm: number }>;
-      for (const provider of geo) {
-        const distanceBonus = Math.max(0, 40 - Math.floor(provider.distanceKm));
-        ranked.set(provider.userId, Math.max(ranked.get(provider.userId) ?? 0, 120 + distanceBonus));
-      }
-    }
-    return [...ranked.entries()].map(([userId, score]) => ({ userId, score })).sort((a, b) => b.score - a.score || a.userId.localeCompare(b.userId));
+    return [...ranked.entries()]
+      .map(([userId, score]) => ({ userId, score }))
+      .sort((a, b) => b.score - a.score || a.userId.localeCompare(b.userId));
   }
 
   private async dispatchNextWave(requestId: string, wave: number) {
