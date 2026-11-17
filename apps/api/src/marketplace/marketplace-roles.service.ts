@@ -550,9 +550,29 @@ export class MarketplaceRolesService {
       const changed = await tx.providerSkill.updateMany({ where: { id: skillId, status: "PENDING" },
         data: { status: decision, reviewerId, reviewedAt: now, decisionReason: trimmedReason || null } });
       if (changed.count !== 1) throw new ConflictException("This skill has already been decided.");
-      const approvedSkills = await tx.providerSkill.count({ where: { userId: skill.userId, status: "APPROVED" } });
+      const approvedSkills = await tx.providerSkill.findMany({
+        where: { userId: skill.userId, status: "APPROVED" },
+        select: { category: true },
+        orderBy: { category: "asc" },
+      });
       const providerActive = skill.user.identityVerification === IdentityVerificationStatus.VERIFIED &&
-        approvedSkills > 0 && skill.user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
+        approvedSkills.length > 0 && skill.user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
+      if (providerActive) {
+        const draft = await tx.onboardingDraft.findUnique({ where: { userId: skill.userId }, select: { profile: true } });
+        const profile = draft?.profile && typeof draft.profile === "object" && !Array.isArray(draft.profile)
+          ? draft.profile as Record<string, unknown> : {};
+        const fullName = [profile.firstName, profile.lastName]
+          .filter((value) => typeof value === "string" && value.trim()).join(" ");
+        const publicName = [profile.businessName, fullName]
+          .find((value) => typeof value === "string" && value.trim()) as string | undefined;
+        if (publicName) {
+          await tx.providerProfile.upsert({
+            where: { userId: skill.userId },
+            create: { userId: skill.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
+            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category) },
+          });
+        }
+      }
       await tx.user.update({ where: { id: skill.userId }, data: {
         providerRoleStatus: skill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
           ? MarketplaceRoleStatus.SUSPENDED
