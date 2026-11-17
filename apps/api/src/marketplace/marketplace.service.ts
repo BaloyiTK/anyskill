@@ -23,7 +23,8 @@ import {
 type RankedProvider = { userId: string; score: number };
 const normalise = (value: string) => value.trim().toLocaleLowerCase("en-ZA");
 const RESPONSE_WINDOW_MS = Math.max(60, Number(process.env.MATCH_RESPONSE_WINDOW_SECONDS ?? 300)) * 1000;
-const WAVE_SIZE = Math.max(1, Math.min(25, Number(process.env.MATCH_WAVE_SIZE ?? 5)));\nconst LIVE_MATCHING_WINDOW_MS = 30 * 60 * 1000;
+const WAVE_SIZE = Math.max(1, Math.min(25, Number(process.env.MATCH_WAVE_SIZE ?? 5)));
+const LIVE_MATCHING_WINDOW_MS = 30 * 60 * 1000;
 
 @Injectable()
 export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
