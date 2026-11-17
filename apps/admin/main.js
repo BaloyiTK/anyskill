@@ -106,11 +106,6 @@ function renderMetrics() {
     if (node) node.textContent = Number.isFinite(value) ? value.toLocaleString("en-ZA") : "—";
   });
 }
-async function loadDashboardMetrics() {
-  try { state.dashboardMetrics = await request("/admin/dashboard/metrics"); renderMetrics(); }
-  catch (error) { state.dashboardMetrics = null; renderMetrics(); toast("Marketplace metrics unavailable: " + (error.message || "check dashboard access")); }
-}
-
 function renderStaffMembers() {
   const list = $("#staff-list");
   if (!state.staffMembers.length) { list.innerHTML = '<div class="empty-state">No staff memberships found.</div>'; return; }
