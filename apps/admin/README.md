@@ -16,7 +16,7 @@ pnpm --filter @anyskill/admin dev
 
 The API base URL can be changed on the sign-in screen. Credentials are not stored by this app; access and refresh tokens are held in memory for the browser session and cleared on sign-out or failed refresh.
 
-For local development, the API permits the Admin Portal origins `http://localhost:4173` and `http://127.0.0.1:4173` when no explicit `CORS_ALLOWED_ORIGINS` value is configured. Production must set an explicit allow-list containing the deployed Admin Portal origin.
+For local development, the API preserves configured `CORS_ALLOWED_ORIGINS` entries and also allows `http://localhost:4173` and `http://127.0.0.1:4173`. Production uses only the explicitly configured allow-list, which must contain the deployed Admin Portal origin.
 
 ## Live administration functionality
 
