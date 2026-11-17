@@ -12,7 +12,7 @@ import {
   UpdateHomeLocationDto, UpdateLiveLocationDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
-  SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
+  SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, ScheduleServiceRequestDto,
 } from "./dto/service-request.dto";
 import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
@@ -92,6 +92,18 @@ export class MarketplaceController {
     return this.marketplace.respondToRequest(user.id, requestId, dto);
   }
 
+
+  @Post("marketplace/requests/:requestId/cancel")
+  @RequireMarketplaceRole("SEEKER")
+  cancelRequest(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.cancelRequest(user.id, requestId);
+  }
+
+  @Post("marketplace/requests/:requestId/schedule")
+  @RequireMarketplaceRole("SEEKER")
+  scheduleRequest(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: ScheduleServiceRequestDto) {
+    return this.marketplace.scheduleRequest(user.id, requestId, dto);
+  }
 
   @Post("marketplace/requests/:requestId/select-provider")
   @UseGuards(MarketplaceAccessGuard)
