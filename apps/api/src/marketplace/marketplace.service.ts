@@ -72,7 +72,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async createRequest(seekerId: string, input: CreateServiceRequestDto) {
     if ((input.latitude == null) !== (input.longitude == null)) throw new BadRequestException("Provide both latitude and longitude for the job location.");
-    if (input.deliveryMode === "ONSITE" && (input.latitude == null || input.longitude == null)) throw new BadRequestException("Choose the on-site job location on the map before publishing.");
+    if (input.deliveryMode !== "REMOTE" && (input.latitude == null || input.longitude == null)) throw new BadRequestException("Choose the job location on the map before publishing an on-site or either-mode request.");
     const seeker = await this.prisma.user.findUnique({
       where: { id: seekerId },
       select: { identityVerification: true },
@@ -728,7 +728,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     id: string; seekerId: string; skillCategory: string; location: string | null; latitude?: number | null; longitude?: number | null; deliveryMode: string;
   }): Promise<RankedProvider[]> {
     const remoteProfiles = await this.prisma.providerProfile.findMany({
-      where: { isAvailable: true, user: { is: { providerRoleStatus: "ACTIVE" } }, skillCategories: { has: normalise(request.skillCategory) }, userId: { not: request.seekerId }, deliveryModes: { hasSome: request.deliveryMode === "EITHER" ? ["REMOTE", "EITHER"] : [request.deliveryMode, "EITHER"] } },
+      where: { isAvailable: true, user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } }, skillCategories: { has: normalise(request.skillCategory) }, userId: { not: request.seekerId }, deliveryModes: { hasSome: request.deliveryMode === "EITHER" ? ["REMOTE", "EITHER"] : [request.deliveryMode, "EITHER"] } },
       select: { userId: true, serviceAreas: true, deliveryModes: true },
     });
     const ranked = new Map<string, number>();
