@@ -168,10 +168,17 @@ async function bootstrap(): Promise<void> {
   app.useGlobalFilters(new ApiExceptionFilter(app.get(HttpAdapterHost)));
   app.enableShutdownHooks();
 
-  const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+  const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+  // Local Admin Portal development is served from port 4173. Production must
+  // always provide an explicit allow-list of deployed frontend origins.
+  const allowedOrigins = configuredOrigins.length > 0
+    ? configuredOrigins
+    : process.env.NODE_ENV !== "production"
+      ? ["http://localhost:4173", "http://127.0.0.1:4173"]
+      : [];
 
   if (allowedOrigins.length > 0) {
     app.enableCors({ origin: allowedOrigins, credentials: true });
