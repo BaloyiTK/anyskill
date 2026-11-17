@@ -64,6 +64,11 @@ export class CreateServiceRequestDto {
   instructions?: string;
 }
 
+export class ScheduleServiceRequestDto {
+  @IsDateString()
+  preferredStartAt!: string;
+}
+
 export class ProviderResponseDto {
   @IsOptional()
   @IsString()
