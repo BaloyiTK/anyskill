@@ -113,7 +113,6 @@ export function MarketplaceScreen(p: Props) {
   const [providerAreas, setProviderAreas] = useState("");
   const [providerModes, setProviderModes] = useState("ONSITE");
   const [providerAvailable, setProviderAvailable] = useState(false);
-  const [providerLiveTrackingEnabled, setProviderLiveTrackingEnabled] = useState(false);
   const [providerProfileLoaded, setProviderProfileLoaded] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [notifications, setNotifications] = useState<Array<{id:string;title:string;body:string;readAt:string|null;createdAt:string}>>([]);
@@ -442,7 +441,7 @@ export function MarketplaceScreen(p: Props) {
   }, [p.mode, p.pendingRequestId, requests]);
 
   useEffect(() => {
-    if (p.mode !== "provider" || !providerAvailable || !providerLiveTrackingEnabled) return;
+    if (p.mode !== "provider" || !providerAvailable) return;
 
     let active = true;
     let nativeSubscription: Location.LocationSubscription | null = null;
@@ -616,7 +615,7 @@ export function MarketplaceScreen(p: Props) {
       }
       nativeSubscription?.remove();
     };
-  }, [p.mode, providerAvailable, providerLiveTrackingEnabled]);
+  }, [p.mode, providerAvailable]);
 
   const saveProviderProfile = async () => {
     setSavingProfile(true); setError(""); setNotice("");
@@ -822,7 +821,7 @@ export function MarketplaceScreen(p: Props) {
         <TextInput value={providerAreas} onChangeText={setProviderAreas} placeholder="e.g. Rosebank, Sandton, Johannesburg" style={s.input} />
         <Text style={s.label}>Delivery modes (ONSITE, REMOTE, EITHER)</Text>
         <TextInput value={providerModes} onChangeText={setProviderModes} placeholder="ONSITE, REMOTE" style={s.input} />
-        <Text style={s.helper}>{providerLiveTrackingEnabled && providerAvailable ? "AnySkill requests foreground GPS permission when you are Available; accurate fixes are shared for on-site matching while the app is open." : "Live location is not currently being shared."}</Text>
+        <Text style={s.helper}>{providerAvailable ? "AnySkill requests foreground GPS permission when you are Available; accurate fixes are shared for on-site matching while the app is open." : "Live location is not currently being shared."}</Text>
         <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
           <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
         </Pressable>
