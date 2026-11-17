@@ -13,6 +13,7 @@ import {
   IsUUID,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from "class-validator";
 
 export class CreateServiceRequestDto {
@@ -45,10 +46,12 @@ export class CreateServiceRequestDto {
   @IsIn(["ONSITE", "REMOTE", "EITHER"])
   deliveryMode!: "ONSITE" | "REMOTE" | "EITHER";
 
-  @IsOptional() @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90)
+  @ValidateIf((input: CreateServiceRequestDto) => input.deliveryMode !== "REMOTE")
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90)
   latitude?: number;
 
-  @IsOptional() @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180)
+  @ValidateIf((input: CreateServiceRequestDto) => input.deliveryMode !== "REMOTE")
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180)
   longitude?: number;
 
   @IsOptional()
