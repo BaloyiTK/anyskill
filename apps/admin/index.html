@@ -94,7 +94,7 @@
           <div class="section-heading lower"><div><h2>Operations modules</h2><p>More administration tools will connect as their API services are introduced.</p></div></div>
           <div class="module-grid">
             <article class="module-card"><span class="module-icon">♙</span><strong>User management</strong><span class="module-state">Planned module</span><p>Account search, access controls and user support.</p></article>
-            <article class="module-card"><span class="module-icon">▣</span><strong>Provider onboarding review</strong><span class="module-state">In Provider applications</span><p>Review identity, profile, skills, qualifications and portfolio together.</p></article>
+            <article class="module-card"><span class="module-icon">▣</span><strong>Identity &amp; skills review</strong><span class="module-state">Separate live queues</span><p>Review identity independently, then assess each Provider skill individually.</p></article>
             <article class="module-card"><span class="module-icon">↗</span><strong>Payments & finance</strong><span class="module-state">Planned module</span><p>Transactions, refunds and commission reconciliation.</p></article>
             <article class="module-card"><span class="module-icon">⚑</span><strong>Trust & safety</strong><span class="module-state">Planned module</span><p>Reports, disputes and fraud investigation.</p></article>
           </div>
@@ -119,13 +119,7 @@
   <div class="page-heading"><div><div class="eyebrow">MARKETPLACE ACCOUNTS</div><h1>Accounts<span class="heading-period">.</span></h1><p>View account modes, identity status and individual skill decisions.</p></div><button id="accounts-refresh" class="button button-light">↻ Refresh accounts</button></div>
   <div id="accounts-error" class="alert alert-error hidden" role="alert"></div><div id="accounts-list" class="application-list"><div class="loading-state">Loading accounts…</div></div>
 </div>
-<div id="providers-page" class="hidden">
-          <div class="page-heading"><div><div class="eyebrow">MARKETPLACE QUALITY</div><h1>Provider applications<span class="heading-period">.</span></h1><p>Assess applicants before granting Provider marketplace access.</p></div><button id="queue-refresh" class="button button-light">↻ Refresh queue</button></div>
-          <div class="queue-summary"><div><span class="queue-dot pending-dot"></span><strong id="queue-total">—</strong><span>Open applications</span></div><div class="queue-filter"><label for="queue-filter">Status</label><select id="queue-filter"><option value="ALL">All open</option><option value="PENDING">Awaiting review</option><option value="UNDER_REVIEW">Under review</option></select></div></div>
-          <div id="queue-error" class="alert alert-error hidden" role="alert"></div>
-          <div id="application-list" class="application-list"><div class="loading-state">Loading applications…</div></div>
-        </div>
-        <div id="toast" class="toast hidden" role="status"></div>
+<div id="toast" class="toast hidden" role="status"></div>
       </section>
     </main>
   </div>
