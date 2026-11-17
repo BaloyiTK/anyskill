@@ -45,7 +45,15 @@ export class OnboardingService {
       if (item.licencesQualifications !== undefined && (!Array.isArray(item.licencesQualifications) || item.licencesQualifications.length > 20)) throw new BadRequestException("Each skill can have up to 20 licences or qualifications.");
       for (const qualification of (item.licencesQualifications as unknown[] | undefined) ?? []) { const q = qualification as Record<string, unknown>; if (!q || typeof q !== "object" || Array.isArray(q) || typeof q.name !== "string" || q.name.trim().length < 2 || q.name.length > 200 || typeof q.attachmentUrl !== "string" || q.attachmentUrl.length > 2000) throw new BadRequestException("Each qualification needs a name and attachment reference."); }
       if (item.portfolio !== undefined && (!Array.isArray(item.portfolio) || item.portfolio.length > 30)) throw new BadRequestException("Each skill can have up to 30 portfolio items.");
-      for (const portfolioItem of (item.portfolio as unknown[] | undefined) ?? []) { const work = portfolioItem as Record<string, unknown>; if (!work || typeof work !== "object" || Array.isArray(work) || typeof work.title !== "string" || work.title.trim().length < 2 || work.title.length > 200) throw new BadRequestException("Each portfolio item needs a valid title."); for (const key of ["links", "imageUrls"]) if (work[key] !== undefined && (!Array.isArray(work[key]) || (work[key] as unknown[]).length > 20 || (work[key] as unknown[]).some((url) => typeof url !== "string" || url.length > 2000))) throw new BadRequestException(`Portfolio ${key} must be a list of valid URLs.`); }
+      for (const portfolioItem of (item.portfolio as unknown[] | undefined) ?? []) {
+        const work = portfolioItem as Record<string, unknown>;
+        if (!work || typeof work !== "object" || Array.isArray(work)) throw new BadRequestException("Each portfolio item must be an object.");
+        if (work.title !== undefined && (typeof work.title !== "string" || work.title.length > 200)) throw new BadRequestException("Portfolio titles must be 200 characters or fewer.");
+        if (work.description !== undefined && (typeof work.description !== "string" || work.description.length > 2000)) throw new BadRequestException("Portfolio descriptions must be 2,000 characters or fewer.");
+        if (work.linkTitle !== undefined && (typeof work.linkTitle !== "string" || work.linkTitle.length > 200)) throw new BadRequestException("Portfolio link titles must be 200 characters or fewer.");
+        if (work.linkUrl !== undefined && (typeof work.linkUrl !== "string" || work.linkUrl.length > 2000)) throw new BadRequestException("Portfolio links must be valid text URLs.");
+        for (const key of ["links", "imageUrls"]) if (work[key] !== undefined && (!Array.isArray(work[key]) || (work[key] as unknown[]).length > 20 || (work[key] as unknown[]).some((url) => typeof url !== "string" || url.length > 2000))) throw new BadRequestException(`Portfolio ${key} must be a list of valid references.`);
+      }
     }
     const normalizedSkills = (input.skills ?? []).map((skill) => String((skill as Record<string, unknown>).category ?? "").trim().toLocaleLowerCase("en-ZA")).filter(Boolean);
     if (new Set(normalizedSkills).size !== normalizedSkills.length) throw new BadRequestException("Duplicate skills are not allowed. Keep one entry for each skill.");
@@ -73,7 +81,7 @@ export class OnboardingService {
       // One valid skill category satisfies the agreed minimum. A description
       // is useful detail, but it is not a separate completion requirement.
       skills: skills.some((s) => typeof s?.category === "string" && s.category.trim()),
-      portfolio: skills.some((skill) => Array.isArray(skill?.portfolio) && skill.portfolio.some((item: any) => typeof item?.title === "string" && item.title.trim())) || portfolio.some((item) => typeof item?.title === "string" && item.title.trim()),
+      portfolio: skills.some((skill) => Array.isArray(skill?.portfolio) && skill.portfolio.some((item: any) => Boolean(item?.linkUrl?.trim?.() || item?.links?.length || item?.imageUrls?.length || item?.title?.trim?.()))) || portfolio.some((item) => typeof item?.title === "string" && item.title.trim()),
     };
     const completed = Object.values(sections).filter(Boolean).length;
     return { percentage: Math.round((completed / 3) * 100), sections };
@@ -204,7 +212,7 @@ export class OnboardingService {
             publicName: publicName.trim(),
             skills: [...new Set(skills.map((value) => value.toLocaleLowerCase("en-ZA")))],
             skillDetails,
-            portfolio: skillDetails.flatMap((skill) => Array.isArray(skill.portfolio) ? skill.portfolio : []).flatMap((item) => item && typeof item === "object" && "title" in item && typeof item.title === "string" ? [item.title] : []),
+            portfolio: skillDetails.flatMap((skill) => Array.isArray(skill.portfolio) ? skill.portfolio : []).filter((item) => item && typeof item === "object"),
             qualifications: skillDetails.flatMap((skill) => Array.isArray(skill.licencesQualifications) ? skill.licencesQualifications : []),
           })) as Prisma.InputJsonObject;
           await tx.providerRoleApplication.upsert({
