@@ -382,7 +382,6 @@ export function MarketplaceScreen(p: Props) {
         setProviderAreas(profile.serviceAreas.join(", "));
         setProviderModes(profile.deliveryModes.join(", "));
         setProviderAvailable(profile.isAvailable);
-        setProviderLiveTrackingEnabled(profile.isAvailable);
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load Provider profile."); }
     finally { setProviderProfileLoaded(true); }
@@ -632,7 +631,6 @@ export function MarketplaceScreen(p: Props) {
           isAvailable: providerAvailable,
         }),
       }, true);
-      setProviderLiveTrackingEnabled(profile.isAvailable);
       setNotice(profile.isAvailable ? "Provider profile saved. Your live location will be shared while you are online and using the app." : "Provider profile saved. You are currently offline; live location sharing has stopped.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save Provider profile."); }
     finally { setSavingProfile(false); }
