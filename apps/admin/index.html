@@ -129,12 +129,11 @@
       <div class="eyebrow">INDEPENDENT REVIEW</div><h2 id="review-title">Review submission</h2><p id="review-subtitle" class="modal-subtitle"></p>
       <div id="review-details" class="review-details"></div>
       <form id="decision-form">
-        <label for="decision-reason">Decision reason <span class="required">*</span> for rejection</label>
-        <textarea id="decision-reason" minlength="5" maxlength="1000" rows="3" placeholder="Rejections require a reason of at least five characters." required></textarea>
+        <label for="decision-reason">Decision reason (required for rejection)</label>
+        <textarea id="decision-reason" minlength="5" maxlength="1000" rows="3" placeholder="Enter at least five characters when rejecting."></textarea>
         <div class="decision-actions">
-          <button type="button" id="needs-info" class="button button-light">Request information</button>
           <button type="button" id="reject-application" class="button button-danger">Reject</button>
-          <button type="submit" class="button button-primary" id="approve-application">Approve Provider onboarding</button>
+          <button type="submit" class="button button-primary" id="approve-application">Approve</button>
         </div>
       </form>
       <div id="decision-error" class="alert alert-error hidden" role="alert"></div>
