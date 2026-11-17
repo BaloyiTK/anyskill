@@ -714,6 +714,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     this.workerRunning = true;
     try {
       await this.expandExpiredWaves();
+      await this.retryExhaustedRequests();
       await this.dispatchPendingNotifications();
     } catch (error) {
       this.logger.error("Marketplace worker cycle failed.", error);
@@ -882,6 +883,40 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       } else {
         await this.dispatchNextWave(request.id, request.matchingWave + 1);
       }
+    }
+  }
+
+  private async retryExhaustedRequests() {
+    // A request with no eligible Providers should remain open and be retried
+    // periodically. This also recovers requests exhausted before a Provider
+    // updated their skills, coverage, verification, or availability.
+    const retryBefore = new Date(Date.now() - 5 * 60 * 1000);
+    const exhausted = await this.prisma.serviceRequest.findMany({
+      where: {
+        status: "OPEN",
+        matchingNextAt: null,
+        matchingExhaustedAt: { lte: retryBefore },
+      },
+      select: { id: true, matchingWave: true },
+      take: 20,
+      orderBy: { matchingExhaustedAt: "asc" },
+    });
+
+    for (const request of exhausted) {
+      const claim = await this.prisma.serviceRequest.updateMany({
+        where: {
+          id: request.id,
+          status: "OPEN",
+          matchingNextAt: null,
+          matchingExhaustedAt: { lte: retryBefore },
+        },
+        data: {
+          matchingNextAt: new Date(Date.now() + 60_000),
+          matchingExhaustedAt: null,
+        },
+      });
+      if (claim.count === 0) continue;
+      await this.dispatchNextWave(request.id, request.matchingWave + 1);
     }
   }
 
