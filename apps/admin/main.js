@@ -331,24 +331,108 @@ async function decide(decision) {
   }
 }
 
-$("#login-form").addEventListener("submit", login);
-$("#logout-button").addEventListener("click", () => signOut());
-$("#refresh-button").addEventListener("click", async () => { await Promise.all([loadApplications(), loadDashboardMetrics()]); toast("Dashboard data refreshed."); });
-$("#queue-refresh").addEventListener("click", loadApplications);
-$("#queue-filter").addEventListener("change", renderApplications);
-$("#staff-create-form").addEventListener("submit", createStaffMember);
-$("#staff-refresh").addEventListener("click", loadStaffMembers);
-$("#staff-list").addEventListener("change", (event) => { const el = event.target.closest("[data-staff-role]"); if (el) void updateStaffMember(el.dataset.staffRole, { role: el.value }); });
-$("#staff-list").addEventListener("click", (event) => { const el = event.target.closest("[data-staff-toggle]"); if (el) void updateStaffMember(el.dataset.staffToggle, { isActive: el.dataset.active !== "true" }); });
-document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => setPage(item.dataset.page)));
-document.querySelectorAll("[data-go]").forEach((item) => item.addEventListener("click", () => setPage(item.dataset.go)));
-$("#application-list").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-review-id]");
-  if (button) void openReview(button.dataset.reviewId);
-});
-$("#close-modal").addEventListener("click", () => hide($("#review-modal")));
-$("#review-modal").addEventListener("click", (event) => { if (event.target === $("#review-modal")) hide($("#review-modal")); });
-$("#decision-form").addEventListener("submit", (event) => { event.preventDefault(); void decide("APPROVED"); });
-$("#reject-application").addEventListener("click", () => void decide("REJECTED"));
-$("#needs-info").addEventListener("click", () => void decide("NEEDS_INFORMATION"));
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") hide($("#review-modal")); });
+
+async function probeAdminPermission(path){try{await request(path);return true;}catch(e){if(e.status===403||e.status===404)return false;throw e;}}
+async function loadAdminPermissions(){
+ const checks=await Promise.all([probeAdminPermission("/admin/identity-reviews"),probeAdminPermission("/admin/skill-reviews"),probeAdminPermission("/admin/accounts"),probeAdminPermission("/admin/staff")]);
+ ["identity","skills","accounts","staff"].forEach((page,i)=>{const nav=document.querySelector('.nav-item[data-page="'+page+'"]');if(nav)checks[i]?show(nav):hide(nav);});
+ state.adminPermissions={identity:checks[0],skills:checks[1],accounts:checks[2],staff:checks[3]};
+}
+function renderIdentityQueue(){
+ const list=$("#identity-list");if(!state.identityCases.length){list.innerHTML='<div class="empty-state">No identity verification cases are awaiting review.</div>';return;}
+ list.innerHTML=state.identityCases.map(item=>'<article class="application-row"><div class="applicant-main"><div class="applicant-avatar">'+escapeHtml(initials(item.user?.email))+'</div><div class="applicant-copy"><strong>'+escapeHtml(item.user?.email||"Account")+'</strong><span>Identity: '+escapeHtml(item.user?.identityVerification||item.status)+'</span><div class="applicant-meta">Submitted '+escapeHtml(dateLabel(item.submittedAt))+'</div></div></div><div class="applicant-actions"><span class="status-pill">'+escapeHtml(item.status.replaceAll("_"," "))+'</span><button class="button button-light" data-review-type="identity" data-review-id="'+escapeHtml(item.id)+'">Review identity →</button></div></article>').join("");
+}
+function renderSkillQueue(){
+ const list=$("#skills-list");if(!state.skillReviews.length){list.innerHTML='<div class="empty-state">No individual skills are awaiting review.</div>';return;}
+ list.innerHTML=state.skillReviews.map(item=>'<article class="application-row"><div class="applicant-main"><div class="applicant-avatar">'+escapeHtml(initials(item.category))+'</div><div class="applicant-copy"><strong>'+escapeHtml(item.category)+'</strong><span>'+escapeHtml(item.user?.email||"Account")+'</span><div class="applicant-meta">Identity: '+escapeHtml(item.user?.identityVerification||"UNKNOWN")+' · Submitted '+escapeHtml(dateLabel(item.submittedAt))+'</div></div></div><div class="applicant-actions"><span class="status-pill">'+escapeHtml(item.status)+'</span><button class="button button-light" data-review-type="skill" data-review-id="'+escapeHtml(item.id)+'">Review skill →</button></div></article>').join("");
+}
+async function loadIdentityQueue(){
+ hide($("#identity-error"));$("#identity-list").innerHTML='<div class="loading-state">Loading identity reviews…</div>';
+ try{const rows=await request("/admin/identity-reviews");state.identityCases=Array.isArray(rows)?rows:[];renderIdentityQueue();$("#nav-identity-count").textContent=String(state.identityCases.length);$("#metric-pending").textContent=String(state.identityCases.length);}
+ catch(e){$("#identity-list").innerHTML="";$("#identity-error").textContent=e.message;show($("#identity-error"));}
+}
+async function loadSkillQueue(){
+ hide($("#skills-error"));$("#skills-list").innerHTML='<div class="loading-state">Loading skills…</div>';
+ try{const rows=await request("/admin/skill-reviews");state.skillReviews=Array.isArray(rows)?rows:[];renderSkillQueue();$("#nav-skills-count").textContent=String(state.skillReviews.length);$("#metric-review").textContent=String(state.skillReviews.length);}
+ catch(e){$("#skills-list").innerHTML="";$("#skills-error").textContent=e.message;show($("#skills-error"));}
+}
+function renderAdminAccounts(){
+ const list=$("#accounts-list");if(!state.accounts.length){list.innerHTML='<div class="empty-state">No accounts found.</div>';return;}
+ list.innerHTML=state.accounts.map(a=>{
+  const modes=(a.mode||[]).join(" + ")||"—";
+  const skills=(a.skills||[]).map(s=>'<div class="account-skill"><span>'+escapeHtml(s.name)+'</span><span class="status-pill">'+escapeHtml(s.status)+'</span>'+(s.reason?'<small>'+escapeHtml(s.reason)+'</small>':"")+'</div>').join("")||'<span class="applicant-meta">No provider skills recorded</span>';
+  const ready=a.identity?.status==="VERIFIED"&&(a.skills||[]).some(s=>s.status==="APPROVED");
+  return '<article class="application-row account-row"><div class="applicant-main"><div class="applicant-avatar">'+escapeHtml(initials(a.email))+'</div><div class="applicant-copy"><strong>'+escapeHtml(a.email)+'</strong><span>Mode: '+escapeHtml(modes)+'</span><div class="applicant-meta">Identity: '+escapeHtml(a.identity?.status||"NOT_STARTED")+(a.identity?.reason?" · "+escapeHtml(a.identity.reason):"")+'</div><div class="account-skills"><strong>Skills</strong>'+skills+'</div><div class="applicant-meta">Provider access: '+(ready?"Available":"Not yet available")+' — verified identity and at least one approved skill</div></div></div></article>';
+ }).join("");
+}
+async function loadAdminAccounts(){
+ hide($("#accounts-error"));$("#accounts-list").innerHTML='<div class="loading-state">Loading accounts…</div>';
+ try{const rows=await request("/admin/accounts");state.accounts=Array.isArray(rows)?rows:[];renderAdminAccounts();}
+ catch(e){$("#accounts-list").innerHTML="";$("#accounts-error").textContent=e.message;show($("#accounts-error"));}
+}
+function openSeparateReview(type,id){
+ const item=(type==="identity"?state.identityCases:state.skillReviews).find(x=>x.id===id);if(!item)return;
+ state.selected={type,item};$("#decision-form").dataset.type=type;$("#decision-form").dataset.id=id;$("#decision-reason").value="";hide($("#decision-error"));hide($("#needs-info"));
+ if(type==="identity"){
+  $("#review-title").textContent="Review identity documents";$("#review-subtitle").textContent=(item.user?.email||"Account")+" · Submitted "+dateLabel(item.submittedAt);
+  const labels={ID_DOCUMENT_FRONT:"Smart ID — front",ID_DOCUMENT_BACK:"Smart ID — back",ID_BOOK_PAGE_1:"Green ID book — details page",ID_BOOK_PAGE_2:"Green ID book — second page",ID_SELFIE:"Live selfie"};
+  $("#review-details").innerHTML='<div class="evidence-grid">'+Object.entries(labels).map(([key,label])=>item.documents?.[key]?'<div class="evidence-item"><span>'+escapeHtml(label)+'</span><a href="'+escapeHtml(item.documents[key])+'" target="_blank" rel="noopener noreferrer"><img src="'+escapeHtml(item.documents[key])+'" alt="'+escapeHtml(label)+'" loading="lazy"></a></div>':'<div class="evidence-item evidence-missing"><span>'+escapeHtml(label)+'</span><small>Not available</small></div>').join("")+'</div>';
+  $("#approve-application").textContent="Verify identity";$("#reject-application").textContent="Reject identity";$("#approve-application").disabled=false;
+ }else{
+  const d=item.details&&typeof item.details==="object"?item.details:{},q=Array.isArray(d.licencesQualifications)?d.licencesQualifications:[],p=Array.isArray(d.portfolio)?d.portfolio:[];
+  $("#review-title").textContent=item.category;$("#review-subtitle").textContent=(item.user?.email||"Account")+" · Identity status: "+(item.user?.identityVerification||"UNKNOWN");
+  $("#review-details").innerHTML='<section class="detail-block"><h3>Skill overview</h3><p>'+escapeHtml(d.description||"No description supplied")+'</p><p>Experience: '+escapeHtml(d.yearsOfExperience??"Not supplied")+'</p></section><section class="detail-block"><h3>Qualifications and licences</h3>'+(q.length?'<ul>'+q.map(x=>'<li>'+escapeHtml(x.name||"Qualification")+(x.attachmentUrl?' <span class="evidence-unavailable">(attachment reference recorded)</span>':"")+'</li>').join("")+'</ul>':"<p>None supplied.</p>")+'</section><section class="detail-block"><h3>Portfolio and work examples</h3>'+(p.length?p.map(x=>'<div class="portfolio-review"><strong>'+escapeHtml(x.title||"Work example")+'</strong><p>'+escapeHtml(x.description||"")+'</p>'+(x.linkUrl?'<p><a href="'+escapeHtml(x.linkUrl)+'" target="_blank" rel="noopener noreferrer">'+escapeHtml(x.linkTitle||x.linkUrl)+'</a></p>':"")+'</div>').join(""):"<p>None supplied.</p>")+'</section>';
+  $("#approve-application").textContent="Approve skill";$("#reject-application").textContent="Reject skill";$("#approve-application").disabled=item.user?.identityVerification!=="VERIFIED";
+ }
+ show($("#review-modal"));
+}
+async function decideSeparateReview(decision){
+ const type=$("#decision-form").dataset.type,id=$("#decision-form").dataset.id,reason=$("#decision-reason").value.trim(),error=$("#decision-error");hide(error);
+ if(decision==="REJECTED"&&reason.length<5){error.textContent="A rejection reason of at least five characters is required.";show(error);return;}
+ const buttons=[$("#approve-application"),$("#reject-application")];buttons.forEach(b=>b.disabled=true);
+ try{
+  const path=type==="identity"?"/admin/identity-reviews/"+encodeURIComponent(id)+"/decision":"/admin/skill-reviews/"+encodeURIComponent(id)+"/decision";
+  await request(path,{method:"POST",body:JSON.stringify({decision,reason})});hide($("#review-modal"));toast(type==="identity"?(decision==="APPROVED"?"Identity verified.":"Identity rejected."):(decision==="APPROVED"?"Skill approved.":"Skill rejected."));
+  await Promise.all([loadIdentityQueue(),loadSkillQueue(),loadAdminAccounts()]);
+ }catch(e){error.textContent=e.message;show(error);}finally{buttons.forEach(b=>b.disabled=false);}
+}
+function setPage(page){
+ ["overview-page","providers-page","staff-page","module-page","identity-page","skills-page","accounts-page"].forEach(id=>hide($("#"+id)));
+ if(page==="overview")show($("#overview-page"));else if(page==="identity"){show($("#identity-page"));void loadIdentityQueue();}
+ else if(page==="skills"){show($("#skills-page"));void loadSkillQueue();}else if(page==="accounts"){show($("#accounts-page"));void loadAdminAccounts();}
+ else if(page==="staff"){show($("#staff-page"));void loadStaffMembers();}else if(moduleDefinitions[page]){show($("#module-page"));renderModulePage(page);}
+ document.querySelectorAll(".nav-item").forEach(item=>item.classList.toggle("active",item.dataset.page===page));
+ $("#breadcrumb").textContent=({overview:"Dashboard",identity:"Identity verification",skills:"Skills review",accounts:"Accounts",staff:"Staff & permissions"})[page]||moduleDefinitions[page]?.title||"Overview";
+}
+async function login(event){
+ event.preventDefault();const box=$("#login-error");hide(box);state.api=$("#api-url").value.trim().replace(/\/$/,"");
+ const button=$("#login-form button[type=submit]");button.disabled=true;button.textContent="Signing in…";
+ try{
+  const result=await request("/auth/login",{method:"POST",body:JSON.stringify({email:$("#email").value.trim(),password:$("#password").value})});
+  state.accessToken=result.accessToken;state.refreshToken=result.refreshToken;state.staff=await request("/auth/me");
+  $("#staff-email").textContent=state.staff.email||"Staff account";$("#staff-avatar").textContent=initials(state.staff.email);
+  $("#today-date").textContent=new Intl.DateTimeFormat("en-ZA",{dateStyle:"full"}).format(new Date());hide($("#login-view"));show($("#app-view"));
+  await loadAdminPermissions();setPage("overview");await loadDashboardMetrics();
+  if(state.adminPermissions.identity)void loadIdentityQueue();if(state.adminPermissions.skills)void loadSkillQueue();
+ }catch(e){box.textContent=e.message||"Sign-in failed. Check API URL and CORS configuration.";show(box);state.accessToken="";state.refreshToken="";}
+ finally{button.disabled=false;button.innerHTML='Sign in securely <span>→</span>';}
+}
+
+$("#login-form").addEventListener("submit",login);
+$("#logout-button").addEventListener("click",()=>signOut());
+document.querySelectorAll(".nav-item").forEach(item=>item.addEventListener("click",()=>setPage(item.dataset.page)));
+document.querySelectorAll("[data-go]").forEach(item=>item.addEventListener("click",()=>setPage(item.dataset.go)));
+$("#identity-refresh").addEventListener("click",loadIdentityQueue);
+$("#skills-refresh").addEventListener("click",loadSkillQueue);
+$("#accounts-refresh").addEventListener("click",loadAdminAccounts);
+$("#identity-list").addEventListener("click",event=>{const b=event.target.closest("[data-review-type]");if(b)openSeparateReview("identity",b.dataset.reviewId);});
+$("#skills-list").addEventListener("click",event=>{const b=event.target.closest("[data-review-type]");if(b)openSeparateReview("skill",b.dataset.reviewId);});
+$("#staff-create-form").addEventListener("submit",createStaffMember);
+$("#staff-refresh").addEventListener("click",loadStaffMembers);
+$("#staff-list").addEventListener("change",event=>{const el=event.target.closest("[data-staff-role]");if(el)void updateStaffMember(el.dataset.staffRole,{role:el.value});});
+$("#staff-list").addEventListener("click",event=>{const el=event.target.closest("[data-staff-toggle]");if(el)void updateStaffMember(el.dataset.staffToggle,{isActive:el.dataset.active!=="true"});});
+$("#decision-form").addEventListener("submit",event=>{event.preventDefault();void decideSeparateReview("APPROVED");});
+$("#reject-application").addEventListener("click",()=>void decideSeparateReview("REJECTED"));
+$("#close-modal").addEventListener("click",()=>hide($("#review-modal")));
+$("#review-modal").addEventListener("click",event=>{if(event.target===$("#review-modal"))hide($("#review-modal"));});
+document.addEventListener("keydown",event=>{if(event.key==="Escape")hide($("#review-modal"));});
