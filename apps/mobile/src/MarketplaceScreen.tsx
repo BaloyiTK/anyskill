@@ -339,8 +339,12 @@ export function MarketplaceScreen(p: Props) {
   };
 
   const submitRequest = async () => {
-    if (deliveryMode !== "REMOTE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the job location on the map or use GPS for on-site or either-mode requests."); return; }
-    setBusy(true); setError(""); setNotice(""); setVerificationPrompt(false);
+    setError(""); setNotice(""); setVerificationPrompt(false);
+    if (title.trim().length < 5) { setError("Enter a request title with at least 5 characters."); return; }
+    if (category.trim().length < 2) { setError("Choose a skill from the suggestions or use Add skill before publishing."); return; }
+    if (description.trim().length < 20) { setError("Describe the work in at least 20 characters so Providers understand what is needed."); return; }
+    if (deliveryMode !== "REMOTE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the exact job location on the map, use your saved Home Location, or use current GPS. Select Remote if the work does not need a physical location."); return; }
+    setBusy(true);
     try {
       const published = await apiRequest<{
         id: string; title: string; skillCategory: string; location: string | null;
@@ -717,7 +721,8 @@ export function MarketplaceScreen(p: Props) {
             onSelect={(lat, lon) => { setRequestLatitude(lat); setRequestLongitude(lon); setLocation("On-site job location"); }}
           />
         </> : <Text style={s.helper}>Remote requests do not need a physical job location or GPS coordinates.</Text>}
-        <Primary label="Publish service request" onPress={submitRequest} disabled={busy || title.trim().length < 5 || category.trim().length < 2 || description.trim().length < 20 || (deliveryMode !== "REMOTE" && (requestLatitude == null || requestLongitude == null))} />
+        <Primary label={busy ? "Publishing request..." : "Publish service request"} onPress={submitRequest} disabled={busy} />
+        <Text style={s.helper}>You can tap Publish service request at any time. If anything required is missing, AnySkill will explain what to complete. On-site and Either requests need a selected map location; Remote requests do not.</Text>
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
         {matchingRequest && <View style={s.notice}>
           <Text style={s.noticeTitle}>Request published: {matchingRequest.title}</Text>
