@@ -18,6 +18,16 @@ import { OnboardingScreen } from "./src/OnboardingScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
 import { WelcomeScreen } from "./src/WelcomeScreen";
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
 
 type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding" | "profile-check";
 type UserMode = "seeker" | "provider";
@@ -246,7 +256,7 @@ export default function App() {
       try {
         if (Platform.OS === "android") {
           await Notifications.setNotificationChannelAsync("default", {
-            name: "AnySkill updates", importance: Notifications.AndroidImportance.MAX,
+            name: "Incoming service requests", importance: Notifications.AndroidImportance.MAX, sound: "default", vibrationPattern: [0, 500, 250, 500, 250, 700], lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
           });
         }
         let permission = await Notifications.getPermissionsAsync();
@@ -256,6 +266,15 @@ export default function App() {
         if (!projectId) {
           throw new Error("Set EXPO_PUBLIC_EAS_PROJECT_ID to the AnySkill EAS project ID before registering push notifications.");
         }
+        await Notifications.setNotificationChannelAsync("incoming_requests", {
+          name: "Incoming service requests",
+          importance: Notifications.AndroidImportance.MAX,
+          sound: "default",
+          vibrationPattern: [0, 500, 250, 500, 250, 700],
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+          enableVibrate: true,
+          showBadge: true,
+        });
         const token = await Notifications.getExpoPushTokenAsync({ projectId });
         if (cancelled) return;
         await apiRequest("/notifications/devices", {
@@ -310,14 +329,50 @@ export default function App() {
     return () => { cancelled = true; clearInterval(interval); };
   }, [account?.id, account?.initialMode, screen, activeTab]);
 
+  const openMatchedRequest = async (requestId: string) => {
+    if (!requestId) return;
+    setPendingAcceptRequestId(requestId);
+    setActiveTab("home");
+    setMode("provider");
+    setScreen("marketplace");
+    if (account && roleSummary?.providerStatus === "ACTIVE") {
+      try {
+        const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
+          method: "PATCH",
+          body: JSON.stringify({ mode: "PROVIDER" }),
+        }, true);
+        setRoleSummary(roles);
+      } catch (e) {
+        console.warn("[AnySkill notifications] Could not switch to Provider mode.", e);
+      }
+    }
+  };
+
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener(() => {
+    const received = Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification.request.content.data as { type?: string; requestId?: string };
+      if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
+        void openMatchedRequest(data.requestId);
+      }
+    });
+    const response = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as { type?: string; requestId?: string };
+      if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
+        void openMatchedRequest(data.requestId);
+        return;
+      }
       setActiveTab("notifications");
       setScreen("dashboard");
       void loadNotifications();
     });
-    return () => subscription.remove();
-  }, [account?.id]);
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      const data = response?.notification.request.content.data as { type?: string; requestId?: string } | undefined;
+      if (data?.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
+        void openMatchedRequest(data.requestId);
+      }
+    }).catch(() => undefined);
+    return () => { received.remove(); response.remove(); };
+  }, [account?.id, roleSummary?.providerStatus]);
 
   useEffect(() => {
     if (otpResendSeconds <= 0) return;
