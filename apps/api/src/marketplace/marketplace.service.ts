@@ -357,6 +357,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: "desc" },
       include: {
         jobEngagement: { include: { adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } } },
+        _count: { select: { matches: true } },
         providerResponses: {
           orderBy: { createdAt: "asc" },
           select: {
@@ -394,7 +395,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
     await this.prisma.requestMatch.updateMany({
       where: { requestId, status: "NOTIFIED" },
-      data: { status: "RESPONDED" },
+      data: { status: "EXPIRED" },
     });
     return { success: true, requestId, status: "CANCELLED" };
   }
@@ -414,7 +415,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { id: requestId },
       data: { preferredStartAt, matchingStartedAt: new Date(), matchingWave: 0, matchingNextAt: null, matchingExhaustedAt: null },
     });
-    const matching = await this.dispatchNextWave(requestId, request.matchingWave + 1, true);
+    const matching = await this.dispatchNextWave(requestId, 1, true);
     return { success: true, requestId, preferredStartAt, matching };
   }
 
