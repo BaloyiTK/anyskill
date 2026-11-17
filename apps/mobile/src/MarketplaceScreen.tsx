@@ -36,7 +36,7 @@ type JobEngagement = { id: string; status: string; hourlyRate: string | number; 
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
-  status: string; createdAt: string; preferredStartAt: string | null; matchingWave: number; matchingNextAt: string | null; matchingExhaustedAt: string | null; jobEngagement: JobEngagement | null;
+  status: string; createdAt: string; matchingStartedAt: string; preferredStartAt: string | null; matchingWave: number; matchingNextAt: string | null; matchingExhaustedAt: string | null; jobEngagement: JobEngagement | null;
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
     hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null;
@@ -166,10 +166,10 @@ export function MarketplaceScreen(p: Props) {
       if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
       setMyRequests(result);
       if (!matchingRequest) {
-        const active = result.find((item) => item.status === "OPEN" && !item.preferredStartAt && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
+        const active = result.find((item) => item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
         if (active) setMatchingRequest({
           id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
-          createdAt: active.createdAt, notified: 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
+          createdAt: active.matchingStartedAt, notified: 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
         });
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load your requests."); }
@@ -355,7 +355,7 @@ export function MarketplaceScreen(p: Props) {
     setBusy(true);
     try {
       const published = await apiRequest<{
-        id: string; title: string; skillCategory: string; location: string | null; createdAt: string;
+        id: string; title: string; skillCategory: string; location: string | null; createdAt: string; matchingStartedAt: string;
         matching?: { notified?: number; wave?: number; exhausted?: boolean };
       }>("/marketplace/requests", {
         method: "POST",
@@ -367,7 +367,7 @@ export function MarketplaceScreen(p: Props) {
       }, true);
       setMatchingRequest({
         id: published.id, title: published.title, skillCategory: published.skillCategory,
-        location: published.location, createdAt: published.createdAt, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
+        location: published.location, createdAt: published.matchingStartedAt, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
       });
       setTitle(""); setCategory(""); setSkillQuery(""); setDescription(""); setInstructions(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
       await loadMyRequests();
@@ -687,10 +687,10 @@ export function MarketplaceScreen(p: Props) {
     }
     setJobActionBusy(true); setError("");
     try {
-      await apiRequest(`/marketplace/requests/${matchingRequest.id}/schedule`, {
+      const result = await apiRequest<{ preferredStartAt: string; matching?: { notified?: number; wave?: number; exhausted?: boolean } }>(`/marketplace/requests/${matchingRequest.id}/schedule`, {
         method: "POST", body: JSON.stringify({ preferredStartAt: scheduled.toISOString() }),
       }, true);
-      setMatchingRequest(null);
+      setMatchingRequest({ ...matchingRequest, createdAt: new Date().toISOString(), notified: result.matching?.notified ?? 0, wave: result.matching?.wave ?? 1, exhausted: result.matching?.exhausted ?? false });
       await loadMyRequests();
       setNotice("Your request has been scheduled and Provider matching has restarted for the scheduled work time.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not schedule this request."); }
