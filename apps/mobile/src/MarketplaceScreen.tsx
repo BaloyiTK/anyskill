@@ -102,7 +102,7 @@ export function MarketplaceScreen(p: Props) {
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
   const [responseMessage, setResponseMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;notified:number;wave:number}|null>(null);
+  const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;notified:number;wave:number;exhausted:boolean}|null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [verificationPrompt, setVerificationPrompt] = useState(false);
@@ -341,12 +341,12 @@ export function MarketplaceScreen(p: Props) {
   };
 
   const submitRequest = async () => {
-    if (deliveryMode === "ONSITE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the on-site job location on the map or use GPS before publishing."); return; }
+    if (deliveryMode !== "REMOTE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the job location on the map or use GPS for on-site or either-mode requests."); return; }
     setBusy(true); setError(""); setNotice(""); setVerificationPrompt(false);
     try {
       const published = await apiRequest<{
         id: string; title: string; skillCategory: string; location: string | null;
-        matching?: { notified?: number; wave?: number };
+        matching?: { notified?: number; wave?: number; exhausted?: boolean };
       }>("/marketplace/requests", {
         method: "POST",
         body: JSON.stringify({
@@ -357,7 +357,7 @@ export function MarketplaceScreen(p: Props) {
       }, true);
       setMatchingRequest({
         id: published.id, title: published.title, skillCategory: published.skillCategory,
-        location: published.location, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1,
+        location: published.location, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
       });
       setTitle(""); setCategory(""); setSkillQuery(""); setDescription(""); setInstructions(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
       await loadMyRequests();
@@ -682,9 +682,9 @@ export function MarketplaceScreen(p: Props) {
         <Text style={s.helper}>Describe the work you need done. You can prepare your request before verification; publishing requires verified identity.</Text>
         {!p.verified && <View style={s.notice}><Text style={s.noticeTitle}>Verification required to publish</Text><Text style={s.noticeText}>You can complete this request form now. AnySkill will only publish it after your identity is verified.</Text></View>}
         <Text style={s.label}>What do you need done?</Text>
-        <TextInput value={title} onChangeText={setTitle} placeholder="e.g. Repair a leaking kitchen tap" style={s.input} />
+        <TextInput value={title} onChangeText={setTitle} maxLength={120} placeholder="e.g. Repair a leaking kitchen tap" style={s.input} />
         <Text style={s.label}>Choose a skill</Text>
-        <TextInput value={skillQuery} onChangeText={(value) => { setSkillQuery(value); setCategory(""); }} placeholder="Search skills, e.g. Plumbing" style={s.input} />
+        <TextInput value={skillQuery} onChangeText={(value) => { setSkillQuery(value); setCategory(""); }} maxLength={100} placeholder="Search skills, e.g. Plumbing" style={s.input} />
         <Text style={s.helper}>Popular skills are based on skills listed by AnySkill Providers.</Text>
         <View style={s.skillChipRow}>
           {skillSuggestions.slice(0, 8).map((skill) => <Pressable key={skill.name} onPress={() => { setCategory(skill.name); setSkillQuery(skill.name); }} style={[s.skillChip, category.toLowerCase() === skill.name.toLowerCase() && s.skillChipActive]}>
@@ -695,16 +695,16 @@ export function MarketplaceScreen(p: Props) {
           <Pressable onPress={() => void addSkill()} disabled={skillBusy} style={s.addSkillButton}><Text style={s.addSkillText}>{skillBusy ? "Adding..." : "Add skill"}</Text></Pressable> : null}
         {category ? <Text style={s.selectedSkill}>Selected skill: {category}</Text> : <Text style={s.helper}>Choose an existing skill or add a new one. AnySkill checks the catalogue automatically to avoid duplicates.</Text>}
         <Text style={s.label}>Describe the work</Text>
-        <TextInput value={description} onChangeText={setDescription} placeholder="Explain what needs to be done..." multiline style={[s.input, s.multiline]} />
+        <TextInput value={description} onChangeText={setDescription} maxLength={5000} placeholder="Explain what needs to be done..." multiline style={[s.input, s.multiline]} />
         <Text style={s.label}>Special notes (optional)</Text>
-        <TextInput value={instructions} onChangeText={setInstructions} placeholder="Add access details, preferred times, materials, or anything else the Provider should know..." multiline style={[s.input, s.multiline]} />
+        <TextInput value={instructions} onChangeText={setInstructions} maxLength={2000} placeholder="Add access details, preferred times, materials, or anything else the Provider should know..." multiline style={[s.input, s.multiline]} />
         <Text style={s.label}>Service area (not your exact street address)</Text>
-        <TextInput value={location} onChangeText={setLocation} placeholder="e.g. Rosebank, Johannesburg" style={s.input} />
+        <TextInput value={location} onChangeText={setLocation} maxLength={500} placeholder="e.g. Rosebank, Johannesburg" style={s.input} />
         <View style={s.choiceRow}>
           <Secondary label="Use saved Home Location" onPress={useSavedHomeLocation} />
           <Secondary label={locationBusy ? "Getting GPS..." : "Use current GPS"} onPress={() => void useCurrentJobLocation()} />
         </View>
-        <Text style={s.helper}>{requestLatitude != null && requestLongitude != null ? `Job coordinates selected: ${requestLatitude.toFixed(5)}, ${requestLongitude.toFixed(5)}` : "For on-site requests, choose a job location using Home Location or current GPS. Only this job location is shared with matched Providers."}</Text>
+        <Text style={s.helper}>{requestLatitude != null && requestLongitude != null ? `Job coordinates selected: ${requestLatitude.toFixed(5)}, ${requestLongitude.toFixed(5)}` : "For on-site or either-mode requests, choose the job location using Home Location, current GPS, or the map. Only this job location is shared with matched Providers."}</Text>
         <Text style={s.label}>Where should the work happen?</Text>
         <View style={s.choiceRow}>
           {(["ONSITE", "REMOTE", "EITHER"] as const).map((value) => <Pressable key={value} onPress={() => setDeliveryMode(value)} style={[s.choice, deliveryMode === value && s.choiceActive]}><Text style={[s.choiceText, deliveryMode === value && s.choiceTextActive]}>{value === "ONSITE" ? "On-site" : value === "REMOTE" ? "Remote" : "Either"}</Text></Pressable>)}
@@ -723,8 +723,16 @@ export function MarketplaceScreen(p: Props) {
             onSelect={(lat, lon) => { setRequestLatitude(lat); setRequestLongitude(lon); setLocation("On-site job location"); }}
           />
         </> : <Text style={s.helper}>Remote requests do not need a physical job location or GPS coordinates.</Text>}
-        <Primary label="Publish service request" onPress={submitRequest} disabled={busy || title.trim().length < 5 || category.trim().length < 2 || description.trim().length < 20 || (deliveryMode === "ONSITE" && (requestLatitude == null || requestLongitude == null))} />
+        <Primary label="Publish service request" onPress={submitRequest} disabled={busy || title.trim().length < 5 || category.trim().length < 2 || description.trim().length < 20 || (deliveryMode !== "REMOTE" && (requestLatitude == null || requestLongitude == null))} />
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
+        {matchingRequest && <View style={s.notice}>
+          <Text style={s.noticeTitle}>Request published: {matchingRequest.title}</Text>
+          <Text style={s.noticeText}>{matchingRequest.notified > 0
+            ? `Matching wave ${matchingRequest.wave}: ${matchingRequest.notified} Provider${matchingRequest.notified === 1 ? "" : "s"} notified. ${matchingRequestOffers} offer${matchingRequestOffers === 1 ? "" : "s"} received so far.`
+            : matchingRequest.exhausted
+              ? "No eligible, verified and available Providers matched this request yet. You can keep the request open and check again later."
+              : "Your request was saved. Provider matching is being prepared."}</Text>
+        </View>}
         <Text style={s.section}>Your service requests and Provider offers</Text>
         <Text style={s.helper}>Compare the offers you receive. Selecting a Provider closes the request to further offers. You can only select one offer.</Text>
         <Secondary label="Refresh my requests" onPress={() => void loadMyRequests()} />
