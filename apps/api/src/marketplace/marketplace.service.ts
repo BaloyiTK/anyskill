@@ -178,8 +178,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }
     const updated = await this.prisma.providerProfile.upsert({
       where: { userId },
-      create: { userId, publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, maxTravelDistanceKm: input.maxTravelDistanceKm ?? 25 },
-      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, maxTravelDistanceKm: input.maxTravelDistanceKm ?? 25, ...(!input.isAvailable ? { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null } : {}) },
+      create: { userId, publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable },
+      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, ...(!input.isAvailable ? { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null } : {}) },
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
     });
     this.liveProviderMap.notifyChanged();
@@ -189,7 +189,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async getProviderProfile(userId: string) {
     return this.prisma.providerProfile.findUnique({
       where: { userId },
-      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, updatedAt: true },
+      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, updatedAt: true },
     });
   }
 
@@ -201,8 +201,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }
 
     // Discovery is independent of service-request matching. Show online
-    // Providers who are within BOTH the Seeker's selected map radius and
-    // each Provider's own configured travel radius. Do not filter by skill,
+    // Providers within the Seeker's selected map radius. Do not filter by skill,
     // identity status, Provider role status, or delivery mode.
     const cutoff = new Date(Date.now() - 5 * 60 * 1000);
     const profiles = await this.prisma.providerProfile.findMany({
@@ -217,7 +216,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         skillCategories: true,
         liveLatitude: true,
         liveLongitude: true,
-        maxTravelDistanceKm: true,
       },
       orderBy: { liveLocationUpdatedAt: "desc" },
     });
@@ -234,7 +232,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return profiles.flatMap((profile) => {
       if (profile.liveLatitude == null || profile.liveLongitude == null) return [];
       const distance = distanceKm(profile.liveLatitude, profile.liveLongitude);
-      if (distance > profile.maxTravelDistanceKm || distance > seekerRadiusKm) return [];
+      if (distance > seekerRadiusKm) return [];
       return [{
         id: profile.id,
         skill: profile.skillCategories[0] || "Skill not added",
@@ -764,10 +762,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             ST_SetSRID(ST_MakePoint(${request.longitude}, ${request.latitude}), 4326)::geography,
             200000.0
           )
-          AND ST_Distance(
-            ST_SetSRID(ST_MakePoint(pp.live_longitude, pp.live_latitude), 4326)::geography,
-            ST_SetSRID(ST_MakePoint(${request.longitude}, ${request.latitude}), 4326)::geography
-          ) <= pp.max_travel_distance_km * 1000.0
       `) as Array<{ userId: string; distanceKm: number }>;
       for (const provider of geo) {
         const distanceBonus = Math.max(0, 40 - Math.floor(provider.distanceKm));
