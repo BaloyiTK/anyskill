@@ -109,7 +109,6 @@ export function MarketplaceScreen(p: Props) {
   const [providerPublicName, setProviderPublicName] = useState("");
   const [providerHourlyRate, setProviderHourlyRate] = useState("");
   const [providerAssessmentFee, setProviderAssessmentFee] = useState("0");
-  const [providerTravelRadius, setProviderTravelRadius] = useState("25");
   const [providerSkills, setProviderSkills] = useState("");
   const [providerAreas, setProviderAreas] = useState("");
   const [providerModes, setProviderModes] = useState("ONSITE");
@@ -374,13 +373,12 @@ export function MarketplaceScreen(p: Props) {
     try {
       const profile = await apiRequest<{
         publicName: string; hourlyRate: string | number | null; assessmentFee: string | number;
-        skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable: boolean; maxTravelDistanceKm: number;
+        skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable: boolean;
       } | null>("/marketplace/provider-profile", {}, true);
       if (profile) {
         setProviderPublicName(profile.publicName || "");
         setProviderHourlyRate(profile.hourlyRate == null ? "" : String(profile.hourlyRate));
         setProviderAssessmentFee(String(profile.assessmentFee ?? 0));
-        setProviderTravelRadius(String(profile.maxTravelDistanceKm ?? 25));
         setProviderSkills(profile.skillCategories.join(", "));
         setProviderAreas(profile.serviceAreas.join(", "));
         setProviderModes(profile.deliveryModes.join(", "));
@@ -633,7 +631,6 @@ export function MarketplaceScreen(p: Props) {
           serviceAreas: providerAreas.split(",").map((v) => v.trim()).filter(Boolean),
           deliveryModes: providerModes.split(",").map((v) => v.trim()).filter(Boolean),
           isAvailable: providerAvailable,
-          maxTravelDistanceKm: Number(providerTravelRadius),
         }),
       }, true);
       setProviderLiveTrackingEnabled(profile.isAvailable);
@@ -823,16 +820,13 @@ export function MarketplaceScreen(p: Props) {
         <TextInput value={providerSkills} onChangeText={setProviderSkills} placeholder="e.g. Plumbing, Electrical, Painting" style={s.input} />
         <Text style={s.label}>Service areas (comma-separated)</Text>
         <TextInput value={providerAreas} onChangeText={setProviderAreas} placeholder="e.g. Rosebank, Sandton, Johannesburg" style={s.input} />
-        <Text style={s.label}>Maximum on-site travel distance (km)</Text>
-        <TextInput value={providerTravelRadius} onChangeText={setProviderTravelRadius} placeholder="25" keyboardType="number-pad" style={s.input} />
-        <Text style={s.helper}>Choose a radius from 1 to 200 km. This applies to on-site matches; remote requests do not use GPS distance.</Text>
         <Text style={s.label}>Delivery modes (ONSITE, REMOTE, EITHER)</Text>
         <TextInput value={providerModes} onChangeText={setProviderModes} placeholder="ONSITE, REMOTE" style={s.input} />
         <Text style={s.helper}>{providerLiveTrackingEnabled && providerAvailable ? "AnySkill requests foreground GPS permission when you are Available; accurate fixes are shared for on-site matching while the app is open." : "Live location is not currently being shared."}</Text>
         <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
           <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
         </Pressable>
-        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim() || providerPublicName.trim().length < 2 || !(Number(providerHourlyRate) > 0) || !Number.isFinite(Number(providerAssessmentFee)) || Number(providerAssessmentFee) < 0 || !(Number(providerTravelRadius) >= 1 && Number(providerTravelRadius) <= 200)} />
+        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim() || providerPublicName.trim().length < 2 || !(Number(providerHourlyRate) > 0) || !Number.isFinite(Number(providerAssessmentFee)) || Number(providerAssessmentFee) < 0} />
         <Text style={s.section}>Selected jobs and assessments</Text>
         <Secondary label="Refresh selected jobs" onPress={() => void loadMyJobs()} />
         {myJobs.map((job) => <View key={job.id} style={s.card}>
