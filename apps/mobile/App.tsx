@@ -15,6 +15,7 @@ import {
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
 import { ProviderHomeScreen } from "./src/ProviderHomeScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
+import { ProfileScreen } from "./src/ProfileScreen";
 import { WelcomeScreen } from "./src/WelcomeScreen";
 
 
@@ -55,6 +56,7 @@ const C = {
 export default function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
   const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [mode, setMode] = useState<UserMode>("seeker");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -865,6 +867,7 @@ export default function App() {
                 accessibilityLabel="Open account"
                 onPress={() => {
                   setActiveTab("account");
+                  setShowAccountSettings(false);
                   setScreen("dashboard");
                   feedback();
                 }}
@@ -1187,7 +1190,8 @@ export default function App() {
             ))}
           </View>}
 
-          {screen === "dashboard" && account && activeTab === "account" && <View style={s.form}>
+          {screen === "dashboard" && account && activeTab === "account" && (showAccountSettings ? <View style={s.form}>
+            <Secondary label="Back to profile" onPress={() => setShowAccountSettings(false)} />
             <Text style={s.kicker}>ACCOUNT SETTINGS</Text>
             <Text style={s.formTitle}>Your account</Text>
             <Text style={s.subtitle}>{account.email}</Text>
@@ -1263,7 +1267,15 @@ export default function App() {
                 <Secondary label="Cancel" onPress={() => { setDeleteConfirmation(""); setShowDeleteConfirmation(false); }} />
               </View>}
             </View>
-          </View>}
+          </View> : <ProfileScreen
+              email={account.email}
+              mode={mode}
+              providerStatus={roleSummary?.providerStatus ?? account.providerRoleStatus}
+              seekerStatus={roleSummary?.seekerStatus ?? account.seekerRoleStatus}
+              onModeChange={(nextMode) => { void switchMarketplaceMode(nextMode); }}
+              onAccountSettings={() => setShowAccountSettings(true)}
+              onStartVerification={() => { void startIdentityVerification(); }}
+            />)}
 
           {message ? <View style={s.successNotice}><Text style={s.successText}>{message}</Text></View> : null}
           {error ? <View style={s.errorNotice}><Text style={s.errorText}>{error}</Text></View> : null}
@@ -1275,7 +1287,7 @@ export default function App() {
         <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { void navigateHome(); }} />
         <BottomTab label="Activities" icon="▤" selected={activeTab === "activities"} onPress={() => { setActiveTab("activities"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
-        <BottomTab label="Account" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setScreen("dashboard"); feedback(); }} />
+        <BottomTab label="Profile" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setShowAccountSettings(false); setScreen("dashboard"); feedback(); }} />
       </View>}
       </SafeAreaView>
     </SafeAreaProvider>
