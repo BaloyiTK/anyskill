@@ -498,11 +498,29 @@ export class MarketplaceRolesService {
           reviewerId, reviewedAt: now, decisionReason: trimmedReason || null },
       });
       if (changed.count !== 1) throw new ConflictException("This identity verification case has already been decided.");
-      const approvedSkills = await tx.providerSkill.count({ where: { userId: verificationCase.userId, status: "APPROVED" } });
+      const approvedSkills = await tx.providerSkill.findMany({
+        where: { userId: verificationCase.userId, status: "APPROVED" },
+        select: { category: true },
+        orderBy: { category: "asc" },
+      });
       const user = await tx.user.findUniqueOrThrow({ where: { id: verificationCase.userId },
         select: { providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } });
       const identityStatus = decision === "APPROVED" ? IdentityVerificationStatus.VERIFIED : IdentityVerificationStatus.FAILED;
-      const providerActive = decision === "APPROVED" && approvedSkills > 0 && user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
+      const providerActive = decision === "APPROVED" && approvedSkills.length > 0 && user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
+      if (providerActive) {
+        const draft = await tx.onboardingDraft.findUnique({ where: { userId: verificationCase.userId }, select: { profile: true } });
+        const profile = draft?.profile && typeof draft.profile === "object" && !Array.isArray(draft.profile)
+          ? draft.profile as Record<string, unknown> : {};
+        const fullName = [profile.firstName, profile.lastName].filter((value) => typeof value === "string" && value.trim()).join(" ");
+        const publicName = [profile.businessName, fullName].find((value) => typeof value === "string" && value.trim()) as string | undefined;
+        if (publicName) {
+          await tx.providerProfile.upsert({
+            where: { userId: verificationCase.userId },
+            create: { userId: verificationCase.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
+            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category) },
+          });
+        }
+      }
       await tx.user.update({ where: { id: verificationCase.userId }, data: {
         identityVerification: identityStatus, identityVerifiedAt: decision === "APPROVED" ? now : null,
         providerRoleStatus: user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
@@ -510,7 +528,8 @@ export class MarketplaceRolesService {
           : providerActive ? MarketplaceRoleStatus.ACTIVE : MarketplaceRoleStatus.PENDING,
         activeMarketplaceMode: user.activeMarketplaceMode === RegistrationMode.PROVIDER && !providerActive
           ? (user.seekerRoleStatus === MarketplaceRoleStatus.ACTIVE ? RegistrationMode.SEEKER : null)
-          : user.activeMarketplaceMode,
+          : providerActive && user.activeMarketplaceMode === null && user.seekerRoleStatus !== MarketplaceRoleStatus.ACTIVE
+            ? RegistrationMode.PROVIDER : user.activeMarketplaceMode,
       } });
       await tx.staffAuditLog.create({ data: { actorId: reviewerId, targetUserId: verificationCase.userId,
         action: `IDENTITY_VERIFICATION_${decision}`, metadata: { caseId, reason: trimmedReason || null } } });
