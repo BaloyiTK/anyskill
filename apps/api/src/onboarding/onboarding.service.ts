@@ -200,6 +200,20 @@ export class OnboardingService {
       }
 
       if (wantsProvider) {
+        // Persist each submitted skill independently. Existing decisions are
+        // preserved; only genuinely new skills enter the review queue.
+        await tx.providerSkill.createMany({
+          data: skillDetails.flatMap((skill) => {
+            const category = typeof skill.category === "string" ? skill.category.trim() : "";
+            return category ? [{
+              userId,
+              category: category.toLocaleLowerCase("en-ZA"),
+              details: skill as Prisma.InputJsonValue,
+            }] : [];
+          }),
+          skipDuplicates: true,
+        });
+
         if (!publicName || skills.length === 0) {
           throw new BadRequestException("Provider applications require a public name and at least one skill.");
         }
