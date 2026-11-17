@@ -141,13 +141,8 @@ async function login(event) {
 }
 
 function renderMetrics() {
-  const pending = state.applications.filter((item) => item.status === "PENDING").length;
-  const review = state.applications.filter((item) => item.status === "UNDER_REVIEW").length;
-  $("#metric-pending").textContent = String(state.dashboardMetrics?.pendingApplications ?? pending);
-  $("#metric-review").textContent = String(state.dashboardMetrics?.applicationsUnderReview ?? review);
-  $("#priority-count").textContent = String(state.applications.length);
-  $("#nav-pending").textContent = String(state.applications.length);
-  $("#queue-total").textContent = String(state.applications.length);
+  $("#metric-pending").textContent = String(state.identityCases?.length ?? 0);
+  $("#metric-review").textContent = String(state.skillReviews?.length ?? 0);
   const metrics = state.dashboardMetrics || {};
   const values = {
     "#metric-active-providers": metrics.activeProviders,
@@ -157,7 +152,10 @@ function renderMetrics() {
     "#metric-scheduled": metrics.scheduledJobs,
     "#metric-pending-jobs": metrics.pendingJobs,
   };
-  Object.entries(values).forEach(([selector, value]) => { $(selector).textContent = Number.isFinite(value) ? value.toLocaleString("en-ZA") : "—"; });
+  Object.entries(values).forEach(([selector, value]) => {
+    const node = $(selector);
+    if (node) node.textContent = Number.isFinite(value) ? value.toLocaleString("en-ZA") : "—";
+  });
 }
 async function loadDashboardMetrics() {
   try { state.dashboardMetrics = await request("/admin/dashboard/metrics"); renderMetrics(); }
@@ -334,9 +332,15 @@ async function decide(decision) {
 
 async function probeAdminPermission(path){try{await request(path);return true;}catch(e){if(e.status===403||e.status===404)return false;throw e;}}
 async function loadAdminPermissions(){
- const checks=await Promise.all([probeAdminPermission("/admin/identity-reviews"),probeAdminPermission("/admin/skill-reviews"),probeAdminPermission("/admin/accounts"),probeAdminPermission("/admin/staff")]);
+ const checks=await Promise.all([
+  probeAdminPermission("/admin/identity-reviews"),
+  probeAdminPermission("/admin/skill-reviews"),
+  probeAdminPermission("/admin/accounts"),
+  probeAdminPermission("/admin/staff"),
+  probeAdminPermission("/admin/dashboard/metrics")
+ ]);
  ["identity","skills","accounts","staff"].forEach((page,i)=>{const nav=document.querySelector('.nav-item[data-page="'+page+'"]');if(nav)checks[i]?show(nav):hide(nav);});
- state.adminPermissions={identity:checks[0],skills:checks[1],accounts:checks[2],staff:checks[3]};
+ state.adminPermissions={identity:checks[0],skills:checks[1],accounts:checks[2],staff:checks[3],dashboard:checks[4]};
 }
 function renderIdentityQueue(){
  const list=$("#identity-list");if(!state.identityCases.length){list.innerHTML='<div class="empty-state">No identity verification cases are awaiting review.</div>';return;}
@@ -418,6 +422,11 @@ async function login(event){
  finally{button.disabled=false;button.innerHTML='Sign in securely <span>→</span>';}
 }
 
+async function loadDashboardMetrics(){
+ if(!state.adminPermissions?.dashboard){state.dashboardMetrics=null;renderMetrics();return;}
+ try{state.dashboardMetrics=await request("/admin/dashboard/metrics");renderMetrics();}
+ catch(error){state.dashboardMetrics=null;renderMetrics();toast("Marketplace metrics unavailable: "+(error.message||"check dashboard access"));}
+}
 $("#login-form").addEventListener("submit",login);
 $("#logout-button").addEventListener("click",()=>signOut());
 $("#refresh-button").addEventListener("click",async()=>{await loadDashboardMetrics();if(state.adminPermissions?.identity)await loadIdentityQueue();if(state.adminPermissions?.skills)await loadSkillQueue();toast("Dashboard data refreshed.");});
