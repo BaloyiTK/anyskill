@@ -208,7 +208,7 @@ async function decideSeparateReview(decision){
  }catch(e){error.textContent=e.message;show(error);}finally{buttons.forEach(b=>b.disabled=false);}
 }
 function setPage(page){
- ["overview-page","providers-page","staff-page","module-page","identity-page","skills-page","accounts-page"].forEach(id=>hide($("#"+id)));
+ ["overview-page","staff-page","module-page","identity-page","skills-page","accounts-page"].forEach(id=>hide($("#"+id)));
  if(page==="overview")show($("#overview-page"));else if(page==="identity"){show($("#identity-page"));void loadIdentityQueue();}
  else if(page==="skills"){show($("#skills-page"));void loadSkillQueue();}else if(page==="accounts"){show($("#accounts-page"));void loadAdminAccounts();}
  else if(page==="staff"){show($("#staff-page"));void loadStaffMembers();}else if(moduleDefinitions[page]){show($("#module-page"));renderModulePage(page);}
