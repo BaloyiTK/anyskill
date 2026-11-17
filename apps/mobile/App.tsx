@@ -341,7 +341,6 @@ export default function App() {
     // Wait until initial authentication routing has completed. This also
     // handles a notification tapped while AnySkill was fully closed.
     if (!["dashboard", "onboarding", "marketplace"].includes(screen)) return;
-    const requestId = pendingIncomingPushId;
     setPendingIncomingPushId(null);
     setActiveTab("home");
     setMode("provider");
