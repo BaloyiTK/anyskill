@@ -430,6 +430,7 @@ export class MarketplaceRolesService {
       select: {
         id: true, email: true, initialMode: true, seekerRoleStatus: true,
         providerRoleStatus: true, identityVerification: true,
+        onboardingDraft: { select: { profile: true } },
         identityCases: { orderBy: { submittedAt: "desc" }, take: 1,
           select: { status: true, decisionReason: true, reviewedAt: true } },
         providerSkills: { orderBy: { category: "asc" },
@@ -438,8 +439,13 @@ export class MarketplaceRolesService {
     });
     return users.map((user) => {
       const modes: string[] = [];
-      if (user.seekerRoleStatus === MarketplaceRoleStatus.ACTIVE) modes.push("Seeker");
-      if (user.providerRoleStatus === MarketplaceRoleStatus.ACTIVE) modes.push("Provider");
+      const profile = user.onboardingDraft?.profile && typeof user.onboardingDraft.profile === "object" && !Array.isArray(user.onboardingDraft.profile)
+        ? user.onboardingDraft.profile as Record<string, unknown> : {};
+      const requestedModes = Array.isArray(profile.marketplaceRoles)
+        ? profile.marketplaceRoles
+        : typeof profile.marketplaceRole === "string" ? [profile.marketplaceRole] : [];
+      if (user.initialMode === RegistrationMode.SEEKER || requestedModes.includes("SEEKER")) modes.push("Seeker");
+      if (user.initialMode === RegistrationMode.PROVIDER || requestedModes.includes("PROVIDER")) modes.push("Provider");
       const latestIdentity = user.identityCases[0] ?? null;
       return {
         id: user.id,
