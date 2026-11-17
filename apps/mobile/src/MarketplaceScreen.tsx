@@ -36,7 +36,7 @@ type JobEngagement = { id: string; status: string; hourlyRate: string | number; 
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
-  status: string; createdAt: string; jobEngagement: JobEngagement | null;
+  status: string; createdAt: string; preferredStartAt: string | null; matchingWave: number; matchingNextAt: string | null; matchingExhaustedAt: string | null; jobEngagement: JobEngagement | null;
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
     hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null;
@@ -102,7 +102,8 @@ export function MarketplaceScreen(p: Props) {
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
   const [responseMessage, setResponseMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;notified:number;wave:number;exhausted:boolean}|null>(null);
+  const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;createdAt:string;notified:number;wave:number;exhausted:boolean}|null>(null);
+  const [scheduleDateTime, setScheduleDateTime] = useState(() => new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16));
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [verificationPrompt, setVerificationPrompt] = useState(false);
@@ -164,6 +165,13 @@ export function MarketplaceScreen(p: Props) {
       const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
       if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
       setMyRequests(result);
+      if (!matchingRequest) {
+        const active = result.find((item) => item.status === "OPEN" && !item.preferredStartAt && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
+        if (active) setMatchingRequest({
+          id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
+          createdAt: active.createdAt, notified: 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
+        });
+      }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load your requests."); }
     finally { setBusy(false); }
   }, []);
@@ -347,7 +355,7 @@ export function MarketplaceScreen(p: Props) {
     setBusy(true);
     try {
       const published = await apiRequest<{
-        id: string; title: string; skillCategory: string; location: string | null;
+        id: string; title: string; skillCategory: string; location: string | null; createdAt: string;
         matching?: { notified?: number; wave?: number; exhausted?: boolean };
       }>("/marketplace/requests", {
         method: "POST",
@@ -359,7 +367,7 @@ export function MarketplaceScreen(p: Props) {
       }, true);
       setMatchingRequest({
         id: published.id, title: published.title, skillCategory: published.skillCategory,
-        location: published.location, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
+        location: published.location, createdAt: published.createdAt, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
       });
       setTitle(""); setCategory(""); setSkillQuery(""); setDescription(""); setInstructions(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
       await loadMyRequests();
@@ -657,6 +665,36 @@ export function MarketplaceScreen(p: Props) {
         p.onIdentityRequired(request.id);
       }
     } finally { setBusy(false); }
+  };
+
+  const cancelLiveRequest = async () => {
+    if (!matchingRequest || jobActionBusy) return;
+    setJobActionBusy(true); setError("");
+    try {
+      await apiRequest(`/marketplace/requests/${matchingRequest.id}/cancel`, { method: "POST" }, true);
+      setMatchingRequest(null);
+      await loadMyRequests();
+      setNotice("Your service request has been cancelled.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not cancel this request."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const scheduleLiveRequest = async () => {
+    if (!matchingRequest || jobActionBusy) return;
+    const scheduled = new Date(scheduleDateTime);
+    if (!Number.isFinite(scheduled.getTime()) || scheduled.getTime() < Date.now() + 15 * 60 * 1000) {
+      setError("Choose a date and time at least 15 minutes from now."); return;
+    }
+    setJobActionBusy(true); setError("");
+    try {
+      await apiRequest(`/marketplace/requests/${matchingRequest.id}/schedule`, {
+        method: "POST", body: JSON.stringify({ preferredStartAt: scheduled.toISOString() }),
+      }, true);
+      setMatchingRequest(null);
+      await loadMyRequests();
+      setNotice("Your request has been scheduled and Provider matching has restarted for the scheduled work time.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not schedule this request."); }
+    finally { setJobActionBusy(false); }
   };
 
   const activeIncomingRequest = requests.find((request) => request.id === incomingRequestId) ?? null;
@@ -965,34 +1003,52 @@ export function MarketplaceScreen(p: Props) {
         </ScrollView>
       </View> : null}
     </Modal>
-    <Modal visible={p.mode === "seeker" && matchingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setMatchingRequest(null)}>
+    <Modal visible={p.mode === "seeker" && matchingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => undefined}>
       <View style={{ flex: 1, backgroundColor: "#F6F8FA", paddingHorizontal: 22, paddingTop: 54, paddingBottom: 28 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ color: "#0B2545", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
           <Text style={{ color: "#1B5E20", fontSize: 11, fontWeight: "900" }}>REQUEST SUBMITTED</Text>
         </View>
-        <View style={{ alignItems: "center", marginTop: 48 }}>
-          <ActivityIndicator size="large" color="#0066CC" />
-          <Text style={{ color: "#0B2545", fontSize: 27, lineHeight: 33, fontWeight: "900", textAlign: "center", marginTop: 24 }}>Finding the best Provider for you.</Text>
-          <Text style={{ color: "#66756D", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 10 }}>AnySkill is matching your request with available Providers who have the right skills and service coverage.</Text>
-        </View>
-        {matchingRequest ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 16, marginTop: 30 }}>
-          <Text style={{ color: "#66756D", fontSize: 11, fontWeight: "800" }}>YOUR REQUEST</Text>
-          <Text style={{ color: "#0B2545", fontSize: 17, fontWeight: "900", marginTop: 7 }}>{matchingRequest.title}</Text>
-          <Text style={{ color: "#0066CC", fontSize: 13, fontWeight: "800", marginTop: 5 }}>{matchingRequest.skillCategory}</Text>
-          {matchingRequest.location ? <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }}>📍 {matchingRequest.location}</Text> : null}
-        </View> : null}
-        <View style={{ marginTop: 28, gap: 19 }}>
-          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>01</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Matching skills and experience</Text><Text style={{ color: "#66756D", fontSize: 12 }}>Finding Providers suited to your job</Text></View></View>
-          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>02</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Checking availability and distance</Text><Text style={{ color: "#66756D", fontSize: 12 }}>Prioritising suitable nearby Providers</Text></View></View>
-          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}><Text style={{ color: "#0066CC", fontWeight: "900" }}>03</Text><View><Text style={{ color: "#0B2545", fontWeight: "800" }}>Sending your request</Text><Text style={{ color: "#66756D", fontSize: 12 }}>{matchingRequestOffers > 0 ? `${matchingRequestOffers} Provider response(s) received` : matchingRequest?.notified ? `Notified ${matchingRequest.notified} matched Provider(s) in wave ${matchingRequest.wave} · waiting for responses` : "Waiting for matching Providers"}</Text></View></View>
-        </View>
-        <View style={{ marginTop: "auto", backgroundColor: "#EAF3FF", borderRadius: 14, padding: 14 }}>
-          <Text style={{ color: "#17446D", fontSize: 13, lineHeight: 19 }}>You can leave this screen. AnySkill will keep your request active and notify you when Providers respond.</Text>
-        </View>
-        <Pressable onPress={() => setMatchingRequest(null)} style={{ backgroundColor: "#0066CC", borderRadius: 13, padding: 15, alignItems: "center", marginTop: 14 }}>
-          <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>View my requests</Text>
-        </Pressable>
+        {matchingRequest ? (() => {
+          const elapsedMs = Math.max(0, clockNow - Date.parse(matchingRequest.createdAt));
+          const timedOut = elapsedMs >= 30 * 60 * 1000;
+          const remainingMs = Math.max(0, 30 * 60 * 1000 - elapsedMs);
+          const offers = myRequests.find((item) => item.id === matchingRequest.id)?.providerResponses.filter((offer) => offer.status === "OFFERED") ?? [];
+          return <>
+            <View style={{ alignItems: "center", marginTop: 35 }}>
+              {timedOut ? <Text style={{ color: "#9A5B00", fontSize: 12, fontWeight: "900" }}>LIVE SEARCH TIME LIMIT REACHED</Text> : <ActivityIndicator size="large" color="#0066CC" />}
+              <Text style={{ color: "#0B2545", fontSize: 26, lineHeight: 32, fontWeight: "900", textAlign: "center", marginTop: 20 }}>{timedOut ? "Let's schedule your request." : "Finding the best Provider for you."}</Text>
+              <Text style={{ color: "#66756D", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 10 }}>{timedOut ? "The 30-minute live search has ended. Your request details are saved. Choose when you need the work done and AnySkill will restart Provider matching." : "This screen stays open while AnySkill matches your request. You can cancel at any time."}</Text>
+              {!timedOut ? <Text style={{ color: "#0066CC", fontSize: 16, fontWeight: "900", marginTop: 12 }}>Time remaining: {Math.floor(remainingMs / 60000)}:{String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0")}</Text> : null}
+            </View>
+            <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 16, marginTop: 25 }}>
+              <Text style={{ color: "#66756D", fontSize: 11, fontWeight: "800" }}>YOUR REQUEST</Text>
+              <Text style={{ color: "#0B2545", fontSize: 17, fontWeight: "900", marginTop: 7 }}>{matchingRequest.title}</Text>
+              <Text style={{ color: "#0066CC", fontSize: 13, fontWeight: "800", marginTop: 5 }}>{matchingRequest.skillCategory}</Text>
+              {matchingRequest.location ? <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }}>📍 {matchingRequest.location}</Text> : null}
+              <Text style={{ color: "#66756D", fontSize: 12, marginTop: 8 }}>Matching wave {matchingRequest.wave} · {matchingRequest.notified} Provider(s) notified · {offers.length} offer(s) received</Text>
+            </View>
+            {offers.map((offer) => <View key={offer.id} style={{ backgroundColor: "#FFFFFF", borderRadius: 13, borderWidth: 1, borderColor: "#B8D7F5", padding: 13, marginTop: 12 }}>
+              <Text style={{ color: "#0B2545", fontWeight: "900" }}>{offer.provider.providerProfile?.publicName || "Skill Provider"}</Text>
+              <Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>{offer.message || "This Provider is available for your request."}</Text>
+              <Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>Hourly rate: {offer.hourlyRateAtOffer == null ? "To be confirmed" : `R ${Number(offer.hourlyRateAtOffer).toFixed(2)}`}</Text>
+              <Pressable onPress={() => void selectProvider(matchingRequest.id, offer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#0066CC", borderRadius: 10, padding: 12, alignItems: "center", marginTop: 10 }}>
+                <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{selectingOfferId === offer.id ? "Selecting..." : "Select this Provider"}</Text>
+              </Pressable>
+            </View>)}
+            {timedOut ? <>
+              <Text style={{ color: "#0B2545", fontSize: 13, fontWeight: "900", marginTop: 20 }}>When do you need the work?</Text>
+              <TextInput value={scheduleDateTime} onChangeText={setScheduleDateTime} placeholder="YYYY-MM-DDTHH:mm (local time)" style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D6E0EA", borderRadius: 11, minHeight: 50, paddingHorizontal: 12, marginTop: 8, color: "#0B2545" }} />
+              <Text style={{ color: "#66756D", fontSize: 11, marginTop: 6 }}>Enter local date and time, for example 2026-11-18T09:00. Your existing request details will be reused.</Text>
+              <Pressable onPress={() => void scheduleLiveRequest()} disabled={jobActionBusy} style={{ backgroundColor: "#0066CC", borderRadius: 13, padding: 15, alignItems: "center", marginTop: 14, opacity: jobActionBusy ? 0.5 : 1 }}>
+                <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Scheduling..." : "Schedule and find Providers"}</Text>
+              </Pressable>
+            </> : null}
+            <Pressable onPress={() => void cancelLiveRequest()} disabled={jobActionBusy} style={{ borderWidth: 1, borderColor: "#D14A4A", borderRadius: 13, padding: 14, alignItems: "center", marginTop: 14, opacity: jobActionBusy ? 0.5 : 1 }}>
+              <Text style={{ color: "#B42318", fontWeight: "900" }}>{jobActionBusy ? "Please wait..." : "Cancel service request"}</Text>
+            </Pressable>
+          </>;
+        })() : null}
       </View>
     </Modal>
   </View>;
