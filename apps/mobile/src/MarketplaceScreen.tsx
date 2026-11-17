@@ -197,8 +197,7 @@ export function MarketplaceScreen(p: Props) {
           const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>("/marketplace/my-jobs", {}, true);
           const receivedAt = Date.now();
           const serverNow = result.find((item) => item.serverNow)?.serverNow;
-          if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
-          setMyJobs(result);
+          if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);          setMyJobs(result);
         } else {
           const requestStartedAt = Date.now();
           const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
@@ -397,7 +396,6 @@ export function MarketplaceScreen(p: Props) {
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load Provider profile."); }
     finally { setProviderProfileLoaded(true); }
   }, []);
-
   async function loadHomeLocation() {
     try {
       const home = await apiRequest<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null}>("/profile/location/home", {}, true);
@@ -597,8 +595,7 @@ export function MarketplaceScreen(p: Props) {
       }, 15000);
 
       if (!acquiring && !publishing) {
-        acquiring = true;
-        try {
+        acquiring = true;        try {
           const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
           await publishLocation(current.coords);
         } catch (e) {
@@ -797,8 +794,7 @@ export function MarketplaceScreen(p: Props) {
         {myRequests.map((request) => {
           const offers = request.providerResponses.filter((offer) => ["OFFERED", "SELECTED"].includes(offer.status));
           const selected = request.providerResponses.find((offer) => offer.status === "SELECTED");
-          return <View key={request.id} style={s.card}>
-            <Text style={s.cardTitle}>{request.title}</Text>
+          return <View key={request.id} style={s.card}>            <Text style={s.cardTitle}>{request.title}</Text>
             <Text style={s.meta}>{request.skillCategory} · {request.status === "OPEN" ? "Open" : request.status}</Text>
             <Text style={s.body}>{request.description}</Text>
             {selected ? <Text style={s.response}>Selected Provider: {selected.providerId.slice(0, 8)} · {new Date(selected.createdAt).toLocaleString()}</Text> : null}
@@ -989,59 +985,77 @@ export function MarketplaceScreen(p: Props) {
       {error ? <Text style={s.error}>{error}</Text> : null}
     </ScrollView>
     <Modal visible={p.mode === "provider" && activeIncomingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setIncomingRequestId(null)}>
-      {activeIncomingRequest ? <View style={{ flex: 1, backgroundColor: "#0B2545", paddingTop: 42 }}>
-        <View style={{ paddingHorizontal: 20, paddingBottom: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ color: "#FFFFFF", fontSize: 21, fontWeight: "900" }}>AnySkill</Text>
-          <View style={{ backgroundColor: "#FFFFFF18", borderRadius: 20, paddingHorizontal: 11, paddingVertical: 7 }}>
-            <Text style={{ color: "#BFDBFE", fontSize: 10, fontWeight: "900", letterSpacing: 0.8 }}>INCOMING CALL</Text>
+      {activeIncomingRequest ? <View style={{ flex: 1, backgroundColor: "#0B2545", paddingTop: Platform.OS === "web" ? 18 : 42 }}>
+        <View style={{ paddingHorizontal: 22, paddingBottom: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ color: "#FFFFFF", fontSize: 21, fontWeight: "900", letterSpacing: -0.5 }}>AnySkill</Text>
+          <View style={{ backgroundColor: "#173E6C", borderRadius: 18, paddingHorizontal: 11, paddingVertical: 7, flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "#69D49B" }} />
+            <Text style={{ color: "#C8E2FF", fontSize: 10, fontWeight: "900", letterSpacing: 0.7 }}>INCOMING REQUEST</Text>
           </View>
         </View>
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 28 }}>
-          <Text style={{ color: "#9CCBFF", textAlign: "center", fontSize: 10, fontWeight: "900", letterSpacing: 1.5, marginTop: 5 }}>NEW SERVICE REQUEST</Text>
-          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, padding: 16, marginTop: 15 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-              {activeIncomingRequest.seeker.profilePhotoUrl
-                ? <Image source={{ uri: activeIncomingRequest.seeker.profilePhotoUrl }} style={{ width: 62, height: 62, borderRadius: 31, backgroundColor: "#EAF3FF" }} />
-                : <View style={{ width: 62, height: 62, borderRadius: 31, backgroundColor: "#DCEBFA", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#0B2545", fontSize: 20, fontWeight: "900" }}>{[activeIncomingRequest.seeker.firstName, activeIncomingRequest.seeker.lastName].filter(Boolean).map((part) => part[0]?.toUpperCase()).join("") || "S"}</Text></View>}
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: "#102A43", fontSize: 17, fontWeight: "900" }}>{[activeIncomingRequest.seeker.firstName, activeIncomingRequest.seeker.lastName].filter(Boolean).join(" ") || "Skill Seeker"}</Text>
-                <Text style={{ color: "#64748B", fontSize: 11, marginTop: 3 }}>Skill Seeker</Text>
-                <Text style={{ color: activeIncomingRequest.seeker.identityVerified ? "#16834A" : "#A16207", fontSize: 11, fontWeight: "800", marginTop: 5 }}>{activeIncomingRequest.seeker.identityVerified ? "✓ Identity verified" : "Identity not verified"}</Text>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 18, paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
+          <View style={{ alignItems: "center", paddingTop: 12, paddingBottom: 20 }}>
+            {activeIncomingRequest.seeker.profilePhotoUrl
+              ? <Image source={{ uri: activeIncomingRequest.seeker.profilePhotoUrl }} style={{ width: 82, height: 82, borderRadius: 41, borderWidth: 3, borderColor: "#FFFFFF35", backgroundColor: "#DCEBFA" }} />
+              : <View style={{ width: 82, height: 82, borderRadius: 41, borderWidth: 3, borderColor: "#FFFFFF35", backgroundColor: "#DCEBFA", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#0B2545", fontSize: 25, fontWeight: "900" }}>{[activeIncomingRequest.seeker.firstName, activeIncomingRequest.seeker.lastName].filter(Boolean).map((part) => part[0]?.toUpperCase()).join("") || "S"}</Text></View>}
+            <Text style={{ color: "#FFFFFF", fontSize: 22, fontWeight: "900", marginTop: 12 }}>{[activeIncomingRequest.seeker.firstName, activeIncomingRequest.seeker.lastName].filter(Boolean).join(" ") || "Skill Seeker"}</Text>
+            <Text style={{ color: activeIncomingRequest.seeker.identityVerified ? "#8EE0B0" : "#FFD18A", fontSize: 11, fontWeight: "800", marginTop: 5 }}>{activeIncomingRequest.seeker.identityVerified ? "✓ Identity verified" : "Identity not verified"}</Text>
+            <Text style={{ color: "#B7CBE1", fontSize: 12, marginTop: 7 }}>is requesting your service</Text>
+          </View>
+
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, padding: 16 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <Text style={{ color: "#1677EE", fontSize: 10, fontWeight: "900", letterSpacing: 0.8, flex: 1 }}>{activeIncomingRequest.skillCategory.toUpperCase()}</Text>
+              <View style={{ backgroundColor: "#EAF3FF", borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 }}>
+                <Text style={{ color: "#175EA8", fontSize: 9, fontWeight: "900" }}>{activeIncomingRequest.deliveryMode === "ONSITE" ? "ON-SITE" : activeIncomingRequest.deliveryMode === "REMOTE" ? "REMOTE" : "FLEXIBLE"}</Text>
               </View>
             </View>
-            <View style={{ height: 1, backgroundColor: "#E8EEF5", marginVertical: 15 }} />
-            <Text style={{ color: "#1677EE", fontSize: 10, fontWeight: "900", letterSpacing: 1 }}>{activeIncomingRequest.skillCategory.toUpperCase()} · {activeIncomingRequest.deliveryMode === "ONSITE" ? "ON-SITE" : activeIncomingRequest.deliveryMode === "REMOTE" ? "REMOTE" : "FLEXIBLE"}</Text>
-            <Text style={{ color: "#102A43", fontSize: 20, lineHeight: 26, fontWeight: "900", marginTop: 7 }}>{activeIncomingRequest.title}</Text>
-            <Text style={{ color: "#52657A", fontSize: 13, lineHeight: 19, marginTop: 8 }}>{activeIncomingRequest.description}</Text>
+            <Text style={{ color: "#102A43", fontSize: 19, lineHeight: 25, fontWeight: "900", marginTop: 9 }}>{activeIncomingRequest.title}</Text>
+            <Text style={{ color: "#52657A", fontSize: 12, lineHeight: 18, marginTop: 7 }}>{activeIncomingRequest.description}</Text>
+
             {activeIncomingRequest.deliveryMode !== "REMOTE" && activeIncomingRequest.latitude != null && activeIncomingRequest.longitude != null ? <>
-              <Text style={{ color: "#102A43", fontSize: 11, fontWeight: "900", marginTop: 18, marginBottom: 8 }}>SERVICE LOCATION</Text>
-              <View style={{ borderRadius: 13, overflow: "hidden" }}>
+              <Text style={{ color: "#344B63", fontSize: 10, fontWeight: "900", letterSpacing: 0.7, marginTop: 17, marginBottom: 8 }}>SERVICE LOCATION</Text>
+              <View style={{ borderRadius: 12, overflow: "hidden" }}>
                 {activeIncomingRequest.providerLocation
                   ? <MapPinPicker latitude={activeIncomingRequest.providerLocation.latitude} longitude={activeIncomingRequest.providerLocation.longitude} selectedLatitude={activeIncomingRequest.latitude} selectedLongitude={activeIncomingRequest.longitude} onSelect={() => undefined} readOnly showCenterMarker />
                   : <MapPinPicker latitude={activeIncomingRequest.latitude} longitude={activeIncomingRequest.longitude} selectedLatitude={activeIncomingRequest.latitude} selectedLongitude={activeIncomingRequest.longitude} onSelect={() => undefined} readOnly />}
               </View>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 9, gap: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: "#102A43", fontSize: 13, fontWeight: "800" }}>{incomingAreaLabel || "Service area shown on map"}</Text>
-                  <Text style={{ color: "#718096", fontSize: 10, marginTop: 3 }}>Approximate area · Full address kept private</Text>
+                  <Text style={{ color: "#102A43", fontSize: 13, fontWeight: "900" }}>{incomingAreaLabel || "Service area shown on map"}</Text>
+                  <Text style={{ color: "#718096", fontSize: 10, marginTop: 3 }}>Actual job location · Street address hidden</Text>
                 </View>
-                <Text style={{ color: "#1677EE", fontSize: 12, fontWeight: "900" }}>{activeIncomingRequest.distanceKm != null ? `${activeIncomingRequest.distanceKm.toFixed(1)} km away` : "Distance unavailable"}</Text>
+                <View style={{ backgroundColor: "#EAF3FF", borderRadius: 9, paddingHorizontal: 9, paddingVertical: 7 }}>
+                  <Text style={{ color: "#176BCE", fontSize: 11, fontWeight: "900" }}>{activeIncomingRequest.distanceKm != null ? `${activeIncomingRequest.distanceKm.toFixed(1)} km` : "—"}</Text>
+                  <Text style={{ color: "#5D7590", fontSize: 9, marginTop: 2 }}>away</Text>
+                </View>
               </View>
-            </> : <Text style={{ color: "#52657A", fontSize: 12, marginTop: 15 }}>{activeIncomingRequest.deliveryMode === "REMOTE" ? "Remote service · no travel required" : "Location coordinates are not available."}</Text>}
-            {activeIncomingRequest.preferredStartAt ? <Text style={{ color: "#344B63", fontSize: 12, marginTop: 13 }}>◷  Requested: {new Date(activeIncomingRequest.preferredStartAt).toLocaleString()}</Text> : null}
-            {activeIncomingRequest.instructions ? <View style={{ backgroundColor: "#F1F6FC", borderRadius: 11, padding: 12, marginTop: 13 }}><Text style={{ color: "#1677EE", fontSize: 10, fontWeight: "900" }}>ADDITIONAL NOTES</Text><Text style={{ color: "#243B53", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{activeIncomingRequest.instructions}</Text></View> : null}
-            {activeIncomingRequest.imageUrls?.length ? <View style={{ marginTop: 14 }}><Text style={{ color: "#344B63", fontSize: 11, fontWeight: "800", marginBottom: 8 }}>{activeIncomingRequest.imageUrls.length} ATTACHED PHOTO{activeIncomingRequest.imageUrls.length === 1 ? "" : "S"}</Text><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>{activeIncomingRequest.imageUrls.slice(0, 6).map((uri, index) => <Image key={uri + index} source={{ uri }} style={{ width: 76, height: 76, borderRadius: 9, backgroundColor: "#EAF3FF" }} />)}</View></View> : null}
+            </> : <View style={{ backgroundColor: "#F1F6FC", borderRadius: 11, padding: 12, marginTop: 14 }}><Text style={{ color: "#344B63", fontSize: 12, fontWeight: "700" }}>{activeIncomingRequest.deliveryMode === "REMOTE" ? "Remote service · no travel required" : "Location coordinates are not available."}</Text></View>}
+
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
+              <View style={{ flex: 1, backgroundColor: "#F3F6FA", borderRadius: 10, padding: 10 }}>
+                <Text style={{ color: "#718096", fontSize: 9, fontWeight: "900" }}>WHEN</Text>
+                <Text style={{ color: "#243B53", fontSize: 11, fontWeight: "800", marginTop: 5 }}>{activeIncomingRequest.preferredStartAt ? new Date(activeIncomingRequest.preferredStartAt).toLocaleString() : "As soon as possible"}</Text>
+              </View>
+              <View style={{ flex: 1, backgroundColor: "#F3F6FA", borderRadius: 10, padding: 10 }}>
+                <Text style={{ color: "#718096", fontSize: 9, fontWeight: "900" }}>PHOTOS</Text>
+                <Text style={{ color: "#243B53", fontSize: 11, fontWeight: "800", marginTop: 5 }}>{activeIncomingRequest.imageUrls?.length ? `${activeIncomingRequest.imageUrls.length} attached` : "None attached"}</Text>
+              </View>
+            </View>
+            {activeIncomingRequest.instructions ? <View style={{ backgroundColor: "#F1F6FC", borderRadius: 11, padding: 12, marginTop: 12 }}><Text style={{ color: "#1677EE", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 }}>ADDITIONAL NOTES</Text><Text style={{ color: "#243B53", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{activeIncomingRequest.instructions}</Text></View> : null}
+            {activeIncomingRequest.imageUrls?.length ? <View style={{ marginTop: 13 }}><View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>{activeIncomingRequest.imageUrls.slice(0, 4).map((uri, index) => <Image key={uri + index} source={{ uri }} style={{ width: 64, height: 64, borderRadius: 9, backgroundColor: "#EAF3FF" }} />)}</View></View> : null}
           </View>
-          <TextInput value={responseMessage} onChangeText={setResponseMessage} placeholder="Add a short message (optional)" placeholderTextColor="#8293A7" style={{ backgroundColor: "#FFFFFF", borderRadius: 12, minHeight: 48, paddingHorizontal: 13, marginTop: 14, color: "#0B2545" }} />
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 13 }}>
+
+          <TextInput value={responseMessage} onChangeText={setResponseMessage} placeholder="Add a message (optional)" placeholderTextColor="#8293A7" style={{ backgroundColor: "#FFFFFF", borderRadius: 12, minHeight: 46, paddingHorizontal: 13, marginTop: 12, color: "#0B2545", fontSize: 12 }} />
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
             <Pressable onPress={() => setIncomingRequestId(null)} disabled={busy} style={{ flex: 1, minHeight: 52, borderRadius: 13, borderWidth: 1, borderColor: "#FFFFFF55", alignItems: "center", justifyContent: "center", opacity: busy ? 0.5 : 1 }}>
-              <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "800" }}>Close</Text>
+              <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "800" }}>Not now</Text>
             </Pressable>
             <Pressable onPress={() => void acceptRequest(activeIncomingRequest)} disabled={busy || activeIncomingRequest.alreadyResponded} style={{ flex: 1.5, minHeight: 52, borderRadius: 13, backgroundColor: "#1677EE", alignItems: "center", justifyContent: "center", opacity: busy || activeIncomingRequest.alreadyResponded ? 0.5 : 1 }}>
               {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "900" }}>✓  Accept request</Text>}
             </Pressable>
           </View>
-          <Text style={{ color: "#AFC4DB", fontSize: 10, lineHeight: 15, textAlign: "center", marginTop: 12 }}>Accepting sends your response to the Seeker. They choose their Provider. Their full street address remains private at this stage.</Text>
+          <Text style={{ color: "#AFC4DB", fontSize: 10, lineHeight: 15, textAlign: "center", marginTop: 11 }}>Your response goes to the Seeker. They choose their Provider. The full street address stays private at this stage.</Text>
         </ScrollView>
       </View> : null}
     </Modal>
