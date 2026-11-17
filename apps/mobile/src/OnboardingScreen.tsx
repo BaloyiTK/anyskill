@@ -500,7 +500,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       return;
     }
     if (isProvider && !skills.some((v) => v.category.trim())) {
-      setError("Add at least one skill before submitting Provider onboarding.");
+      setError("Add at least one skill before continuing.");
       return;
     }
     if (await saveCurrent()) await submit();
