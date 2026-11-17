@@ -115,6 +115,38 @@ export class OnboardingService {
       create: { userId, profile: (input.profile ?? {}) as Prisma.InputJsonValue, skills: (input.skills ?? []) as Prisma.InputJsonValue, portfolio: (input.portfolio ?? []) as Prisma.InputJsonValue },
       update: data,
     });
+
+    if (input.skills !== undefined) {
+      const account = await this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { initialMode: true },
+      });
+      const savedDraft = await this.prisma.onboardingDraft.findUnique({
+        where: { userId },
+        select: { profile: true },
+      });
+      const savedProfile = savedDraft?.profile && typeof savedDraft.profile === "object" && !Array.isArray(savedDraft.profile)
+        ? savedDraft.profile as Record<string, unknown> : {};
+      const requestedRoles = Array.isArray(savedProfile.marketplaceRoles)
+        ? savedProfile.marketplaceRoles
+        : typeof savedProfile.marketplaceRole === "string" ? [savedProfile.marketplaceRole] : [];
+      if (account.initialMode === RegistrationMode.PROVIDER || requestedRoles.includes("PROVIDER")) {
+        const skillRows = input.skills.flatMap((item) => {
+          const skill = item as Record<string, unknown>;
+          const category = typeof skill.category === "string" ? skill.category.trim().toLocaleLowerCase("en-ZA") : "";
+          return category ? [{ userId, category, details: skill as Prisma.InputJsonValue }] : [];
+        });
+        if (skillRows.length) {
+          await this.prisma.providerSkill.createMany({ data: skillRows, skipDuplicates: true });
+          for (const row of skillRows) {
+            await this.prisma.providerSkill.updateMany({
+              where: { userId, category: row.category, status: "PENDING" },
+              data: { details: row.details },
+            });
+          }
+        }
+      }
+    }
     return this.get(userId);
   }
 
