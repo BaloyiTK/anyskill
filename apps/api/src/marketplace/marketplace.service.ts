@@ -889,8 +889,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       this.prisma.appNotification.createMany({
         data: next.map((provider) => ({
           userId: provider.userId,
-          title: "New work request matched to you",
-          body: "A Skill Seeker has posted a request that matches your skills and availability.",
+          title: "Incoming AnySkill service request",
+          body: "A new " + request.skillCategory + " request is available. Tap to view the Seeker and job details.",
           data: { type: "MATCHED_REQUEST", requestId, wave },
         })),
       }),
@@ -1001,6 +1001,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             data: notification.data ?? {},
             sound: "default",
             priority: "high",
+            channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
+              ? "incoming_requests"
+              : "default",
           }))),
         });
         if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
