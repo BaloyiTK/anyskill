@@ -36,7 +36,7 @@ type JobEngagement = { id: string; status: string; hourlyRate: string | number; 
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
-  status: string; createdAt: string; matchingStartedAt: string; preferredStartAt: string | null; matchingWave: number; matchingNextAt: string | null; matchingExhaustedAt: string | null; jobEngagement: JobEngagement | null;
+  status: string; createdAt: string; matchingStartedAt: string; preferredStartAt: string | null; matchingWave: number; matchingNextAt: string | null; matchingExhaustedAt: string | null; _count?: { matches: number }; jobEngagement: JobEngagement | null;
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
     hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null;
@@ -169,7 +169,7 @@ export function MarketplaceScreen(p: Props) {
         const active = result.find((item) => item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
         if (active) setMatchingRequest({
           id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
-          createdAt: active.matchingStartedAt, notified: 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
+          createdAt: active.matchingStartedAt, notified: active._count?.matches ?? 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
         });
       }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load your requests."); }
