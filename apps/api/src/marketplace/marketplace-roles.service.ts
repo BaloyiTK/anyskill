@@ -501,7 +501,7 @@ export class MarketplaceRolesService {
     });
     if (!verificationCase) throw new NotFoundException("Identity verification case not found.");
     if (verificationCase.userId === reviewerId) throw new ForbiddenException("Reviewers cannot verify their own identity.");
-    if (![VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW].includes(verificationCase.status)) {
+    if (verificationCase.status !== VerificationCaseStatus.SUBMITTED && verificationCase.status !== VerificationCaseStatus.UNDER_REVIEW) {
       throw new ConflictException("This identity verification case has already been decided.");
     }
     const now = new Date();
