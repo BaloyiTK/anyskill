@@ -19,6 +19,8 @@ type Payload = {
   portfolio: Array<{ title: string; description: string }>;
   percentage: number;
   sections: { profile: boolean; skills: boolean; portfolio: boolean };
+  providerApplicationStatus?: string | null;
+  submittedAt?: string | null;
 };
 
 const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, sections: { profile: false, skills: false, portfolio: false } };
@@ -112,6 +114,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       const verification = await apiRequest<{status:string;latestCase:{status:string}|null;idDocumentUploaded:boolean;idType:"SMART_ID_CARD"|"GREEN_ID_BOOK"|null;idFrontUploaded:boolean;idBackUploaded:boolean;bookPage1Uploaded:boolean;bookPage2Uploaded:boolean;selfieUploaded:boolean;previews?:Record<string,string|null>}>("/identity-verification/status", {}, true).catch(() => null);
       if (verification) { setIdentityStatus(verification.latestCase?.status ?? verification.status); if (verification.idType) setIdType(verification.idType); setIdentityPreviews(Object.fromEntries(Object.entries(verification.previews ?? {}).filter((entry): entry is [string, string] => typeof entry[1] === "string"))); setIdDocumentReady(verification.idDocumentUploaded); setIdFrontReady(verification.idFrontUploaded); setIdBackReady(verification.idBackUploaded); setBookPage1Ready(verification.bookPage1Uploaded); setBookPage2Ready(verification.bookPage2Uploaded); setSelfieReady(verification.selfieUploaded); }
       setData(result);
+      setOnboardingSubmitted(Boolean(result.submittedAt));
       const profile = result.profile ?? {};
       setAccountType(profile.accountType === "INDIVIDUAL" || profile.accountType === "BUSINESS" ? profile.accountType : "");
       const savedRoles = Array.isArray(profile.marketplaceRoles)
@@ -539,8 +542,14 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const identityRequirementsComplete = idType === "SMART_ID_CARD"
     ? idFrontReady && idBackReady && selfieReady
     : bookPage1Ready && selfieReady;
-  const verificationComplete = identitySubmitted && identityRequirementsComplete;
-  const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, Boolean(data.sections?.skills), onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
+  const identityApproved = ["VERIFIED", "APPROVED", "COMPLETE", "COMPLETED"].includes(identityStatus.toUpperCase());
+  const verificationComplete = identityApproved && identityRequirementsComplete;
+  const verificationPending = identitySubmitted && !identityApproved;
+  const providerApplicationStatus = (data.providerApplicationStatus ?? "").toUpperCase();
+  const skillsApproved = providerApplicationStatus === "APPROVED";
+  const skillsPending = ["PENDING", "UNDER_REVIEW", "NEEDS_INFORMATION"].includes(providerApplicationStatus);
+  const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, skillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
+  const pendingStates = isProvider ? [false, verificationPending, skillsPending, false] : [false, verificationPending, false];
   const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills)] : [])].filter(Boolean).length;
   const completionPercentage = Math.round((completedSectionCount / (isProvider ? 2 : 1)) * 100);
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Not complete";
@@ -565,17 +574,18 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       <View style={st.tabs}>
         {tabs.map((tab, index) => {
           const completed = completionStates[index];
+          const pending = pendingStates[index];
           const isActive = active === tab;
           const leftConnected = index > 0 && completionStates[index - 1];
           return <Pressable key={tab} onPress={() => setActive(tab)} accessibilityRole="button" accessibilityState={{ selected: isActive }} style={st.tab}>
             <View style={st.stepRow}>
               <View style={[st.connector, index === 0 && st.connectorHidden, leftConnected && st.connectorDone]} />
-              <View style={[st.stepDot, isActive && st.activeDot, completed && st.doneDot]}>
-                <Text style={[st.stepDotText, isActive && st.activeDotText, completed && st.doneDotText]}>{completed ? "✓" : index + 1}</Text>
+              <View style={[st.stepDot, isActive && st.activeDot, pending && st.pendingDot, completed && st.doneDot]}>
+                <Text style={[st.stepDotText, isActive && st.activeDotText, pending && st.pendingDotText, completed && st.doneDotText]}>{completed ? "✓" : pending ? "−" : index + 1}</Text>
               </View>
               <View style={[st.connector, index === tabs.length - 1 && st.connectorHidden, completed && st.connectorDone]} />
             </View>
-            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68} style={[st.tabText, isActive && st.activeTabText, completed && st.doneTabText]}>{tab}</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68} style={[st.tabText, isActive && st.activeTabText, pending && st.pendingTabText, completed && st.doneTabText]}>{tab}</Text>
           </Pressable>;
         })}
       </View>
@@ -879,11 +889,14 @@ const st = StyleSheet.create({
   stepDot: { width: 27, height: 27, flexShrink: 0, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#EDF1F5", borderWidth: 1.5, borderColor: "#DCE5EF" },
   activeDot: { backgroundColor: colors.primary, borderColor: colors.primary },
   doneDot: { backgroundColor: colors.green, borderColor: colors.green },
+  pendingDot: { backgroundColor: "#FFF4DF", borderColor: "#E6A23C" },
   stepDotText: { color: colors.muted, fontSize: 10, fontWeight: "900" },
   activeDotText: { color: "#FFFFFF" },
+  pendingDotText: { color: "#91651C", fontSize: 16 },
   doneDotText: { color: "#FFFFFF", fontSize: 13 },
   tabText: { color: colors.muted, fontSize: 9, fontWeight: "800", textAlign: "center", includeFontPadding: false, flexShrink: 1 },
   activeTabText: { color: colors.primary },
+  pendingTabText: { color: "#91651C" },
   doneTabText: { color: colors.forest },
   body: { flex: 1, paddingHorizontal: 16 },
   heading: { color: colors.ink, fontSize: 21, fontWeight: "900", letterSpacing: -0.45, marginBottom: 9 },
