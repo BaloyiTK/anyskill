@@ -197,7 +197,8 @@ export function MarketplaceScreen(p: Props) {
           const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>("/marketplace/my-jobs", {}, true);
           const receivedAt = Date.now();
           const serverNow = result.find((item) => item.serverNow)?.serverNow;
-          if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);          setMyJobs(result);
+          if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
+          setMyJobs(result);
         } else {
           const requestStartedAt = Date.now();
           const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
@@ -595,7 +596,8 @@ export function MarketplaceScreen(p: Props) {
       }, 15000);
 
       if (!acquiring && !publishing) {
-        acquiring = true;        try {
+        acquiring = true;
+        try {
           const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
           await publishLocation(current.coords);
         } catch (e) {
@@ -794,7 +796,8 @@ export function MarketplaceScreen(p: Props) {
         {myRequests.map((request) => {
           const offers = request.providerResponses.filter((offer) => ["OFFERED", "SELECTED"].includes(offer.status));
           const selected = request.providerResponses.find((offer) => offer.status === "SELECTED");
-          return <View key={request.id} style={s.card}>            <Text style={s.cardTitle}>{request.title}</Text>
+          return <View key={request.id} style={s.card}>
+            <Text style={s.cardTitle}>{request.title}</Text>
             <Text style={s.meta}>{request.skillCategory} · {request.status === "OPEN" ? "Open" : request.status}</Text>
             <Text style={s.body}>{request.description}</Text>
             {selected ? <Text style={s.response}>Selected Provider: {selected.providerId.slice(0, 8)} · {new Date(selected.createdAt).toLocaleString()}</Text> : null}
