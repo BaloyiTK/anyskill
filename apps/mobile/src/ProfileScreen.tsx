@@ -5,7 +5,7 @@ import { apiRequest } from "./api";
 type Mode = "seeker" | "provider";
 type Identity = { status?: string; latestCase?: { status?: string } | null };
 type OnboardingProfile = {
-  profile?: Record<string, string | string[] | undefined> & { marketplaceRoles?: string[] };
+  profile?: { firstName?: string; lastName?: string; phone?: string; suburb?: string; city?: string; province?: string; country?: string; marketplaceRoles?: string[] };
   skills?: Array<{ category?: string; description?: string; yearsOfExperience?: string | number; portfolio?: Array<{ linkUrl?: string; links?: string[]; imageUrls?: string[] }> }>;
 };
 type ProviderProfile = {
