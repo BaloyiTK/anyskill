@@ -278,3 +278,6 @@ input,select,textarea{accent-color:#0f6cbd}
   .module-detail-panel ul{grid-template-columns:1fr}
 }
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+/* Inline Fluent-style navigation glyphs */
+.nav-icon svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
