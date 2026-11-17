@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards, ConflictException } from "@nestjs/common";
 import { RegistrationMode, StaffRole } from "@prisma/client";
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
@@ -41,9 +41,9 @@ class UpdateStaffMemberDto {
   isActive?: boolean;
 }
 
-class ProviderApplicationDecisionDto {
-  @IsIn(["APPROVED", "REJECTED", "NEEDS_INFORMATION"])
-  decision!: "APPROVED" | "REJECTED" | "NEEDS_INFORMATION";
+class ReviewDecisionDto {
+  @IsIn(["APPROVED", "REJECTED"])
+  decision!: "APPROVED" | "REJECTED";
 
   @IsString() @MinLength(5) @MaxLength(1000)
   reason!: string;
@@ -106,6 +106,50 @@ export class MarketplaceRolesController {
     return this.roles.updateStaffMember(user.id, userId, dto);
   }
 
+
+  @Get("admin/accounts")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.ADMIN)
+  listAdminAccounts() {
+    return this.roles.listAdminAccounts();
+  }
+
+  @Get("admin/identity-reviews")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.IDENTITY_REVIEWER)
+  listIdentityReviews() {
+    return this.roles.listIdentityReviews();
+  }
+
+  @Post("admin/identity-reviews/:caseId/decision")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.IDENTITY_REVIEWER)
+  decideIdentityVerification(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("caseId", new ParseUUIDPipe()) caseId: string,
+    @Body() dto: ReviewDecisionDto,
+  ) {
+    return this.roles.decideIdentityVerification(user.id, caseId, dto.decision, dto.reason);
+  }
+
+  @Get("admin/skill-reviews")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
+  listSkillReviews() {
+    return this.roles.listSkillReviews();
+  }
+
+  @Post("admin/skill-reviews/:skillId/decision")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
+  decideSkill(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("skillId", new ParseUUIDPipe()) skillId: string,
+    @Body() dto: ReviewDecisionDto,
+  ) {
+    return this.roles.decideSkill(user.id, skillId, dto.decision, dto.reason);
+  }
+
   @Get("admin/provider-applications")
   @UseGuards(StaffAccessGuard)
   @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
@@ -126,11 +170,7 @@ export class MarketplaceRolesController {
   @Post("admin/provider-applications/:applicationId/decision")
   @UseGuards(StaffAccessGuard)
   @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
-  decideProviderApplication(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param("applicationId", new ParseUUIDPipe()) applicationId: string,
-    @Body() dto: ProviderApplicationDecisionDto,
-  ) {
-    return this.roles.decideProviderApplication(user.id, applicationId, dto.decision, dto.reason);
+  decideProviderApplication() {
+    throw new ConflictException("Whole-provider approval is retired. Review identity and each skill separately.");
   }
 }
