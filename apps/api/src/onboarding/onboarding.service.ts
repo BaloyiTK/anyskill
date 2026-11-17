@@ -88,9 +88,18 @@ export class OnboardingService {
   }
 
   async get(userId: string) {
-    const draft = await this.prisma.onboardingDraft.findUnique({ where: { userId } });
+    const [draft, providerApplication] = await Promise.all([
+      this.prisma.onboardingDraft.findUnique({ where: { userId } }),
+      this.prisma.providerRoleApplication.findUnique({ where: { userId }, select: { status: true } }),
+    ]);
     const data = { profile: draft?.profile ?? {}, skills: draft?.skills ?? [], portfolio: draft?.portfolio ?? [] };
-    return { ...data, ...this.completion(data), submittedAt: draft?.submittedAt ?? null, updatedAt: draft?.updatedAt ?? null };
+    return {
+      ...data,
+      ...this.completion(data),
+      providerApplicationStatus: providerApplication?.status ?? null,
+      submittedAt: draft?.submittedAt ?? null,
+      updatedAt: draft?.updatedAt ?? null,
+    };
   }
 
   async save(userId: string, input: SectionInput) {
