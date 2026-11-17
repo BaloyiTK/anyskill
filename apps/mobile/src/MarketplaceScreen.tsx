@@ -663,7 +663,7 @@ export function MarketplaceScreen(p: Props) {
 
   const activeIncomingRequest = requests.find((request) => request.id === incomingRequestId) ?? null;
   const matchingRequestOffers = matchingRequest
-    ? myRequests.find((request) => request.id === matchingRequest.id)?.providerResponses.length ?? 0
+    ? myRequests.find((request) => request.id === matchingRequest.id)?.providerResponses.filter((offer) => ["OFFERED", "SELECTED"].includes(offer.status)).length ?? 0
     : 0;
 
   return <View style={s.container}>
