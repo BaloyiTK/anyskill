@@ -103,7 +103,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       },
       select: {
         id: true, title: true, skillCategory: true, description: true,
-        imageUrls: true, location: true, deliveryMode: true,
+        imageUrls: true, location: true, deliveryMode: true, matchingStartedAt: true,
         preferredStartAt: true, instructions: true, status: true, createdAt: true,
       },
     });
@@ -406,12 +406,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }
     const request = await this.prisma.serviceRequest.findFirst({
       where: { id: requestId, seekerId, status: "OPEN" },
-      select: { id: true, matchingWave: true },
+      select: { id: true, matchingWave: true, matchingStartedAt: true },
     });
     if (!request) throw new NotFoundException("This open service request could not be found.");
+    if (Date.now() - request.matchingStartedAt.getTime() < LIVE_MATCHING_WINDOW_MS) throw new ConflictException("Live Provider search has not timed out yet. You can schedule this request after 30 minutes.");
     await this.prisma.serviceRequest.update({
       where: { id: requestId },
-      data: { preferredStartAt, matchingNextAt: null, matchingExhaustedAt: null },
+      data: { preferredStartAt, matchingStartedAt: new Date(), matchingWave: 0, matchingNextAt: null, matchingExhaustedAt: null },
     });
     const matching = await this.dispatchNextWave(requestId, request.matchingWave + 1, true);
     return { success: true, requestId, preferredStartAt, matching };
@@ -849,10 +850,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async dispatchNextWave(requestId: string, wave: number, force = false) {
     const request = await this.prisma.serviceRequest.findUnique({
       where: { id: requestId },
-      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, deliveryMode: true, status: true, createdAt: true },
+      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, deliveryMode: true, status: true, matchingStartedAt: true },
     });
     if (!request || request.status !== "OPEN") return { notified: 0, wave };
-    if (!force && Date.now() - request.createdAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
+    if (!force && Date.now() - request.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
       await this.prisma.serviceRequest.updateMany({ where: { id: requestId, status: "OPEN" }, data: { matchingNextAt: null } });
       return { notified: 0, wave, timedOut: true };
     }
@@ -905,7 +906,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async expandExpiredWaves() {
     const now = new Date();
     const due = await this.prisma.serviceRequest.findMany({
-      where: { status: "OPEN", createdAt: { gt: new Date(now.getTime() - LIVE_MATCHING_WINDOW_MS) }, matchingNextAt: { lte: now }, matchingExhaustedAt: null },
+      where: { status: "OPEN", matchingStartedAt: { gt: new Date(now.getTime() - LIVE_MATCHING_WINDOW_MS) }, matchingNextAt: { lte: now }, matchingExhaustedAt: null },
       select: { id: true, matchingWave: true },
       take: 20,
       orderBy: { matchingNextAt: "asc" },
@@ -935,7 +936,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const exhausted = await this.prisma.serviceRequest.findMany({
       where: {
         status: "OPEN",
-        createdAt: { gt: new Date(Date.now() - LIVE_MATCHING_WINDOW_MS) },
+        matchingStartedAt: { gt: new Date(Date.now() - LIVE_MATCHING_WINDOW_MS) },
         matchingNextAt: null,
         matchingExhaustedAt: { lte: retryBefore },
       },
