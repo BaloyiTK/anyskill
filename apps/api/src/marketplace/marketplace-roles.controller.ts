@@ -45,8 +45,8 @@ class ReviewDecisionDto {
   @IsIn(["APPROVED", "REJECTED"])
   decision!: "APPROVED" | "REJECTED";
 
-  @IsString() @MinLength(5) @MaxLength(1000)
-  reason!: string;
+  @IsOptional() @IsString() @MaxLength(1000)
+  reason?: string;
 }
 
 @Controller()
@@ -129,7 +129,7 @@ export class MarketplaceRolesController {
     @Param("caseId", new ParseUUIDPipe()) caseId: string,
     @Body() dto: ReviewDecisionDto,
   ) {
-    return this.roles.decideIdentityVerification(user.id, caseId, dto.decision, dto.reason);
+    return this.roles.decideIdentityVerification(user.id, caseId, dto.decision, dto.reason ?? "");
   }
 
   @Get("admin/skill-reviews")
