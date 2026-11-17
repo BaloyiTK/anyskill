@@ -421,6 +421,149 @@ export class MarketplaceRolesService {
     return { applicationId, status: applicationStatus, providerRoleStatus: roleStatus };
   }
 
+
+  async listAdminAccounts() {
+    const users = await this.prisma.user.findMany({
+      where: { deletedAt: null },
+      orderBy: { createdAt: "desc" },
+      take: 500,
+      select: {
+        id: true, email: true, initialMode: true, seekerRoleStatus: true,
+        providerRoleStatus: true, identityVerification: true,
+        identityCases: { orderBy: { submittedAt: "desc" }, take: 1,
+          select: { status: true, decisionReason: true, reviewedAt: true } },
+        providerSkills: { orderBy: { category: "asc" },
+          select: { id: true, category: true, status: true, decisionReason: true, submittedAt: true, reviewedAt: true } },
+      },
+    });
+    return users.map((user) => {
+      const modes: string[] = [];
+      if (user.seekerRoleStatus === MarketplaceRoleStatus.ACTIVE) modes.push("Seeker");
+      if (user.providerRoleStatus === MarketplaceRoleStatus.ACTIVE) modes.push("Provider");
+      const latestIdentity = user.identityCases[0] ?? null;
+      return {
+        id: user.id,
+        email: user.email,
+        mode: modes,
+        identity: {
+          status: user.identityVerification === IdentityVerificationStatus.FAILED ? "REJECTED" : user.identityVerification,
+          reason: latestIdentity?.decisionReason ?? null,
+          reviewedAt: latestIdentity?.reviewedAt ?? null,
+        },
+        skills: user.providerSkills.map((skill) => ({
+          id: skill.id, name: skill.category, status: skill.status,
+          reason: skill.decisionReason, submittedAt: skill.submittedAt, reviewedAt: skill.reviewedAt,
+        })),
+      };
+    });
+  }
+
+  async listIdentityReviews() {
+    return this.prisma.identityVerificationCase.findMany({
+      where: { status: { in: [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW] } },
+      orderBy: { submittedAt: "asc" },
+      take: 200,
+      select: {
+        id: true, status: true, submittedAt: true,
+        user: { select: { id: true, email: true, identityVerification: true } },
+      },
+    });
+  }
+
+  async decideIdentityVerification(reviewerId: string, caseId: string, decision: "APPROVED" | "REJECTED", reason: string) {
+    const trimmedReason = reason.trim();
+    if (decision === "REJECTED" && trimmedReason.length < 5) {
+      throw new ConflictException("A rejection reason of at least 5 characters is required.");
+    }
+    const verificationCase = await this.prisma.identityVerificationCase.findUnique({
+      where: { id: caseId },
+      select: { id: true, userId: true, status: true },
+    });
+    if (!verificationCase) throw new NotFoundException("Identity verification case not found.");
+    if (verificationCase.userId === reviewerId) throw new ForbiddenException("Reviewers cannot verify their own identity.");
+    if (![VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW].includes(verificationCase.status)) {
+      throw new ConflictException("This identity verification case has already been decided.");
+    }
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.identityVerificationCase.updateMany({
+        where: { id: caseId, status: { in: [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW] } },
+        data: { status: decision === "APPROVED" ? VerificationCaseStatus.APPROVED : VerificationCaseStatus.REJECTED,
+          reviewerId, reviewedAt: now, decisionReason: trimmedReason || null },
+      });
+      if (changed.count !== 1) throw new ConflictException("This identity verification case has already been decided.");
+      const approvedSkills = await tx.providerSkill.count({ where: { userId: verificationCase.userId, status: "APPROVED" } });
+      const user = await tx.user.findUniqueOrThrow({ where: { id: verificationCase.userId },
+        select: { providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } });
+      const identityStatus = decision === "APPROVED" ? IdentityVerificationStatus.VERIFIED : IdentityVerificationStatus.FAILED;
+      const providerActive = decision === "APPROVED" && approvedSkills > 0 && user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
+      await tx.user.update({ where: { id: verificationCase.userId }, data: {
+        identityVerification: identityStatus, identityVerifiedAt: decision === "APPROVED" ? now : null,
+        providerRoleStatus: user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
+          ? MarketplaceRoleStatus.SUSPENDED
+          : providerActive ? MarketplaceRoleStatus.ACTIVE : MarketplaceRoleStatus.PENDING,
+        activeMarketplaceMode: user.activeMarketplaceMode === RegistrationMode.PROVIDER && !providerActive
+          ? (user.seekerRoleStatus === MarketplaceRoleStatus.ACTIVE ? RegistrationMode.SEEKER : null)
+          : user.activeMarketplaceMode,
+      } });
+      await tx.staffAuditLog.create({ data: { actorId: reviewerId, targetUserId: verificationCase.userId,
+        action: `IDENTITY_VERIFICATION_${decision}`, metadata: { caseId, reason: trimmedReason || null } } });
+      await tx.appNotification.create({ data: { userId: verificationCase.userId,
+        title: decision === "APPROVED" ? "Identity verified" : "Identity verification rejected",
+        body: decision === "APPROVED" ? "Your identity has been verified." : trimmedReason,
+        data: { type: "IDENTITY_VERIFICATION_DECISION", caseId, decision } } });
+    });
+    return { caseId, status: decision === "APPROVED" ? "VERIFIED" : "REJECTED", reason: trimmedReason || null };
+  }
+
+  async listSkillReviews() {
+    return this.prisma.providerSkill.findMany({
+      where: { status: "PENDING" },
+      orderBy: { submittedAt: "asc" },
+      take: 300,
+      select: { id: true, category: true, details: true, status: true, submittedAt: true,
+        user: { select: { id: true, email: true, identityVerification: true } } },
+    });
+  }
+
+  async decideSkill(reviewerId: string, skillId: string, decision: "APPROVED" | "REJECTED", reason: string) {
+    const trimmedReason = reason.trim();
+    if (decision === "REJECTED" && trimmedReason.length < 5) {
+      throw new ConflictException("A rejection reason of at least 5 characters is required.");
+    }
+    const skill = await this.prisma.providerSkill.findUnique({ where: { id: skillId },
+      select: { id: true, userId: true, status: true, user: { select: { identityVerification: true, providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } } } });
+    if (!skill) throw new NotFoundException("Skill not found.");
+    if (skill.userId === reviewerId) throw new ForbiddenException("Reviewers cannot approve their own skills.");
+    if (skill.status !== "PENDING") throw new ConflictException("This skill has already been decided.");
+    if (decision === "APPROVED" && skill.user.identityVerification !== IdentityVerificationStatus.VERIFIED) {
+      throw new ConflictException("Identity must be verified before a skill can be approved.");
+    }
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.providerSkill.updateMany({ where: { id: skillId, status: "PENDING" },
+        data: { status: decision, reviewerId, reviewedAt: now, decisionReason: trimmedReason || null } });
+      if (changed.count !== 1) throw new ConflictException("This skill has already been decided.");
+      const approvedSkills = await tx.providerSkill.count({ where: { userId: skill.userId, status: "APPROVED" } });
+      const providerActive = skill.user.identityVerification === IdentityVerificationStatus.VERIFIED &&
+        approvedSkills > 0 && skill.user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
+      await tx.user.update({ where: { id: skill.userId }, data: {
+        providerRoleStatus: skill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
+          ? MarketplaceRoleStatus.SUSPENDED
+          : providerActive ? MarketplaceRoleStatus.ACTIVE : MarketplaceRoleStatus.PENDING,
+        activeMarketplaceMode: providerActive && skill.user.activeMarketplaceMode === null &&
+          skill.user.seekerRoleStatus !== MarketplaceRoleStatus.ACTIVE ? RegistrationMode.PROVIDER : skill.user.activeMarketplaceMode,
+      } });
+      await tx.staffAuditLog.create({ data: { actorId: reviewerId, targetUserId: skill.userId,
+        action: `PROVIDER_SKILL_${decision}`, metadata: { skillId, reason: trimmedReason || null } } });
+      await tx.appNotification.create({ data: { userId: skill.userId,
+        title: decision === "APPROVED" ? "Skill approved" : "Skill rejected",
+        body: decision === "APPROVED" ? `Your skill "${skillId}" has been approved.` : trimmedReason,
+        data: { type: "PROVIDER_SKILL_DECISION", skillId, decision } } });
+    });
+    return { skillId, status: decision, reason: trimmedReason || null };
+  }
+
   async getAdminDashboardMetrics() {
     const now = new Date();
     const [activeProviders, activeSeekers, jobsInProgress, completedJobs, scheduledJobs, pendingJobs, pendingApplications, applicationsUnderReview] = await Promise.all([
