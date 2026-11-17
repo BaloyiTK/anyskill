@@ -420,6 +420,7 @@ async function login(event){
 
 $("#login-form").addEventListener("submit",login);
 $("#logout-button").addEventListener("click",()=>signOut());
+$("#refresh-button").addEventListener("click",async()=>{await loadDashboardMetrics();if(state.adminPermissions?.identity)await loadIdentityQueue();if(state.adminPermissions?.skills)await loadSkillQueue();toast("Dashboard data refreshed.");});
 document.querySelectorAll(".nav-item").forEach(item=>item.addEventListener("click",()=>setPage(item.dataset.page)));
 document.querySelectorAll("[data-go]").forEach(item=>item.addEventListener("click",()=>setPage(item.dataset.go)));
 $("#identity-refresh").addEventListener("click",loadIdentityQueue);
