@@ -64,7 +64,7 @@ const moduleDefinitions = {
   "user-providers": { group: "MARKETPLACE", title: "Providers", description: "Provider account register with All, Active, Suspended and application-status filters.", items: ["Provider profile and skills", "Identity verification state", "Availability and service areas", "Provider role status and account-level controls"], note: "The provider register UI is scoped here; connect it to a protected, paginated user-management API before showing live accounts or changing access." },
   "user-seekers": { group: "MARKETPLACE", title: "Seekers", description: "Seeker account register with All, Active and Suspended tabs.", items: ["Seeker profile and contact details", "Marketplace roles (including dual-role accounts)", "Account status and registration date", "Role-level suspension kept separate from whole-account suspension"], note: "The seeker register UI is scoped here; connect it to a protected, paginated user-management API before showing live accounts or changing access." },
   jobs: { group: "MARKETPLACE", title: "Jobs & requests", description: "Central register for service requests and job engagements.", items: ["All jobs", "Informal services (service category, not a lifecycle status)", "Pending and matching", "In progress and scheduled", "Cancelled and completed", "Disputes and escalations"], note: "Job records need a unified, paginated API joining requests, provider responses and engagements. The current schema does not yet contain a complete cancellation/dispute case workflow." },
-  identity: { group: "TRUST & SAFETY", title: "Identity verification", description: "Identity documents are reviewed within the Provider onboarding application.", items: ["Identity documents and live selfie", "Reviewed alongside profile, skills and qualifications", "One overall Provider onboarding decision"], note: "Provider identity checks are included in the Provider applications review. Seeker-only identity workflows remain separate." },
+  identity: { group: "TRUST & SAFETY", title: "Identity verification", description: "Review identity documents and the live selfie independently of skill decisions.", items: ["Identity documents and live selfie", "Separate identity decision and rejection reason", "Identity verification is required before skill approval"], note: "Identity verification is its own review queue. It does not approve or reject the user’s skills." },
   disputes: { group: "TRUST & SAFETY", title: "Disputes", description: "Investigate disagreements between seekers and providers.", items: ["New and open disputes", "Awaiting seeker or provider response", "Under investigation", "Escalated and resolved", "Evidence and resolution history"], note: "The engagement status supports DISPUTED, but a full dispute case, evidence and resolution workflow still needs to be designed and implemented." },
   fraud: { group: "TRUST & SAFETY", title: "Fraud & risk", description: "Review suspicious activity and reported accounts.", items: ["Reported users and jobs", "Suspicious account patterns", "Transaction risk flags", "Investigation notes and outcomes"], note: "Risk signals and investigation records are not yet implemented. Do not present automated fraud prevention as an existing capability." },
   reviews: { group: "TRUST & SAFETY", title: "Ratings & reviews", description: "Moderate feedback and reported content.", items: ["Provider ratings and seeker feedback", "Reported reviews", "Content moderation queue", "Moderation audit history"], note: "A review and moderation data model plus permission-checked endpoints are required before this module can display records." },
@@ -87,57 +87,6 @@ function renderModulePage(page) {
   $("#module-content").innerHTML = '<section class="panel module-detail-panel"><div class="module-detail-heading"><strong>Planned administration capabilities</strong><span class="module-state">Not connected to live records</span></div><ul>' +
     module.items.map((item) => '<li>' + escapeHtml(item) + '</li>').join("") +
     '</ul><div class="module-integration-note"><strong>Implementation note</strong><p>' + escapeHtml(module.note) + '</p></div></section>';
-}
-
-function setPage(page) {
-  const providers = page === "providers";
-  const module = Boolean(moduleDefinitions[page]);
-  hide($("#overview-page")); hide($("#providers-page")); hide($("#staff-page")); hide($("#module-page"));
-  if (providers) show($("#providers-page"));
-  else if (page === "staff") show($("#staff-page"));
-  else if (module) { show($("#module-page")); renderModulePage(page); }
-  else show($("#overview-page"));
-  document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.page === page));
-  const labels = { overview: "Dashboard", providers: "Provider applications", staff: "Staff & permissions" };
-  $("#breadcrumb").textContent = labels[page] || moduleDefinitions[page]?.title || "Overview";
-  if (providers) void loadApplications();
-  if (page === "staff") void loadStaffMembers();
-}
-
-async function login(event) {
-  event.preventDefault();
-  const errorBox = $("#login-error");
-  hide(errorBox);
-  state.api = $("#api-url").value.trim().replace(/\/$/, "");
-  if (!state.api) return;
-  const button = $("#login-form button[type=submit]");
-  button.disabled = true; button.textContent = "Signing in…";
-  try {
-    const result = await request("/auth/login", { method: "POST", body: JSON.stringify({ email: $("#email").value.trim(), password: $("#password").value }) });
-    state.accessToken = result.accessToken;
-    state.refreshToken = result.refreshToken;
-    const me = await request("/auth/me");
-    state.staff = me;
-    const apps = await request("/admin/provider-applications");
-    state.applications = Array.isArray(apps) ? apps : [];
-    try { await request("/admin/staff"); state.isSuperAdmin = true; show($("#staff-nav")); } catch { state.isSuperAdmin = false; hide($("#staff-nav")); }
-    $("#staff-email").textContent = me.email || "Staff account";
-    $("#staff-avatar").textContent = initials(me.email);
-    $("#today-date").textContent = new Intl.DateTimeFormat("en-ZA", { dateStyle: "full" }).format(new Date());
-    hide($("#login-view")); show($("#app-view"));
-    renderMetrics();
-    renderApplications();
-    await loadDashboardMetrics();
-    setPage("overview");
-  } catch (error) {
-    errorBox.textContent = error.status === 403
-      ? "Your account is signed in, but it does not have an active staff permission to access Provider reviews. Ask an administrator to grant the appropriate staff role."
-      : error.message || "Sign-in failed.";
-    show(errorBox);
-    state.accessToken = ""; state.refreshToken = "";
-  } finally {
-    button.disabled = false; button.innerHTML = 'Sign in securely <span>→</span>';
-  }
 }
 
 function renderMetrics() {
@@ -165,12 +114,12 @@ async function loadDashboardMetrics() {
 function renderStaffMembers() {
   const list = $("#staff-list");
   if (!state.staffMembers.length) { list.innerHTML = '<div class="empty-state">No staff memberships found.</div>'; return; }
-  const labels = { PROVIDER_REVIEWER: "Provider Reviewer", IDENTITY_REVIEWER: "Identity Reviewer", SUPPORT_AGENT: "Support Agent", FINANCE_OFFICER: "Finance Officer", FRAUD_OFFICER: "Fraud Officer", ADMIN: "Administrator", SUPER_ADMIN: "Super Administrator" };
+  const labels = { PROVIDER_REVIEWER: "Skills Reviewer", IDENTITY_REVIEWER: "Identity Reviewer", SUPPORT_AGENT: "Support Agent", FINANCE_OFFICER: "Finance Officer", FRAUD_OFFICER: "Fraud Officer", ADMIN: "Administrator", SUPER_ADMIN: "Super Administrator" };
   list.innerHTML = state.staffMembers.map((member) => {
     const email = escapeHtml(member.user?.email || "Staff account");
     const id = escapeHtml(member.user?.id || "");
     const locked = member.role === "SUPER_ADMIN";
-    return '<article class="application-row"><div class="applicant-main"><div class="applicant-avatar">' + escapeHtml(initials(email)) + '</div><div class="applicant-copy"><strong>' + email + '</strong><span>' + escapeHtml(labels[member.role] || member.role) + '</span></div></div><div class="applicant-actions"><select aria-label="Staff role" data-staff-role="' + id + '" ' + (locked ? "disabled" : "") + '><option value="PROVIDER_REVIEWER" ' + (member.role === "PROVIDER_REVIEWER" ? "selected" : "") + '>Provider Reviewer</option><option value="IDENTITY_REVIEWER" ' + (member.role === "IDENTITY_REVIEWER" ? "selected" : "") + '>Identity Reviewer</option><option value="SUPPORT_AGENT" ' + (member.role === "SUPPORT_AGENT" ? "selected" : "") + '>Support Agent</option><option value="FINANCE_OFFICER" ' + (member.role === "FINANCE_OFFICER" ? "selected" : "") + '>Finance Officer</option><option value="FRAUD_OFFICER" ' + (member.role === "FRAUD_OFFICER" ? "selected" : "") + '>Fraud Officer</option><option value="ADMIN" ' + (member.role === "ADMIN" ? "selected" : "") + '>Administrator</option></select><button class="button button-light" data-staff-toggle="' + id + '" data-active="' + member.isActive + '" ' + (locked ? "disabled" : "") + '>' + (member.isActive ? "Suspend" : "Reactivate") + '</button><span class="status-pill">' + (member.isActive ? "Active" : "Suspended") + '</span></div></article>';
+    return '<article class="application-row"><div class="applicant-main"><div class="applicant-avatar">' + escapeHtml(initials(email)) + '</div><div class="applicant-copy"><strong>' + email + '</strong><span>' + escapeHtml(labels[member.role] || member.role) + '</span></div></div><div class="applicant-actions"><select aria-label="Staff role" data-staff-role="' + id + '" ' + (locked ? "disabled" : "") + '><option value="PROVIDER_REVIEWER" ' + (member.role === "PROVIDER_REVIEWER" ? "selected" : "") + '>Skills Reviewer</option><option value="IDENTITY_REVIEWER" ' + (member.role === "IDENTITY_REVIEWER" ? "selected" : "") + '>Identity Reviewer</option><option value="SUPPORT_AGENT" ' + (member.role === "SUPPORT_AGENT" ? "selected" : "") + '>Support Agent</option><option value="FINANCE_OFFICER" ' + (member.role === "FINANCE_OFFICER" ? "selected" : "") + '>Finance Officer</option><option value="FRAUD_OFFICER" ' + (member.role === "FRAUD_OFFICER" ? "selected" : "") + '>Fraud Officer</option><option value="ADMIN" ' + (member.role === "ADMIN" ? "selected" : "") + '>Administrator</option></select><button class="button button-light" data-staff-toggle="' + id + '" data-active="' + member.isActive + '" ' + (locked ? "disabled" : "") + '>' + (member.isActive ? "Suspend" : "Reactivate") + '</button><span class="status-pill">' + (member.isActive ? "Active" : "Suspended") + '</span></div></article>';
   }).join("");
 }
 async function loadStaffMembers() {
@@ -188,148 +137,6 @@ async function updateStaffMember(userId, patch) {
   try { await request("/admin/staff/" + encodeURIComponent(userId), { method: "PATCH", body: JSON.stringify(patch) }); toast("Staff permissions updated."); await loadStaffMembers(); }
   catch (e) { const error = $("#staff-error"); error.textContent = e.message; show(error); await loadStaffMembers(); }
 }
-function renderApplications() {
-  const filter = $("#queue-filter").value;
-  const items = state.applications.filter((item) => filter === "ALL" || item.status === filter);
-  $("#queue-total").textContent = String(items.length);
-  if (!items.length) {
-    $("#application-list").innerHTML = '<div class="empty-state">You’re all caught up. There are no applications in this view.</div>';
-    return;
-  }
-  $("#application-list").innerHTML = items.map((application) => {
-    const data = dataOf(application);
-    const name = data.publicName || "Provider applicant";
-    const skills = Array.isArray(data.skills) ? data.skills.slice(0, 3).join(" · ") : "Skills not supplied";
-    const status = application.status === "UNDER_REVIEW" ? "Under review" : "Awaiting review";
-    const statusClass = application.status === "UNDER_REVIEW" ? "review" : "";
-    return `<article class="application-row">
-      <div class="applicant-main"><div class="applicant-avatar">${escapeHtml(initials(name))}</div><div class="applicant-copy"><strong>${escapeHtml(name)}</strong><span>${escapeHtml(application.user?.email || "Email unavailable")}</span><div class="applicant-meta">${escapeHtml(skills)} · Submitted ${escapeHtml(dateLabel(application.submittedAt))}</div></div></div>
-      <div class="applicant-actions"><span class="status-pill ${statusClass}">${status}</span><button class="button button-light" data-review-id="${escapeHtml(application.id)}">Review application →</button></div>
-    </article>`;
-  }).join("");
-}
-
-async function loadApplications() {
-  const list = $("#application-list");
-  const errorBox = $("#queue-error");
-  hide(errorBox);
-  list.innerHTML = '<div class="loading-state">Loading provider applications…</div>';
-  try {
-    const apps = await request("/admin/provider-applications");
-    state.applications = Array.isArray(apps) ? apps : [];
-    renderMetrics(); renderApplications();
-  } catch (error) {
-    list.innerHTML = "";
-    errorBox.textContent = error.status === 403
-      ? "Your staff permissions do not allow Provider application review."
-      : error.message || "Could not load the application queue.";
-    show(errorBox);
-  }
-}
-
-async function openReview(id) {
-  const application = state.applications.find((item) => item.id === id);
-  if (!application) return;
-  state.selected = application;
-  const data = dataOf(application);
-  $("#review-title").textContent = data.publicName || "Provider applicant";
-  $("#review-subtitle").textContent = `${application.user?.email || "Email unavailable"} · Submitted ${dateLabel(application.submittedAt)}`;
-  const block = (title, content) => `<section class="detail-block"><h3>${escapeHtml(title)}</h3>${content}</section>`;
-  const list = (values) => Array.isArray(values) && values.length ? `<ul>${values.map((value) => `<li>${escapeHtml(value)}</li>`).join("")}</ul>` : "<p>Not supplied</p>";
-  const identity = application.user?.identityVerification || "UNKNOWN";
-  const profile = application.user?.onboardingDraft?.profile && typeof application.user.onboardingDraft.profile === "object"
-    ? application.user.onboardingDraft.profile : {};
-  const skillDetails = Array.isArray(data.skillDetails) ? data.skillDetails : [];
-  const docs = application.identityDocuments || {};
-  const image = (label, url) => url
-    ? `<div class="evidence-item"><span>${escapeHtml(label)}</span><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(url)}" alt="${escapeHtml(label)}" loading="lazy" /></a></div>`
-    : `<div class="evidence-item evidence-missing"><span>${escapeHtml(label)}</span><small>Not available</small></div>`;
-  const profileDetails = [
-    ["Name", [profile.firstName, profile.lastName].filter(Boolean).join(" ")],
-    ["Account type", profile.accountType],
-    ["Phone", profile.phone],
-    ["Business", profile.businessName],
-    ["Location", [profile.suburb, profile.city, profile.province, profile.country].filter(Boolean).join(", ")],
-  ].filter(([, value]) => value);
-  const profileContent = profileDetails.length
-    ? `<dl class="review-facts">${profileDetails.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("")}</dl>`
-    : "<p>Profile details were not included in the application snapshot.</p>";
-  const evidence = (assetId, label) => {
-    const url = application.providerEvidence?.[assetId];
-    return url
-      ? `<a class="evidence-link" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)} — view attachment</a>`
-      : `<span class="evidence-unavailable">${escapeHtml(label)} — attachment unavailable</span>`;
-  };
-  const skillContent = skillDetails.length
-    ? skillDetails.map((skill) => {
-        const qualifications = Array.isArray(skill.licencesQualifications) ? skill.licencesQualifications : [];
-        const portfolio = Array.isArray(skill.portfolio) ? skill.portfolio : [];
-        const qualificationContent = qualifications.length
-          ? `<ul>${qualifications.map((item) => `<li>${escapeHtml(item.name || "Qualification")}<br />${evidence(item.attachmentUrl, item.attachmentName || "Supporting document")}</li>`).join("")}</ul>`
-          : "<p>No qualifications supplied.</p>";
-        const portfolioContent = portfolio.length
-          ? portfolio.map((item) => `<div class="portfolio-review"><strong>${escapeHtml(item.title || "Work example")}</strong><p>${escapeHtml(item.description || "No description supplied")}</p>${Array.isArray(item.imageUrls) ? item.imageUrls.map((assetId, index) => evidence(assetId, `Work image ${index + 1}`)).join("<br />") : ""}${item.linkUrl ? `<p><a href="${escapeHtml(item.linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.linkTitle || "Portfolio link")}</a></p>` : ""}</div>`).join("")
-          : "<p>No portfolio examples supplied.</p>";
-        return `<div class="skill-review"><strong>${escapeHtml(skill.category || "Skill")}</strong><p>${escapeHtml(skill.description || "No overview supplied")}</p><p>Experience: ${escapeHtml(skill.yearsOfExperience ?? "Not supplied")}</p><h4>Qualifications and licences</h4>${qualificationContent}<h4>Portfolio and work examples</h4>${portfolioContent}</div>`;
-      }).join("")
-    : list(data.skills);
-  const identityCase = application.user?.identityCase;
-  const identityContent = `<p>Identity status: <strong>${escapeHtml(identity)}</strong></p><p>Case status: <strong>${escapeHtml(identityCase?.status || (identity === "VERIFIED" ? "Previously verified" : "No submitted case"))}</strong></p><div class="evidence-grid">${image("ID document — front", docs.ID_DOCUMENT_FRONT)}${image("ID document — back", docs.ID_DOCUMENT_BACK)}${image("Green ID book — page 1", docs.ID_BOOK_PAGE_1)}${image("Green ID book — page 2", docs.ID_BOOK_PAGE_2)}${image("Live selfie", docs.ID_SELFIE)}</div>`;
-  $("#review-details").innerHTML =
-    block("Applicant profile", profileContent) +
-    block("Identity documents and selfie — review as part of this application", identityContent) +
-    block("Skills, experience and descriptions", skillContent) +
-    block("Qualifications and licences", list(data.qualifications)) +
-    block("Portfolio and work examples", list(data.portfolio)) +
-    block("Account checks", `<p>Email: ${escapeHtml(application.user?.email || "Not available")}</p><p>Application status: ${escapeHtml(application.status)}</p><p>Submitted: ${escapeHtml(dateLabel(application.submittedAt))}</p>`);
-  $("#decision-reason").value = "";
-  hide($("#decision-error"));
-  $("#decision-form").dataset.id = id;
-  $("#decision-form").dataset.status = application.status;
-  $("#needs-info").disabled = false;
-  $("#reject-application").disabled = false;
-  $("#approve-application").disabled = false;
-  show($("#review-modal"));
-  if (application.status === "PENDING") {
-    try {
-      await request(`/admin/provider-applications/${encodeURIComponent(id)}/start-review`, { method: "POST" });
-      application.status = "UNDER_REVIEW";
-      $("#decision-form").dataset.status = "UNDER_REVIEW";
-      renderApplications(); renderMetrics();
-    } catch (error) {
-      $("#decision-error").textContent = error.message;
-      show($("#decision-error"));
-    }
-  }
-}
-
-async function decide(decision) {
-  const id = $("#decision-form").dataset.id;
-  const reason = $("#decision-reason").value.trim();
-  const errorBox = $("#decision-error");
-  hide(errorBox);
-  if (!reason || reason.length < 5) {
-    errorBox.textContent = "Please provide a decision reason of at least five characters.";
-    show(errorBox); return;
-  }
-  const buttons = [$("#needs-info"), $("#reject-application"), $("#approve-application")];
-  buttons.forEach((button) => { button.disabled = true; });
-  try {
-    await request(`/admin/provider-applications/${encodeURIComponent(id)}/decision`, {
-      method: "POST", body: JSON.stringify({ decision, reason }),
-    });
-    hide($("#review-modal"));
-    toast(decision === "APPROVED" ? "Provider onboarding approved. Identity and Provider access updated together." : decision === "REJECTED" ? "Provider onboarding rejected." : "More information requested.");
-    await loadApplications();
-  } catch (error) {
-    errorBox.textContent = error.message || "The decision could not be saved.";
-    show(errorBox);
-  } finally {
-    buttons.forEach((button) => { button.disabled = false; });
-  }
-}
-
-
 async function probeAdminPermission(path){try{await request(path);return true;}catch(e){if(e.status===403||e.status===404)return false;throw e;}}
 async function loadAdminPermissions(){
  const checks=await Promise.all([
