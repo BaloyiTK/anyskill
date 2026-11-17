@@ -199,7 +199,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         businessName, businessRegistrationNumber, businessType, businessEmail, businessPhone, businessCountry, businessProvince, businessCity, businessAddress,
         contactFirstName, contactLastName, contactJobTitle, contactEmail, contactPhone,
       } }
-        : section === "skills" ? { skills: skills.filter((v) => v.category.trim()).map((v) => ({ ...v, category: v.category.trim(), licencesQualifications: v.licencesQualifications.filter((q) => q.name.trim() && q.attachmentUrl.trim()), portfolio: v.portfolio.filter((item) => item.title.trim()).map(({ imagePreviews: _imagePreviews, ...item }) => item) })), portfolio: [] }
+        : section === "skills" ? { skills: skills.filter((v) => v.category.trim()).map((v) => ({ ...v, category: v.category.trim(), licencesQualifications: v.licencesQualifications.filter((q) => q.name.trim() && q.attachmentUrl.trim()), portfolio: v.portfolio.filter((item) => item.title.trim() || (item.linkUrl ?? item.links[0] ?? "").trim() || item.imageUrls.length > 0).map(({ imagePreviews: _imagePreviews, ...item }) => item) })), portfolio: [] }
         : { portfolio: [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
       setData(result);
@@ -789,20 +789,27 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
             </View>
             <View style={st.card}>
               <Text style={st.sectionHeading}>Your portfolio</Text>
-              <Text style={st.help}>Show examples of work completed under this skill. Add photos and links separately.</Text>
-              {skill.portfolio.map((item, index) => <View key={`portfolio-${selectedSkillIndex}-${index}`} style={st.evidenceCard}>
-                {Field("Project or work title", item.title, (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, title: value } : entry) }))}
-                {Field("Short description", item.description, (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, description: value } : entry) }), true)}
-                <Text style={st.label}>Work photos</Text>
-                <View style={st.portfolioImages}>{item.imageUrls.map((imageId, imageIndex) => <View key={imageId + imageIndex} style={st.portfolioImageItem}>{item.imagePreviews?.[imageIndex] ? <Image source={{ uri: item.imagePreviews[imageIndex] }} style={st.portfolioImagePreview}/> : <View style={st.portfolioImagePlaceholder}><Text style={st.uploadedFileIcon}>▧</Text></View>}<Text numberOfLines={1} style={st.uploadedFileText}>Image {imageIndex + 1}</Text></View>)}</View>
-                <Pressable disabled={busy} style={st.uploadTile} onPress={() => void uploadSkillEvidence("PROVIDER_PORTFOLIO_IMAGE", (assetId, _fileName, uri) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, imageUrls: [...entry.imageUrls, assetId], imagePreviews: [...(entry.imagePreviews ?? []), uri] } : entry) }))}>
-                  <Text style={st.uploadTileIcon}>＋</Text><View style={st.uploadTileCopy}><Text style={st.uploadTileTitle}>Add work photos</Text><Text style={st.uploadTileHint}>Choose images from your device</Text></View><Text style={st.uploadTileAction}>Browse</Text>
-                </Pressable>
-                {Field("Link title", item.linkTitle ?? "", (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, linkTitle: value } : entry) }))}
-                {Field("Link URL", item.linkUrl ?? item.links[0] ?? "", (value) => updateSkill({ portfolio: skill.portfolio.map((entry, i) => i === index ? { ...entry, linkUrl: value, links: value.trim() ? [value.trim()] : [] } : entry) }))}
-                <Pressable onPress={() => updateSkill({ portfolio: skill.portfolio.filter((_, i) => i !== index) })}><Text style={st.removeText}>Remove portfolio item</Text></Pressable>
-              </View>)}
-              <Action label="＋ Add portfolio item" onPress={() => updateSkill({ portfolio: [...skill.portfolio, { title: "", description: "", links: [], imageUrls: [], linkTitle: "", linkUrl: "", imagePreviews: [] }] })} disabled={busy}/>
+              <Text style={st.help}>Add a link to your work and upload images as optional examples.</Text>
+              {(() => {
+                const portfolioItem: SkillPortfolio = {
+                  title: "",
+                  description: "",
+                  links: skill.portfolio.flatMap((item) => item.links ?? []),
+                  imageUrls: skill.portfolio.flatMap((item) => item.imageUrls ?? []),
+                  linkTitle: "",
+                  linkUrl: skill.portfolio.find((item) => item.linkUrl)?.linkUrl ?? skill.portfolio.flatMap((item) => item.links ?? [])[0] ?? "",
+                  imagePreviews: skill.portfolio.flatMap((item) => item.imagePreviews ?? []),
+                };
+                const updatePortfolio = (patch: Partial<SkillPortfolio>) => updateSkill({ portfolio: [{ ...portfolioItem, ...patch }] });
+                return <>
+                  {Field("Portfolio link", portfolioItem.linkUrl, (value) => updatePortfolio({ linkUrl: value, links: value.trim() ? [value.trim()] : [] }))}
+                  <Text style={st.label}>Additional images (optional)</Text>
+                  <View style={st.portfolioImages}>{portfolioItem.imageUrls.map((imageId, imageIndex) => <View key={imageId + imageIndex} style={st.portfolioImageItem}>{portfolioItem.imagePreviews?.[imageIndex] ? <Image source={{ uri: portfolioItem.imagePreviews[imageIndex] }} style={st.portfolioImagePreview}/> : <View style={st.portfolioImagePlaceholder}><Text style={st.uploadedFileIcon}>▧</Text></View>}<Text numberOfLines={1} style={st.uploadedFileText}>Image {imageIndex + 1}</Text></View>)}</View>
+                  <Pressable disabled={busy} style={st.uploadTile} onPress={() => void uploadSkillEvidence("PROVIDER_PORTFOLIO_IMAGE", (assetId, _fileName, uri) => updatePortfolio({ imageUrls: [...portfolioItem.imageUrls, assetId], imagePreviews: [...(portfolioItem.imagePreviews ?? []), uri] }))}>
+                    <Text style={st.uploadTileIcon}>＋</Text><View style={st.uploadTileCopy}><Text style={st.uploadTileTitle}>Add images</Text><Text style={st.uploadTileHint}>Choose images from your device</Text></View><Text style={st.uploadTileAction}>Browse</Text>
+                  </Pressable>
+                </>;
+              })()}
               <Text style={st.status}>Skill {selectedSkillIndex + 1} of {skills.length}</Text>
             </View>
           </>;
@@ -821,7 +828,8 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       {!!message && <Text style={st.success}>{message}</Text>}
       {!!error && <Text style={st.error}>{error}</Text>}
       <View style={st.saveButtons}>
-        <Action label="Save and Continue" onPress={() => void continueCurrent()} disabled={busy} />
+        {active !== "Profile" ? <View style={st.saveButtonSlot}><Action label="Back" onPress={() => setActive(tabs[Math.max(0, tabs.indexOf(active) - 1)])} disabled={busy} /></View> : null}
+        <View style={st.saveButtonSlot}><Action label={active === "Submit" ? "Save and Submit" : "Save and Continue"} onPress={() => void continueCurrent()} disabled={busy} /></View>
       </View>
     </ScrollView>
   </View>;
@@ -911,7 +919,7 @@ const st = StyleSheet.create({
   searchInput: { minHeight: 46, borderBottomWidth: 1, borderBottomColor: "#E8EDF3", paddingHorizontal: 13, color: colors.ink },
   option: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#F0F3F7" },
   optionText: { color: colors.ink, fontSize: 13 }, optionHint: { color: colors.muted, padding: 13, fontSize: 12 },
-  saveButtons: { width: "100%", marginTop: 10, paddingBottom: 8 },
+  saveButtons: { width: "100%", marginTop: 10, paddingBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }, saveButtonSlot: { flex: 1 },
   searchField: { minHeight: 52, flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#DCE5EF", borderRadius: 14, backgroundColor: "#FFFFFF", paddingHorizontal: 13, marginBottom: 14 },
   searchGlyph: { color: colors.muted, fontSize: 23, marginRight: 9 },
   searchFieldInput: { flex: 1, minHeight: 50, color: colors.ink, fontSize: 14 },
