@@ -19,7 +19,7 @@ createServer(async (request, response) => {
     const info = await stat(target);
     if (!info.isFile()) throw new Error("Not a file");
     const body = await readFile(target);
-    response.writeHead(200, { "Content-Type": types[extname(target)] ?? "application/octet-stream", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin" });
+    response.writeHead(200, { "Content-Type": types[extname(target)] ?? "application/octet-stream", "Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache", "Expires": "0", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin" });
     response.end(body);
   } catch {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" }).end("Not found");
