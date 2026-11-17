@@ -165,13 +165,11 @@ export function MarketplaceScreen(p: Props) {
       const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
       if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
       setMyRequests(result);
-      if (!matchingRequest) {
-        const active = result.find((item) => item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
-        if (active) setMatchingRequest({
-          id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
-          createdAt: active.matchingStartedAt, notified: active._count?.matches ?? 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
-        });
-      }
+      const active = result.find((item) => item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
+      setMatchingRequest(active ? {
+        id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
+        createdAt: active.matchingStartedAt, notified: active._count?.matches ?? 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
+      } : null);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load your requests."); }
     finally { setBusy(false); }
   }, []);
@@ -224,6 +222,7 @@ export function MarketplaceScreen(p: Props) {
         method: "POST", body: JSON.stringify({ responseId }),
       }, true);
       setNotice("Provider selected. The request is now closed to further offers.");
+      setMatchingRequest(null);
       await loadMyRequests();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not select this Provider.");
