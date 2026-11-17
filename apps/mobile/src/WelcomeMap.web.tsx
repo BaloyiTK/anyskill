@@ -40,6 +40,7 @@ export default function WelcomeMap({
   center,
   zoom,
   radiusKm,
+  seekerLocation,
   markers,
   selectedMarkerId,
   onSelectMarker,
@@ -47,6 +48,7 @@ export default function WelcomeMap({
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapInstance = useRef<any>(null);
   const markerOverlays = useRef<any[]>([]);
+  const seekerOverlay = useRef<any>(null);
   const circleInstance = useRef<any>(null);
   const [mapError, setMapError] = useState("");
   const [mapReady, setMapReady] = useState(false);
@@ -189,6 +191,76 @@ export default function WelcomeMap({
       return overlay;
     });
 
+
+    if (seekerOverlay.current) {
+      seekerOverlay.current.setMap(null);
+      seekerOverlay.current = null;
+    }
+    if (seekerLocation) {
+      const overlay = new google.maps.OverlayView() as any;
+      let element: HTMLDivElement | null = null;
+
+      overlay.onAdd = () => {
+        element = document.createElement("div");
+        element.setAttribute("aria-label", "Your location");
+        Object.assign(element.style, {
+          position: "absolute",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: "3px",
+          pointerEvents: "none",
+          userSelect: "none",
+          zIndex: "1000",
+          transform: "translate(-50%, -50%)",
+        });
+
+        const dot = document.createElement("div");
+        Object.assign(dot.style, {
+          width: "20px",
+          height: "20px",
+          boxSizing: "border-box",
+          borderRadius: "50%",
+          background: "#0066CC",
+          border: "3px solid #FFFFFF",
+          boxShadow: "0 1px 5px rgba(0, 35, 80, 0.55)",
+        });
+
+        const label = document.createElement("span");
+        label.textContent = "YOU";
+        Object.assign(label.style, {
+          padding: "2px 6px",
+          borderRadius: "7px",
+          background: "#0066CC",
+          color: "#FFFFFF",
+          font: "900 9px Arial, sans-serif",
+          letterSpacing: "0.4px",
+          boxShadow: "0 1px 4px rgba(0, 35, 80, 0.25)",
+        });
+
+        element.append(dot, label);
+        overlay.getPanes()?.overlayLayer?.appendChild(element);
+      };
+
+      overlay.draw = () => {
+        if (!element) return;
+        const pixel = overlay.getProjection()?.fromLatLngToDivPixel(
+          new google.maps.LatLng(seekerLocation.latitude, seekerLocation.longitude),
+        );
+        if (!pixel) return;
+        element.style.left = `${pixel.x}px`;
+        element.style.top = `${pixel.y}px`;
+      };
+
+      overlay.onRemove = () => {
+        element?.remove();
+        element = null;
+      };
+
+      seekerOverlay.current = overlay;
+      overlay.setMap(map);
+    }
+
     if (circleInstance.current) circleInstance.current.setMap(null);
     circleInstance.current = new google.maps.Circle({
       map,
@@ -201,7 +273,7 @@ export default function WelcomeMap({
       strokeWeight: 2,
       clickable: false,
     });
-  }, [mapReady, center.latitude, center.longitude, zoom, radiusKm, markers, selectedMarkerId, onSelectMarker]);
+  }, [mapReady, center.latitude, center.longitude, zoom, radiusKm, seekerLocation?.latitude, seekerLocation?.longitude, markers, selectedMarkerId, onSelectMarker]);
 
   return <View style={StyleSheet.absoluteFill}>
     <div
