@@ -91,6 +91,7 @@ export default function App() {
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [profileComplete, setProfileComplete] = useState(false);
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
+  const [pendingIncomingPushId, setPendingIncomingPushId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // AuthSession is global: prevent sign-in and account-link flows from overlapping.
   const googleAuthInProgress = useRef(false);
@@ -329,24 +330,30 @@ export default function App() {
     return () => { cancelled = true; clearInterval(interval); };
   }, [account?.id, account?.initialMode, screen, activeTab]);
 
-  const openMatchedRequest = async (requestId: string) => {
+  const openMatchedRequest = (requestId: string) => {
     if (!requestId) return;
     setPendingAcceptRequestId(requestId);
+    setPendingIncomingPushId(requestId);
+  };
+
+  useEffect(() => {
+    if (!account || roleSummary?.providerStatus !== "ACTIVE" || !pendingIncomingPushId) return;
+    // Wait until initial authentication routing has completed. This also
+    // handles a notification tapped while AnySkill was fully closed.
+    if (!["dashboard", "onboarding", "marketplace"].includes(screen)) return;
+    const requestId = pendingIncomingPushId;
+    setPendingIncomingPushId(null);
     setActiveTab("home");
     setMode("provider");
     setScreen("marketplace");
-    if (account && roleSummary?.providerStatus === "ACTIVE") {
-      try {
-        const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
-          method: "PATCH",
-          body: JSON.stringify({ mode: "PROVIDER" }),
-        }, true);
-        setRoleSummary(roles);
-      } catch (e) {
-        console.warn("[AnySkill notifications] Could not switch to Provider mode.", e);
-      }
-    }
-  };
+    void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
+      method: "PATCH",
+      body: JSON.stringify({ mode: "PROVIDER" }),
+    }, true).then(setRoleSummary).catch((e) => {
+      console.warn("[AnySkill notifications] Could not switch to Provider mode.", e);
+    });
+  }, [account?.id, roleSummary?.providerStatus, pendingIncomingPushId, screen]);
+
 
   useEffect(() => {
     const received = Notifications.addNotificationReceivedListener((notification) => {
