@@ -147,7 +147,7 @@ export class MarketplaceRolesController {
     @Param("skillId", new ParseUUIDPipe()) skillId: string,
     @Body() dto: ReviewDecisionDto,
   ) {
-    return this.roles.decideSkill(user.id, skillId, dto.decision, dto.reason);
+    return this.roles.decideSkill(user.id, skillId, dto.decision, dto.reason ?? "");
   }
 
   @Get("admin/provider-applications")
