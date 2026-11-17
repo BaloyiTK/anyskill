@@ -812,7 +812,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
                 };
                 const updatePortfolio = (patch: Partial<SkillPortfolio>) => updateSkill({ portfolio: [{ ...portfolioItem, ...patch }] });
                 return <>
-                  {Field("Portfolio link", portfolioItem.linkUrl, (value) => updatePortfolio({ linkUrl: value, links: value.trim() ? [value.trim()] : [] }))}
+                  {Field("Portfolio link", portfolioItem.linkUrl ?? "", (value) => updatePortfolio({ linkUrl: value, links: value.trim() ? [value.trim()] : [] }))}
                   <Text style={st.label}>Additional images (optional)</Text>
                   <View style={st.portfolioImages}>{portfolioItem.imageUrls.map((imageId, imageIndex) => <View key={imageId + imageIndex} style={st.portfolioImageItem}>{portfolioItem.imagePreviews?.[imageIndex] ? <Image source={{ uri: portfolioItem.imagePreviews[imageIndex] }} style={st.portfolioImagePreview}/> : <View style={st.portfolioImagePlaceholder}><Text style={st.uploadedFileIcon}>▧</Text></View>}<Text numberOfLines={1} style={st.uploadedFileText}>Image {imageIndex + 1}</Text></View>)}</View>
                   <Pressable disabled={busy} style={st.uploadTile} onPress={() => void uploadSkillEvidence("PROVIDER_PORTFOLIO_IMAGE", (assetId, _fileName, uri) => updatePortfolio({ imageUrls: [...portfolioItem.imageUrls, assetId], imagePreviews: [...(portfolioItem.imagePreviews ?? []), uri] }))}>
@@ -838,7 +838,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       {!!message && <Text style={st.success}>{message}</Text>}
       {!!error && <Text style={st.error}>{error}</Text>}
       <View style={st.saveButtons}>
-        {active !== "Profile" ? <View style={st.saveButtonSlot}><Action label="Back" onPress={() => setActive(tabs[Math.max(0, tabs.indexOf(active) - 1)])} disabled={busy} /></View> : null}
+        {active !== "Profile" ? <View style={st.saveButtonSlot}><Action label="Back" onPress={() => setActive(tabs[Math.max(0, tabs.indexOf(active) - 1)] ?? active)} disabled={busy} /></View> : null}
         <View style={st.saveButtonSlot}><Action label={active === "Submit" ? "Save and Submit" : "Save and Continue"} onPress={() => void continueCurrent()} disabled={busy} /></View>
       </View>
     </ScrollView>
