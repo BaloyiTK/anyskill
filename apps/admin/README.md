@@ -4,43 +4,41 @@ A lightweight, dependency-free web application for authorised AnySkill staff. It
 
 ## Run locally
 
-1. Start the API using the repository instructions.
-2. Ensure the API CORS allow-list includes the admin origin, normally `http://localhost:4173`.
-3. From the repository root run:
+1. Start the API.
+2. Start the Admin Portal from the repository root:
 
 ```bash
 pnpm --filter @anyskill/admin dev
 ```
 
-4. Open `http://localhost:4173`.
-5. Sign in with an existing staff account that has an active `PROVIDER_REVIEWER`, `ADMIN`, or `SUPER_ADMIN` membership.
+3. Open `http://localhost:4173`.
+4. Sign in with an existing AnySkill staff account.
 
 The API base URL can be changed on the sign-in screen. Credentials are not stored by this app; access and refresh tokens are held in memory for the browser session and cleared on sign-out or failed refresh.
 
-## Current live functionality
+For local development, the API permits the Admin Portal origins `http://localhost:4173` and `http://127.0.0.1:4173` when no explicit `CORS_ALLOWED_ORIGINS` value is configured. Production must set an explicit allow-list containing the deployed Admin Portal origin.
 
-- Staff login through `POST /api/v1/auth/login`.
-- Staff identity is loaded from `GET /api/v1/auth/me`.
-- Access to the portal is verified by requesting `GET /api/v1/admin/provider-applications`; the API remains the authority for staff permissions.
-- Provider application queue with pending and under-review filters.
-- Start-review action, with audit logging performed by the API.
-- Review skills, portfolio, qualifications and identity-verification status.
-- Approve, reject or request information, with a required decision reason.
+## Live administration functionality
+
+- Staff login through `POST /api/v1/auth/login` and staff identity through `GET /api/v1/auth/me`.
+- Identity verification queue with ID-document and selfie previews.
+- Separate identity approval or rejection. Rejection requires a reason.
+- Individual Provider skill review queue with independent approval or rejection. Rejection requires a reason; skill approval is disabled until identity is verified and is also enforced by the API.
+- Accounts register showing Seeker/Provider modes, identity status, and each skill's status and decision reason.
+- Provider access is displayed as derived from verified identity plus at least one approved skill. There is no separate Provider approval action.
+- Permission-aware navigation for Identity Reviewer, Skills Reviewer, Administrator and Super Administrator.
+- Super Administrator staff management.
+- Dashboard marketplace metrics where the staff role permits access.
 - Refresh-token renewal and sign-out.
 
-## Current limitations
+A dual-mode account retains Seeker access independently of Provider identity and skill review outcomes. Skills added later are reviewed individually; existing skill decisions are not combined into a new whole-account approval.
 
-The overview displays live Provider application queue counts only. User management, identity case review, payments, disputes, fraud operations, staff provisioning and audit-log browsing are intentionally marked as planned modules until corresponding API endpoints and permission policies exist. No placeholder financial or user metrics are fabricated.
+## Retired workflow
 
-Provider approval is not identity verification. The portal displays the identity status returned by the API as a separate trust signal. Staff decisions are enforced and audited by the backend; hiding a UI control is never used as an authorization boundary.
+Whole-Provider application approval is retired. The old Provider applications queue and combined approve/reject/request-information workflow are not part of the Admin Portal.
 
 ## Deployment
 
-Deploy `apps/admin` as a static site with the project root set to `apps/admin`. The static host must serve `index.html` for the root route. Configure the API's `CORS_ALLOWED_ORIGINS` to include the exact HTTPS admin origin. Configure the API base URL in the sign-in form to the deployed API URL.
+Deploy `apps/admin` as a static site with the project root set to `apps/admin`. The static host must serve `index.html` for the root route. Configure the API base URL in the sign-in form to the deployed API URL and set the API's `CORS_ALLOWED_ORIGINS` to the exact HTTPS Admin Portal origin.
 
 Use HTTPS for both the portal and API in production. Restrict staff account creation and staff-role grants to controlled administrative operations. Do not expose database credentials or service secrets in this frontend.
-
-
-## Super Administrator staff management
-
-A single Super Administrator can open **Staff & permissions** to add an existing AnySkill account, assign an operational role, change the role, or suspend/reactivate staff access. The staff page is shown only when the API confirms Super Administrator permission. The Super Administrator itself is bootstrapped once using the controlled SQL procedure in the security guide. Staff cannot create another Super Administrator. All staff changes are audit logged.
