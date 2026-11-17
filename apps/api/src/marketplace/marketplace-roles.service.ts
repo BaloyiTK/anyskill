@@ -465,7 +465,7 @@ export class MarketplaceRolesService {
   }
 
   async listIdentityReviews() {
-    return this.prisma.identityVerificationCase.findMany({
+    const cases = await this.prisma.identityVerificationCase.findMany({
       where: { status: { in: [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW] } },
       orderBy: { submittedAt: "asc" },
       take: 200,
@@ -474,6 +474,20 @@ export class MarketplaceRolesService {
         user: { select: { id: true, email: true, identityVerification: true } },
       },
     });
+    return Promise.all(cases.map(async (item) => {
+      const previews = await Promise.all(
+        (["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] as const)
+          .map(async (purpose) => {
+            try {
+              const preview = await this.media.getIdentityPreviewUrl(item.user.id, purpose);
+              return [purpose, preview?.url ?? null] as const;
+            } catch {
+              return [purpose, null] as const;
+            }
+          }),
+      );
+      return { ...item, documents: Object.fromEntries(previews) };
+    }));
   }
 
   async decideIdentityVerification(reviewerId: string, caseId: string, decision: "APPROVED" | "REJECTED", reason: string) {
