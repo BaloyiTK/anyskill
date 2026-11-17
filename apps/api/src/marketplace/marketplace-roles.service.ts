@@ -556,13 +556,42 @@ export class MarketplaceRolesService {
   }
 
   async listSkillReviews() {
-    return this.prisma.providerSkill.findMany({
+    const skills = await this.prisma.providerSkill.findMany({
       where: { status: "PENDING" },
       orderBy: { submittedAt: "asc" },
       take: 300,
       select: { id: true, category: true, details: true, status: true, submittedAt: true,
         user: { select: { id: true, email: true, identityVerification: true } } },
     });
+
+    return Promise.all(skills.map(async (skill) => {
+      const details = skill.details && typeof skill.details === "object" && !Array.isArray(skill.details)
+        ? skill.details as Record<string, unknown>
+        : {};
+      const assetIds = new Set<string>();
+      for (const qualification of Array.isArray(details.licencesQualifications) ? details.licencesQualifications : []) {
+        if (qualification && typeof qualification === "object" &&
+            typeof (qualification as Record<string, unknown>).attachmentUrl === "string") {
+          assetIds.add(String((qualification as Record<string, unknown>).attachmentUrl));
+        }
+      }
+      for (const work of Array.isArray(details.portfolio) ? details.portfolio : []) {
+        if (work && typeof work === "object" && Array.isArray((work as Record<string, unknown>).imageUrls)) {
+          for (const assetId of (work as Record<string, unknown>).imageUrls as unknown[]) {
+            if (typeof assetId === "string") assetIds.add(assetId);
+          }
+        }
+      }
+      const providerEvidence = Object.fromEntries(await Promise.all([...assetIds].map(async (assetId) => {
+        try {
+          const preview = await this.media.getProviderEvidencePreviewUrl(skill.user.id, assetId);
+          return [assetId, preview?.url ?? null] as const;
+        } catch {
+          return [assetId, null] as const;
+        }
+      })));
+      return { ...skill, providerEvidence };
+    }));
   }
 
   async decideSkill(reviewerId: string, skillId: string, decision: "APPROVED" | "REJECTED", reason: string) {
