@@ -17,7 +17,7 @@
       [
         "expo-notifications",
         {
-          "defaultChannel": "default"
+          "defaultChannel": "incoming_requests"
         }
       ],
       [
