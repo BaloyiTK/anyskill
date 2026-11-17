@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards, ConflictException } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards } from "@nestjs/common";
 import { RegistrationMode, StaffRole } from "@prisma/client";
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
@@ -150,27 +150,4 @@ export class MarketplaceRolesController {
     return this.roles.decideSkill(user.id, skillId, dto.decision, dto.reason ?? "");
   }
 
-  @Get("admin/provider-applications")
-  @UseGuards(StaffAccessGuard)
-  @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
-  listProviderApplications() {
-    return this.roles.listProviderApplications();
-  }
-
-  @Post("admin/provider-applications/:applicationId/start-review")
-  @UseGuards(StaffAccessGuard)
-  @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
-  startProviderApplicationReview(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param("applicationId", new ParseUUIDPipe()) applicationId: string,
-  ) {
-    return this.roles.startProviderApplicationReview(user.id, applicationId);
-  }
-
-  @Post("admin/provider-applications/:applicationId/decision")
-  @UseGuards(StaffAccessGuard)
-  @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
-  decideProviderApplication() {
-    throw new ConflictException("Whole-provider approval is retired. Review identity and each skill separately.");
-  }
 }
