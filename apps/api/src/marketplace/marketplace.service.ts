@@ -412,10 +412,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
     if (!request) throw new NotFoundException("This open service request could not be found.");
     if (Date.now() - request.matchingStartedAt.getTime() < LIVE_MATCHING_WINDOW_MS) throw new ConflictException("Live Provider search has not timed out yet. You can schedule this request after 30 minutes.");
-    await this.prisma.serviceRequest.update({
-      where: { id: requestId },
+    const restarted = await this.prisma.serviceRequest.updateMany({
+      where: { id: requestId, seekerId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
       data: { preferredStartAt, matchingStartedAt: new Date(), matchingWave: 0, matchingNextAt: null, matchingExhaustedAt: null },
     });
+    if (restarted.count !== 1) throw new ConflictException("The request changed. Refresh before scheduling it.");
     const matching = await this.dispatchNextWave(requestId, 1, true);
     return { success: true, requestId, preferredStartAt, matching };
   }
