@@ -200,7 +200,7 @@ async function decideSeparateReview(decision){
  try{
   const path=type==="identity"?"/admin/identity-reviews/"+encodeURIComponent(id)+"/decision":"/admin/skill-reviews/"+encodeURIComponent(id)+"/decision";
   await request(path,{method:"POST",body:JSON.stringify({decision,reason})});hide($("#review-modal"));toast(type==="identity"?(decision==="APPROVED"?"Identity verified.":"Identity rejected."):(decision==="APPROVED"?"Skill approved.":"Skill rejected."));
-  await Promise.all([loadIdentityQueue(),loadSkillQueue(),loadAdminAccounts()]);
+  const refreshes=[];if(state.adminPermissions?.identity)refreshes.push(loadIdentityQueue());if(state.adminPermissions?.skills)refreshes.push(loadSkillQueue());if(state.adminPermissions?.accounts)refreshes.push(loadAdminAccounts());await Promise.all(refreshes);
  }catch(e){error.textContent=e.message;show(error);}finally{buttons.forEach(b=>b.disabled=false);}
 }
 function setPage(page){
