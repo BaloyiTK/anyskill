@@ -17,13 +17,13 @@ import {
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
   SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
-  UpdateHomeLocationDto, UpdateLiveLocationDto,
+  UpdateHomeLocationDto, UpdateLiveLocationDto, ScheduleServiceRequestDto,
 } from "./dto/service-request.dto";
 
 type RankedProvider = { userId: string; score: number };
 const normalise = (value: string) => value.trim().toLocaleLowerCase("en-ZA");
 const RESPONSE_WINDOW_MS = Math.max(60, Number(process.env.MATCH_RESPONSE_WINDOW_SECONDS ?? 300)) * 1000;
-const WAVE_SIZE = Math.max(1, Math.min(25, Number(process.env.MATCH_WAVE_SIZE ?? 5)));
+const WAVE_SIZE = Math.max(1, Math.min(25, Number(process.env.MATCH_WAVE_SIZE ?? 5)));\nconst LIVE_MATCHING_WINDOW_MS = 30 * 60 * 1000;
 
 @Injectable()
 export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
@@ -378,6 +378,43 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       ...request,
       jobEngagement: request.jobEngagement ? { ...request.jobEngagement, serverNow } : null,
     }));
+  }
+
+  async cancelRequest(seekerId: string, requestId: string) {
+    const request = await this.prisma.serviceRequest.findFirst({
+      where: { id: requestId, seekerId },
+      select: { id: true, status: true },
+    });
+    if (!request) throw new NotFoundException("This service request could not be found.");
+    if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
+    const changed = await this.prisma.serviceRequest.updateMany({
+      where: { id: requestId, seekerId, status: "OPEN" },
+      data: { status: "CANCELLED", matchingNextAt: null },
+    });
+    if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
+    await this.prisma.requestMatch.updateMany({
+      where: { requestId, status: "NOTIFIED" },
+      data: { status: "RESPONDED" },
+    });
+    return { success: true, requestId, status: "CANCELLED" };
+  }
+
+  async scheduleRequest(seekerId: string, requestId: string, input: ScheduleServiceRequestDto) {
+    const preferredStartAt = new Date(input.preferredStartAt);
+    if (!Number.isFinite(preferredStartAt.getTime()) || preferredStartAt.getTime() < Date.now() + 15 * 60 * 1000) {
+      throw new BadRequestException("Choose a scheduled start time at least 15 minutes from now.");
+    }
+    const request = await this.prisma.serviceRequest.findFirst({
+      where: { id: requestId, seekerId, status: "OPEN" },
+      select: { id: true, matchingWave: true },
+    });
+    if (!request) throw new NotFoundException("This open service request could not be found.");
+    await this.prisma.serviceRequest.update({
+      where: { id: requestId },
+      data: { preferredStartAt, matchingNextAt: null, matchingExhaustedAt: null },
+    });
+    const matching = await this.dispatchNextWave(requestId, request.matchingWave + 1, true);
+    return { success: true, requestId, preferredStartAt, matching };
   }
 
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
@@ -809,12 +846,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       .sort((a, b) => b.score - a.score || a.userId.localeCompare(b.userId));
   }
 
-  private async dispatchNextWave(requestId: string, wave: number) {
+  private async dispatchNextWave(requestId: string, wave: number, force = false) {
     const request = await this.prisma.serviceRequest.findUnique({
       where: { id: requestId },
-      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, deliveryMode: true, status: true },
+      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, deliveryMode: true, status: true, createdAt: true },
     });
     if (!request || request.status !== "OPEN") return { notified: 0, wave };
+    if (!force && Date.now() - request.createdAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
+      await this.prisma.serviceRequest.updateMany({ where: { id: requestId, status: "OPEN" }, data: { matchingNextAt: null } });
+      return { notified: 0, wave, timedOut: true };
+    }
     const seekerId = request.seekerId;
     if (!seekerId) return { notified: 0, wave };
 
@@ -864,7 +905,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async expandExpiredWaves() {
     const now = new Date();
     const due = await this.prisma.serviceRequest.findMany({
-      where: { status: "OPEN", matchingNextAt: { lte: now }, matchingExhaustedAt: null },
+      where: { status: "OPEN", createdAt: { gt: new Date(now.getTime() - LIVE_MATCHING_WINDOW_MS) }, matchingNextAt: { lte: now }, matchingExhaustedAt: null },
       select: { id: true, matchingWave: true },
       take: 20,
       orderBy: { matchingNextAt: "asc" },
@@ -894,6 +935,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const exhausted = await this.prisma.serviceRequest.findMany({
       where: {
         status: "OPEN",
+        createdAt: { gt: new Date(Date.now() - LIVE_MATCHING_WINDOW_MS) },
         matchingNextAt: null,
         matchingExhaustedAt: { lte: retryBefore },
       },
