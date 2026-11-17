@@ -259,6 +259,7 @@ model ServiceRequest {
   preferredStartAt   DateTime?             @map("preferred_start_at")
   instructions       String?               @db.VarChar(2000)
   status             ServiceRequestStatus  @default(OPEN)
+  matchingStartedAt  DateTime              @default(now()) @map("matching_started_at")
   matchingWave       Int                   @default(0) @map("matching_wave")
   matchingNextAt     DateTime?             @map("matching_next_at")
   matchingExhaustedAt DateTime?            @map("matching_exhausted_at")
