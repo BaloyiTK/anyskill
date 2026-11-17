@@ -746,7 +746,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    const compact = (value: string) => normalise(value).replace(/[^\\p{L}\\p{N}]+/gu, "");
+    const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
     const requestedSkill = compact(request.skillCategory);
     const requestedArea = compact(request.location ?? "");
     const now = Date.now();
