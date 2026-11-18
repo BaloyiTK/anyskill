@@ -18,9 +18,16 @@ export class LiveProviderMapService {
   private readonly logger = new Logger(LiveProviderMapService.name);
   private readonly clients = new Set<MapClient>();
   private discover: Discovery | null = null;
+  private expirySweep: ReturnType<typeof setInterval> | undefined;
 
   attach(server: Server, discover: Discovery): void {
     this.discover = discover;
+    // Expire stale provider pins even when no new location event arrives.
+    // Discovery itself filters out locations older than the live-location TTL.
+    if (!this.expirySweep) {
+      this.expirySweep = setInterval(() => this.notifyChanged(), 10_000);
+      this.expirySweep.unref?.();
+    }
     server.on("upgrade", (request, socket) => {
       const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
       if (requestUrl.pathname !== "/api/v1/marketplace/discover/providers/live") return;
