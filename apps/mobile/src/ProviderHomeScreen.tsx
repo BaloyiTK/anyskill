@@ -121,13 +121,15 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
               accuracyM: undefined,
             }),
           }, true);
+          setProfile({ ...updated, isAvailable: false });
           throw startError;
         }
+        setProfile(updated);
       } else {
+        setProfile(updated);
         await stopProviderLocationUpdates();
         setLocationStatus("");
       }
-      setProfile(updated);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update your availability.");
     } finally {
