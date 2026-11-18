@@ -687,6 +687,7 @@ export function MarketplaceScreen(p: Props) {
               accuracyM: undefined,
             }),
           }, true);
+          setProviderAvailable(false);
           throw startError;
         }
       } else if (!profile.isAvailable && Platform.OS !== "web") {
