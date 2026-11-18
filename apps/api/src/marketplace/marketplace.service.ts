@@ -204,7 +204,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     // Discovery is independent of service-request matching. Show online
     // Providers within the Seeker's selected map radius. Do not filter by skill,
     // identity status, Provider role status, or delivery mode.
-    const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+    // A map pin is live only while the provider has refreshed it recently.
+    const cutoff = new Date(Date.now() - 30 * 1000);
     const profiles = await this.prisma.providerProfile.findMany({
       where: {
         isAvailable: true,
@@ -830,7 +831,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const hasFreshLocation = profile.liveLatitude != null
           && profile.liveLongitude != null
           && profile.liveLocationUpdatedAt != null
-          && now - profile.liveLocationUpdatedAt.getTime() <= 10 * 60 * 1000
+          && now - profile.liveLocationUpdatedAt.getTime() <= 30 * 1000
           && profile.liveAccuracyM != null
           && profile.liveAccuracyM <= 250;
         const distance = hasFreshLocation
