@@ -1,6 +1,6 @@
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
-import { apiRequest } from "./api";
+import { apiRequest, clearTokens, hasStoredAuthSession } from "./api";
 
 export const PROVIDER_LOCATION_TASK = "ANYSKILL_PROVIDER_LIVE_LOCATION";
 const MAX_ACCEPTED_ACCURACY_METRES = 50;
@@ -23,6 +23,17 @@ if (!IS_WEB && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
       });
       if (error) {
         console.error("[AnySkill location] Background task received OS error", error);
+        return;
+      }
+      // A persisted OS task can outlive the screen that started it. Never
+      // process GPS events after the user has signed out.
+      if (!(await hasStoredAuthSession())) {
+        console.info("[AnySkill location] No authenticated session; stopping background tracking");
+        try {
+          await stopProviderLocationUpdates();
+        } catch (stopError) {
+          console.error("[AnySkill location] Could not stop task without a session", stopError);
+        }
         return;
       }
       if (!data?.locations?.length) {
@@ -68,6 +79,16 @@ if (!IS_WEB && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
         console.info("[AnySkill location] Background location API request succeeded", result);
       } catch (requestError) {
         console.error("[AnySkill location] Background location API request failed", requestError);
+        if (requestError instanceof Error && /unauthorized|unauthorised|401/i.test(requestError.message)) {
+          // An expired/revoked session must not leave an OS GPS task running.
+          await clearTokens();
+          try {
+            await stopProviderLocationUpdates();
+          } catch (stopError) {
+            console.error("[AnySkill location] Could not stop task after authentication failure", stopError);
+          }
+          return;
+        }
         // A later OS location event retries with a newer fix. Do not falsify
         // freshness by sending a heartbeat or replaying an expired coordinate.
       }
