@@ -255,6 +255,7 @@ model ServiceRequest {
   location           String?               @db.VarChar(500)
   latitude           Float?
   longitude          Float?
+  searchRadiusKm      Int                   @default(10) @map("search_radius_km")
   deliveryMode       ServiceDeliveryMode   @map("delivery_mode")
   preferredStartAt   DateTime?             @map("preferred_start_at")
   instructions       String?               @db.VarChar(2000)
