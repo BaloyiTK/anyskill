@@ -166,6 +166,8 @@ model User {
   staffMembership           StaffMembership?
   staffActions              StaffAuditLog[]             @relation("StaffAuditActor")
   staffTargets              StaffAuditLog[]             @relation("StaffAuditTarget")
+  providerReviewsReceived   ProviderReview[]             @relation("ProviderReviewsReceived")
+  providerReviewsGiven      ProviderReview[]             @relation("ProviderReviewsGiven")
 
   @@index([identityVerification])
   @@map("users")
@@ -414,6 +416,7 @@ model JobEngagement {
   response            ProviderResponse     @relation(fields: [responseId], references: [id], onDelete: Restrict)
   adjustments         JobCostAdjustment[]
   completionSubmissions JobCompletionSubmission[]
+  review                ProviderReview?
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@map("job_engagements")
@@ -550,4 +553,24 @@ model StaffAuditLog {
   @@index([targetUserId, createdAt])
   @@index([actorId, createdAt])
   @@map("staff_audit_logs")
+}
+
+
+model ProviderReview {
+  id            String        @id @default(uuid()) @db.Uuid
+  engagementId  String        @unique @db.Uuid @map("engagement_id")
+  seekerId      String        @db.Uuid @map("seeker_id")
+  providerId    String        @db.Uuid @map("provider_id")
+  skillCategory String        @map("skill_category") @db.VarChar(100)
+  skillRating   Int           @map("skill_rating")
+  platformRating Int          @map("platform_rating")
+  comment       String?       @db.VarChar(1500)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  engagement    JobEngagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  seeker        User          @relation("ProviderReviewsGiven", fields: [seekerId], references: [id], onDelete: Cascade)
+  provider      User          @relation("ProviderReviewsReceived", fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, skillCategory, createdAt])
+  @@index([providerId, createdAt])
+  @@map("provider_reviews")
 }
