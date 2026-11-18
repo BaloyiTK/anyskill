@@ -17,6 +17,7 @@ if (Platform.OS !== "web" && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK))
       if (error || !data?.locations?.length) return;
       // Only the newest fix matters. Never replay an old queued position as live.
       const position = data.locations[data.locations.length - 1];
+      if (!position) return;
       const { latitude, longitude, accuracy } = position.coords;
       if (
         !Number.isFinite(latitude) ||
