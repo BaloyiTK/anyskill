@@ -17,7 +17,7 @@ import {
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
   SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
-  UpdateHomeLocationDto, UpdateLiveLocationDto, ScheduleServiceRequestDto,
+  UpdateHomeLocationDto, UpdateLiveLocationDto, ScheduleServiceRequestDto, SubmitProviderReviewDto,
 } from "./dto/service-request.dto";
 
 type RankedProvider = { userId: string; score: number };
@@ -229,10 +229,37 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getProviderProfile(userId: string) {
-    return this.prisma.providerProfile.findUnique({
+    const profile = await this.prisma.providerProfile.findUnique({
       where: { userId },
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, updatedAt: true },
     });
+    if (!profile) return null;
+    const reviews = await this.prisma.providerReview.findMany({
+      where: { providerId: userId },
+      select: { skillCategory: true, skillRating: true, platformRating: true },
+    });
+    const overall = reviews.length
+      ? reviews.reduce((sum, review) => sum + review.platformRating, 0) / reviews.length
+      : null;
+    const skills = profile.skillCategories.map((category) => {
+      const matching = reviews.filter((review) => normalise(review.skillCategory) === normalise(category));
+      return {
+        category,
+        rating: matching.length ? matching.reduce((sum, review) => sum + review.skillRating, 0) / matching.length : null,
+        reviewCount: matching.length,
+        displayRating: matching.length ? Number((matching.reduce((sum, review) => sum + review.skillRating, 0) / matching.length).toFixed(1)) : 5,
+        isRated: matching.length > 0,
+      };
+    });
+    return {
+      ...profile,
+      ratings: {
+        overall: overall == null ? 5 : Number(overall.toFixed(1)),
+        overallReviewCount: reviews.length,
+        overallIsRated: reviews.length > 0,
+        skills,
+      },
+    };
   }
 
   async discoverNearbyProviders(latitude: number, longitude: number, seekerRadiusKm: number) {
@@ -402,7 +429,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { seekerId },
       orderBy: { createdAt: "desc" },
       include: {
-        jobEngagement: { include: { adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } } },
+        jobEngagement: { include: { review: true, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } } },
         _count: { select: { matches: true } },
         providerResponses: {
           orderBy: { createdAt: "asc" },
@@ -609,6 +636,36 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async submitProviderReview(seekerId: string, requestId: string, input: SubmitProviderReviewDto) {
+    const job = await this.prisma.jobEngagement.findUnique({
+      where: { requestId },
+      include: { request: { select: { skillCategory: true } } },
+    });
+    if (!job) throw new NotFoundException("Selected job not found.");
+    if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker who paid for this job can rate the Provider.");
+    if (job.status !== "COMPLETED") throw new ConflictException("You can rate a Provider only after approving job completion.");
+    if (!job.providerId) throw new ConflictException("This job has no Provider available to rate.");
+    try {
+      const review = await this.prisma.providerReview.create({
+        data: {
+          engagementId: job.id,
+          seekerId,
+          providerId: job.providerId,
+          skillCategory: job.request.skillCategory,
+          skillRating: input.skillRating,
+          platformRating: input.platformRating,
+          comment: input.comment?.trim() || null,
+        },
+      });
+      return { success: true, review };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException("You have already rated this completed job.");
+      }
+      throw error;
+    }
+  }
+
   async submitEstimate(providerId: string, requestId: string, input: SubmitEstimateDto) {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
@@ -813,8 +870,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     id: string; seekerId: string; skillCategory: string; location: string | null;
     latitude?: number | null; longitude?: number | null; deliveryMode: string; searchRadiusKm: number;
   }): Promise<RankedProvider[]> {
-    // Eligibility is a hard filter: approved/verified, online, exact requested
-    // skill, supported delivery mode, fresh GPS and both parties' travel limits.
     const profiles = await this.prisma.providerProfile.findMany({
       where: {
         isAvailable: true,
@@ -822,111 +877,80 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         userId: { not: request.seekerId },
       },
       select: {
-        userId: true,
-        skillCategories: true,
-        deliveryModes: true,
-        maxTravelDistanceKm: true,
-        liveLatitude: true,
-        liveLongitude: true,
-        liveAccuracyM: true,
-        liveLocationUpdatedAt: true,
+        userId: true, skillCategories: true, deliveryModes: true, maxTravelDistanceKm: true,
+        liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true,
         user: { select: { onboardingDraft: { select: { skills: true } } } },
       },
     });
-
-    const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
+    const compact = (value: string) => normalise(value).replace(/[^\\p{L}\\p{N}]+/gu, "");
     const requestedSkill = compact(request.skillCategory);
-    const matchingProfiles = profiles.filter((profile) =>
-      profile.skillCategories.some((skill) => compact(skill) === requestedSkill),
-    );
-    if (matchingProfiles.length === 0) return [];
-
-    // Only seeker-approved, completed engagements for this exact skill count.
-    // Ratings are not currently stored per skill, so we do not invent a quality score.
-    const completedCounts = await this.prisma.jobEngagement.groupBy({
-      by: ["providerId"],
-      where: {
-        providerId: { in: matchingProfiles.map((profile) => profile.userId) },
-        status: "COMPLETED",
-        request: { is: { skillCategory: { equals: request.skillCategory, mode: "insensitive" } } },
-      },
-      _count: { _all: true },
-    });
-    const completedByProvider = new Map(
-      completedCounts.filter((item) => item.providerId != null)
-        .map((item) => [item.providerId!, item._count._all]),
-    );
-
+    const matchingProfiles = profiles.filter((profile) => profile.skillCategories.some((skill) => compact(skill) === requestedSkill));
+    if (!matchingProfiles.length) return [];
+    const providerIds = matchingProfiles.map((profile) => profile.userId);
+    const [completedCounts, reviews] = await Promise.all([
+      this.prisma.jobEngagement.groupBy({
+        by: ["providerId"],
+        where: {
+          providerId: { in: providerIds }, status: "COMPLETED",
+          request: { is: { skillCategory: { equals: request.skillCategory, mode: "insensitive" } } },
+        },
+        _count: { _all: true },
+      }),
+      this.prisma.providerReview.findMany({
+        where: { providerId: { in: providerIds } },
+        select: { providerId: true, skillCategory: true, skillRating: true, platformRating: true },
+      }),
+    ]);
+    const completedByProvider = new Map(completedCounts.filter((item) => item.providerId != null).map((item) => [item.providerId!, item._count._all]));
     const experienceYearsForSkill = (skillsValue: unknown): number => {
       if (!Array.isArray(skillsValue)) return 0;
-      const entry = skillsValue.find((item) =>
-        item && typeof item === "object" && !Array.isArray(item)
-        && compact(String((item as Record<string, unknown>).category ?? "")) === requestedSkill,
-      ) as Record<string, unknown> | undefined;
-      if (!entry) return 0;
-      const match = String(entry.yearsOfExperience ?? "").match(/\d+/);
+      const entry = skillsValue.find((item) => item && typeof item === "object" && !Array.isArray(item)
+        && compact(String((item as Record<string, unknown>).category ?? "")) === requestedSkill) as Record<string, unknown> | undefined;
+      const match = String(entry?.yearsOfExperience ?? "").match(/\\d+/);
       return match ? Number(match[0]) : 0;
     };
-
     const radians = (degrees: number) => degrees * Math.PI / 180;
     const distanceFromSeeker = (latitude: number, longitude: number) => {
       if (request.latitude == null || request.longitude == null) return null;
-      const dLat = radians(latitude - request.latitude);
-      const dLon = radians(longitude - request.longitude);
-      const a = Math.sin(dLat / 2) ** 2
-        + Math.cos(radians(request.latitude)) * Math.cos(radians(latitude)) * Math.sin(dLon / 2) ** 2;
+      const dLat = radians(latitude - request.latitude), dLon = radians(longitude - request.longitude);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(request.latitude)) * Math.cos(radians(latitude)) * Math.sin(dLon / 2) ** 2;
       return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     };
-
     const now = Date.now();
-    const eligible: Array<{ userId: string; completedJobs: number; experienceYears: number; distanceKm: number | null }> = [];
+    const eligible: Array<{ userId: string; score: number; distanceKm: number | null }> = [];
     for (const profile of matchingProfiles) {
       const supportsRemote = profile.deliveryModes.includes("REMOTE") || profile.deliveryModes.includes("EITHER");
       const supportsOnsite = profile.deliveryModes.includes("ONSITE") || profile.deliveryModes.includes("EITHER");
       let distance: number | null = null;
       let onsiteEligible = false;
-
       if ((request.deliveryMode === "ONSITE" || request.deliveryMode === "EITHER") && supportsOnsite) {
-        const hasFreshLocation = profile.liveLatitude != null
-          && profile.liveLongitude != null
-          && profile.liveLocationUpdatedAt != null
+        const fresh = profile.liveLatitude != null && profile.liveLongitude != null && profile.liveLocationUpdatedAt != null
           && now - profile.liveLocationUpdatedAt.getTime() <= LIVE_LOCATION_MAX_AGE_MS
-          && profile.liveAccuracyM != null
-          && profile.liveAccuracyM <= MAX_LIVE_LOCATION_ACCURACY_M;
-        distance = hasFreshLocation
-          ? distanceFromSeeker(profile.liveLatitude!, profile.liveLongitude!)
-          : null;
-        const permittedRadius = Math.min(request.searchRadiusKm, profile.maxTravelDistanceKm);
-        onsiteEligible = distance != null && distance <= permittedRadius;
+          && profile.liveAccuracyM != null && profile.liveAccuracyM <= MAX_LIVE_LOCATION_ACCURACY_M;
+        distance = fresh ? distanceFromSeeker(profile.liveLatitude!, profile.liveLongitude!) : null;
+        onsiteEligible = distance != null && distance <= Math.min(request.searchRadiusKm, profile.maxTravelDistanceKm);
       }
-
-      const remoteEligible = (request.deliveryMode === "REMOTE" && supportsRemote)
-        || (request.deliveryMode === "EITHER" && supportsRemote);
+      const remoteEligible = (request.deliveryMode === "REMOTE" && supportsRemote) || (request.deliveryMode === "EITHER" && supportsRemote);
       if (!onsiteEligible && !remoteEligible) continue;
-
-      const skillsValue = profile.user.onboardingDraft?.skills;
-      eligible.push({
-        userId: profile.userId,
-        completedJobs: completedByProvider.get(profile.userId) ?? 0,
-        experienceYears: experienceYearsForSkill(skillsValue),
-        distanceKm: onsiteEligible ? distance : null,
-      });
+      const providerReviews = reviews.filter((review) => review.providerId === profile.userId);
+      const skillReviews = providerReviews.filter((review) => compact(review.skillCategory) === requestedSkill);
+      const skillMean = (skillReviews.reduce((sum, review) => sum + review.skillRating, 0) + 5 * 3) / (skillReviews.length + 3);
+      const overallMean = (providerReviews.reduce((sum, review) => sum + review.platformRating, 0) + 5 * 3) / (providerReviews.length + 3);
+      const completedJobs = completedByProvider.get(profile.userId) ?? 0;
+      const experience = experienceYearsForSkill(profile.user.onboardingDraft?.skills);
+      const radius = Math.min(request.searchRadiusKm, profile.maxTravelDistanceKm);
+      const distanceScore = onsiteEligible && distance != null ? Math.max(0, 1 - distance / Math.max(radius, 1)) : 1;
+      const jobScore = Math.min(1, Math.log1p(completedJobs) / Math.log1p(50));
+      const experienceScore = Math.min(1, experience / 10);
+      // Bayesian prior of three 5-star reviews protects new providers from a zero-review penalty.
+      const score = (skillMean / 5) * 45 + (overallMean / 5) * 15
+        + jobScore * 20 + distanceScore * 10 + experienceScore * 10;
+      eligible.push({ userId: profile.userId, score: Math.round(score * 100), distanceKm: onsiteEligible ? distance : null });
     }
-
-    // Providers with relevant completed jobs rank first by completed-job count.
-    // If neither has completed a relevant job, declared experience is used.
-    // Distance breaks ties; new providers therefore remain eligible.
-    eligible.sort((a, b) => {
-      const aHasHistory = a.completedJobs > 0;
-      const bHasHistory = b.completedJobs > 0;
-      if (aHasHistory !== bHasHistory) return aHasHistory ? -1 : 1;
-      if (aHasHistory && a.completedJobs !== b.completedJobs) return b.completedJobs - a.completedJobs;
-      if (!aHasHistory && a.experienceYears !== b.experienceYears) return b.experienceYears - a.experienceYears;
-      return (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY)
-        || a.userId.localeCompare(b.userId);
-    });
-
-    return eligible.map((provider, index) => ({ userId: provider.userId, score: eligible.length - index }));
+    eligible.sort((a, b) => b.score - a.score
+      || (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY)
+      || a.userId.localeCompare(b.userId));
+    return eligible.map((provider) => ({ userId: provider.userId, score: provider.score }));
   }
 
   private async dispatchNextWave(requestId: string, wave: number, force = false) {
