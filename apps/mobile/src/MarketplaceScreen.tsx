@@ -575,7 +575,8 @@ export function MarketplaceScreen(p: Props) {
           {
             accuracy: Location.Accuracy.High,
             timeInterval: 15000,
-            distanceInterval: 25,
+            // A stationary Provider must still receive periodic location fixes.
+            distanceInterval: 0,
           },
           (position) => { void publishLocation(position.coords); },
         );
@@ -584,29 +585,37 @@ export function MarketplaceScreen(p: Props) {
       }
 
       if (!active) return;
-      heartbeat = setInterval(() => {
-        if (active && !acquiring && !publishing) {
-          acquiring = true;
-          void Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High })
-            .then((position) => publishLocation(position.coords))
-            .catch((e) => {
-              if (active) setError(e instanceof Error ? e.message : "Could not obtain a current GPS location. Retrying automatically.");
-            })
-            .finally(() => { acquiring = false; });
-        }
-      }, 15000);
 
-      if (!acquiring && !publishing) {
+      // Bound each GPS acquisition so a stalled native location request cannot
+      // permanently lock the heartbeat in the acquiring state.
+      const acquireAndPublish = async () => {
+        if (!active || acquiring || publishing) return;
         acquiring = true;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
         try {
-          const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-          await publishLocation(current.coords);
+          const position = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(
+                () => reject(new Error("GPS did not return a fresh position within 12 seconds. Check device location services and GPS permissions.")),
+                12000,
+              );
+            }),
+          ]);
+          if (active) await publishLocation(position.coords);
         } catch (e) {
           if (active) setError(e instanceof Error ? e.message : "Could not obtain a current GPS location. Retrying automatically.");
         } finally {
+          if (timeoutId) clearTimeout(timeoutId);
           acquiring = false;
         }
-      }
+      };
+
+      // Publish once immediately, then retry every 15 seconds even when the
+      // Provider is stationary. A timed-out request must not block later tries.
+      await acquireAndPublish();
+      if (!active) return;
+      heartbeat = setInterval(() => { void acquireAndPublish(); }, 15000);
     };
 
     if (Platform.OS === "web") {
