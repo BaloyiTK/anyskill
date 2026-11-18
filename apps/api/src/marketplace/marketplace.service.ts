@@ -234,21 +234,29 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, updatedAt: true },
     });
     if (!profile) return null;
-    const reviews = await this.prisma.providerReview.findMany({
-      where: { providerId: userId },
-      select: { skillCategory: true, skillRating: true, platformRating: true },
-    });
-    const overall = reviews.length
-      ? reviews.reduce((sum, review) => sum + review.platformRating, 0) / reviews.length
-      : null;
+    const [overallGroups, skillGroups] = await Promise.all([
+      this.prisma.providerReview.groupBy({
+        by: ["providerId"], where: { providerId: userId },
+        _avg: { platformRating: true }, _count: { _all: true },
+      }),
+      this.prisma.providerReview.groupBy({
+        by: ["providerId", "skillCategory"], where: { providerId: userId },
+        _avg: { skillRating: true }, _count: { _all: true },
+      }),
+    ]);
+    const overallGroup = overallGroups[0];
+    const overallCount = overallGroup?._count._all ?? 0;
+    const overall = overallGroup?._avg.platformRating ?? null;
     const skills = profile.skillCategories.map((category) => {
-      const matching = reviews.filter((review) => normalise(review.skillCategory) === normalise(category));
+      const matching = skillGroups.find((group) => normalise(group.skillCategory) === normalise(category));
+      const count = matching?._count._all ?? 0;
+      const rating = matching?._avg.skillRating ?? null;
       return {
         category,
-        rating: matching.length ? matching.reduce((sum, review) => sum + review.skillRating, 0) / matching.length : null,
-        reviewCount: matching.length,
-        displayRating: matching.length ? Number((matching.reduce((sum, review) => sum + review.skillRating, 0) / matching.length).toFixed(1)) : 5,
-        isRated: matching.length > 0,
+        rating,
+        reviewCount: count,
+        displayRating: rating == null ? 5 : Number(rating.toFixed(1)),
+        isRated: count > 0,
       };
     });
     return {
@@ -451,22 +459,31 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const providerIds = [...new Set(requests.flatMap((request) =>
       request.providerResponses.map((response) => response.providerId).filter((id): id is string => Boolean(id)),
     ))];
-    const providerReviews = providerIds.length
-      ? await this.prisma.providerReview.findMany({
-          where: { providerId: { in: providerIds } },
-          select: { providerId: true, skillCategory: true, skillRating: true, platformRating: true },
-        })
-      : [];
+    const [providerOverallGroups, providerSkillGroups] = providerIds.length
+      ? await Promise.all([
+          this.prisma.providerReview.groupBy({
+            by: ["providerId"], where: { providerId: { in: providerIds } },
+            _avg: { platformRating: true }, _count: { _all: true },
+          }),
+          this.prisma.providerReview.groupBy({
+            by: ["providerId", "skillCategory"], where: { providerId: { in: providerIds } },
+            _avg: { skillRating: true }, _count: { _all: true },
+          }),
+        ])
+      : [[], []];
     return requests.map((request) => ({
       ...request,
       jobEngagement: request.jobEngagement ? { ...request.jobEngagement, serverNow } : null,
       providerResponses: request.providerResponses.map((response) => {
         const profile = response.provider?.providerProfile;
         if (!profile || !response.provider || !response.providerId) return response;
-        const reviews = providerReviews.filter((review) => review.providerId === response.providerId);
-        const skillReviews = reviews.filter((review) => normalise(review.skillCategory) === normalise(request.skillCategory));
-        const overall = reviews.length ? reviews.reduce((sum, review) => sum + review.platformRating, 0) / reviews.length : null;
-        const skill = skillReviews.length ? skillReviews.reduce((sum, review) => sum + review.skillRating, 0) / skillReviews.length : null;
+        const overallGroup = providerOverallGroups.find((group) => group.providerId === response.providerId);
+        const skillGroup = providerSkillGroups.find((group) => group.providerId === response.providerId
+          && normalise(group.skillCategory) === normalise(request.skillCategory));
+        const overallCount = overallGroup?._count._all ?? 0;
+        const skillCount = skillGroup?._count._all ?? 0;
+        const overall = overallGroup?._avg.platformRating ?? null;
+        const skill = skillGroup?._avg.skillRating ?? null;
         return {
           ...response,
           provider: {
