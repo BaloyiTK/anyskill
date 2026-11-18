@@ -17,10 +17,25 @@ if (!IS_WEB && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
   TaskManager.defineTask<ProviderLocationTaskData>(
     PROVIDER_LOCATION_TASK,
     async ({ data, error }) => {
-      if (error || !data?.locations?.length) return;
+      console.info("[AnySkill location] Background task invoked", {
+        hasError: Boolean(error),
+        locationCount: data?.locations?.length ?? 0,
+      });
+      if (error) {
+        console.error("[AnySkill location] Background task received OS error", error);
+        return;
+      }
+      if (!data?.locations?.length) {
+        console.warn("[AnySkill location] Background task received no locations");
+        return;
+      }
+
       // Only the newest fix matters. Never replay an old queued position as live.
       const position = data.locations[data.locations.length - 1];
-      if (!position) return;
+      if (!position) {
+        console.warn("[AnySkill location] Newest location event was empty");
+        return;
+      }
       const { latitude, longitude, accuracy } = position.coords;
       if (
         !Number.isFinite(latitude) ||
@@ -28,10 +43,21 @@ if (!IS_WEB && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
         accuracy == null ||
         !Number.isFinite(accuracy) ||
         accuracy > MAX_ACCEPTED_ACCURACY_METRES
-      ) return;
+      ) {
+        console.warn("[AnySkill location] GPS fix rejected", {
+          hasLatitude: Number.isFinite(latitude),
+          hasLongitude: Number.isFinite(longitude),
+          accuracyMetres: accuracy,
+          maximumAcceptedAccuracyMetres: MAX_ACCEPTED_ACCURACY_METRES,
+        });
+        return;
+      }
 
+      console.info("[AnySkill location] Posting background GPS fix", {
+        accuracyMetres: Number(accuracy.toFixed(1)),
+      });
       try {
-        await apiRequest("/marketplace/provider-location/live", {
+        const result = await apiRequest("/marketplace/provider-location/live", {
           method: "POST",
           body: JSON.stringify({
             latitude: Number(latitude.toFixed(7)),
@@ -39,7 +65,9 @@ if (!IS_WEB && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
             accuracyM: Number(accuracy.toFixed(1)),
           }),
         }, true);
-      } catch {
+        console.info("[AnySkill location] Background location API request succeeded", result);
+      } catch (requestError) {
+        console.error("[AnySkill location] Background location API request failed", requestError);
         // A later OS location event retries with a newer fix. Do not falsify
         // freshness by sending a heartbeat or replaying an expired coordinate.
       }
@@ -89,7 +117,10 @@ export async function startProviderLocationUpdates(): Promise<void> {
   }
 
   const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(PROVIDER_LOCATION_TASK);
-  if (alreadyStarted) return;
+  if (alreadyStarted) {
+    console.info("[AnySkill location] Background location updates already started");
+    return;
+  }
 
   await Location.startLocationUpdatesAsync(PROVIDER_LOCATION_TASK, {
     accuracy: Location.Accuracy.High,
@@ -107,11 +138,15 @@ export async function startProviderLocationUpdates(): Promise<void> {
       killServiceOnDestroy: false,
     },
   });
+  console.info("[AnySkill location] Background location updates started");
 }
 
 export async function stopProviderLocationUpdates(): Promise<void> {
   if (IS_WEB) return;
 
   const started = await Location.hasStartedLocationUpdatesAsync(PROVIDER_LOCATION_TASK);
-  if (started) await Location.stopLocationUpdatesAsync(PROVIDER_LOCATION_TASK);
+  if (started) {
+    await Location.stopLocationUpdatesAsync(PROVIDER_LOCATION_TASK);
+    console.info("[AnySkill location] Background location updates stopped");
+  }
 }
