@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import * as Location from "expo-location";
 import { apiRequest } from "./api";
+import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
 
 type ProviderProfile = {
   publicName: string;
@@ -59,65 +59,22 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // Keep the live map location updated while the Provider is online.
+  // Resume the OS-managed location task when an already-online Provider
+  // returns to the app. The task itself is registered at application startup.
   useEffect(() => {
     if (!profile?.isAvailable) {
       setLocationStatus("");
       return;
     }
-
     let active = true;
-    let subscription: Location.LocationSubscription | null = null;
-    let sending = false;
-
-    const sendLocation = async (coords: Location.LocationObjectCoords) => {
-      if (!active || sending) return;
-      if (coords.accuracy == null || coords.accuracy > 50) {
-        setLocationStatus("Improving GPS accuracy. Your map location will update when the signal is reliable.");
-        return;
-      }
-      sending = true;
-      try {
-        await apiRequest("/marketplace/provider-location/live", {
-          method: "POST",
-          body: JSON.stringify({
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-            accuracyM: coords.accuracy,
-          }),
-        }, true);
-        if (active) setLocationStatus(`Live location · GPS accuracy about ${Math.round(coords.accuracy)} m`);
-      } catch (e) {
-        if (active) setLocationStatus(e instanceof Error ? e.message : "Live location update failed.");
-      } finally {
-        sending = false;
-      }
-    };
-
-    void (async () => {
-      try {
-        setLocationStatus("Requesting location permission...");
-        const permission = await Location.requestForegroundPermissionsAsync();
-        if (!permission.granted) {
-          setLocationStatus("Allow location access while using AnySkill to appear on the Provider map.");
-          return;
-        }
-        const initial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-        await sendLocation(initial.coords);
-        if (!active) return;
-        subscription = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 5 },
-          (position) => { void sendLocation(position.coords); },
-        );
-      } catch (e) {
-        if (active) setLocationStatus(e instanceof Error ? e.message : "Could not start live location.");
-      }
-    })();
-
-    return () => {
-      active = false;
-      subscription?.remove();
-    };
+    void startProviderLocationUpdates()
+      .then(() => {
+        if (active) setLocationStatus("Live location sharing is active in the background.");
+      })
+      .catch((e) => {
+        if (active) setLocationStatus(e instanceof Error ? e.message : "Background location tracking could not resume.");
+      });
+    return () => { active = false; };
   }, [profile?.isAvailable]);
 
   const setAvailability = async (next: boolean) => {
@@ -125,19 +82,51 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
     setSaving(true);
     setError("");
     try {
+      // Capture a fresh, accurate fix before the API makes this Provider visible.
+      const firstFix = next ? await getInitialProviderLocation() : null;
+      const profilePayload = {
+        publicName: profile.publicName,
+        hourlyRate: Number(profile.hourlyRate),
+        assessmentFee: Number(profile.assessmentFee),
+        skillCategories: profile.skillCategories,
+        serviceAreas: profile.serviceAreas,
+        deliveryModes: profile.deliveryModes,
+        isAvailable: next,
+        maxTravelDistanceKm: profile.maxTravelDistanceKm,
+        ...(firstFix ? {
+          latitude: firstFix.coords.latitude,
+          longitude: firstFix.coords.longitude,
+          accuracyM: firstFix.coords.accuracy,
+        } : {}),
+      };
       const updated = await apiRequest<ProviderProfile>("/marketplace/provider-profile", {
         method: "POST",
-        body: JSON.stringify({
-          publicName: profile.publicName,
-          hourlyRate: Number(profile.hourlyRate),
-          assessmentFee: Number(profile.assessmentFee),
-          skillCategories: profile.skillCategories,
-          serviceAreas: profile.serviceAreas,
-          deliveryModes: profile.deliveryModes,
-          isAvailable: next,
-          maxTravelDistanceKm: profile.maxTravelDistanceKm,
-        }),
+        body: JSON.stringify(profilePayload),
       }, true);
+
+      if (next) {
+        try {
+          await startProviderLocationUpdates();
+          setLocationStatus("Live location sharing is active in the background.");
+        } catch (startError) {
+          // Never leave the Provider marked online if the OS tracking task
+          // could not be started after the initial GPS fix was accepted.
+          await apiRequest("/marketplace/provider-profile", {
+            method: "POST",
+            body: JSON.stringify({
+              ...profilePayload,
+              isAvailable: false,
+              latitude: undefined,
+              longitude: undefined,
+              accuracyM: undefined,
+            }),
+          }, true);
+          throw startError;
+        }
+      } else {
+        await stopProviderLocationUpdates();
+        setLocationStatus("");
+      }
       setProfile(updated);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update your availability.");
