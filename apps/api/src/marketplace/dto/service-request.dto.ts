@@ -111,6 +111,12 @@ export class UpdateProviderProfileDto {
   @IsIn([true, false])
   isAvailable!: boolean;
 
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 1 })
+  @Min(1)
+  @Max(200)
+  maxTravelDistanceKm?: number;
+
   // Going online is atomic with the first reliable GPS fix. Offline profile
   // edits do not need to provide coordinates.
   @ValidateIf((input: UpdateProviderProfileDto) => input.isAvailable)
