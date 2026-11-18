@@ -111,6 +111,20 @@ export class UpdateProviderProfileDto {
   @IsIn([true, false])
   isAvailable!: boolean;
 
+  // Going online is atomic with the first reliable GPS fix. Offline profile
+  // edits do not need to provide coordinates.
+  @ValidateIf((input: UpdateProviderProfileDto) => input.isAvailable)
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90)
+  latitude?: number;
+
+  @ValidateIf((input: UpdateProviderProfileDto) => input.isAvailable)
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180)
+  longitude?: number;
+
+  @ValidateIf((input: UpdateProviderProfileDto) => input.isAvailable)
+  @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(50)
+  accuracyM?: number;
+
 }
 
 export class RegisterPushDeviceDto {
