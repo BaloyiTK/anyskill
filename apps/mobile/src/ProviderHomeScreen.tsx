@@ -206,6 +206,22 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
         )}
       </View>
 
+      {profile ? <View style={styles.ratingSection}>
+        <Text style={styles.sectionTitle}>Your AnySkill ratings</Text>
+        <View style={styles.overallRating}>
+          <Text style={styles.overallValue}>{(profile.ratings?.overall ?? 5).toFixed(1)} ★</Text>
+          <View style={{flex:1}}>
+            <Text style={styles.ratingLabel}>Overall platform rating</Text>
+            <Text style={styles.ratingHint}>{profile.ratings?.overallIsRated ? profile.ratings.overallReviewCount + " customer reviews" : "5.0 starting display · Not yet rated"}</Text>
+          </View>
+        </View>
+        {(profile.ratings?.skills ?? profile.skillCategories.map((category) => ({category,rating:null,reviewCount:0,displayRating:5,isRated:false}))).map((item) => <View key={item.category} style={styles.ratingSkillRow}>
+          <Text style={styles.ratingSkillName}>{item.category}</Text>
+          <Text style={styles.ratingSkillValue}>{item.displayRating.toFixed(1)} ★</Text>
+          <Text style={styles.ratingHint}>{item.isRated ? item.reviewCount + " reviews" : "Not yet rated"}</Text>
+        </View>)}
+      </View> : null}
+
       <View style={styles.skillsSection}>
         <View>
           <Text style={styles.sectionTitle}>Your skills</Text>
@@ -366,7 +382,7 @@ const styles = StyleSheet.create({
   setupLink: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   setupLinkText: { color: C.primary, fontSize: 12, fontWeight: "800" },
   setupArrow: { color: C.primary, fontSize: 23 },
-  skillsSection: { marginTop: 31 },
+  ratingSection: { marginTop: 25, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 15, backgroundColor: "#FBFCFB" },\n  overallRating: { flexDirection: "row", alignItems: "center", gap: 13, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: C.border },\n  overallValue: { color: C.primary, fontSize: 25, fontWeight: "900" },\n  ratingLabel: { color: C.ink, fontSize: 12, fontWeight: "800" },\n  ratingHint: { color: C.muted, fontSize: 10, marginTop: 3 },\n  ratingSkillRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: "#EDF1EE" },\n  ratingSkillName: { flex: 1, color: C.ink, fontSize: 11, fontWeight: "600" },\n  ratingSkillValue: { color: C.primary, fontSize: 12, fontWeight: "800" },\n  skillsSection: { marginTop: 31 },
   sectionTitle: { color: C.ink, fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
   sectionSubtitle: { color: C.muted, fontSize: 11, marginTop: 4 },
   skillsLoader: { marginTop: 18 },
