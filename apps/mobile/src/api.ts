@@ -76,6 +76,14 @@ export async function clearTokens(): Promise<void> {
   ]);
 }
 
+export async function hasStoredAuthSession(): Promise<boolean> {
+  const [accessToken, refreshToken] = await Promise.all([
+    getStoredItem(ACCESS_TOKEN_KEY),
+    getStoredItem(REFRESH_TOKEN_KEY),
+  ]);
+  return Boolean(accessToken || refreshToken);
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
