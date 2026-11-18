@@ -651,7 +651,7 @@ export function MarketplaceScreen(p: Props) {
             { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
           );
         });
-        if (firstFix.accuracy > 50) throw new Error("GPS accuracy must be 50 m or better before going online.");
+        if (!firstFix || firstFix.accuracy > 50) throw new Error("GPS accuracy must be 50 m or better before going online.");
       }
 
       const profilePayload = {
