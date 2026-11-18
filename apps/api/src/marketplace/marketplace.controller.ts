@@ -12,7 +12,7 @@ import {
   UpdateHomeLocationDto, UpdateLiveLocationDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
-  SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, ScheduleServiceRequestDto,
+  SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, ScheduleServiceRequestDto, SubmitProviderReviewDto,
 } from "./dto/service-request.dto";
 import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
@@ -138,6 +138,12 @@ export class MarketplaceController {
   @Get("marketplace/my-jobs")
   @RequireMarketplaceRole("PROVIDER")
   myJobs(@CurrentUser() user: AuthenticatedUser) { return this.marketplace.listMyJobs(user.id); }
+
+  @Post("marketplace/requests/:requestId/rating")
+  @RequireMarketplaceRole("SEEKER")
+  submitProviderReview(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: SubmitProviderReviewDto) {
+    return this.marketplace.submitProviderReview(user.id, requestId, dto);
+  }
 
   @Post("marketplace/requests/:requestId/estimate")
   @UseGuards(MarketplaceAccessGuard)
