@@ -263,8 +263,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       ...profile,
       ratings: {
         overall: overall == null ? 5 : Number(overall.toFixed(1)),
-        overallReviewCount: reviews.length,
-        overallIsRated: reviews.length > 0,
+        overallReviewCount: overallCount,
+        overallIsRated: overallCount > 0,
         skills,
       },
     };
