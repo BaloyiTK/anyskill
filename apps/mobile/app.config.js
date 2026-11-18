@@ -17,14 +17,25 @@ module.exports = ({ config }) => {
     || readEnvValue(path.resolve(projectRoot, "../../.env"), "GOOGLE_MAPS_API_KEY")
     || readEnvValue(path.resolve(projectRoot, ".env"), "GOOGLE_MAPS_API_KEY");
 
+  // For local Android builds, place google-services.json in apps/mobile.
+  // EAS can supply the file path through a GOOGLE_SERVICES_JSON file variable.
+  const googleServicesPath = process.env.GOOGLE_SERVICES_JSON
+    ? path.resolve(projectRoot, process.env.GOOGLE_SERVICES_JSON)
+    : path.resolve(projectRoot, "google-services.json");
+  const hasGoogleServices = fs.existsSync(googleServicesPath);
+
   if (!key) {
     console.warn("[AnySkill] GOOGLE_MAPS_API_KEY is missing; Google Maps may show a blank map.");
+  }
+  if (!hasGoogleServices) {
+    console.warn("[AnySkill] Firebase google-services.json is missing. Android push notifications will not initialize.");
   }
 
   return {
     ...config,
     android: {
       ...config.android,
+      ...(hasGoogleServices ? { googleServicesFile: googleServicesPath } : {}),
       config: {
         ...config.android?.config,
         googleMaps: {
