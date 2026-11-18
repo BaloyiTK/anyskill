@@ -179,10 +179,46 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (deliveryModes.includes("ONSITE") && serviceAreas.length === 0) {
       throw new ConflictException("Add at least one service area for on-site work.");
     }
+    if (input.isAvailable && (
+      input.latitude == null ||
+      input.longitude == null ||
+      input.accuracyM == null ||
+      input.accuracyM > MAX_LIVE_LOCATION_ACCURACY_M
+    )) {
+      throw new ConflictException("A fresh GPS fix with accuracy of 50 m or better is required before going online.");
+    }
+    const onlineAt = input.isAvailable ? new Date() : null;
+    const liveLocationData = input.isAvailable
+      ? {
+          liveLatitude: input.latitude!,
+          liveLongitude: input.longitude!,
+          liveAccuracyM: input.accuracyM!,
+          liveLocationUpdatedAt: onlineAt!,
+        }
+      : { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null };
     const updated = await this.prisma.providerProfile.upsert({
       where: { userId },
-      create: { userId, publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable },
-      update: { publicName: input.publicName.trim(), hourlyRate: input.hourlyRate, assessmentFee: input.assessmentFee, skillCategories, serviceAreas, deliveryModes, isAvailable: input.isAvailable, ...(!input.isAvailable ? { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null } : {}) },
+      create: {
+        userId,
+        publicName: input.publicName.trim(),
+        hourlyRate: input.hourlyRate,
+        assessmentFee: input.assessmentFee,
+        skillCategories,
+        serviceAreas,
+        deliveryModes,
+        isAvailable: input.isAvailable,
+        ...liveLocationData,
+      },
+      update: {
+        publicName: input.publicName.trim(),
+        hourlyRate: input.hourlyRate,
+        assessmentFee: input.assessmentFee,
+        skillCategories,
+        serviceAreas,
+        deliveryModes,
+        isAvailable: input.isAvailable,
+        ...liveLocationData,
+      },
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
     });
     this.liveProviderMap.notifyChanged();
