@@ -98,6 +98,7 @@ export function MarketplaceScreen(p: Props) {
   const [location, setLocation] = useState("");
   const [requestLatitude, setRequestLatitude] = useState<number | null>(null);
   const [requestLongitude, setRequestLongitude] = useState<number | null>(null);
+  const [searchRadiusKm, setSearchRadiusKm] = useState(10);
   const [savedHomeLocation, setSavedHomeLocation] = useState<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null} | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
@@ -362,14 +363,14 @@ export function MarketplaceScreen(p: Props) {
         body: JSON.stringify({
           title: title.trim(), skillCategory: category.trim(), description: description.trim(), ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
           ...(location.trim() ? { location: location.trim() } : {}),
-          ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude } : {}), deliveryMode,
+          ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude, searchRadiusKm } : {}), deliveryMode,
         }),
       }, true);
       setMatchingRequest({
         id: published.id, title: published.title, skillCategory: published.skillCategory,
         location: published.location, createdAt: published.matchingStartedAt, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
       });
-      setTitle(""); setCategory(""); setSkillQuery(""); setDescription(""); setInstructions(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null);
+      setTitle(""); setCategory(""); setSkillQuery(""); setDescription(""); setInstructions(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null); setSearchRadiusKm(10);
       await loadMyRequests();
       setNotice("Your service request has been published.");
     } catch (e) {
@@ -845,6 +846,11 @@ export function MarketplaceScreen(p: Props) {
             <Secondary label="Use saved Home Location" onPress={useSavedHomeLocation} />
             <Secondary label={locationBusy ? "Getting GPS..." : "Use current GPS"} onPress={() => void useCurrentJobLocation()} />
           </View>
+          <Text style={s.label}>Provider search radius</Text>
+          <View style={s.choiceRow}>
+            {[5, 10, 20, 50].map((radius) => <Pressable key={radius} onPress={() => setSearchRadiusKm(radius)} style={[s.choice, searchRadiusKm === radius && s.choiceActive]}><Text style={[s.choiceText, searchRadiusKm === radius && s.choiceTextActive]}>{radius} km</Text></Pressable>)}
+          </View>
+          <Text style={s.helper}>AnySkill will only match on-site Providers within {searchRadiusKm} km of this job location, and within the Provider's own travel limit.</Text>
           <MapPinPicker
             latitude={requestLatitude ?? savedHomeLocation?.homeLatitude ?? -26.2041}
             longitude={requestLongitude ?? savedHomeLocation?.homeLongitude ?? 28.0473}
