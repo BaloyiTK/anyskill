@@ -8,6 +8,7 @@ import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { apiRequest } from "./api";
+import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
 
 type Mode = "seeker" | "provider";
 type RequestItem = {
@@ -450,7 +451,7 @@ export function MarketplaceScreen(p: Props) {
   }, [p.mode, p.pendingRequestId, requests]);
 
   useEffect(() => {
-    if (p.mode !== "provider" || !providerAvailable) return;
+    if (Platform.OS !== "web" || p.mode !== "provider" || !providerAvailable) return;
 
     let active = true;
     let nativeSubscription: Location.LocationSubscription | null = null;
@@ -629,19 +630,71 @@ export function MarketplaceScreen(p: Props) {
   const saveProviderProfile = async () => {
     setSavingProfile(true); setError(""); setNotice("");
     try {
+      let firstFix: { latitude: number; longitude: number; accuracy: number } | null = null;
+      if (providerAvailable && Platform.OS !== "web") {
+        const position = await getInitialProviderLocation();
+        firstFix = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy ?? 1000,
+        };
+      } else if (providerAvailable && Platform.OS === "web") {
+        if (!navigator.geolocation) throw new Error("This browser does not support location sharing.");
+        firstFix = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(
+            (position) => resolve({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+            }),
+            () => reject(new Error("Allow browser location access and wait for a reliable GPS fix before going online.")),
+            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
+          );
+        });
+        if (firstFix.accuracy > 50) throw new Error("GPS accuracy must be 50 m or better before going online.");
+      }
+
+      const profilePayload = {
+        publicName: providerPublicName.trim(),
+        hourlyRate: Number(providerHourlyRate),
+        assessmentFee: Number(providerAssessmentFee),
+        skillCategories: providerSkills.split(",").map((v) => v.trim()).filter(Boolean),
+        serviceAreas: providerAreas.split(",").map((v) => v.trim()).filter(Boolean),
+        deliveryModes: providerModes.split(",").map((v) => v.trim()).filter(Boolean),
+        isAvailable: providerAvailable,
+        ...(firstFix ? {
+          latitude: firstFix.latitude,
+          longitude: firstFix.longitude,
+          accuracyM: firstFix.accuracy,
+        } : {}),
+      };
       const profile = await apiRequest<{isAvailable:boolean}>("/marketplace/provider-profile", {
         method: "POST",
-        body: JSON.stringify({
-          publicName: providerPublicName.trim(),
-          hourlyRate: Number(providerHourlyRate),
-          assessmentFee: Number(providerAssessmentFee),
-          skillCategories: providerSkills.split(",").map((v) => v.trim()).filter(Boolean),
-          serviceAreas: providerAreas.split(",").map((v) => v.trim()).filter(Boolean),
-          deliveryModes: providerModes.split(",").map((v) => v.trim()).filter(Boolean),
-          isAvailable: providerAvailable,
-        }),
+        body: JSON.stringify(profilePayload),
       }, true);
-      setNotice(profile.isAvailable ? "Provider profile saved. Your live location will be shared while you are online and using the app." : "Provider profile saved. You are currently offline; live location sharing has stopped.");
+
+      if (profile.isAvailable && Platform.OS !== "web") {
+        try {
+          await startProviderLocationUpdates();
+        } catch (startError) {
+          await apiRequest("/marketplace/provider-profile", {
+            method: "POST",
+            body: JSON.stringify({
+              ...profilePayload,
+              isAvailable: false,
+              latitude: undefined,
+              longitude: undefined,
+              accuracyM: undefined,
+            }),
+          }, true);
+          throw startError;
+        }
+      } else if (!profile.isAvailable && Platform.OS !== "web") {
+        await stopProviderLocationUpdates();
+      }
+      setNotice(profile.isAvailable
+        ? "Provider profile saved. Live location sharing is active, including while the app is in the background."
+        : "Provider profile saved. You are currently offline; live location sharing has stopped.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not save Provider profile."); }
     finally { setSavingProfile(false); }
   };
@@ -881,7 +934,7 @@ export function MarketplaceScreen(p: Props) {
         <TextInput value={providerAreas} onChangeText={setProviderAreas} placeholder="e.g. Rosebank, Sandton, Johannesburg" style={s.input} />
         <Text style={s.label}>Delivery modes (ONSITE, REMOTE, EITHER)</Text>
         <TextInput value={providerModes} onChangeText={setProviderModes} placeholder="ONSITE, REMOTE" style={s.input} />
-        <Text style={s.helper}>{providerAvailable ? "AnySkill requests foreground GPS permission when you are Available; accurate fixes are shared for on-site matching while the app is open." : "Live location is not currently being shared."}</Text>
+        <Text style={s.helper}>{providerAvailable ? "AnySkill requests location permission when you go online and keeps your live location updated in the background." : "Live location is not currently being shared."}</Text>
         <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
           <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
         </Pressable>
