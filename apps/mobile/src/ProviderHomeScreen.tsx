@@ -94,9 +94,9 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
         isAvailable: next,
         maxTravelDistanceKm: profile.maxTravelDistanceKm,
         ...(firstFix ? {
-          latitude: firstFix.coords.latitude,
-          longitude: firstFix.coords.longitude,
-          accuracyM: firstFix.coords.accuracy,
+          latitude: Number(firstFix.coords.latitude.toFixed(7)),
+          longitude: Number(firstFix.coords.longitude.toFixed(7)),
+          accuracyM: Number(firstFix.coords.accuracy!.toFixed(1)),
         } : {}),
       };
       const updated = await apiRequest<ProviderProfile>("/marketplace/provider-profile", {
