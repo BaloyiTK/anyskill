@@ -252,6 +252,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         liveLatitude: { not: null },
         liveLongitude: { not: null },
         liveLocationUpdatedAt: { gte: cutoff },
+        liveAccuracyM: { lte: MAX_LIVE_LOCATION_ACCURACY_M },
       },
       select: {
         id: true,
@@ -345,7 +346,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }),
       this.prisma.providerProfile.findUnique({
         where: { userId: providerId },
-        select: { liveLatitude: true, liveLongitude: true, liveLocationUpdatedAt: true },
+        select: { liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true },
       }),
     ]);
     const hasMore = requests.length > 20;
@@ -353,7 +354,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const hasFreshProviderLocation = providerProfile?.liveLatitude != null
       && providerProfile.liveLongitude != null
       && providerProfile.liveLocationUpdatedAt != null
-      && now - providerProfile.liveLocationUpdatedAt.getTime() <= LIVE_LOCATION_MAX_AGE_MS;
+      && now - providerProfile.liveLocationUpdatedAt.getTime() <= LIVE_LOCATION_MAX_AGE_MS
+      && providerProfile.liveAccuracyM != null
+      && providerProfile.liveAccuracyM <= MAX_LIVE_LOCATION_ACCURACY_M;
     const providerLocation = hasFreshProviderLocation
       ? { latitude: providerProfile!.liveLatitude!, longitude: providerProfile!.liveLongitude! }
       : null;
@@ -820,8 +823,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       select: {
         userId: true,
         skillCategories: true,
-        serviceAreas: true,
         deliveryModes: true,
+        maxTravelDistanceKm: true,
         liveLatitude: true,
         liveLongitude: true,
         liveAccuracyM: true,
@@ -831,7 +834,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
     const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
     const requestedSkill = compact(request.skillCategory);
-    const requestedArea = compact(request.location ?? "");
     const now = Date.now();
     const radians = (degrees: number) => degrees * Math.PI / 180;
     const distanceKm = (latitude: number, longitude: number) => {
@@ -855,19 +857,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const supportsOnsite = profile.deliveryModes.includes("ONSITE") || profile.deliveryModes.includes("EITHER");
       let score = 0;
 
-      if (request.deliveryMode === "REMOTE" || request.deliveryMode === "EITHER") {
-        if (supportsRemote) score = 110;
+      if (request.deliveryMode === "REMOTE" && supportsRemote) {
+        score = 110;
       }
 
+      // An on-site request is dispatched only to a Provider with a fresh,
+      // accurate GPS fix inside their configured travel radius. A saved text
+      // service area is not a substitute for real-time proximity.
       if ((request.deliveryMode === "ONSITE" || request.deliveryMode === "EITHER") && supportsOnsite) {
-        // A saved service area is a valid coverage signal; a continuously
-        // refreshed GPS location is an additional ranking signal, not a
-        // mandatory prerequisite for receiving an on-site request.
-        const areaMatches = requestedArea.length > 0 && profile.serviceAreas.some((area) => {
-          const candidate = compact(area);
-          return candidate.length >= 3 && (requestedArea.includes(candidate) || candidate.includes(requestedArea));
-        });
-
         const hasFreshLocation = profile.liveLatitude != null
           && profile.liveLongitude != null
           && profile.liveLocationUpdatedAt != null
@@ -877,10 +874,17 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const distance = hasFreshLocation
           ? distanceKm(profile.liveLatitude!, profile.liveLongitude!)
           : null;
-        const isNearby = distance != null && distance <= 200;
+        const isWithinTravelRadius = distance != null
+          && distance <= profile.maxTravelDistanceKm;
+        if (isWithinTravelRadius) {
+          score = Math.max(score, 120 + Math.max(0, 40 - Math.floor(distance!)));
+        }
+      }
 
-        if (areaMatches) score = Math.max(score, 115);
-        if (isNearby) score = Math.max(score, 120 + Math.max(0, 40 - Math.floor(distance!)));
+      // EITHER permits a remote offer without GPS, but an on-site offer still
+      // requires a fresh location inside the Provider's travel radius.
+      if (request.deliveryMode === "EITHER" && supportsRemote) {
+        score = Math.max(score, 110);
       }
 
       if (score > 0) ranked.set(profile.userId, score);
