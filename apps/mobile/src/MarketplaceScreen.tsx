@@ -451,7 +451,7 @@ export function MarketplaceScreen(p: Props) {
   }, [p.mode, p.pendingRequestId, requests]);
 
   useEffect(() => {
-    if (Platform.OS !== "web" || p.mode !== "provider" || !providerAvailable) return;
+    if (p.mode !== "provider" || !providerAvailable) return;
 
     let active = true;
     let nativeSubscription: Location.LocationSubscription | null = null;
