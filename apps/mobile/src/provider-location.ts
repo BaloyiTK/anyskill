@@ -10,7 +10,7 @@ type ProviderLocationTaskData = {
   locations?: Location.LocationObject[];
 };
 
-if (!TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
+if (Platform.OS !== "web" && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
   TaskManager.defineTask<ProviderLocationTaskData>(
     PROVIDER_LOCATION_TASK,
     async ({ data, error }) => {
