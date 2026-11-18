@@ -872,8 +872,15 @@ export default function App() {
   const logout = async () => {
     setBusy(true);
     try {
-      // Mark an online Provider offline on the server before revoking the session.
-      // The availability toggle must not be required when the Provider signs out.
+      // Stop the OS location service immediately. Do not wait for network calls:
+      // otherwise GPS events can continue while logout is waiting for the API.
+      try {
+        await stopProviderLocationUpdates();
+      } catch (stopError) {
+        console.error("[AnySkill location] Could not stop tracking during logout", stopError);
+      }
+
+      // Mark an online Provider offline before revoking the session.
       try {
         const providerProfile = await apiRequest<{
           publicName: string;
@@ -903,11 +910,7 @@ export default function App() {
       } catch {
         // Continue signing out even if the API is unreachable or the session expired.
       }
-      try {
-        await stopProviderLocationUpdates();
-      } finally {
-        await signOut();
-      }
+      await signOut();
     } finally {
       setAccount(null); setRoleSummary(null); setIdentity(null); setPassword(""); setScreen("welcome"); setBusy(false);
     }
