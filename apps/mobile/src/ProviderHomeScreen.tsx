@@ -68,16 +68,15 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
     let active = true;
     let subscription: Location.LocationSubscription | null = null;
-    let heartbeat: ReturnType<typeof setInterval> | undefined;
-    let latestCoords: Location.LocationObjectCoords | null = null;
+    let sending = false;
 
     const sendLocation = async (coords: Location.LocationObjectCoords) => {
-      latestCoords = coords;
-      if (!active) return;
-      if (coords.accuracy == null || coords.accuracy > 250) {
-        setLocationStatus("Waiting for a more accurate GPS signal.");
+      if (!active || sending) return;
+      if (coords.accuracy == null || coords.accuracy > 50) {
+        setLocationStatus("Improving GPS accuracy. Your map location will update when the signal is reliable.");
         return;
       }
+      sending = true;
       try {
         await apiRequest("/marketplace/provider-location/live", {
           method: "POST",
@@ -87,9 +86,11 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
             accuracyM: coords.accuracy,
           }),
         }, true);
-        if (active) setLocationStatus("Your location is shared while you are online.");
+        if (active) setLocationStatus(`Live location · GPS accuracy about ${Math.round(coords.accuracy)} m`);
       } catch (e) {
         if (active) setLocationStatus(e instanceof Error ? e.message : "Live location update failed.");
+      } finally {
+        sending = false;
       }
     };
 
@@ -105,13 +106,9 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
         await sendLocation(initial.coords);
         if (!active) return;
         subscription = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.High, timeInterval: 5000, distanceInterval: 10 },
+          { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 5 },
           (position) => { void sendLocation(position.coords); },
         );
-        // Keep a heartbeat flowing even when the provider is stationary.
-        heartbeat = setInterval(() => {
-          if (active && latestCoords) void sendLocation(latestCoords);
-        }, 10_000);
       } catch (e) {
         if (active) setLocationStatus(e instanceof Error ? e.message : "Could not start live location.");
       }
@@ -119,7 +116,6 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
     return () => {
       active = false;
-      if (heartbeat) clearInterval(heartbeat);
       subscription?.remove();
     };
   }, [profile?.isAvailable]);
