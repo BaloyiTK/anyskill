@@ -25,6 +25,8 @@ const normalise = (value: string) => value.trim().toLocaleLowerCase("en-ZA");
 const RESPONSE_WINDOW_MS = Math.max(60, Number(process.env.MATCH_RESPONSE_WINDOW_SECONDS ?? 300)) * 1000;
 const WAVE_SIZE = Math.max(1, Math.min(25, Number(process.env.MATCH_WAVE_SIZE ?? 5)));
 const LIVE_MATCHING_WINDOW_MS = 30 * 60 * 1000;
+const LIVE_LOCATION_MAX_AGE_MS = 30_000;
+const MAX_LIVE_LOCATION_ACCURACY_M = 50;
 
 @Injectable()
 export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
@@ -123,7 +125,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async updateProviderLiveLocation(userId: string, input: UpdateLiveLocationDto) {
-    if (input.accuracyM > 250) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix.");
+    if (input.accuracyM > MAX_LIVE_LOCATION_ACCURACY_M) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix (50 m or better).");
     const updatedAt = new Date();
     // Any online Provider shares a live map location, regardless of skill or
     // delivery mode. Going offline clears the location and stops this heartbeat.
@@ -205,7 +207,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     // Providers within the Seeker's selected map radius. Do not filter by skill,
     // identity status, Provider role status, or delivery mode.
     // A map pin is live only while the provider has refreshed it recently.
-    const cutoff = new Date(Date.now() - 30 * 1000);
+    const cutoff = new Date(Date.now() - LIVE_LOCATION_MAX_AGE_MS);
     const profiles = await this.prisma.providerProfile.findMany({
       where: {
         isAvailable: true,
@@ -313,7 +315,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const hasFreshProviderLocation = providerProfile?.liveLatitude != null
       && providerProfile.liveLongitude != null
       && providerProfile.liveLocationUpdatedAt != null
-      && now - providerProfile.liveLocationUpdatedAt.getTime() <= 5 * 60 * 1000;
+      && now - providerProfile.liveLocationUpdatedAt.getTime() <= LIVE_LOCATION_MAX_AGE_MS;
     const providerLocation = hasFreshProviderLocation
       ? { latitude: providerProfile!.liveLatitude!, longitude: providerProfile!.liveLongitude! }
       : null;
@@ -831,9 +833,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const hasFreshLocation = profile.liveLatitude != null
           && profile.liveLongitude != null
           && profile.liveLocationUpdatedAt != null
-          && now - profile.liveLocationUpdatedAt.getTime() <= 30 * 1000
+          && now - profile.liveLocationUpdatedAt.getTime() <= LIVE_LOCATION_MAX_AGE_MS
           && profile.liveAccuracyM != null
-          && profile.liveAccuracyM <= 250;
+          && profile.liveAccuracyM <= MAX_LIVE_LOCATION_ACCURACY_M;
         const distance = hasFreshLocation
           ? distanceKm(profile.liveLatitude!, profile.liveLongitude!)
           : null;
