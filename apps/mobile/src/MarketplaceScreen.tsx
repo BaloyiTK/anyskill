@@ -473,7 +473,7 @@ export function MarketplaceScreen(p: Props) {
         !Number.isFinite(coords.longitude) ||
         coords.accuracy == null ||
         !Number.isFinite(coords.accuracy) ||
-        coords.accuracy > 250
+        coords.accuracy > 50
       ) {
         if (active) setError("Waiting for a more accurate GPS reading. Keep location enabled and try again.");
         return;
@@ -484,9 +484,9 @@ export function MarketplaceScreen(p: Props) {
         await apiRequest("/marketplace/provider-location/live", {
           method: "POST",
           body: JSON.stringify({
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-            accuracyM: coords.accuracy,
+            latitude: Number(coords.latitude.toFixed(7)),
+            longitude: Number(coords.longitude.toFixed(7)),
+            accuracyM: Number(coords.accuracy.toFixed(1)),
           }),
         }, true);
       } catch (e) {
@@ -663,9 +663,9 @@ export function MarketplaceScreen(p: Props) {
         deliveryModes: providerModes.split(",").map((v) => v.trim()).filter(Boolean),
         isAvailable: providerAvailable,
         ...(firstFix ? {
-          latitude: firstFix.latitude,
-          longitude: firstFix.longitude,
-          accuracyM: firstFix.accuracy,
+          latitude: Number(firstFix.latitude.toFixed(7)),
+          longitude: Number(firstFix.longitude.toFixed(7)),
+          accuracyM: Number(firstFix.accuracy.toFixed(1)),
         } : {}),
       };
       const profile = await apiRequest<{isAvailable:boolean}>("/marketplace/provider-profile", {
