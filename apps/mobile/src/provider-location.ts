@@ -93,8 +93,9 @@ export async function startProviderLocationUpdates(): Promise<void> {
 
   await Location.startLocationUpdatesAsync(PROVIDER_LOCATION_TASK, {
     accuracy: Location.Accuracy.High,
-    timeInterval: 3000,
-    distanceInterval: 5,
+    timeInterval: 15000,
+    // Keep stationary Providers refreshed while the foreground service runs.
+    distanceInterval: 0,
     deferredUpdatesInterval: 0,
     deferredUpdatesDistance: 0,
     pausesUpdatesAutomatically: false,
