@@ -480,8 +480,11 @@ export function MarketplaceScreen(p: Props) {
       }
 
       publishing = true;
+      console.info("[AnySkill location] Posting foreground GPS fix", {
+        accuracyMetres: Number(coords.accuracy.toFixed(1)),
+      });
       try {
-        await apiRequest("/marketplace/provider-location/live", {
+        const result = await apiRequest("/marketplace/provider-location/live", {
           method: "POST",
           body: JSON.stringify({
             latitude: Number(coords.latitude.toFixed(7)),
@@ -489,7 +492,9 @@ export function MarketplaceScreen(p: Props) {
             accuracyM: Number(coords.accuracy.toFixed(1)),
           }),
         }, true);
+        console.info("[AnySkill location] Foreground location API request succeeded", result);
       } catch (e) {
+        console.error("[AnySkill location] Foreground location API request failed", e);
         // The next GPS callback or heartbeat retries with a fresh location.
         if (active) setError(e instanceof Error ? e.message : "Live location update failed. Retrying automatically.");
       } finally {
@@ -593,6 +598,7 @@ export function MarketplaceScreen(p: Props) {
         acquiring = true;
         let timeoutId: ReturnType<typeof setTimeout> | null = null;
         try {
+          console.info("[AnySkill location] Requesting a fresh foreground GPS fix");
           const position = await Promise.race([
             Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
             new Promise<never>((_, reject) => {
@@ -602,8 +608,14 @@ export function MarketplaceScreen(p: Props) {
               );
             }),
           ]);
-          if (active) await publishLocation(position.coords);
+          if (active) {
+            console.info("[AnySkill location] Foreground GPS fix received", {
+              accuracyMetres: position.coords.accuracy,
+            });
+            await publishLocation(position.coords);
+          }
         } catch (e) {
+          console.error("[AnySkill location] Foreground GPS acquisition failed", e);
           if (active) setError(e instanceof Error ? e.message : "Could not obtain a current GPS location. Retrying automatically.");
         } finally {
           if (timeoutId) clearTimeout(timeoutId);
