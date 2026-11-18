@@ -1,5 +1,6 @@
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
+import { Platform } from "react-native";
 import { apiRequest } from "./api";
 
 export const PROVIDER_LOCATION_TASK = "ANYSKILL_PROVIDER_LIVE_LOCATION";
@@ -44,9 +45,14 @@ export async function getInitialProviderLocation(): Promise<Location.LocationObj
     throw new Error("Allow location access while using AnySkill before going online.");
   }
 
-  const background = await Location.requestBackgroundPermissionsAsync();
-  if (!background.granted) {
-    throw new Error("Allow background location for AnySkill so your live location can continue while the app is in the background.");
+  // Android's user-initiated location foreground service can continue while
+  // the app is backgrounded with its persistent notification. Avoid asking
+  // for the broader ACCESS_BACKGROUND_LOCATION permission on Android.
+  if (Platform.OS === "ios") {
+    const background = await Location.requestBackgroundPermissionsAsync();
+    if (!background.granted) {
+      throw new Error("Set AnySkill location access to Always so your live location can continue while the app is in the background.");
+    }
   }
 
   const servicesEnabled = await Location.hasServicesEnabledAsync();
