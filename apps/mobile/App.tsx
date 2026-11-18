@@ -17,6 +17,7 @@ import { ProviderHomeScreen } from "./src/ProviderHomeScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
 import { WelcomeScreen } from "./src/WelcomeScreen";
+import { stopProviderLocationUpdates } from "./src/provider-location";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -870,8 +871,44 @@ export default function App() {
 
   const logout = async () => {
     setBusy(true);
-    try { await signOut(); }
-    finally {
+    try {
+      // Mark an online Provider offline on the server before revoking the session.
+      // The availability toggle must not be required when the Provider signs out.
+      try {
+        const providerProfile = await apiRequest<{
+          publicName: string;
+          hourlyRate: string | number | null;
+          assessmentFee: string | number;
+          skillCategories: string[];
+          serviceAreas: string[];
+          deliveryModes: string[];
+          isAvailable: boolean;
+          maxTravelDistanceKm: number;
+        } | null>("/marketplace/provider-profile", {}, true);
+        if (providerProfile?.isAvailable) {
+          await apiRequest("/marketplace/provider-profile", {
+            method: "POST",
+            body: JSON.stringify({
+              publicName: providerProfile.publicName,
+              hourlyRate: Number(providerProfile.hourlyRate),
+              assessmentFee: Number(providerProfile.assessmentFee),
+              skillCategories: providerProfile.skillCategories,
+              serviceAreas: providerProfile.serviceAreas,
+              deliveryModes: providerProfile.deliveryModes,
+              isAvailable: false,
+              maxTravelDistanceKm: providerProfile.maxTravelDistanceKm,
+            }),
+          }, true);
+        }
+      } catch {
+        // Continue signing out even if the API is unreachable or the session expired.
+      }
+      try {
+        await stopProviderLocationUpdates();
+      } finally {
+        await signOut();
+      }
+    } finally {
       setAccount(null); setRoleSummary(null); setIdentity(null); setPassword(""); setScreen("welcome"); setBusy(false);
     }
   };
