@@ -33,7 +33,11 @@ if (!IS_WEB && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
       try {
         await apiRequest("/marketplace/provider-location/live", {
           method: "POST",
-          body: JSON.stringify({ latitude, longitude, accuracyM: accuracy }),
+          body: JSON.stringify({
+            latitude: Number(latitude.toFixed(7)),
+            longitude: Number(longitude.toFixed(7)),
+            accuracyM: Number(accuracy.toFixed(1)),
+          }),
         }, true);
       } catch {
         // A later OS location event retries with a newer fix. Do not falsify
