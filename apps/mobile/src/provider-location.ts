@@ -1,16 +1,19 @@
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
-import { Platform } from "react-native";
 import { apiRequest } from "./api";
 
 export const PROVIDER_LOCATION_TASK = "ANYSKILL_PROVIDER_LIVE_LOCATION";
 const MAX_ACCEPTED_ACCURACY_METRES = 50;
+// Expo replaces EXPO_OS at bundle time. Avoid importing Platform from
+// react-native here: the web resolver can otherwise target a missing
+// react-native-web internal export.
+const IS_WEB = process.env.EXPO_OS === "web";
 
 type ProviderLocationTaskData = {
   locations?: Location.LocationObject[];
 };
 
-if (Platform.OS !== "web" && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
+if (!IS_WEB && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
   TaskManager.defineTask<ProviderLocationTaskData>(
     PROVIDER_LOCATION_TASK,
     async ({ data, error }) => {
@@ -41,6 +44,10 @@ if (Platform.OS !== "web" && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK))
 }
 
 export async function getInitialProviderLocation(): Promise<Location.LocationObject> {
+  if (IS_WEB) {
+    throw new Error("Live Provider location is available in the AnySkill Android and iOS apps.");
+  }
+
   const foreground = await Location.requestForegroundPermissionsAsync();
   if (!foreground.granted) {
     throw new Error("Allow location access while using AnySkill before going online.");
@@ -49,7 +56,7 @@ export async function getInitialProviderLocation(): Promise<Location.LocationObj
   // Android's user-initiated location foreground service can continue while
   // the app is backgrounded with its persistent notification. Avoid asking
   // for the broader ACCESS_BACKGROUND_LOCATION permission on Android.
-  if (Platform.OS === "ios") {
+  if (process.env.EXPO_OS === "ios") {
     const background = await Location.requestBackgroundPermissionsAsync();
     if (!background.granted) {
       throw new Error("Set AnySkill location access to Always so your live location can continue while the app is in the background.");
@@ -73,6 +80,10 @@ export async function getInitialProviderLocation(): Promise<Location.LocationObj
 }
 
 export async function startProviderLocationUpdates(): Promise<void> {
+  if (IS_WEB) {
+    throw new Error("Live Provider location tracking requires the AnySkill Android or iOS app.");
+  }
+
   const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(PROVIDER_LOCATION_TASK);
   if (alreadyStarted) return;
 
@@ -94,6 +105,8 @@ export async function startProviderLocationUpdates(): Promise<void> {
 }
 
 export async function stopProviderLocationUpdates(): Promise<void> {
+  if (IS_WEB) return;
+
   const started = await Location.hasStartedLocationUpdatesAsync(PROVIDER_LOCATION_TASK);
   if (started) await Location.stopLocationUpdatesAsync(PROVIDER_LOCATION_TASK);
 }
