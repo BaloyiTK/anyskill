@@ -232,3 +232,21 @@ export class UpdateLiveLocationDto {
   @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180) longitude!: number;
   @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) accuracyM!: number;
 }
+
+
+export class SubmitProviderReviewDto {
+  @IsNumber({ maxDecimalPlaces: 0 })
+  @Min(1)
+  @Max(5)
+  skillRating!: number;
+
+  @IsNumber({ maxDecimalPlaces: 0 })
+  @Min(1)
+  @Max(5)
+  platformRating!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1500)
+  comment?: string;
+}
