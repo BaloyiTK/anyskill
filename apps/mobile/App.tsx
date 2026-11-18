@@ -255,11 +255,6 @@ export default function App() {
     let cancelled = false;
     const registerDevice = async () => {
       try {
-        if (Platform.OS === "android") {
-          await Notifications.setNotificationChannelAsync("default", {
-            name: "Incoming service requests", importance: Notifications.AndroidImportance.MAX, sound: "default", vibrationPattern: [0, 500, 250, 500, 250, 700], lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          });
-        }
         let permission = await Notifications.getPermissionsAsync();
         if (permission.status !== "granted") permission = await Notifications.requestPermissionsAsync();
         if (permission.status !== "granted" || cancelled) return;
@@ -270,7 +265,6 @@ export default function App() {
         await Notifications.setNotificationChannelAsync("incoming_requests", {
           name: "Incoming service requests",
           importance: Notifications.AndroidImportance.MAX,
-          sound: "default",
           vibrationPattern: [0, 500, 250, 500, 250, 700],
           lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
           enableVibrate: true,
