@@ -100,6 +100,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         // client accidentally includes stale coordinates in its payload.
         latitude: input.deliveryMode === "REMOTE" ? null : input.latitude ?? null,
         longitude: input.deliveryMode === "REMOTE" ? null : input.longitude ?? null,
+        searchRadiusKm: input.deliveryMode === "REMOTE" ? 10 : input.searchRadiusKm ?? 10,
         deliveryMode: input.deliveryMode,
         preferredStartAt: input.preferredStartAt ? new Date(input.preferredStartAt) : null,
         instructions: input.instructions?.trim() || null,
@@ -809,11 +810,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async rankedProviders(request: {
-    id: string; seekerId: string; skillCategory: string; location: string | null; latitude?: number | null; longitude?: number | null; deliveryMode: string;
+    id: string; seekerId: string; skillCategory: string; location: string | null;
+    latitude?: number | null; longitude?: number | null; deliveryMode: string; searchRadiusKm: number;
   }): Promise<RankedProvider[]> {
-    // Do not use PostgreSQL array equality for skills here: older profiles may
-    // contain title-case or differently spaced values. Normalise in application
-    // code so "Plumbing", "plumbing", and " plumbing " match consistently.
+    // Eligibility is a hard filter: approved/verified, online, exact requested
+    // skill, supported delivery mode, fresh GPS and both parties' travel limits.
     const profiles = await this.prisma.providerProfile.findMany({
       where: {
         isAvailable: true,
@@ -829,14 +830,46 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         liveLongitude: true,
         liveAccuracyM: true,
         liveLocationUpdatedAt: true,
+        user: { select: { onboardingDraft: { select: { skills: true } } } },
       },
     });
 
-    const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
+    const compact = (value: string) => normalise(value).replace(/[^\\p{L}\\p{N}]+/gu, "");
     const requestedSkill = compact(request.skillCategory);
-    const now = Date.now();
+    const matchingProfiles = profiles.filter((profile) =>
+      profile.skillCategories.some((skill) => compact(skill) === requestedSkill),
+    );
+    if (matchingProfiles.length === 0) return [];
+
+    // Only seeker-approved, completed engagements for this exact skill count.
+    // Ratings are not currently stored per skill, so we do not invent a quality score.
+    const completedCounts = await this.prisma.jobEngagement.groupBy({
+      by: ["providerId"],
+      where: {
+        providerId: { in: matchingProfiles.map((profile) => profile.userId) },
+        status: "COMPLETED",
+        request: { is: { skillCategory: { equals: request.skillCategory, mode: "insensitive" } } },
+      },
+      _count: { _all: true },
+    });
+    const completedByProvider = new Map(
+      completedCounts.filter((item) => item.providerId != null)
+        .map((item) => [item.providerId!, item._count._all]),
+    );
+
+    const experienceYearsForSkill = (skillsValue: unknown): number => {
+      if (!Array.isArray(skillsValue)) return 0;
+      const entry = skillsValue.find((item) =>
+        item && typeof item === "object" && !Array.isArray(item)
+        && compact(String((item as Record<string, unknown>).category ?? "")) === requestedSkill,
+      ) as Record<string, unknown> | undefined;
+      if (!entry) return 0;
+      const match = String(entry.yearsOfExperience ?? "").match(/\\d+/);
+      return match ? Number(match[0]) : 0;
+    };
+
     const radians = (degrees: number) => degrees * Math.PI / 180;
-    const distanceKm = (latitude: number, longitude: number) => {
+    const distanceFromSeeker = (latitude: number, longitude: number) => {
       if (request.latitude == null || request.longitude == null) return null;
       const dLat = radians(latitude - request.latitude);
       const dLon = radians(longitude - request.longitude);
@@ -845,25 +878,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     };
 
-    const ranked = new Map<string, number>();
-    for (const profile of profiles) {
-      const hasSkill = profile.skillCategories.some((skill) => {
-        const candidate = compact(skill);
-        return candidate.length > 0 && candidate === requestedSkill;
-      });
-      if (!hasSkill) continue;
-
+    const now = Date.now();
+    const eligible: Array<{ userId: string; completedJobs: number; experienceYears: number; distanceKm: number | null }> = [];
+    for (const profile of matchingProfiles) {
       const supportsRemote = profile.deliveryModes.includes("REMOTE") || profile.deliveryModes.includes("EITHER");
       const supportsOnsite = profile.deliveryModes.includes("ONSITE") || profile.deliveryModes.includes("EITHER");
-      let score = 0;
+      let distance: number | null = null;
+      let onsiteEligible = false;
 
-      if (request.deliveryMode === "REMOTE" && supportsRemote) {
-        score = 110;
-      }
-
-      // An on-site request is dispatched only to a Provider with a fresh,
-      // accurate GPS fix inside their configured travel radius. A saved text
-      // service area is not a substitute for real-time proximity.
       if ((request.deliveryMode === "ONSITE" || request.deliveryMode === "EITHER") && supportsOnsite) {
         const hasFreshLocation = profile.liveLatitude != null
           && profile.liveLongitude != null
@@ -871,34 +893,46 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           && now - profile.liveLocationUpdatedAt.getTime() <= LIVE_LOCATION_MAX_AGE_MS
           && profile.liveAccuracyM != null
           && profile.liveAccuracyM <= MAX_LIVE_LOCATION_ACCURACY_M;
-        const distance = hasFreshLocation
-          ? distanceKm(profile.liveLatitude!, profile.liveLongitude!)
+        distance = hasFreshLocation
+          ? distanceFromSeeker(profile.liveLatitude!, profile.liveLongitude!)
           : null;
-        const isWithinTravelRadius = distance != null
-          && distance <= profile.maxTravelDistanceKm;
-        if (isWithinTravelRadius) {
-          score = Math.max(score, 120 + Math.max(0, 40 - Math.floor(distance!)));
-        }
+        const permittedRadius = Math.min(request.searchRadiusKm, profile.maxTravelDistanceKm);
+        onsiteEligible = distance != null && distance <= permittedRadius;
       }
 
-      // EITHER permits a remote offer without GPS, but an on-site offer still
-      // requires a fresh location inside the Provider's travel radius.
-      if (request.deliveryMode === "EITHER" && supportsRemote) {
-        score = Math.max(score, 110);
-      }
+      const remoteEligible = (request.deliveryMode === "REMOTE" && supportsRemote)
+        || (request.deliveryMode === "EITHER" && supportsRemote);
+      if (!onsiteEligible && !remoteEligible) continue;
 
-      if (score > 0) ranked.set(profile.userId, score);
+      const skillsValue = profile.user.onboardingDraft?.skills;
+      eligible.push({
+        userId: profile.userId,
+        completedJobs: completedByProvider.get(profile.userId) ?? 0,
+        experienceYears: experienceYearsForSkill(skillsValue),
+        distanceKm: onsiteEligible ? distance : null,
+      });
     }
 
-    return [...ranked.entries()]
-      .map(([userId, score]) => ({ userId, score }))
-      .sort((a, b) => b.score - a.score || a.userId.localeCompare(b.userId));
+    // Providers with relevant completed jobs rank first by completed-job count.
+    // If neither has completed a relevant job, declared experience is used.
+    // Distance breaks ties; new providers therefore remain eligible.
+    eligible.sort((a, b) => {
+      const aHasHistory = a.completedJobs > 0;
+      const bHasHistory = b.completedJobs > 0;
+      if (aHasHistory !== bHasHistory) return aHasHistory ? -1 : 1;
+      if (aHasHistory && a.completedJobs !== b.completedJobs) return b.completedJobs - a.completedJobs;
+      if (!aHasHistory && a.experienceYears !== b.experienceYears) return b.experienceYears - a.experienceYears;
+      return (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY)
+        || a.userId.localeCompare(b.userId);
+    });
+
+    return eligible.map((provider, index) => ({ userId: provider.userId, score: eligible.length - index }));
   }
 
   private async dispatchNextWave(requestId: string, wave: number, force = false) {
     const request = await this.prisma.serviceRequest.findUnique({
       where: { id: requestId },
-      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, deliveryMode: true, status: true, matchingStartedAt: true },
+      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, searchRadiusKm: true, deliveryMode: true, status: true, matchingStartedAt: true },
     });
     if (!request || request.status !== "OPEN") return { notified: 0, wave };
     if (!force && Date.now() - request.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
