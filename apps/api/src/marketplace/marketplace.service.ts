@@ -462,7 +462,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       jobEngagement: request.jobEngagement ? { ...request.jobEngagement, serverNow } : null,
       providerResponses: request.providerResponses.map((response) => {
         const profile = response.provider?.providerProfile;
-        if (!profile || !response.providerId) return response;
+        if (!profile || !response.provider || !response.providerId) return response;
         const reviews = providerReviews.filter((review) => review.providerId === response.providerId);
         const skillReviews = reviews.filter((review) => normalise(review.skillCategory) === normalise(request.skillCategory));
         const overall = reviews.length ? reviews.reduce((sum, review) => sum + review.platformRating, 0) / reviews.length : null;
