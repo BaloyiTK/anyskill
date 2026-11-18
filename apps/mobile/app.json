@@ -2,7 +2,7 @@
   "expo": {
     "name": "AnySkill",
     "slug": "anyskill",
-    "owner": "kaziara-solutions",
+    "owner": "kaziara",
     "scheme": [
       "anyskill",
       "com.anyskill.mobile"
@@ -57,7 +57,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "ab91108e-f5f7-4b90-aaff-71c45efb366c"
+        "projectId": "e23992c5-708d-42fa-90c2-fcde9017e38e"
       }
     }
   }
