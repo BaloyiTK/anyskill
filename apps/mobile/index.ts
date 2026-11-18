@@ -1,6 +1,6 @@
 import { registerRootComponent } from "expo";
-import App from "./App";
-// Define the background task at module scope before the app is registered.
+// Define the background task before loading and registering the application.
 import "./src/provider-location";
+import App from "./App";
 
 registerRootComponent(App);
