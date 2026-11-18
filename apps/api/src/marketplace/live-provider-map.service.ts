@@ -10,6 +10,7 @@ type MapClient = {
   longitude: number;
   radiusKm: number;
   sending: boolean;
+  dirty: boolean;
 };
 
 @Injectable()
@@ -49,7 +50,7 @@ export class LiveProviderMapService {
         "\r\n",
       ].join("\r\n"));
 
-      const client: MapClient = { socket, latitude, longitude, radiusKm, sending: false };
+      const client: MapClient = { socket, latitude, longitude, radiusKm, sending: false, dirty: false };
       this.clients.add(client);
       socket.on("close", () => this.clients.delete(client));
       socket.on("end", () => this.clients.delete(client));
@@ -64,19 +65,27 @@ export class LiveProviderMapService {
   }
 
   notifyChanged(): void {
-    for (const client of this.clients) void this.sendSnapshot(client);
+    for (const client of this.clients) {
+      client.dirty = true;
+      if (!client.sending) void this.sendSnapshot(client);
+    }
   }
 
   private async sendSnapshot(client: MapClient): Promise<void> {
     if (client.sending || client.socket.destroyed || !this.discover) return;
     client.sending = true;
     try {
-      const providers = await this.discover(client.latitude, client.longitude, client.radiusKm);
-      if (!client.socket.destroyed) this.sendFrame(client.socket, JSON.stringify(providers));
+      // Preserve updates that arrive while a database snapshot is in flight.
+      do {
+        client.dirty = false;
+        const providers = await this.discover(client.latitude, client.longitude, client.radiusKm);
+        if (!client.socket.destroyed) this.sendFrame(client.socket, JSON.stringify(providers));
+      } while (client.dirty && !client.socket.destroyed);
     } catch (error) {
       this.logger.warn(`Could not publish a live Provider map update: ${error instanceof Error ? error.message : "unknown error"}`);
     } finally {
       client.sending = false;
+      if (client.dirty && !client.socket.destroyed) void this.sendSnapshot(client);
     }
   }
 
