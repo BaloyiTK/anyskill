@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   availabilityTitle: {
     color: C.ink,
     fontSize: 14,
-    fontWeight: "750",
+    fontWeight: "700",
   },
   statusPill: {
     flexDirection: "row",
@@ -393,7 +393,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   skillInitial: { color: C.primary, fontSize: 15, fontWeight: "800" },
-  skillName: { flex: 1, color: C.ink, fontSize: 13, fontWeight: "650" },
+  skillName: { flex: 1, color: C.ink, fontSize: 13, fontWeight: "600" },
   activeLabel: { color: C.online, fontSize: 9, fontWeight: "900", letterSpacing: 0.7 },
   emptySkills: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 14 },
   swipeHint: { color: C.muted, fontSize: 10, marginTop: 11, textAlign: "center" },
@@ -416,7 +416,7 @@ const styles = StyleSheet.create({
   },
   locationGlyph: { color: C.primary, fontSize: 21 },
   locationCopy: { flex: 1, gap: 4 },
-  locationTitle: { color: C.ink, fontSize: 12, fontWeight: "750" },
+  locationTitle: { color: C.ink, fontSize: 12, fontWeight: "700" },
   locationSubtitle: { color: C.muted, fontSize: 10, lineHeight: 15 },
   error: { color: C.danger, fontSize: 12, lineHeight: 18, marginTop: 15 },
   refresh: { alignSelf: "center", paddingVertical: 15, paddingHorizontal: 18 },
