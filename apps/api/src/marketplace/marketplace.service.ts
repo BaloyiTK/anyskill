@@ -834,7 +834,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    const compact = (value: string) => normalise(value).replace(/[^\\p{L}\\p{N}]+/gu, "");
+    const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
     const requestedSkill = compact(request.skillCategory);
     const matchingProfiles = profiles.filter((profile) =>
       profile.skillCategories.some((skill) => compact(skill) === requestedSkill),
@@ -864,7 +864,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         && compact(String((item as Record<string, unknown>).category ?? "")) === requestedSkill,
       ) as Record<string, unknown> | undefined;
       if (!entry) return 0;
-      const match = String(entry.yearsOfExperience ?? "").match(/\\d+/);
+      const match = String(entry.yearsOfExperience ?? "").match(/\d+/);
       return match ? Number(match[0]) : 0;
     };
 
