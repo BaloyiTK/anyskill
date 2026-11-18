@@ -448,9 +448,43 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       },
     });
     const serverNow = new Date().toISOString();
+    const providerIds = [...new Set(requests.flatMap((request) =>
+      request.providerResponses.map((response) => response.providerId).filter((id): id is string => Boolean(id)),
+    ))];
+    const providerReviews = providerIds.length
+      ? await this.prisma.providerReview.findMany({
+          where: { providerId: { in: providerIds } },
+          select: { providerId: true, skillCategory: true, skillRating: true, platformRating: true },
+        })
+      : [];
     return requests.map((request) => ({
       ...request,
       jobEngagement: request.jobEngagement ? { ...request.jobEngagement, serverNow } : null,
+      providerResponses: request.providerResponses.map((response) => {
+        const profile = response.provider?.providerProfile;
+        if (!profile || !response.providerId) return response;
+        const reviews = providerReviews.filter((review) => review.providerId === response.providerId);
+        const skillReviews = reviews.filter((review) => normalise(review.skillCategory) === normalise(request.skillCategory));
+        const overall = reviews.length ? reviews.reduce((sum, review) => sum + review.platformRating, 0) / reviews.length : null;
+        const skill = skillReviews.length ? skillReviews.reduce((sum, review) => sum + review.skillRating, 0) / skillReviews.length : null;
+        return {
+          ...response,
+          provider: {
+            ...response.provider,
+            providerProfile: {
+              ...profile,
+              ratings: {
+                overall: overall == null ? 5 : Number(overall.toFixed(1)),
+                overallReviewCount: reviews.length,
+                overallIsRated: reviews.length > 0,
+                requestedSkill: skill == null ? 5 : Number(skill.toFixed(1)),
+                requestedSkillReviewCount: skillReviews.length,
+                requestedSkillIsRated: skillReviews.length > 0,
+              },
+            },
+          },
+        };
+      }),
     }));
   }
 
@@ -882,7 +916,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         user: { select: { onboardingDraft: { select: { skills: true } } } },
       },
     });
-    const compact = (value: string) => normalise(value).replace(/[^\\p{L}\\p{N}]+/gu, "");
+    const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
     const requestedSkill = compact(request.skillCategory);
     const matchingProfiles = profiles.filter((profile) => profile.skillCategories.some((skill) => compact(skill) === requestedSkill));
     if (!matchingProfiles.length) return [];
@@ -906,7 +940,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!Array.isArray(skillsValue)) return 0;
       const entry = skillsValue.find((item) => item && typeof item === "object" && !Array.isArray(item)
         && compact(String((item as Record<string, unknown>).category ?? "")) === requestedSkill) as Record<string, unknown> | undefined;
-      const match = String(entry?.yearsOfExperience ?? "").match(/\\d+/);
+      const match = String(entry?.yearsOfExperience ?? "").match(/\d+/);
       return match ? Number(match[0]) : 0;
     };
     const radians = (degrees: number) => degrees * Math.PI / 180;
