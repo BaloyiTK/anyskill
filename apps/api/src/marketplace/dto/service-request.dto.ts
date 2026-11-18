@@ -55,6 +55,10 @@ export class CreateServiceRequestDto {
   longitude?: number;
 
   @IsOptional()
+  @IsIn([5, 10, 20, 50])
+  searchRadiusKm?: number;
+
+  @IsOptional()
   @IsDateString()
   preferredStartAt?: string;
 
