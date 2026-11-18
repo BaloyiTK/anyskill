@@ -33,7 +33,7 @@ type RequestItem = {
 };
 type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
-type JobEngagement = { id: string; status: string; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
+type JobEngagement = { id: string; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
@@ -87,6 +87,7 @@ export function MarketplaceScreen(p: Props) {
   const [completionEvidenceAssets, setCompletionEvidenceAssets] = useState<Array<{id:string;name:string;uri:string;contentType:string;sizeBytes:number}>>([]);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [completionReviewNote, setCompletionReviewNote] = useState("");
+  const [ratingDraft, setRatingDraft] = useState<{requestId:string;skillRating:number;platformRating:number;comment:string}|null>(null);
   const [jobActionBusy, setJobActionBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
@@ -344,6 +345,25 @@ export function MarketplaceScreen(p: Props) {
       setNotice(approved ? "Completion approved. The job is marked completed." : "Corrections requested. The Provider can update the work and resubmit.");
       setCompletionReviewNote(""); await loadMyRequests();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not review job completion."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const submitProviderRating = async (requestId: string) => {
+    if (!ratingDraft || ratingDraft.requestId !== requestId) return;
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest("/marketplace/requests/" + requestId + "/rating", {
+        method: "POST",
+        body: JSON.stringify({
+          skillRating: ratingDraft.skillRating,
+          platformRating: ratingDraft.platformRating,
+          comment: ratingDraft.comment.trim() || undefined,
+        }),
+      }, true);
+      setRatingDraft(null);
+      setNotice("Thank you. Your skill and overall AnySkill ratings have been submitted.");
+      await loadMyRequests();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your Provider rating."); }
     finally { setJobActionBusy(false); }
   };
 
@@ -895,7 +915,25 @@ export function MarketplaceScreen(p: Props) {
                 <Secondary label="Request corrections" onPress={() => { if (!jobActionBusy && completionReviewNote.trim().length >= 10) void reviewCompletion(request.id, submission.id, false); }} />
               </View>
             </View>) : null}
-            {request.jobEngagement?.status === "COMPLETED" ? <Text style={s.response}>Completion approved by you. Job marked completed.</Text> : null}
+            {request.jobEngagement?.status === "COMPLETED" ? <>
+              <Text style={s.response}>Completion approved by you. Job marked completed.</Text>
+              {request.jobEngagement.review ? <View style={s.offerCard}>
+                <Text style={s.offerTitle}>Your submitted ratings</Text>
+                <Text style={s.meta}>{request.skillCategory}: {request.jobEngagement.review.skillRating}.0 ★ · Overall AnySkill: {request.jobEngagement.review.platformRating}.0 ★</Text>
+                {request.jobEngagement.review.comment ? <Text style={s.body}>{request.jobEngagement.review.comment}</Text> : null}
+              </View> : <View style={s.offerCard}>
+                <Text style={s.offerTitle}>Rate your Provider</Text>
+                <Text style={s.meta}>Rate the service skill and the Provider's overall experience on AnySkill separately.</Text>
+                {ratingDraft?.requestId !== request.id ? <Primary label="Rate this Provider" onPress={() => setRatingDraft({requestId:request.id,skillRating:5,platformRating:5,comment:""})} /> : <>
+                  <Text style={s.label}>{request.skillCategory} rating</Text>
+                  <View style={s.choiceRow}>{[1,2,3,4,5].map((value) => <Pressable key={"skill-"+value} onPress={() => setRatingDraft((draft) => draft ? {...draft,skillRating:value} : draft)} style={[s.choice,(ratingDraft.skillRating===value)&&s.choiceActive]}><Text style={[s.choiceText,(ratingDraft.skillRating===value)&&s.choiceTextActive]}>{value} ★</Text></Pressable>)}</View>
+                  <Text style={s.label}>Overall AnySkill rating</Text>
+                  <View style={s.choiceRow}>{[1,2,3,4,5].map((value) => <Pressable key={"overall-"+value} onPress={() => setRatingDraft((draft) => draft ? {...draft,platformRating:value} : draft)} style={[s.choice,(ratingDraft.platformRating===value)&&s.choiceActive]}><Text style={[s.choiceText,(ratingDraft.platformRating===value)&&s.choiceTextActive]}>{value} ★</Text></Pressable>)}</View>
+                  <TextInput value={ratingDraft.comment} onChangeText={(comment) => setRatingDraft((draft) => draft ? {...draft,comment} : draft)} placeholder="Optional feedback about your experience..." multiline style={[s.input,s.multiline]} />
+                  <Primary label="Submit ratings" onPress={() => void submitProviderRating(request.id)} disabled={jobActionBusy} />
+                </>}
+              </View>}
+            </> : null}
             {request.jobEngagement?.completionSubmissions.filter((submission) => submission.status === "REJECTED").map((submission) => <View key={submission.id} style={s.offerCard}>
               <Text style={s.meta}>Previous completion review: corrections requested</Text>
               <Text style={s.body}>{submission.reviewNote}</Text>
