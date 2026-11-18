@@ -41,7 +41,7 @@ type SeekerRequest = {
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
     hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null;
-    provider: { providerProfile: { publicName: string; hourlyRate: string | number | null; assessmentFee: string | number; skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[] } | null };
+    provider: { providerProfile: { publicName: string; hourlyRate: string | number | null; assessmentFee: string | number; skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; ratings?: {overall:number;overallReviewCount:number;overallIsRated:boolean;requestedSkill:number;requestedSkillReviewCount:number;requestedSkillIsRated:boolean} } | null };
   }>;
 };
 type Props = {
@@ -968,6 +968,9 @@ export function MarketplaceScreen(p: Props) {
             {offers.map((offer, index) => <View key={offer.id} style={s.offerCard}>
               <Text style={s.offerTitle}>{offer.provider.providerProfile?.publicName || "Skill Provider"}</Text>
               <Text style={s.meta}>Provider offer {index + 1}</Text>
+              {offer.provider.providerProfile?.ratings ? <Text style={s.response}>
+                {request.skillCategory}: {offer.provider.providerProfile.ratings.requestedSkill.toFixed(1)} ★ {offer.provider.providerProfile.ratings.requestedSkillIsRated ? "(" + offer.provider.providerProfile.ratings.requestedSkillReviewCount + " reviews)" : "(new · not yet rated)"} · Overall AnySkill: {offer.provider.providerProfile.ratings.overall.toFixed(1)} ★ {offer.provider.providerProfile.ratings.overallIsRated ? "(" + offer.provider.providerProfile.ratings.overallReviewCount + " reviews)" : "(new · not yet rated)"}
+              </Text> : null}
               <Text style={s.meta}>Received {new Date(offer.createdAt).toLocaleString()}</Text>
               <Text style={s.meta}>Provider ID: {offer.providerId.slice(0, 8)}</Text>
               <Text style={s.meta}>Hourly rate: {offer.hourlyRateAtOffer == null ? "Not supplied" : `R ${Number(offer.hourlyRateAtOffer).toFixed(2)} / hour`}</Text>
