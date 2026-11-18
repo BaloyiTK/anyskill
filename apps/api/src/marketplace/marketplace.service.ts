@@ -207,6 +207,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         serviceAreas,
         deliveryModes,
         isAvailable: input.isAvailable,
+        ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
         ...liveLocationData,
       },
       update: {
@@ -217,6 +218,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         serviceAreas,
         deliveryModes,
         isAvailable: input.isAvailable,
+        ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
         ...liveLocationData,
       },
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
@@ -228,7 +230,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async getProviderProfile(userId: string) {
     return this.prisma.providerProfile.findUnique({
       where: { userId },
-      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, updatedAt: true },
+      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, updatedAt: true },
     });
   }
 
