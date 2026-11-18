@@ -938,7 +938,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const matchingProfiles = profiles.filter((profile) => profile.skillCategories.some((skill) => compact(skill) === requestedSkill));
     if (!matchingProfiles.length) return [];
     const providerIds = matchingProfiles.map((profile) => profile.userId);
-    const [completedCounts, reviews] = await Promise.all([
+    const [completedCounts, skillRatingGroups, overallRatingGroups] = await Promise.all([
       this.prisma.jobEngagement.groupBy({
         by: ["providerId"],
         where: {
@@ -947,9 +947,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         },
         _count: { _all: true },
       }),
-      this.prisma.providerReview.findMany({
-        where: { providerId: { in: providerIds } },
-        select: { providerId: true, skillCategory: true, skillRating: true, platformRating: true },
+      this.prisma.providerReview.groupBy({
+        by: ["providerId", "skillCategory"], where: { providerId: { in: providerIds } },
+        _avg: { skillRating: true }, _count: { _all: true },
+      }),
+      this.prisma.providerReview.groupBy({
+        by: ["providerId"], where: { providerId: { in: providerIds } },
+        _avg: { platformRating: true }, _count: { _all: true },
       }),
     ]);
     const completedByProvider = new Map(completedCounts.filter((item) => item.providerId != null).map((item) => [item.providerId!, item._count._all]));
@@ -983,10 +987,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }
       const remoteEligible = (request.deliveryMode === "REMOTE" && supportsRemote) || (request.deliveryMode === "EITHER" && supportsRemote);
       if (!onsiteEligible && !remoteEligible) continue;
-      const providerReviews = reviews.filter((review) => review.providerId === profile.userId);
-      const skillReviews = providerReviews.filter((review) => compact(review.skillCategory) === requestedSkill);
-      const skillMean = (skillReviews.reduce((sum, review) => sum + review.skillRating, 0) + 5 * 3) / (skillReviews.length + 3);
-      const overallMean = (providerReviews.reduce((sum, review) => sum + review.platformRating, 0) + 5 * 3) / (providerReviews.length + 3);
+      const skillGroup = skillRatingGroups.find((group) => group.providerId === profile.userId
+        && compact(group.skillCategory) === requestedSkill);
+      const overallGroup = overallRatingGroups.find((group) => group.providerId === profile.userId);
+      const skillCount = skillGroup?._count._all ?? 0;
+      const overallCount = overallGroup?._count._all ?? 0;
+      const skillMean = (((skillGroup?._avg.skillRating ?? 5) * skillCount) + 5 * 3) / (skillCount + 3);
+      const overallMean = (((overallGroup?._avg.platformRating ?? 5) * overallCount) + 5 * 3) / (overallCount + 3);
       const completedJobs = completedByProvider.get(profile.userId) ?? 0;
       const experience = experienceYearsForSkill(profile.user.onboardingDraft?.skills);
       const radius = Math.min(request.searchRadiusKm, profile.maxTravelDistanceKm);
