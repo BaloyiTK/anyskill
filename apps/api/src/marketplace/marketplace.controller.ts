@@ -18,7 +18,7 @@ import {
 import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
-import { IsIn, IsInt, IsString, IsUUID, Max, MaxLength, Min, MinLength } from "class-validator";
+import { IsIn, IsInt, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 
 class CreateMediaUploadDto {
   @IsString() @MinLength(1) @MaxLength(255) fileName!: string;
