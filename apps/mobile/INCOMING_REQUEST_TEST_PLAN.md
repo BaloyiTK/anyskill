@@ -12,7 +12,7 @@ Run these checks on a physical Android device and a physical iPhone using an EAS
 1. **Foreground:** Keep AnySkill open on Provider Home. Publish a matching request. Confirm the full-screen in-app request modal opens once and no duplicate heads-up banner obscures it.
 2. **Another app open:** Put AnySkill in the background and open another app. Publish a matching request. Confirm the high-importance notification can appear as a heads-up alert and exposes Accept / Decline actions.
 3. **Lock screen:** Lock the device and publish a matching request. Confirm the notification is visible according to the device's lock-screen privacy settings. Tap Accept or Decline and confirm Android requires device authentication before the action is submitted.
-4. **App terminated:** Force-stop AnySkill, then publish a matching request. Confirm the notification opens AnySkill and the action is processed once after authentication.
+4. **App terminated:** Remove AnySkill from Recents without using Android Settings > Force stop, then publish a matching request. Confirm the notification opens AnySkill and the action is processed once after authentication.
 5. **Permission/channel disabled:** Disable AnySkill notifications or the incoming-request channel. Confirm the app does not claim notification delivery succeeded; foreground API reconciliation should still discover pending matches when the Provider returns to AnySkill.
 
 ## iOS
