@@ -1200,6 +1200,7 @@ export function MarketplaceScreen(p: Props) {
           </>);
         })() : null}
       </View>
+    </Modal>
     <Modal visible={journeyScreen !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setJourneyScreen(null)}>
       <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 22, paddingTop: 58, paddingBottom: 28 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -1233,7 +1234,6 @@ export function MarketplaceScreen(p: Props) {
           <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>The Provider must complete the assessment and submit an estimate. Work starts only after the estimate is approved in AnySkill.</Text>
         </View>
       </View>
-    </Modal>
     </Modal>
   </View>;
 }
