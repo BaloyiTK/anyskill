@@ -206,7 +206,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
     });
     this.liveProviderMap.notifyChanged();
-    return { isAvailable: true, liveLocationUpdatedAt: updatedAt, liveLocationAccuracyM: input.accuracyM };
+    return { isAvailable: true, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
   }
 
   async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
