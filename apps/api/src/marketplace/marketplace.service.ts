@@ -975,16 +975,20 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   private async recoverStaleNotificationClaims() {
     const staleBefore = new Date(Date.now() - 2 * 60_000);
+    const exhausted = await this.prisma.appNotification.updateMany({
+      where: { deliveryStatus: "SENDING", sendingStartedAt: { lt: staleBefore }, attempts: { gte: 5 } },
+      data: { deliveryStatus: "FAILED", sendingStartedAt: null },
+    });
     const stale = await this.prisma.appNotification.updateMany({
-      where: { deliveryStatus: "SENDING", sendingStartedAt: { lt: staleBefore } },
+      where: { deliveryStatus: "SENDING", sendingStartedAt: { lt: staleBefore }, attempts: { lt: 5 } },
       data: {
         deliveryStatus: "PENDING",
         sendingStartedAt: null,
         nextAttemptAt: new Date(),
       },
     });
-    if (stale.count > 0) {
-      this.logger.warn(`Recovered ${stale.count} notification(s) left in SENDING after a worker interruption.`);
+    if (stale.count > 0 || exhausted.count > 0) {
+      this.logger.warn(`Recovered ${stale.count} notification(s) and marked ${exhausted.count} exhausted notification(s) failed after a worker interruption.`);
     }
   }
 
