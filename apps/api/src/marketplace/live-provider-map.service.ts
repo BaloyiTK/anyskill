@@ -102,7 +102,7 @@ export class LiveProviderMapService {
         if (opcode === 0x09 && masked && length <= 125 && data.length >= 6 + length) {
           const mask = data.subarray(2, 6);
           const payload = Buffer.from(data.subarray(6, 6 + length));
-          for (let index = 0; index < payload.length; index += 1) payload[index] ^= mask[index % 4]!;
+          for (let index = 0; index < payload.length; index += 1) payload[index] = payload[index]! ^ mask[index % 4]!;
           socket.write(Buffer.concat([Buffer.from([0x8a, payload.length]), payload]));
         }
       });
