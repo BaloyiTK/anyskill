@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiRequest } from "./api";
+
+type IncomingRequest = { id: string; title: string; skillCategory: string; description: string; deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null; createdAt: string; alreadyResponded: boolean };
 import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
 
 type ProviderProfile = {
@@ -43,6 +45,19 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [locationStatus, setLocationStatus] = useState("");
+  const [incomingRequests, setIncomingRequests] = useState<IncomingRequest[]>([]);
+  const [incomingError, setIncomingError] = useState("");
+
+  const loadIncomingRequests = useCallback(async () => {
+    try {
+      const result = await apiRequest<{ items: IncomingRequest[] }>("/marketplace/incoming-requests", {}, true);
+      if (!result || !Array.isArray(result.items)) throw new Error("The incoming requests response was invalid.");
+      setIncomingRequests(result.items);
+      setIncomingError("");
+    } catch (e) {
+      setIncomingError(e instanceof Error ? e.message : "Could not load incoming requests.");
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -64,6 +79,14 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Incoming requests are first-class Provider Home content. Poll independently
+  // from push delivery so a failed or disabled push can never hide a match.
+  useEffect(() => {
+    void loadIncomingRequests();
+    const interval = setInterval(() => { void loadIncomingRequests(); }, 8000);
+    return () => clearInterval(interval);
+  }, [loadIncomingRequests]);
 
   // Resume the OS-managed location task when an already-online Provider
   // returns to the app. The task itself is registered at application startup.
@@ -159,6 +182,31 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
             ? "You’re visible to nearby customers and ready to receive service requests."
             : "Go online when you're ready to receive service requests from nearby customers."}
         </Text>
+      </View>
+
+      <View style={styles.incomingSection}>
+        <View style={styles.incomingHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sectionTitle}>Incoming requests</Text>
+            <Text style={styles.sectionSubtitle}>Requests matched to your skills appear here automatically.</Text>
+          </View>
+          <View style={styles.requestCount}><Text style={styles.requestCountText}>{incomingRequests.length}</Text></View>
+        </View>
+        {incomingRequests.length ? incomingRequests.map((request) => (
+          <View key={request.id} style={styles.incomingCard}>
+            <Text style={styles.incomingSkill}>{request.skillCategory} · {request.deliveryMode === "ONSITE" ? "On-site" : request.deliveryMode === "REMOTE" ? "Remote" : "On-site or remote"}</Text>
+            <Text style={styles.incomingTitle}>{request.title}</Text>
+            <Text numberOfLines={3} style={styles.incomingDescription}>{request.description}</Text>
+            {request.location ? <Text style={styles.incomingMeta}>Job area: {request.location}</Text> : null}
+            {request.alreadyResponded ? <Text style={styles.incomingResponded}>You have already responded.</Text> : null}
+            <Pressable accessibilityRole="button" onPress={onManageProfile} style={styles.incomingAction}>
+              <Text style={styles.incomingActionText}>{request.alreadyResponded ? "View request" : "View and respond"}</Text>
+            </Pressable>
+          </View>
+        )) : <Text style={styles.incomingEmpty}>{incomingError || "No matched requests yet. Keep your Provider profile active and available."}</Text>}
+        <Pressable accessibilityRole="button" onPress={() => { void loadIncomingRequests(); }} style={styles.incomingRefresh}>
+          <Text style={styles.incomingRefreshText}>Refresh incoming requests</Text>
+        </Pressable>
       </View>
 
       <View style={styles.availability}>
@@ -313,6 +361,21 @@ const styles = StyleSheet.create({
     marginTop: 7,
     maxWidth: 330,
   },
+  incomingSection: { marginBottom: 22, borderWidth: 1, borderColor: C.border, borderRadius: 18, padding: 15, backgroundColor: "#FBFCFB" },
+  incomingHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
+  requestCount: { minWidth: 30, height: 30, borderRadius: 15, backgroundColor: C.soft, alignItems: "center", justifyContent: "center", paddingHorizontal: 8 },
+  requestCountText: { color: C.primary, fontSize: 13, fontWeight: "900" },
+  incomingCard: { borderWidth: 1, borderColor: C.border, borderRadius: 13, padding: 13, marginTop: 9, backgroundColor: "#FFFFFF" },
+  incomingSkill: { color: C.primary, fontSize: 10, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.5 },
+  incomingTitle: { color: C.ink, fontSize: 15, fontWeight: "800", marginTop: 5 },
+  incomingDescription: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 5 },
+  incomingMeta: { color: C.muted, fontSize: 10, marginTop: 7 },
+  incomingResponded: { color: C.online, fontSize: 11, fontWeight: "700", marginTop: 8 },
+  incomingAction: { alignSelf: "flex-start", marginTop: 11, paddingHorizontal: 13, paddingVertical: 9, borderRadius: 9, backgroundColor: C.primary },
+  incomingActionText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800" },
+  incomingEmpty: { color: C.muted, fontSize: 12, lineHeight: 18, paddingVertical: 9 },
+  incomingRefresh: { alignSelf: "center", paddingVertical: 10, paddingHorizontal: 12 },
+  incomingRefreshText: { color: C.primary, fontSize: 11, fontWeight: "800" },
   availability: {
     borderWidth: 1,
     borderColor: C.border,
