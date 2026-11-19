@@ -1408,8 +1408,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (this.workerRunning) return;
     this.workerRunning = true;
     const startedAt = Date.now();
-    await this.recordWorkerHeartbeat({ status: "RUNNING", heartbeatAt: new Date() });
     try {
+      await this.recordWorkerHeartbeat({ status: "RUNNING", heartbeatAt: new Date() });
       // Transaction-scoped advisory lock coordinates all API replicas.
       const cycle = await this.prisma.$transaction(async (tx) => {
         const acquired = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(741928364::bigint) AS locked`;
@@ -1460,13 +1460,17 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const errorCode = error && typeof error === "object" && "code" in error && typeof error.code === "string"
         ? error.code.slice(0, 64)
         : "unknown";
-      await this.recordWorkerHeartbeat({
-        status: "DEGRADED",
-        heartbeatAt: new Date(),
-        consecutiveFailures: { increment: 1 },
-        lastErrorCode: errorCode,
-        lastCycleDurationMs: Date.now() - startedAt,
-      });
+      try {
+        await this.recordWorkerHeartbeat({
+          status: "DEGRADED",
+          heartbeatAt: new Date(),
+          consecutiveFailures: { increment: 1 },
+          lastErrorCode: errorCode,
+          lastCycleDurationMs: Date.now() - startedAt,
+        });
+      } catch (heartbeatError) {
+        this.logger.error(`Unable to persist worker failure heartbeat: ${String(heartbeatError)}`);
+      }
       this.logger.error(JSON.stringify({
         event: "anyskill_marketplace_worker_cycle_failed",
         durationMs: Date.now() - startedAt,
