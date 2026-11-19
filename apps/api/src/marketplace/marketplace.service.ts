@@ -1426,15 +1426,25 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           by: ["deliveryStatus"],
           _count: { _all: true },
         });
-        const oldestPending = await tx.appNotification.findFirst({
-          where: { deliveryStatus: "PENDING" },
-          orderBy: { createdAt: "asc" },
-          select: { createdAt: true },
-        });
+        const [oldestPending, oldestSending] = await Promise.all([
+          tx.appNotification.findFirst({
+            where: { deliveryStatus: "PENDING" },
+            orderBy: { createdAt: "asc" },
+            select: { createdAt: true },
+          }),
+          tx.appNotification.findFirst({
+            where: { deliveryStatus: "SENDING" },
+            orderBy: { sendingStartedAt: "asc" },
+            select: { sendingStartedAt: true },
+          }),
+        ]);
         return {
           acquired: true as const,
           queueCounts: Object.fromEntries(queueGroups.map((group) => [group.deliveryStatus, group._count._all])),
           oldestPendingAgeMs: oldestPending ? Math.max(0, Date.now() - oldestPending.createdAt.getTime()) : 0,
+          oldestSendingAgeMs: oldestSending?.sendingStartedAt
+            ? Math.max(0, Date.now() - oldestSending.sendingStartedAt.getTime())
+            : 0,
           expiredMediaReservationsCleaned,
         };
       }, { maxWait: 10_000, timeout: 120_000 });
@@ -1453,6 +1463,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           durationMs: Date.now() - startedAt,
           queueCounts: cycle.queueCounts,
           oldestPendingAgeMs: cycle.oldestPendingAgeMs,
+          oldestSendingAgeMs: cycle.oldestSendingAgeMs,
           expiredMediaReservationsCleaned: cycle.expiredMediaReservationsCleaned,
         }));
       }
