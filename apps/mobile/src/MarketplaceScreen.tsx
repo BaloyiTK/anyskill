@@ -210,7 +210,7 @@ export function MarketplaceScreen(p: Props) {
       try {
         if (p.mode === "provider") {
           const requestStartedAt = Date.now();
-          const result = await apiRequest<ProviderJob>("/marketplace/my-jobs", {}, true);
+          const result = await apiRequest<ProviderJob[]>("/marketplace/my-jobs", {}, true);
           const receivedAt = Date.now();
           const serverNow = result.find((item) => item.serverNow)?.serverNow;
           if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
@@ -598,7 +598,7 @@ export function MarketplaceScreen(p: Props) {
   const loadMyJobs = useCallback(async () => {
     try {
       const requestStartedAt = Date.now();
-      const result = await apiRequest<ProviderJob>("/marketplace/my-jobs", {}, true);
+      const result = await apiRequest<ProviderJob[]>("/marketplace/my-jobs", {}, true);
       const receivedAt = Date.now();
       const serverNow = result.find((item) => item.serverNow)?.serverNow;
       if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
