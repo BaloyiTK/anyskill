@@ -89,13 +89,22 @@ async function createEngagementFixture(status = "ASSESSMENT_PENDING", workSegmen
 
 test("declining the final outstanding offer schedules the next matching wave", async () => {
   const fixture = await createFixture(3);
-  const decline = (responseId) => prisma.$transaction(async (tx) => {
+  for (const response of fixture.responses) {
+    await prisma.requestMatch.create({
+      data: { requestId: fixture.requestId, providerId: response.providerId, status: "RESPONDED", wave: 1 },
+    });
+  }
+  const decline = (responseId, providerId) => prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
     const changed = await tx.providerResponse.updateMany({
       where: { id: responseId, requestId: fixture.requestId, status: "OFFERED" },
       data: { status: "DECLINED" },
     });
     if (changed.count !== 1) return false;
+    await tx.requestMatch.updateMany({
+      where: { requestId: fixture.requestId, providerId, status: "RESPONDED" },
+      data: { status: "EXPIRED" },
+    });
     const pending = await tx.providerResponse.count({ where: { requestId: fixture.requestId, status: "OFFERED" } });
     if (pending === 0) {
       await tx.serviceRequest.update({
@@ -105,13 +114,14 @@ test("declining the final outstanding offer schedules the next matching wave", a
     }
     return pending === 0;
   });
-  const outcomes = await Promise.all(fixture.responses.map((response) => decline(response.id)));
+  const outcomes = await Promise.all(fixture.responses.map((response) => decline(response.id, response.providerId)));
   assert.equal(outcomes.filter(Boolean).length, 1);
   assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "OFFERED" } }), 0);
   const request = await prisma.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { status: true, matchingNextAt: true } });
   assert.equal(request?.status, "OPEN");
   assert.ok(request?.matchingNextAt && request.matchingNextAt <= new Date());
   assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "DECLINED" } }), 3);
+  assert.equal(await prisma.requestMatch.count({ where: { requestId: fixture.requestId, status: "EXPIRED" } }), 3);
 });
 
 test("provider offer selection and seeker decline cannot both win", async () => {
