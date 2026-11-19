@@ -1967,6 +1967,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             const invalidDeviceIds: string[] = [];
             for (const [index, ticket] of tickets.entries()) {
               const device = batch[index];
+              if (!device) {
+                throw new Error(`Expo returned a ticket without a matching device at index ${index}.`);
+              }
               if (ticket.status === "ok" && ticket.id) {
                 receiptRows.push({ notificationId: notification.id, pushDeviceId: device.id, expoTicketId: ticket.id });
                 alreadyTicketed.add(device.id);
