@@ -9,7 +9,7 @@ import {
   BadRequestException,
   Param,
 } from "@nestjs/common";
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PrismaService } from "../database/prisma.service";
@@ -21,7 +21,7 @@ class CreateIdentityUploadDto {
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
   @IsString() purpose!: "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE" | "PROVIDER_QUALIFICATION" | "PROVIDER_PORTFOLIO_IMAGE";
 }
-class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
+class ConfirmIdentityUploadDto { @IsUUID() assetId!: string; }
 class SubmitIdentityVerificationDto {
   @IsIn(["SMART_ID_CARD", "GREEN_ID_BOOK"])
   idType!: "SMART_ID_CARD" | "GREEN_ID_BOOK";
