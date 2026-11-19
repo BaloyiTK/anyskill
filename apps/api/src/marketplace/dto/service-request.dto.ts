@@ -250,3 +250,16 @@ export class SubmitProviderReviewDto {
   @MaxLength(1500)
   comment?: string;
 }
+
+
+export class SubmitSeekerReviewDto {
+  @IsNumber({ maxDecimalPlaces: 0 })
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1500)
+  comment?: string;
+}
