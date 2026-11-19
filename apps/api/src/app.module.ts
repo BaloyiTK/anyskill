@@ -17,15 +17,17 @@ import { OnboardingModule } from "./onboarding/onboarding.module";
     MarketplaceModule,
     OnboardingModule,
     ThrottlerModule.forRootAsync({
-      useFactory: () => {
+      useFactory: async () => {
         const redisConfigured = Boolean(
           process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN,
         );
         if (process.env.NODE_ENV === "production" || redisConfigured ||
             process.env.UPSTASH_REDIS_REST_URL || process.env.UPSTASH_REDIS_REST_TOKEN) {
+          const storage = new RedisThrottlerStorage();
+          await storage.verifyConnection();
           return {
             throttlers: [{ ttl: 60_000, limit: 100 }],
-            storage: new RedisThrottlerStorage(),
+            storage,
           };
         }
 
