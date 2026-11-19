@@ -18,5 +18,10 @@
     "check:local": "node scripts/check-local.mjs",
     "test": "node --test",
     "check:security": "pnpm audit --prod --audit-level high"
+  },
+  "pnpm": {
+    "overrides": {
+      "deepmerge-ts": "8.0.2"
+    }
   }
 }
