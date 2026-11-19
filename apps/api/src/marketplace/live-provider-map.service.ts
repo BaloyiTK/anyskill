@@ -4,6 +4,9 @@ import type { Server } from "node:http";
 import type { Duplex } from "node:stream";
 
 type Discovery = (latitude: number, longitude: number, radiusKm: number) => Promise<unknown>;
+const MAX_LIVE_MAP_CLIENTS = 200;
+const MAX_LIVE_MAP_FRAME_BYTES = 1_000_000;
+
 type MapClient = {
   socket: Duplex;
   latitude: number;
@@ -29,20 +32,43 @@ export class LiveProviderMapService {
       this.expirySweep.unref?.();
     }
     server.on("upgrade", (request, socket) => {
-      const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+      let requestUrl: URL;
+      try {
+        requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+      } catch {
+        socket.end("HTTP/1.1 400 Bad Request\\r\\nConnection: close\\r\\n\\r\\n");
+        return;
+      }
       if (requestUrl.pathname !== "/api/v1/marketplace/discover/providers/live") return;
 
       const latitude = Number(requestUrl.searchParams.get("latitude"));
       const longitude = Number(requestUrl.searchParams.get("longitude"));
       const radiusKm = Number(requestUrl.searchParams.get("radiusKm"));
       const key = request.headers["sec-websocket-key"];
+      const connectionHeader = String(request.headers.connection ?? "").toLowerCase().split(",").map((value) => value.trim());
+      const origin = request.headers.origin;
+      const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+        .split(",").map((value) => value.trim()).filter(Boolean);
+      const allowedOrigins = process.env.NODE_ENV === "production"
+        ? configuredOrigins
+        : [...configuredOrigins, "http://localhost:4173", "http://127.0.0.1:4173"];
+      const originAllowed = typeof origin !== "string" || allowedOrigins.includes(origin);
+      const validKey = typeof key === "string" && Buffer.from(key, "base64").length === 16;
       if (
-        typeof key !== "string" ||
+        request.headers.upgrade?.toLowerCase() !== "websocket" ||
+        !connectionHeader.includes("upgrade") ||
+        request.headers["sec-websocket-version"] !== "13" ||
+        !validKey ||
+        !originAllowed ||
         !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
         !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
         ![5, 10, 20, 50].includes(radiusKm)
       ) {
-        socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+        socket.end("HTTP/1.1 400 Bad Request\\r\\nConnection: close\\r\\n\\r\\n");
+        return;
+      }
+      if (this.clients.size >= MAX_LIVE_MAP_CLIENTS) {
+        socket.end("HTTP/1.1 503 Service Unavailable\\r\\nConnection: close\\r\\nRetry-After: 10\\r\\n\\r\\n");
         return;
       }
 
@@ -63,9 +89,22 @@ export class LiveProviderMapService {
       socket.on("end", () => this.clients.delete(client));
       socket.on("error", () => this.clients.delete(client));
       socket.on("data", (data: Buffer) => {
-        // The map stream is server-to-client. Honour a browser close frame.
-        const firstByte = data[0];
-        if (firstByte !== undefined && (firstByte & 0x0f) === 0x08) socket.end();
+        // Browser control frames are masked. Handle close and ping without
+        // accepting client application messages on this read-only stream.
+        if (data.length < 2) return;
+        const opcode = data[0]! & 0x0f;
+        const masked = (data[1]! & 0x80) !== 0;
+        const length = data[1]! & 0x7f;
+        if (opcode === 0x08) {
+          socket.end();
+          return;
+        }
+        if (opcode === 0x09 && masked && length <= 125 && data.length >= 6 + length) {
+          const mask = data.subarray(2, 6);
+          const payload = Buffer.from(data.subarray(6, 6 + length));
+          for (let index = 0; index < payload.length; index += 1) payload[index] ^= mask[index % 4]!;
+          socket.write(Buffer.concat([Buffer.from([0x8a, payload.length]), payload]));
+        }
       });
       void this.sendSnapshot(client);
     });
@@ -98,6 +137,10 @@ export class LiveProviderMapService {
 
   private sendFrame(socket: Duplex, message: string): void {
     const payload = Buffer.from(message);
+    if (payload.length > MAX_LIVE_MAP_FRAME_BYTES) {
+      socket.destroy();
+      return;
+    }
     let header: Buffer;
     if (payload.length < 126) {
       header = Buffer.from([0x81, payload.length]);
@@ -112,6 +155,7 @@ export class LiveProviderMapService {
       header[1] = 127;
       header.writeBigUInt64BE(BigInt(payload.length), 2);
     }
-    socket.write(Buffer.concat([header, payload]));
+    // Disconnect slow consumers rather than buffering unbounded map snapshots.
+    if (!socket.write(Buffer.concat([header, payload]))) socket.destroy();
   }
 }
