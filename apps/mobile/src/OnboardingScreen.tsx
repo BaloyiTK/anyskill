@@ -845,7 +845,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         <View style={st.card}>
           <Text style={st.status}>Profile: {status("profile")}</Text>
           <Text style={st.status}>Identity: {identityApproved ? "Verified" : verificationPending ? "Pending review" : identityStatus.replace(/_/g, " ")}</Text>
-          {isProvider ? <Text style={st.status}>Skills and portfolio: {skillsApproved ? "Approved" : skillsPending ? "Pending review" : status("skills")}</Text> : null}
+          {isProvider ? <Text style={st.status}>Skill reviews: {allSkillsApproved ? "All submitted skills approved" : skillsPending ? "One or more skills pending review" : data.skillReviewStatuses?.some((skill) => skill.status === "REJECTED") ? "Changes requested on one or more skills" : status("skills")}</Text> : null}
         </View>
 
       </>}
