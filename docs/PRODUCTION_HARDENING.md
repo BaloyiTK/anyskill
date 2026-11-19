@@ -70,8 +70,10 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - Cloudinary upload confirmation now atomically claims a reservation by moving it from `PENDING` to `VERIFYING`. Concurrent confirmations cannot both verify and mutate the same reservation. A successful confirmation is idempotent once the asset is `READY`; a competing confirmation receives a retryable conflict. Stale verification claims can be recovered after five minutes.
 - Cloudinary validation failures expire the reservation before attempting remote cleanup. A late or competing verifier never deletes an asset another request has already marked `READY`.
 - Completion evidence is checked for provider ownership, READY status, correct purpose, expiry and unused state. After creating the submission, each asset is claimed with one conditional database update; the transaction rolls back unless every requested asset is claimed. This prevents one uploaded image being attached to multiple submissions, including concurrent submissions to different jobs.
+- Upload reservations accept an optional `Idempotency-Key`, scoped to the authenticated user and bound to the file metadata/purpose payload. Same-key retries reuse the reservation and a fresh Cloudinary signature; a key reused with different metadata returns HTTP 409. The mobile completion-evidence flow persists one key per selected file and reuses it across retries.
+- Completion submission accepts an optional `Idempotency-Key`, scoped to the engagement and bound to normalized notes plus the evidence asset IDs. A retry returns the original submission; changed content with the same key returns HTTP 409. The mobile completion flow persists the key until a successful response.
 - Upload reservation and confirmation endpoints are throttled at 20 and 30 requests per minute respectively.
-- PostgreSQL integration tests cover competing verification claims and competing evidence-asset claims. Real Cloudinary outage, delayed-response and cleanup behavior still require staging verification.
+- PostgreSQL integration tests cover competing verification claims, competing evidence-asset claims, and uniqueness of media-reservation/completion-submission idempotency keys. Real Cloudinary outage, delayed-response and cleanup behavior still require staging verification.
 
 ## Service request idempotency
 
