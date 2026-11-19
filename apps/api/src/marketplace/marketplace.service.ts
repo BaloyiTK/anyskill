@@ -1470,7 +1470,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return eligible.map((provider) => ({ userId: provider.userId, score: provider.score }));
   }
 
-  private async dispatchNextWave(requestId: string, wave: number, force = false) {
+  private async dispatchNextWave(requestId: string, wave: number, force = false, expireUnanswered = false) {
     return this.prisma.$transaction(async (tx) => {
       // Serialize all wave dispatches for a request across API replicas and workers.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
@@ -1506,6 +1506,23 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           data: { matchingNextAt: null },
         });
         return { notified: 0, wave, awaitingProviderDecision: true };
+      }
+
+      const pendingMatches = await tx.requestMatch.count({
+        where: { requestId, status: "NOTIFIED" },
+      });
+      if (pendingMatches > 0 && !expireUnanswered) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+        return { notified: 0, wave, awaitingProviderResponse: true };
+      }
+      if (pendingMatches > 0 && expireUnanswered) {
+        await tx.requestMatch.updateMany({
+          where: { requestId, status: "NOTIFIED" },
+          data: { status: "EXPIRED" },
+        });
       }
 
       const ranked = await this.rankedProviders({ ...request, seekerId }, tx);
@@ -1582,14 +1599,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: { matchingNextAt: new Date(now.getTime() + 60_000) },
       });
       if (claim.count === 0) continue;
-      const responses = await this.prisma.providerResponse.count({
-        where: { requestId: request.id, status: "OFFERED" },
-      });
-      if (responses > 0) {
-        await this.prisma.serviceRequest.update({ where: { id: request.id }, data: { matchingNextAt: null } });
-      } else {
-        await this.dispatchNextWave(request.id, request.matchingWave + 1);
-      }
+      await this.dispatchNextWave(request.id, request.matchingWave + 1, false, true);
     }
   }
 
