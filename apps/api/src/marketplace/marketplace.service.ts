@@ -1521,13 +1521,17 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async dispatchPendingNotifications() {
     const pending = await this.prisma.appNotification.findMany({
       where: { deliveryStatus: "PENDING", attempts: { lt: 5 }, nextAttemptAt: { lte: new Date() } },
-      take: 50,
+      take: 25,
       orderBy: { createdAt: "asc" },
       select: { id: true },
     });
 
-    for (const item of pending) {
-      await this.prisma.$transaction(async (tx) => {
+    // Bounded concurrency keeps notification throughput useful without
+    // allowing a slow Expo response to hold the worker cycle indefinitely.
+    for (let offset = 0; offset < pending.length; offset += 5) {
+      const batch = pending.slice(offset, offset + 5);
+      await Promise.all(batch.map(async (item) => {
+        await this.prisma.$transaction(async (tx) => {
         const candidate = await tx.appNotification.findUnique({
           where: { id: item.id },
           select: { id: true, userId: true, deliveryStatus: true },
@@ -1648,7 +1652,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           });
           this.logger.warn(`Push notification ${notification.id} failed (attempt ${attempts}/5): ${String(error)}`);
         }
-      }, { maxWait: 10_000, timeout: 25_000 });
+        }, { maxWait: 10_000, timeout: 25_000 });
+      }));
     }
   }
 
