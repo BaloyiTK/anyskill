@@ -17,7 +17,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 ## P0 — Authentication and authorization
 
-- [ ] Enforce JWT algorithm, issuer, audience, and token type; keep short access-token expiry and refresh rotation/reuse detection.
+- [x] Enforce JWT algorithm, issuer, audience, and token type; keep short access-token expiry and refresh rotation/reuse detection.
 - [ ] Apply stricter throttling to refresh/logout and sensitive authentication endpoints, with a production-safe shared rate-limit store across replicas.
 - [ ] Audit every seeker/provider/staff route for role, ownership, suspension, deleted-account, and identity-verification enforcement.
 - [ ] Test refresh rotation races, token replay, password-reset replay, OTP brute force/resend races, account deletion, and session revocation.
@@ -57,8 +57,6 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [ ] Do not enable real-money collection until PayGate merchant product, sandbox credentials, stored-card tokenisation, pre-authorisation, delayed capture, signed notifications, void/refund, and reconciliation capabilities are confirmed in writing. The approved payment architecture explicitly says these are not yet implemented.
 - [ ] Before launch, implement idempotent authorisation/capture/void/refund operations, verified webhook ingestion with replay protection, immutable financial ledger entries, and gateway reconciliation.
 - [ ] Confirm a compliant Provider payout rail; card acquiring settlement must not be represented as Provider payout.
-
-## P1 — Notifications and background processing
 
 ## Current source-audit findings
 
