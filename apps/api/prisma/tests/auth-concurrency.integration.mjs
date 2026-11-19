@@ -94,3 +94,32 @@ test("refresh-token rotation is single-use and family revocation invalidates des
   await prisma.refreshSession.deleteMany({ where: { tokenFamilyId: familyId } });
   await prisma.user.delete({ where: { id: user.id } });
 });
+
+test("account cleanup removes registered push tokens and queued private notifications", async () => {
+  const user = await prisma.user.create({
+    data: {
+      email: `push-cleanup-${suffix}@example.invalid`,
+      passwordHash: "integration-test-only-not-a-real-password-hash",
+      emailVerifiedAt: new Date(),
+    },
+    select: { id: true },
+  });
+  const token = `ExponentPushToken[${randomUUID()}]`;
+  await prisma.pushDevice.create({
+    data: { userId: user.id, expoPushToken: token, platform: "android" },
+  });
+  await prisma.appNotification.create({
+    data: { userId: user.id, title: "Private test notification", body: "Must not be delivered after account deletion." },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.pushDevice.deleteMany({ where: { userId: user.id } });
+    await tx.appNotification.deleteMany({ where: { userId: user.id } });
+    await tx.refreshSession.deleteMany({ where: { userId: user.id } });
+    await tx.user.delete({ where: { id: user.id } });
+  });
+
+  assert.equal(await prisma.pushDevice.count({ where: { expoPushToken: token } }), 0);
+  assert.equal(await prisma.appNotification.count({ where: { userId: user.id } }), 0);
+  assert.equal(await prisma.user.count({ where: { id: user.id } }), 0);
+});
