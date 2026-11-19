@@ -527,22 +527,30 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cancelRequest(seekerId: string, requestId: string) {
-    const request = await this.prisma.serviceRequest.findFirst({
-      where: { id: requestId, seekerId },
-      select: { id: true, status: true },
+    return this.prisma.$transaction(async (tx) => {
+      // Share the request-level lock with provider responses, selections and matching.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findFirst({
+        where: { id: requestId, seekerId },
+        select: { id: true, status: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
+      const changed = await tx.serviceRequest.updateMany({
+        where: { id: requestId, seekerId, status: "OPEN" },
+        data: { status: "CANCELLED", matchingNextAt: null },
+      });
+      if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
+      await tx.requestMatch.updateMany({
+        where: { requestId, status: "NOTIFIED" },
+        data: { status: "EXPIRED" },
+      });
+      await tx.providerResponse.updateMany({
+        where: { requestId, status: "OFFERED" },
+        data: { status: "WITHDRAWN" },
+      });
+      return { success: true, requestId, status: "CANCELLED" };
     });
-    if (!request) throw new NotFoundException("This service request could not be found.");
-    if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
-    const changed = await this.prisma.serviceRequest.updateMany({
-      where: { id: requestId, seekerId, status: "OPEN" },
-      data: { status: "CANCELLED", matchingNextAt: null },
-    });
-    if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
-    await this.prisma.requestMatch.updateMany({
-      where: { requestId, status: "NOTIFIED" },
-      data: { status: "EXPIRED" },
-    });
-    return { success: true, requestId, status: "CANCELLED" };
   }
 
   async scheduleRequest(seekerId: string, requestId: string, input: ScheduleServiceRequestDto) {
@@ -567,6 +575,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
       const request = await tx.serviceRequest.findUnique({
         where: { id: requestId },
         select: { id: true, seekerId: true, status: true, title: true },
@@ -910,6 +919,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        // Serialize provider offer creation with seeker cancellation/selection.
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
         const request = await tx.serviceRequest.findUnique({
           where: { id: requestId },
           select: { id: true, seekerId: true, status: true },
