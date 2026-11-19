@@ -263,6 +263,21 @@ export function MarketplaceScreen(p: Props) {
       setError(e instanceof Error ? e.message : "Could not send your offer.");
     } finally { setBusy(false); }
   };
+  
+  const withdrawProviderOffer = async () => {
+    if (!providerOfferReview || providerOfferReview.status !== "OFFERED" || jobActionBusy) return;
+    setJobActionBusy(true); setError("");
+    try {
+      await apiRequest(`/marketplace/requests/${providerOfferReview.requestId}/offers/${providerOfferReview.responseId}/withdraw`, { method: "POST" }, true);
+      setProviderOfferReview((current) => current ? { ...current, status: "WITHDRAWN" } : current);
+      await loadRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not withdraw this offer.");
+    } finally {
+      setJobActionBusy(false);
+    }
+  };
+
 
   const selectProvider = async (requestId: string, responseId: string) => {
     setSelectingOfferId(responseId); setError(""); setNotice("");
@@ -1210,6 +1225,10 @@ export function MarketplaceScreen(p: Props) {
                   <Text style={{ color: "#829087", fontSize: 10, textAlign: "center" }}>Identity verification confirms identity only.</Text>
                 </View>
                 <Pressable onPress={() => void declineProviderOffer(matchingRequest.id, activeOffer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ borderWidth: 1, borderColor: "#D7E0DA", borderRadius: 15, padding: 15, alignItems: "center", marginTop: 15, backgroundColor: "#FFFFFF" }}><Text style={{ color: "#53645A", fontWeight: "900" }}>Decline offer</Text></Pressable>
+                <Pressable onPress={() => void cancelLiveRequest()} disabled={!!selectingOfferId || jobActionBusy} style={{ borderWidth: 1, borderColor: "#E7B8B4", borderRadius: 15, padding: 14, alignItems: "center", marginTop: 10, backgroundColor: "#FFF8F7" }}>
+                  <Text style={{ color: "#B42318", fontWeight: "900" }}>{jobActionBusy ? "Please wait..." : "Cancel entire service request"}</Text>
+                  <Text style={{ color: "#8D4B46", fontSize: 11, marginTop: 4 }}>Closes the request and all pending offers</Text>
+                </Pressable>
                 <Pressable onPress={() => void selectProvider(matchingRequest.id, activeOffer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", marginTop: 10 }}>{selectingOfferId === activeOffer.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Accept offer</Text>}</Pressable>
               </>}
             </ScrollView>
@@ -1274,6 +1293,9 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{providerOfferReview?.status === "OFFERED" ? "AnySkill will update this screen when the Seeker makes a decision. Keep your app available for updates." : providerOfferReview?.status === "SELECTED" ? "You can now continue from Selected jobs and assessments." : "This offer has been closed. You can still respond to other matched requests."}</Text>
           </View>
         </View>
+        {providerOfferReview?.status === "OFFERED" ? <Pressable onPress={() => void withdrawProviderOffer()} disabled={jobActionBusy} style={{ borderWidth: 1, borderColor: "#E7B8B4", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 18, backgroundColor: "#FFF8F7", opacity: jobActionBusy ? 0.55 : 1 }}>
+          {jobActionBusy ? <ActivityIndicator color="#B42318" /> : <Text style={{ color: "#B42318", fontWeight: "900" }}>Withdraw my offer</Text>}
+        </Pressable> : null}
         <Pressable onPress={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }} style={{ borderWidth: 1, borderColor: "#D5E1D9", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 22, backgroundColor: "#FFFFFF" }}>
           <Text style={{ color: "#176B55", fontWeight: "900" }}>Back to marketplace</Text>
         </Pressable>
