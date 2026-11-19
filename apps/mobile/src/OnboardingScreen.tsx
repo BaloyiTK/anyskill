@@ -619,7 +619,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const verificationComplete = identityApproved;
   // Show the orange review marker once the required identity evidence is
   // complete; approval alone turns the stage green.
-  const verificationPending = !identityApproved && identityRequirementsComplete;
+  const verificationPending = !identityApproved && (identitySubmitted || identityRequirementsComplete);
   // One approved skill is sufficient to complete the Skills review stage.
   const anySkillApproved = Boolean(data.skillReviewStatuses?.some((skill) => skill.status === "APPROVED"));
   const allSkillsApproved = anySkillApproved;
