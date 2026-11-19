@@ -1933,6 +1933,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
         const attempts = notification.attempts + 1;
         const retryDelayMs = Math.min(5 * 60_000, 5_000 * (2 ** Math.max(0, attempts - 1)));
+        let outboundRequestStarted = false;
         try {
           // Expo accepts at most 100 messages per send request. Persist each
           // batch's accepted tickets before sending the next batch so a timeout
@@ -1941,6 +1942,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           let transientTicketErrors = 0;
           for (let offset = 0; offset < devices.length; offset += 100) {
             const batch = devices.slice(offset, offset + 100);
+            outboundRequestStarted = true;
             const response = await fetch("https://exp.host/--/api/v2/push/send", {
               method: "POST",
               headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -2004,12 +2006,18 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           await tx.appNotification.updateMany({
             where: { id: notification.id, userId: notification.userId, deliveryStatus: "SENDING" },
             data: {
-              deliveryStatus: attempts >= 5 ? "FAILED" : "PENDING",
+              deliveryStatus: outboundRequestStarted
+                ? "UNKNOWN"
+                : attempts >= 5 ? "FAILED" : "PENDING",
               sendingStartedAt: null,
               nextAttemptAt: new Date(Date.now() + retryDelayMs),
             },
           });
-          this.logger.warn(`Push notification ${notification.id} failed (attempt ${attempts}/5): ${String(error)}`);
+          if (outboundRequestStarted) {
+            this.logger.error(`Push notification ${notification.id} has UNKNOWN delivery after an ambiguous Expo response (attempt ${attempts}/5); automatic retry suppressed.`);
+          } else {
+            this.logger.warn(`Push notification ${notification.id} failed before outbound delivery (attempt ${attempts}/5): ${String(error)}`);
+          }
         }
         }, { maxWait: 10_000, timeout: 25_000 });
       }));
