@@ -78,6 +78,8 @@ export function MarketplaceScreen(p: Props) {
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
   const [journeyScreen, setJourneyScreen] = useState<{title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string}|null>(null);
+  const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
+  const [dismissedProviderOfferIds, setDismissedProviderOfferIds] = useState<string[]>([]);
   const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>([]);
   const [clockNow, setClockNow] = useState(Date.now());
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
@@ -218,16 +220,44 @@ export function MarketplaceScreen(p: Props) {
     return () => clearInterval(refresh);
   }, [p.mode]);
 
+  useEffect(() => {
+    if (p.mode !== "provider") return;
+    const responseUpdates = requests.filter((item) => item.myResponse);
+    if (!responseUpdates.length) return;
+    setProviderOfferReview((current) => {
+      if (!current) {
+        const pending = responseUpdates.find((item) => item.myResponse?.status === "OFFERED"
+          && !dismissedProviderOfferIds.includes(item.myResponse.id));
+        if (!pending?.myResponse) return current;
+        const seekerName = [pending.seeker?.firstName, pending.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
+        return { requestId: pending.id, title: pending.title, skillCategory: pending.skillCategory, seekerName, responseId: pending.myResponse.id, status: pending.myResponse.status };
+      }
+      const updated = responseUpdates.find((item) => item.id === current.requestId);
+      if (!updated?.myResponse || updated.myResponse.id !== current.responseId) return current;
+      return updated.myResponse.status === current.status ? current : { ...current, status: updated.myResponse.status };
+    });
+  }, [p.mode, requests, dismissedProviderOfferIds]);
+
+  useEffect(() => {
+    if (p.mode !== "provider" || !providerOfferReview) return;
+    const selectedJob = myJobs.find((job) => job.request.id === providerOfferReview.requestId);
+    if (selectedJob && providerOfferReview.status !== "SELECTED") {
+      setProviderOfferReview((current) => current?.requestId === selectedJob.request.id ? { ...current, status: "SELECTED" } : current);
+    }
+  }, [p.mode, myJobs, providerOfferReview]);
+
   const acceptRequest = async (request: RequestItem) => {
     if (!p.verified) { p.onIdentityRequired(request.id); return; }
     setBusy(true); setError(""); setNotice("");
     try {
-      await apiRequest(`/marketplace/requests/${request.id}/accept`, {
+      const response = await apiRequest<{id:string;status:string}>(`/marketplace/requests/${request.id}/accept`, {
         method: "POST",
         body: JSON.stringify({ message: responseMessage.trim() || undefined }),
       }, true);
+      const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
+      setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: response.id, status: response.status });
       setResponseMessage("");
-      setNotice("Your offer has been sent to the Skill Seeker.");
+      setNotice("");
       await loadRequests();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not send your offer.");
@@ -1128,7 +1158,7 @@ export function MarketplaceScreen(p: Props) {
                 {request.distanceKm != null ? `${request.distanceKm.toFixed(1)} km straight-line distance to the job` : "Distance unavailable — enable fresh location sharing while Available"}
               </Text>
             </> : request.deliveryMode !== "REMOTE" ? <Text style={s.meta}>Job map and distance will appear when location coordinates are available.</Text> : <Text style={s.meta}>Remote request · no travel required.</Text>}
-            {request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
+            {request.myResponse?.status === "OFFERED" ? <Pressable onPress={() => { const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker"; setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: request.myResponse!.id, status: "OFFERED" }); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>OFFER SENT · AWAITING SEEKER REVIEW</Text><Text style={{ color: "#53645A", fontSize: 12, marginTop: 5 }}>Tap to view your offer status.</Text></Pressable> : request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
           </View>;
         })}
         {!busy && requests.length === 0 && <Text style={s.helper}>No open requests are available right now. Pull to refresh or check again later.</Text>}
@@ -1216,6 +1246,37 @@ export function MarketplaceScreen(p: Props) {
             </Pressable>
           </>);
         })() : null}
+      </View>
+    </Modal>
+    <Modal visible={p.mode === "provider" && providerOfferReview !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
+      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 24, paddingTop: 62, paddingBottom: 30, justifyContent: "center" }}>
+        <View style={{ alignItems: "center" }}>
+          <View style={{ width: 82, height: 82, borderRadius: 41, backgroundColor: providerOfferReview?.status === "SELECTED" ? "#DDF3E5" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "#FCE8E6" : "#E5F1EC", alignItems: "center", justifyContent: "center" }}>
+            {providerOfferReview?.status === "OFFERED" ? <ActivityIndicator size="large" color="#176B55" /> : <Text style={{ color: "#176B55", fontSize: 34, fontWeight: "900" }}>{providerOfferReview?.status === "SELECTED" ? "✓" : "!"}</Text>}
+          </View>
+          <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.4, marginTop: 26 }}>
+            {providerOfferReview?.status === "SELECTED" ? "OFFER ACCEPTED" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "OFFER NO LONGER UNDER REVIEW" : "OFFER SUBMITTED"}
+          </Text>
+          <Text style={{ color: "#15251E", fontSize: 28, lineHeight: 35, fontWeight: "900", textAlign: "center", marginTop: 10 }}>
+            {providerOfferReview?.status === "SELECTED" ? "The Seeker selected you!" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "This offer is no longer active" : "The Seeker is reviewing your offer"}
+          </Text>
+          <Text style={{ color: "#66756D", fontSize: 14, lineHeight: 22, textAlign: "center", marginTop: 12 }}>
+            {providerOfferReview?.status === "SELECTED" ? "Congratulations. Your offer was accepted. Open your selected jobs to continue with the assessment and estimate." : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "The Seeker did not proceed with this offer. You can continue exploring other available requests." : "Your offer has been sent successfully to the Skill Seeker. Please wait while they compare the offers and make their decision. You do not need to accept again."}
+          </Text>
+        </View>
+        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#E1E8E3", padding: 18, marginTop: 30 }}>
+          <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>YOUR OFFER</Text>
+          <Text style={{ color: "#15251E", fontSize: 18, fontWeight: "900", marginTop: 8 }}>{providerOfferReview?.title}</Text>
+          <Text style={{ color: "#176B55", fontSize: 13, fontWeight: "800", marginTop: 5 }}>{providerOfferReview?.skillCategory}</Text>
+          <Text style={{ color: "#66756D", fontSize: 12, marginTop: 12 }}>Sent to {providerOfferReview?.seekerName}</Text>
+          <View style={{ backgroundColor: "#F1F6F2", borderRadius: 11, padding: 12, marginTop: 15 }}>
+            <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>{providerOfferReview?.status === "SELECTED" ? "SELECTED BY SEEKER" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "NOT SELECTED" : "PENDING SEEKER DECISION"}</Text>
+            <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{providerOfferReview?.status === "OFFERED" ? "AnySkill will update this screen when the Seeker makes a decision. Keep your app available for updates." : providerOfferReview?.status === "SELECTED" ? "You can now continue from Selected jobs and assessments." : "This offer has been closed. You can still respond to other matched requests."}</Text>
+          </View>
+        </View>
+        <Pressable onPress={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }} style={{ borderWidth: 1, borderColor: "#D5E1D9", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 22, backgroundColor: "#FFFFFF" }}>
+          <Text style={{ color: "#176B55", fontWeight: "900" }}>Back to marketplace</Text>
+        </Pressable>
       </View>
     </Modal>
     <Modal visible={journeyScreen !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setJourneyScreen(null)}>
