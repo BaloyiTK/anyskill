@@ -120,6 +120,32 @@ test("payment operation intents are serialized and idempotent", async () => {
   );
 });
 
+test("ambiguous gateway outcomes require reconciliation before payment can proceed", async () => {
+  const paymentId = await createPaymentFixture();
+  const operation = await payments.createOperation({
+    paymentId,
+    type: PaymentOperationType.AUTHORIZE,
+    amountMinor: 7500n,
+    currency: "ZAR",
+    idempotencyKey: key("authorize"),
+  });
+
+  await payments.recordVerifiedOperationResult({
+    operationId: operation.id,
+    outcome: PaymentOperationStatus.UNKNOWN,
+  });
+  assert.equal((await prisma.payment.findUnique({ where: { id: paymentId } }))?.status, PaymentStatus.RECONCILIATION_REQUIRED);
+  assert.equal((await prisma.paymentOperation.findUnique({ where: { id: operation.id } }))?.status, PaymentOperationStatus.UNKNOWN);
+
+  await payments.recordVerifiedOperationResult({
+    operationId: operation.id,
+    outcome: PaymentOperationStatus.SUCCEEDED,
+    gatewayReference: key("gateway-reconciled"),
+  });
+  assert.equal((await prisma.payment.findUnique({ where: { id: paymentId } }))?.status, PaymentStatus.AUTHORIZED);
+  assert.equal((await prisma.paymentOperation.findUnique({ where: { id: operation.id } }))?.status, PaymentOperationStatus.SUCCEEDED);
+});
+
 test("capture and partial/full refund transitions preserve captured-value limits", async () => {
   const paymentId = await createPaymentFixture();
   const auth = await payments.createOperation({
