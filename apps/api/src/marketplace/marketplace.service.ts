@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -75,7 +76,26 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { items: ranked.map(({ name, providerCount }) => ({ name, providerCount })) };
   }
 
-  async createRequest(seekerId: string, input: CreateServiceRequestDto) {
+  async createRequest(seekerId: string, input: CreateServiceRequestDto, idempotencyKey?: string) {
+    if (idempotencyKey != null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+      throw new BadRequestException("Idempotency-Key must be a valid UUID.");
+    }
+    const payloadHash = idempotencyKey
+      ? createHash("sha256").update(JSON.stringify({
+          title: input.title.trim(),
+          skillCategory: input.skillCategory.trim(),
+          description: input.description.trim(),
+          imageUrls: input.imageUrls ?? [],
+          location: input.location?.trim() || null,
+          deliveryMode: input.deliveryMode,
+          latitude: input.deliveryMode === "REMOTE" ? null : input.latitude ?? null,
+          longitude: input.deliveryMode === "REMOTE" ? null : input.longitude ?? null,
+          searchRadiusKm: input.deliveryMode === "REMOTE" ? 10 : input.searchRadiusKm ?? 10,
+          preferredStartAt: input.preferredStartAt ?? null,
+          instructions: input.instructions?.trim() || null,
+        })).digest("hex")
+      : null;
+
     if ((input.latitude == null) !== (input.longitude == null)) throw new BadRequestException("Provide both latitude and longitude for the job location.");
     if (input.deliveryMode !== "REMOTE" && (input.latitude == null || input.longitude == null)) throw new BadRequestException("Choose the job location on the map before publishing an on-site or either-mode request.");
     const seeker = await this.prisma.user.findUnique({
@@ -90,9 +110,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    const request = await this.prisma.serviceRequest.create({
+    let request;
+    try {
+      request = await this.prisma.serviceRequest.create({
       data: {
         seekerId,
+        ...(idempotencyKey ? { idempotencyKey, idempotencyPayloadHash: payloadHash } : {}),
         title: input.title.trim(),
         skillCategory: input.skillCategory.trim(),
         description: input.description.trim(),
@@ -113,9 +136,29 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         preferredStartAt: true, instructions: true, status: true, createdAt: true,
       },
     });
+    } catch (error) {
+      if (!idempotencyKey || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+        throw error;
+      }
+      const existing = await this.prisma.serviceRequest.findFirst({
+        where: { seekerId, idempotencyKey },
+        select: {
+          id: true, idempotencyPayloadHash: true, title: true, skillCategory: true, description: true,
+          imageUrls: true, location: true, deliveryMode: true, matchingStartedAt: true,
+          preferredStartAt: true, instructions: true, status: true, createdAt: true,
+        },
+      });
+      if (!existing) throw error;
+      if (existing.idempotencyPayloadHash !== payloadHash) {
+        throw new ConflictException("This Idempotency-Key was already used with a different service request payload.");
+      }
+      const matching = await this.dispatchNextWave(existing.id, 1);
+      const { idempotencyPayloadHash: _hash, ...safeExisting } = existing;
+      return { ...safeExisting, matching, idempotentReplay: true };
+    }
 
     const matching = await this.dispatchNextWave(request.id, 1);
-    return { ...request, matching };
+    return { ...request, matching, ...(idempotencyKey ? { idempotentReplay: false } : {}) };
   }
 
 
