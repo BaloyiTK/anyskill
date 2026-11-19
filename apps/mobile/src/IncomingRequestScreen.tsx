@@ -3,7 +3,7 @@ import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "rea
 import { apiRequest } from "./api";
 
 type IncomingRequest = {
-  id: string; title: string; skillCategory: string; description: string; status: "OPEN" | "MATCHED" | "CANCELLED" | "CLOSED";
+  id: string; title: string; skillCategory: string; description: string; status: "OPEN" | "CLOSED" | "CANCELLED" | "COMPLETED";
   location: string | null; deliveryMode: "ONSITE" | "REMOTE" | "EITHER";
   preferredStartAt: string | null; createdAt: string;
   seeker: { firstName: string; lastName: string; identityVerified: boolean };
