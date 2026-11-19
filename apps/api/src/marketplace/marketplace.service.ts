@@ -929,6 +929,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!request) throw new NotFoundException("This service request could not be found.");
       if (request.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker who created this request can select a Provider.");
       if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider selection.");
+      const seeker = await tx.user.findUnique({
+        where: { id: seekerId },
+        select: { seekerRoleStatus: true, deletedAt: true },
+      });
+      if (!seeker || seeker.deletedAt !== null || seeker.seekerRoleStatus !== "ACTIVE") {
+        throw new ForbiddenException("An active Seeker account is required to select a Provider.");
+      }
 
       const candidateOffer = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId, status: "OFFERED" },
