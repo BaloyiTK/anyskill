@@ -477,12 +477,14 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const submitIdentityVerification = async () => {
     const idComplete = idType === "SMART_ID_CARD" ? idFrontReady && idBackReady : bookPage1Ready;
     if (!idComplete || !selfieReady) { setError("Complete both required ID images and take a live selfie before continuing."); return false; }
-    setBusy(true); setError(""); setMessage("");
+    // The final onboarding submit handler owns the busy state for both
+    // identity and profile/skill submission, preventing duplicate taps between
+    // the two API calls.
+    setError(""); setMessage("");
     try {
       const result = await apiRequest<{status:string;message?:string}>("/identity-verification/submit", { method: "POST", body: JSON.stringify({ idType }) }, true);
       setIdentityStatus(result.status); setMessage(result.message ?? "Your identity documents were submitted for administrator review."); return true;
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit identity verification."); return false; }
-    finally { setBusy(false); }
   };
 
   const saveCurrent = async () => {
