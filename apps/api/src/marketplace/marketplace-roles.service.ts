@@ -58,20 +58,18 @@ export class MarketplaceRolesService {
   }
 
   async activateSeeker(userId: string) {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { seekerRoleStatus: true },
-    });
-    if (user.seekerRoleStatus === MarketplaceRoleStatus.SUSPENDED) {
-      throw new ForbiddenException("Seeker access is suspended. Contact AnySkill support.");
-    }
-    await this.prisma.user.update({
-      where: { id: userId },
+    // Keep suspension enforcement in the write predicate. A separate read then
+    // update can reactivate a role if a staff suspension commits between them.
+    const updated = await this.prisma.user.updateMany({
+      where: { id: userId, seekerRoleStatus: { not: MarketplaceRoleStatus.SUSPENDED } },
       data: {
         seekerRoleStatus: MarketplaceRoleStatus.ACTIVE,
         activeMarketplaceMode: RegistrationMode.SEEKER,
       },
     });
+    if (updated.count !== 1) {
+      throw new ForbiddenException("Seeker access is suspended. Contact AnySkill support.");
+    }
     return this.getRoles(userId);
   }
 
