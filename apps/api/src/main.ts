@@ -101,6 +101,9 @@ class ApiExceptionFilter implements ExceptionFilter {
 }
 
 async function bootstrap(): Promise<void> {
+  // The HTTP entrypoint must never run marketplace polling, even if a worker
+  // environment variable is accidentally inherited by the API deployment.
+  process.env.ANYSKILL_PROCESS_ROLE = "api";
   const logger = new Logger("HTTP");
   mkdirSync(LOG_DIRECTORY, { recursive: true });
   appendFileSync(ERROR_LOG_FILE, "", { encoding: "utf8", mode: 0o600 });
