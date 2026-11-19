@@ -28,7 +28,10 @@ export class HealthController {
     timestamp: string;
   }> {
     const heartbeat = await this.prisma.workerHeartbeat.findUnique({ where: { name: "marketplace" } });
-    const stale = !heartbeat || Date.now() - heartbeat.heartbeatAt.getTime() > 60_000;
+    const stale = !heartbeat
+      || Date.now() - heartbeat.heartbeatAt.getTime() > 180_000
+      || !heartbeat.lastSuccessAt
+      || Date.now() - heartbeat.lastSuccessAt.getTime() > 180_000;
     if (!heartbeat || stale || heartbeat.status === "DEGRADED") {
       throw new ServiceUnavailableException({
         status: "not_ready",
