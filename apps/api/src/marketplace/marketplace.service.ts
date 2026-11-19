@@ -891,6 +891,22 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async declineIncomingRequest(providerId: string, requestId: string) {
+    const changed = await this.prisma.requestMatch.updateMany({
+      where: {
+        requestId,
+        providerId,
+        status: "NOTIFIED",
+        request: { status: "OPEN" },
+      },
+      data: { status: "EXPIRED" },
+    });
+    if (changed.count !== 1) {
+      throw new ConflictException("This incoming request is no longer awaiting your response.");
+    }
+    return { success: true, requestId, status: "DECLINED" };
+  }
+
   async respondToRequest(providerId: string, requestId: string, input: ProviderResponseDto) {
     const provider = await this.prisma.user.findUnique({
       where: { id: providerId },
