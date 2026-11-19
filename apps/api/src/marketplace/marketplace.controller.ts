@@ -136,8 +136,13 @@ export class MarketplaceController {
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("PROVIDER_SUBMIT_COMPLETION")
   @RequireMarketplaceRole("PROVIDER")
-  submitJobCompletion(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: SubmitJobCompletionDto) {
-    return this.marketplace.submitJobCompletion(user.id, requestId, dto);
+  submitJobCompletion(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Body() dto: SubmitJobCompletionDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.marketplace.submitJobCompletion(user.id, requestId, dto, idempotencyKey);
   }
 
   @Post("marketplace/requests/:requestId/completion/:submissionId/decision")
