@@ -65,6 +65,14 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [x] Run marketplace deadlines, retries and Expo receipt polling in a separately deployed worker process. API replicas do not start the polling interval; a PostgreSQL transaction-scoped advisory lock prevents overlapping cycles.
 - [ ] Ensure worker ownership, health, restart behavior, queue age and failed-notification counts are observable and alerted.
 
+## Media upload and completion evidence integrity
+
+- Cloudinary upload confirmation now atomically claims a reservation by moving it from `PENDING` to `VERIFYING`. Concurrent confirmations cannot both verify and mutate the same reservation. A successful confirmation is idempotent once the asset is `READY`; a competing confirmation receives a retryable conflict. Stale verification claims can be recovered after five minutes.
+- Cloudinary validation failures expire the reservation before attempting remote cleanup. A late or competing verifier never deletes an asset another request has already marked `READY`.
+- Completion evidence is checked for provider ownership, READY status, correct purpose, expiry and unused state. After creating the submission, each asset is claimed with one conditional database update; the transaction rolls back unless every requested asset is claimed. This prevents one uploaded image being attached to multiple submissions, including concurrent submissions to different jobs.
+- Upload reservation and confirmation endpoints are throttled at 20 and 30 requests per minute respectively.
+- PostgreSQL integration tests cover competing verification claims and competing evidence-asset claims. Real Cloudinary outage, delayed-response and cleanup behavior still require staging verification.
+
 ## Service request idempotency
 
 For every logical service-request submission, clients should generate a UUID once, persist it until the operation has a definitive result, and send it on every retry:
