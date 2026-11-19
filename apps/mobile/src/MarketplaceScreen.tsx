@@ -340,9 +340,18 @@ export function MarketplaceScreen(p: Props) {
   const submitCompletion = async (requestId: string) => {
     setJobActionBusy(true); setError(""); setNotice("");
     try {
+      const completionPayload = {
+        notes: completionNotes.trim(),
+        evidenceAssetIds: completionEvidenceAssets.map((asset) => asset.id),
+      };
+      const completionStorageKey = "completion-submit:" + requestId;
+      const idempotencyKey = await getOrCreateIdempotencyKey(completionStorageKey, completionPayload);
       await apiRequest("/marketplace/requests/" + requestId + "/completion", {
-        method: "POST", body: JSON.stringify({ notes: completionNotes.trim(), evidenceAssetIds: completionEvidenceAssets.map((asset) => asset.id) }),
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(completionPayload),
       }, true);
+      await clearIdempotencyKey(completionStorageKey);
       setNotice("Completion submitted with uploaded photo evidence. The Seeker must review and approve it.");
       setCompletionNotes(""); setCompletionEvidenceAssets([]); await loadMyJobs();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit job completion."); }
