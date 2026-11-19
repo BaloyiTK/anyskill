@@ -391,6 +391,12 @@ export default function App() {
           setActiveTab("home");
           setMode("provider");
           setScreen("marketplace");
+          void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
+            method: "PATCH",
+            body: JSON.stringify({ mode: "PROVIDER" }),
+          }, true).then(setRoleSummary).catch((e) => {
+            console.warn("[AnySkill incoming request] Could not persist Provider mode after accepting.", e);
+          });
         }).catch((e) => {
           setError(e instanceof Error ? e.message : "Could not accept this request.");
           openMatchedRequest(requestId);
