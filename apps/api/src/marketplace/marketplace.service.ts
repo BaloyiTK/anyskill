@@ -1565,7 +1565,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     // A request with no eligible Providers should remain open and be retried
     // periodically. This also recovers requests exhausted before a Provider
     // updated their skills, coverage, verification, or availability.
-    const retryBefore = new Date(Date.now() - 5 * 60 * 1000);
+    // Retry exhausted open requests every minute so newly available Providers
+    // are discovered promptly without creating a hot polling loop.
+    const retryBefore = new Date(Date.now() - 60 * 1000);
     const exhausted = await this.prisma.serviceRequest.findMany({
       where: {
         status: "OPEN",
