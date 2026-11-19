@@ -195,11 +195,13 @@ model PushNotificationReceipt {
   errorCode      String?           @map("error_code") @db.VarChar(100)
   errorMessage   String?           @map("error_message") @db.VarChar(500)
   checkedAt      DateTime?          @map("checked_at")
+  checkAttempts  Int               @default(0) @map("check_attempts")
+  nextCheckAt    DateTime          @default(now()) @map("next_check_at")
   createdAt      DateTime           @default(now()) @map("created_at")
   notification   AppNotification    @relation(fields: [notificationId], references: [id], onDelete: Cascade)
   pushDevice     PushDevice         @relation(fields: [pushDeviceId], references: [id], onDelete: Cascade)
 
-  @@index([status, createdAt])
+  @@index([status, nextCheckAt, createdAt])
   @@map("push_notification_receipts")
 }
 
