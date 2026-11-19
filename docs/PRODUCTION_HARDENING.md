@@ -47,7 +47,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 ## P1 — Mobile release configuration
 
-- [ ] Configure the Firebase Android client file as an EAS file environment variable named `GOOGLE_SERVICES_JSON` and a production Android Google Maps API key as `GOOGLE_MAPS_API_KEY`. The file remains gitignored and must not be committed.
+- [ ] Configure the Firebase Android client file as an EAS file environment variable named `GOOGLE_SERVICES_JSON` and a production Android Google Maps API key as `GOOGLE_MAPS_API_KEY`. The file remains gitignored and must not be committed. This client file is separate from the FCM V1 service-account credential configured in EAS credentials; both are required for Android push delivery.
 - [x] Production Android app configuration now fails the build if either Firebase `google-services.json` or the Android Maps key is missing; development builds retain warnings so local setup can continue.
 - [ ] Verify Android FCM token registration, notification receipt, foreground/background delivery, tap/deep-link routing, and token refresh on physical devices using the production Firebase project.
 
