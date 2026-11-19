@@ -232,6 +232,21 @@ export function MarketplaceScreen(p: Props) {
     } finally { setSelectingOfferId(null); }
   };
 
+  const declineProviderOffer = async (requestId: string, responseId: string) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/offers/${responseId}/decline`, { method: "POST" }, true);
+      setDismissedOfferIds((ids) => [...ids, responseId]);
+      setActiveOfferId(null);
+      setShowProviderProfile(false);
+      setNotice("Offer declined. Your request remains open while AnySkill continues matching.");
+      await loadMyRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not decline this offer.");
+      await loadMyRequests();
+    } finally { setJobActionBusy(false); }
+  };
+
   const submitEstimate = async (requestId: string) => {
     setJobActionBusy(true); setError(""); setNotice("");
     try {
@@ -1136,7 +1151,7 @@ export function MarketplaceScreen(p: Props) {
                   <Pressable onPress={() => setShowProviderProfile(true)} style={{ paddingVertical: 16, alignItems: "center" }}><Text style={{ color: "#176B55", fontWeight: "900" }}>View full Provider profile →</Text></Pressable>
                   <Text style={{ color: "#829087", fontSize: 10, textAlign: "center" }}>Identity verification confirms identity only.</Text>
                 </View>
-                <Pressable onPress={() => { setDismissedOfferIds((ids) => [...ids, activeOffer.id]); setActiveOfferId(null); }} disabled={!!selectingOfferId || jobActionBusy} style={{ borderWidth: 1, borderColor: "#D7E0DA", borderRadius: 15, padding: 15, alignItems: "center", marginTop: 15, backgroundColor: "#FFFFFF" }}><Text style={{ color: "#53645A", fontWeight: "900" }}>Decline offer</Text></Pressable>
+                <Pressable onPress={() => void declineProviderOffer(matchingRequest.id, activeOffer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ borderWidth: 1, borderColor: "#D7E0DA", borderRadius: 15, padding: 15, alignItems: "center", marginTop: 15, backgroundColor: "#FFFFFF" }}><Text style={{ color: "#53645A", fontWeight: "900" }}>Decline offer</Text></Pressable>
                 <Pressable onPress={() => void selectProvider(matchingRequest.id, activeOffer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", marginTop: 10 }}>{selectingOfferId === activeOffer.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Accept offer</Text>}</Pressable>
               </>}
             </ScrollView>
