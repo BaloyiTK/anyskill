@@ -127,6 +127,19 @@ export default function App() {
     },
   );
 
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    void Notifications.setNotificationChannelAsync("incoming_requests", {
+      name: "Incoming service requests",
+      description: "High-priority alerts when AnySkill matches you with a service request.",
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 300, 150, 300],
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      sound: "default",
+      bypassDnd: false,
+    }).catch((e) => console.warn("[AnySkill notifications] Could not configure incoming request channel.", e));
+  }, []);
+
   const feedback = () => { setMessage(""); setError(""); };
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
 
@@ -1421,7 +1434,7 @@ export default function App() {
       <IncomingRequestScreen
         requestId={activeIncomingRequestId}
         onClose={() => { setActiveIncomingRequestId(null); setPendingAcceptRequestId(null); }}
-        onAccepted={(requestId) => {
+        onAccepted={() => {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(null);
           setMessage("Request accepted. Continue to your Provider workspace.");
