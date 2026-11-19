@@ -134,25 +134,29 @@ export class IdentityController {
     const validId = body.idType === "SMART_ID_CARD" ? Boolean(front && back) : body.idType === "GREEN_ID_BOOK" ? Boolean(page1) : false;
     if (!validId || !selfie) throw new BadRequestException(body.idType === "GREEN_ID_BOOK" ? "Upload the Green ID book photo/details page and take a live selfie before submitting verification." : "Upload both sides of your Smart ID card and take a live selfie before submitting verification.");
 
-    const existingPending = await this.prisma.identityVerificationCase.findFirst({
-      where: {
-        userId: user.id,
-        status: { in: ["SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION"] },
-      },
-      select: { id: true, status: true, submittedAt: true },
-    });
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Serialize submissions per account across API replicas. The database
+      // partial unique index is the final invariant if another write path is added.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('identity-verification-submit'), hashtext(${user.id}))`;
 
-    if (existingPending) {
-      return {
-        caseId: existingPending.id,
-        status: existingPending.status.toLowerCase(),
-        submittedAt: existingPending.submittedAt,
-      };
-    }
+      const existingPending = await tx.identityVerificationCase.findFirst({
+        where: {
+          userId: user.id,
+          status: { in: ["SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION"] },
+        },
+        select: { id: true, status: true, submittedAt: true },
+      });
+      if (existingPending) return { verificationCase: existingPending, created: false };
 
-    const verificationCase = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.identityVerificationCase.create({
-        data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW", providerReference: (body.idType === "SMART_ID_CARD" ? "type:SMART_ID_CARD;front:" + front!.id + ";back:" + back!.id : "type:GREEN_ID_BOOK;page1:" + page1!.id) + ";selfie:" + selfie.id },
+      const verificationCase = await tx.identityVerificationCase.create({
+        data: {
+          userId: user.id,
+          status: "SUBMITTED",
+          provider: "MANUAL_REVIEW",
+          providerReference: body.idType === "SMART_ID_CARD"
+            ? "type:SMART_ID_CARD;front:" + front!.id + ";back:" + back!.id + ";selfie:" + selfie.id
+            : "type:GREEN_ID_BOOK;page1:" + page1!.id + ";selfie:" + selfie.id,
+        },
         select: { id: true, status: true, submittedAt: true },
       });
 
@@ -166,18 +170,20 @@ export class IdentityController {
           userId: user.id,
           title: "Profile submitted for verification",
           body: "Your profile and identity documents have been submitted. We'll notify you when the review is complete.",
-          data: { type: "PROFILE_VERIFICATION_SUBMITTED", verificationCaseId: created.id },
+          data: { type: "PROFILE_VERIFICATION_SUBMITTED", verificationCaseId: verificationCase.id },
         },
       });
 
-      return created;
+      return { verificationCase, created: true };
     });
 
     return {
-      caseId: verificationCase.id,
-      status: verificationCase.status.toLowerCase(),
-      submittedAt: verificationCase.submittedAt,
-      message: "Your verification request has been recorded. Marketplace access remains locked until verification is approved.",
+      caseId: result.verificationCase.id,
+      status: result.verificationCase.status.toLowerCase(),
+      submittedAt: result.verificationCase.submittedAt,
+      ...(result.created ? {
+        message: "Your verification request has been recorded. Marketplace access remains locked until verification is approved.",
+      } : {}),
     };
   }
 }
