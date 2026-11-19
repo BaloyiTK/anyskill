@@ -651,7 +651,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async declineProviderOffer(seekerId: string, requestId: string, responseId: string) {
     const request = await this.prisma.serviceRequest.findFirst({
       where: { id: requestId, seekerId, status: "OPEN" },
-      select: { id: true },
+      select: { id: true, matchingWave: true },
     });
     if (!request) throw new NotFoundException("This open service request could not be found.");
     const changed = await this.prisma.providerResponse.updateMany({
@@ -659,11 +659,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       data: { status: "WITHDRAWN" },
     });
     if (changed.count !== 1) throw new ConflictException("This Provider offer is no longer available.");
+
+    // Hand off immediately instead of waiting for the background poller.
+    // dispatchNextWave excludes every Provider already recorded in request_matches.
     await this.prisma.serviceRequest.updateMany({
       where: { id: requestId, seekerId, status: "OPEN" },
-      data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+      data: { matchingNextAt: null, matchingExhaustedAt: null },
     });
-    return { success: true, requestId, responseId, status: "WITHDRAWN" };
+    const matching = await this.dispatchNextWave(requestId, request.matchingWave + 1);
+    return { success: true, requestId, responseId, status: "WITHDRAWN", matching };
   }
 
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
