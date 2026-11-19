@@ -74,6 +74,12 @@ export class MarketplaceController {
     return this.marketplace.listIncomingRequests(user.id, query.cursor);
   }
 
+  @Get("marketplace/provider-profile/availability")
+  @RequireMarketplaceRole("PROVIDER")
+  providerAvailability(@CurrentUser() user: AuthenticatedUser) {
+    return this.marketplace.getProviderAvailability(user.id);
+  }
+
   @Get("marketplace/my-requests")
   @RequireMarketplaceRole("SEEKER")
   myRequests(@CurrentUser() user: AuthenticatedUser) {
