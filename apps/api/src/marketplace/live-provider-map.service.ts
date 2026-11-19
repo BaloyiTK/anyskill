@@ -39,7 +39,10 @@ export class LiveProviderMapService {
         socket.end("HTTP/1.1 400 Bad Request\\r\\nConnection: close\\r\\n\\r\\n");
         return;
       }
-      if (requestUrl.pathname !== "/api/v1/marketplace/discover/providers/live") return;
+      if (requestUrl.pathname !== "/api/v1/marketplace/discover/providers/live") {
+        socket.end("HTTP/1.1 404 Not Found\\r\\nConnection: close\\r\\n\\r\\n");
+        return;
+      }
 
       const latitude = Number(requestUrl.searchParams.get("latitude"));
       const longitude = Number(requestUrl.searchParams.get("longitude"));
