@@ -17,7 +17,7 @@ import {
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
   SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
-  UpdateHomeLocationDto, UpdateLiveLocationDto, ScheduleServiceRequestDto, SubmitProviderReviewDto,
+  UpdateHomeLocationDto, UpdateLiveLocationDto, ScheduleServiceRequestDto, SubmitProviderReviewDto, SubmitSeekerReviewDto,
 } from "./dto/service-request.dto";
 
 type RankedProvider = { userId: string; score: number };
@@ -599,7 +599,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async listMyJobs(providerId: string) {
     const jobs = await this.prisma.jobEngagement.findMany({
       where: { providerId }, orderBy: { updatedAt: "desc" },
-      include: { request: { select: { id: true, title: true, description: true, location: true, latitude: true, longitude: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
+      include: { seekerReview: true, request: { select: { id: true, title: true, description: true, location: true, latitude: true, longitude: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
     });
     const serverNow = new Date().toISOString();
     return jobs.map((job) => ({ ...job, serverNow }));
@@ -712,6 +712,35 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         throw new ConflictException("You have already rated this completed job.");
+      }
+      throw error;
+    }
+  }
+
+  async submitSeekerReview(providerId: string, requestId: string, input: SubmitSeekerReviewDto) {
+    const job = await this.prisma.jobEngagement.findUnique({
+      where: { requestId },
+      select: { id: true, seekerId: true, providerId: true, status: true },
+    });
+    if (!job) throw new NotFoundException("Selected job not found.");
+    if (job.providerId !== providerId) throw new ForbiddenException("Only the Provider assigned to this job can rate the Skill Seeker.");
+    if (job.status !== "COMPLETED") throw new ConflictException("You can rate a Skill Seeker only after the job is approved as completed.");
+    if (!job.seekerId) throw new ConflictException("This job has no Skill Seeker available to rate.");
+
+    try {
+      const review = await this.prisma.seekerReview.create({
+        data: {
+          engagementId: job.id,
+          providerId,
+          seekerId: job.seekerId,
+          rating: input.rating,
+          comment: input.comment?.trim() || null,
+        },
+      });
+      return { success: true, review };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException("You have already rated this Skill Seeker for this completed job.");
       }
       throw error;
     }
