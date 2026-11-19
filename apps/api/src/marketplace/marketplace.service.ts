@@ -29,6 +29,20 @@ const WAVE_SIZE = Math.max(1, Math.min(25, Number(process.env.MATCH_WAVE_SIZE ??
 const LIVE_MATCHING_WINDOW_MS = 30 * 60 * 1000;
 const LIVE_LOCATION_MAX_AGE_MS = 30_000;
 const MAX_LIVE_LOCATION_ACCURACY_M = 50;
+const MAX_PLAUSIBLE_PROVIDER_SPEED_KMH = 250;
+const PROVIDER_SPEED_CHECK_MAX_GAP_MS = 5 * 60 * 1000;
+
+function distanceBetweenCoordinatesM(
+  latitudeA: number, longitudeA: number, latitudeB: number, longitudeB: number,
+): number {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const latitudeDelta = radians(latitudeB - latitudeA);
+  const longitudeDelta = radians(longitudeB - longitudeA);
+  const a = Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(radians(latitudeA)) * Math.cos(radians(latitudeB)) *
+    Math.sin(longitudeDelta / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 @Injectable()
 export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
@@ -215,10 +229,42 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }
       const profile = await tx.providerProfile.findUnique({
         where: { userId },
-        select: { isAvailable: true },
+        select: {
+          isAvailable: true,
+          liveLatitude: true,
+          liveLongitude: true,
+          liveAccuracyM: true,
+          liveLocationUpdatedAt: true,
+        },
       });
       if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
       if (!profile.isAvailable) throw new ConflictException("Set your Provider status to Available before sharing your live location.");
+
+      // GPS is client-reported and cannot be proven authentic by the API. Reject
+      // out-of-order fixes and physically implausible jumps as a useful spoofing
+      // signal, while allowing vehicle travel and accounting for GPS accuracy.
+      if (profile.liveLocationUpdatedAt) {
+        const previousCapturedAt = profile.liveLocationUpdatedAt.getTime();
+        const elapsedMs = capturedAt.getTime() - previousCapturedAt;
+        if (elapsedMs <= 0) {
+          throw new ConflictException("This GPS fix is older than the last accepted fix. Wait for a newer location update.");
+        }
+        if (
+          elapsedMs <= PROVIDER_SPEED_CHECK_MAX_GAP_MS &&
+          profile.liveLatitude != null &&
+          profile.liveLongitude != null
+        ) {
+          const travelledM = distanceBetweenCoordinatesM(
+            profile.liveLatitude, profile.liveLongitude, input.latitude, input.longitude,
+          );
+          const accuracyAllowanceM = (profile.liveAccuracyM ?? 0) + input.accuracyM;
+          const minimumPlausibleTravelM = Math.max(0, travelledM - accuracyAllowanceM);
+          const maximumTravelM = MAX_PLAUSIBLE_PROVIDER_SPEED_KMH * (elapsedMs / 3_600_000) * 1000;
+          if (minimumPlausibleTravelM > maximumTravelM) {
+            throw new ConflictException("This GPS update implies an implausible movement speed. Wait for a fresh GPS fix and try again.");
+          }
+        }
+      }
       await tx.providerProfile.update({
         where: { userId },
         data: {
@@ -425,10 +471,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return profiles.map((profile) => ({
       id: profile.id,
       skill: profile.skillCategories[0] || "Skill not added",
-      distanceKm: Math.round(profile.distanceKm * 10) / 10,
-      // Approximately 100 m precision is sufficient for a public discovery pin.
-      latitude: Math.round(profile.liveLatitude * 1000) / 1000,
-      longitude: Math.round(profile.liveLongitude * 1000) / 1000,
+      // Coarse, deterministic ~1 km grid cells reduce the precision of public
+      // pins and make repeated snapshots less useful for tracking a household.
+      distanceKm: Math.round(profile.distanceKm * 2) / 2,
+      latitude: Math.round(profile.liveLatitude * 100) / 100,
+      longitude: Math.round(profile.liveLongitude * 100) / 100,
     }));
   }
 
