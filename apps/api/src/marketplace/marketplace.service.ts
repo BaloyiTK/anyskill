@@ -1242,6 +1242,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
               ? "incoming_requests"
               : "default",
+            categoryId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
+              ? "incoming_request"
+              : undefined,
           }))),
         });
         if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
