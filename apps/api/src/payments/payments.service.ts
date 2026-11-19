@@ -136,9 +136,11 @@ export class PaymentsService {
     const p = input.payload;
     if (!/^[A-Za-z0-9-]{1,36}$/.test(p.payRequestId)
       || !/^[A-Za-z0-9._:-]{1,110}$/.test(p.reference)
-      || !Number.isInteger(p.transactionStatus)
-      || !Number.isInteger(p.resultCode)
-      || !/^[A-Za-z0-9]{1,10}$/.test(p.authCode)
+      || !Number.isSafeInteger(p.transactionStatus)
+      || p.transactionStatus < 0
+      || !Number.isSafeInteger(p.resultCode)
+      || p.resultCode < 0
+      || !/^[A-Za-z0-9]{0,10}$/.test(p.authCode)
       || !/^[A-Z]{3}$/.test(p.currency)
       || !/^[0-9]{1,18}$/.test(p.amountMinor)
       || !/^[0-9]{1,20}$/.test(p.transactionId)
