@@ -12,6 +12,20 @@ permissions:
   contents: read
 
 jobs:
+  verify-project-standards:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Verify protected project standards and configuration
+        run: node scripts/check-project-standards.mjs
+
   validate:
     runs-on: ubuntu-latest
     services:
@@ -41,9 +55,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-
-      - name: Verify protected project standards and configuration
-        run: node scripts/check-project-standards.mjs
 
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
