@@ -558,17 +558,21 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (!Number.isFinite(preferredStartAt.getTime()) || preferredStartAt.getTime() < Date.now() + 15 * 60 * 1000) {
       throw new BadRequestException("Choose a scheduled start time at least 15 minutes from now.");
     }
-    const request = await this.prisma.serviceRequest.findFirst({
-      where: { id: requestId, seekerId, status: "OPEN" },
-      select: { id: true, matchingWave: true, matchingStartedAt: true },
+    await this.prisma.$transaction(async (tx) => {
+      // Scheduling changes matching state, so serialize it with cancellation and offer decisions.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findFirst({
+        where: { id: requestId, seekerId, status: "OPEN" },
+        select: { id: true, matchingStartedAt: true },
+      });
+      if (!request) throw new NotFoundException("This open service request could not be found.");
+      if (Date.now() - request.matchingStartedAt.getTime() < LIVE_MATCHING_WINDOW_MS) throw new ConflictException("Live Provider search has not timed out yet. You can schedule this request after 30 minutes.");
+      const restarted = await tx.serviceRequest.updateMany({
+        where: { id: requestId, seekerId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
+        data: { preferredStartAt, matchingStartedAt: new Date(), matchingWave: 0, matchingNextAt: null, matchingExhaustedAt: null },
+      });
+      if (restarted.count !== 1) throw new ConflictException("The request changed. Refresh before scheduling it.");
     });
-    if (!request) throw new NotFoundException("This open service request could not be found.");
-    if (Date.now() - request.matchingStartedAt.getTime() < LIVE_MATCHING_WINDOW_MS) throw new ConflictException("Live Provider search has not timed out yet. You can schedule this request after 30 minutes.");
-    const restarted = await this.prisma.serviceRequest.updateMany({
-      where: { id: requestId, seekerId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
-      data: { preferredStartAt, matchingStartedAt: new Date(), matchingWave: 0, matchingNextAt: null, matchingExhaustedAt: null },
-    });
-    if (restarted.count !== 1) throw new ConflictException("The request changed. Refresh before scheduling it.");
     const matching = await this.dispatchNextWave(requestId, 1, true);
     return { success: true, requestId, preferredStartAt, matching };
   }
