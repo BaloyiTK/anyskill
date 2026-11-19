@@ -73,7 +73,7 @@ async function createPaymentFixture() {
 
 const key = (prefix) => `${prefix}-${randomUUID()}`;
 
-test("PayGate notification inbox deduplicates events without storing vault tokens", async () => {
+test("unverified PayGate notification inbox deduplicates events without storing vault tokens", async () => {
   const eventId = BigInt(`0x${randomUUID().replaceAll("-", "").slice(0, 16)}`).toString();
   const payRequestId = randomUUID();
   const reference = key("anyskill-payment");
@@ -108,18 +108,18 @@ test("PayGate notification inbox deduplicates events without storing vault token
   const input = { providerEventId: eventId, rawPayload, payload };
 
   const [first, duplicate] = await Promise.all([
-    payments.recordChecksumVerifiedPayGateNotify(input),
-    payments.recordChecksumVerifiedPayGateNotify(input),
+    payments.recordPayGateNotifyInboxEvent(input),
+    payments.recordPayGateNotifyInboxEvent(input),
   ]);
   assert.equal(first.id, duplicate.id);
   assert.equal(first.status, "RECEIVED");
-  assert.equal(first.signatureVerified, true);
+  assert.equal(first.signatureVerified, false);
   assert.equal(first.payloadHash.length, 64);
   assert.equal("vaultId" in first.normalizedPayload, false);
   assert.equal("VAULT_ID" in first.normalizedPayload, false);
 
   await assert.rejects(
-    payments.recordChecksumVerifiedPayGateNotify({
+    payments.recordPayGateNotifyInboxEvent({
       ...input,
       rawPayload: input.rawPayload + "&TAMPERED=1",
     }),
