@@ -159,8 +159,7 @@ export default function App() {
     const requiredSectionsComplete = Boolean(
       onboarding?.submittedAt
       && onboarding.sections?.profile === true
-      && (!providerRequired
-        || (onboarding.sections?.skills === true && onboarding.sections?.portfolio === true)),
+      && (!providerRequired || onboarding.sections?.skills === true),
     );
 
     setProfileComplete(requiredSectionsComplete);
@@ -169,20 +168,22 @@ export default function App() {
   };
 
   const routeAfterAuthentication = async (initialMode?: string) => {
-    // Every authenticated Seeker and Provider starts in onboarding. Profile
-    // completion is still refreshed here, but it never controls Home access.
     setScreen("profile-check");
     setError("");
+    let profileIsComplete = false;
     try {
-      await refreshHomeEligibility(initialMode);
+      profileIsComplete = await refreshHomeEligibility(initialMode);
     } catch (e) {
-      // A profile-status outage must not prevent an authenticated user from
-      // entering onboarding or navigating to Home.
+      // Do not trap returning users in onboarding because a profile-status
+      // request is temporarily unavailable. Protected actions remain gated
+      // by the latest server-side role and identity status.
       setProfileComplete(false);
       console.warn("[AnySkill profile] Could not refresh completion status.", e);
+      setScreen("dashboard");
     }
     setActiveTab("home");
-    setScreen("onboarding");
+    if (profileIsComplete) setScreen("dashboard");
+    else if (!profileIsComplete && screen !== "dashboard") setScreen("onboarding");
   };
 
   const navigateHome = async () => {
@@ -1204,6 +1205,7 @@ export default function App() {
                 <Text style={s.statusLabel}>PROVIDER APPROVAL</Text>
                 <Text style={s.statusValue}>{formatStatus(roleSummary?.providerStatus ?? "pending")}</Text>
               </View>
+              {!profileComplete && <Primary label="Complete your profile" onPress={() => setScreen("onboarding")} />}
               {!verified && <Primary label="Complete identity verification" onPress={() => { void startIdentityVerification(); }} />}
               {roleSummary?.providerStatus !== "ACTIVE" && <Primary label="View Provider application" onPress={() => { setActiveTab("account"); setScreen("dashboard"); }} />}
             </View>
