@@ -87,6 +87,63 @@ async function createEngagementFixture(status = "ASSESSMENT_PENDING", workSegmen
   return { ...fixture, jobId: job.id, providerId: response.providerId };
 }
 
+test("declining the final outstanding offer schedules the next matching wave", async () => {
+  const fixture = await createFixture(3);
+  const decline = (responseId) => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    const changed = await tx.providerResponse.updateMany({
+      where: { id: responseId, requestId: fixture.requestId, status: "OFFERED" },
+      data: { status: "DECLINED" },
+    });
+    if (changed.count !== 1) return false;
+    const pending = await tx.providerResponse.count({ where: { requestId: fixture.requestId, status: "OFFERED" } });
+    if (pending === 0) {
+      await tx.serviceRequest.update({
+        where: { id: fixture.requestId },
+        data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+      });
+    }
+    return pending === 0;
+  });
+  const outcomes = await Promise.all(fixture.responses.map((response) => decline(response.id)));
+  assert.equal(outcomes.filter(Boolean).length, 1);
+  assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "OFFERED" } }), 0);
+  const request = await prisma.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { status: true, matchingNextAt: true } });
+  assert.equal(request?.status, "OPEN");
+  assert.ok(request?.matchingNextAt && request.matchingNextAt <= new Date());
+  assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "DECLINED" } }), 3);
+});
+
+test("provider offer selection and seeker decline cannot both win", async () => {
+  const fixture = await createFixture(1);
+  const responseId = fixture.responses[0].id;
+  const select = () => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    const request = await tx.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { status: true } });
+    const offer = await tx.providerResponse.findFirst({ where: { id: responseId, requestId: fixture.requestId, status: "OFFERED" }, select: { id: true } });
+    if (!request || request.status !== "OPEN" || !offer) return false;
+    await tx.serviceRequest.update({ where: { id: fixture.requestId }, data: { status: "CLOSED" } });
+    await tx.providerResponse.update({ where: { id: responseId }, data: { status: "SELECTED" } });
+    return true;
+  });
+  const decline = () => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    const request = await tx.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { seekerId: true, status: true } });
+    if (!request || request.status !== "OPEN" || request.seekerId !== fixture.seekerId) return false;
+    const changed = await tx.providerResponse.updateMany({
+      where: { id: responseId, requestId: fixture.requestId, status: "OFFERED" },
+      data: { status: "DECLINED" },
+    });
+    return changed.count === 1;
+  });
+  const outcomes = await Promise.all([select(), decline()]);
+  assert.equal(outcomes.filter(Boolean).length, 1);
+  const offer = await prisma.providerResponse.findUnique({ where: { id: responseId }, select: { status: true } });
+  const request = await prisma.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { status: true } });
+  assert.ok(["SELECTED", "DECLINED"].includes(offer?.status ?? ""));
+  assert.equal(request?.status, offer?.status === "SELECTED" ? "CLOSED" : "OPEN");
+});
+
 test("concurrent estimate submissions cannot overwrite one another", async () => {
   const fixture = await createEngagementFixture();
   const submit = (hours) => prisma.$transaction(async (tx) => {
