@@ -867,7 +867,7 @@ test("Expo receipt polling schedule advances retries so missing receipts cannot 
     prisma.pushNotificationReceipt.create({
       data: {
         notificationId: notification.id, pushDeviceId: device.id,
-        expoTicketId: `receipt-${randomUUID()}`, createdAt: new Date(now.getTime() - 20 * 60_000),
+        expoTicketId: `receipt-${randomUUID()}`, createdAt: new Date(now.getTime() - 20 * 60_000), nextCheckAt: new Date(now.getTime() - 1_000),
       },
       select: { id: true, nextCheckAt: true, checkAttempts: true },
     }),
