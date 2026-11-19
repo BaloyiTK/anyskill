@@ -140,8 +140,12 @@ export class IdentityController {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${user.id}))`;
       const currentAccount = await tx.user.findUniqueOrThrow({
         where: { id: user.id },
-        select: { identityVerification: true },
+        select: { identityVerification: true, seekerRoleStatus: true, providerRoleStatus: true, deletedAt: true },
       });
+      if (currentAccount.deletedAt !== null ||
+          (currentAccount.seekerRoleStatus === "SUSPENDED" && currentAccount.providerRoleStatus === "SUSPENDED")) {
+        throw new ForbiddenException("This account is being closed and cannot submit new identity documents.");
+      }
       if (currentAccount.identityVerification === "VERIFIED") {
         return { verificationCase: null, created: false, alreadyVerified: true };
       }
