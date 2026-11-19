@@ -13,7 +13,8 @@
     "db:deploy": "prisma migrate deploy",
     "test:auth-concurrency": "node --test prisma/tests/auth-concurrency.integration.mjs",
     "test:marketplace-concurrency": "node --test prisma/tests/marketplace-concurrency.integration.mjs",
-    "start:worker": "node dist/worker.js"
+    "start:worker": "node dist/worker.js",
+    "test:payments": "node --test prisma/tests/payments-service.integration.mjs"
   },
   "dependencies": {
     "@anyskill/contracts": "workspace:*",
