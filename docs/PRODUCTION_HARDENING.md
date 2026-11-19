@@ -143,3 +143,11 @@ Production readiness is not declared until all P0 items are complete, the P1 ite
 - Token ownership checks and registration are serialized with a PostgreSQL transaction-scoped advisory lock, preventing concurrent first-claim races across API replicas.
 - Re-registering a token from its existing owner refreshes platform/last-seen metadata without changing ownership.
 - Remaining staging verification: exercise two-account token-claim races and confirm notifications continue to reach only the owning account.
+
+### Logout, account deletion and push-device cleanup
+
+- Logout revokes only the presented refresh-session token; the mobile client clears its local access/refresh credentials even when the device is offline.
+- Access-token validation reloads the account from PostgreSQL on every authenticated request, so deleting the user immediately invalidates outstanding access tokens as well as removing refresh sessions.
+- Account deletion removes the user's push devices and queued in-app notifications in the same database transaction that removes the account. Push receipts cascade with their deleted device/notification records.
+- Account deletion is rate-limited to two attempts per minute. Storage cleanup must succeed before the database deletion transaction proceeds; retrying cleanup treats already-removed Cloudinary assets as complete.
+- Integration coverage verifies that registered push tokens and queued private notifications are absent after account cleanup. Staging must still verify a deletion racing an active notification worker and confirm no later push is delivered.
