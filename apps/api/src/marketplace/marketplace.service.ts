@@ -23,7 +23,9 @@ import {
 type RankedProvider = { userId: string; score: number };
 const normalise = (value: string) => value.trim().toLocaleLowerCase("en-ZA");
 const RESPONSE_WINDOW_MS = Math.max(60, Number(process.env.MATCH_RESPONSE_WINDOW_SECONDS ?? 300)) * 1000;
-const WAVE_SIZE = Math.max(1, Math.min(25, Number(process.env.MATCH_WAVE_SIZE ?? 5)));
+// Offer one ranked Provider at a time. A decline or response timeout advances to the next
+// eligible Provider; if the ranked shortlist is exhausted, the matching worker retries later.
+const WAVE_SIZE = 1;
 const LIVE_MATCHING_WINDOW_MS = 30 * 60 * 1000;
 const LIVE_LOCATION_MAX_AGE_MS = 30_000;
 const MAX_LIVE_LOCATION_ACCURACY_M = 50;
