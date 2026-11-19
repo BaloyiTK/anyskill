@@ -433,6 +433,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     // A push token is a private delivery address. Never let another account
     // claim it, and serialize first-time claims across API replicas.
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const account = await tx.user.findUnique({
+        where: { id: userId },
+        select: { deletedAt: true, seekerRoleStatus: true, providerRoleStatus: true },
+      });
+      if (!account || account.deletedAt !== null ||
+          (account.seekerRoleStatus === "SUSPENDED" && account.providerRoleStatus === "SUSPENDED")) {
+        throw new ForbiddenException("This account is being closed and cannot register a push device.");
+      }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.expoPushToken}, 2))`;
       const existing = await tx.pushDevice.findUnique({
         where: { expoPushToken: input.expoPushToken },
