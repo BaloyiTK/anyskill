@@ -579,7 +579,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     && data.skillReviewStatuses!.every((skill) => skill.status === "APPROVED");
   // A Provider skill stage stays in review (orange) until every submitted
   // skill has an explicit admin approval. Missing review rows are not approval.
-  const skillsPending = isProvider && skills.length > 0 && !allSkillsApproved;
+  const skillsPending = isProvider && !allSkillsApproved;
   const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, allSkillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
   const pendingStates = isProvider ? [false, !verificationComplete, skillsPending, false] : [false, !verificationComplete, false];
   const reviewForSkill = (category: string) => data.skillReviewStatuses?.find((item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"));
