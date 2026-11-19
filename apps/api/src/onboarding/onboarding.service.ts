@@ -63,7 +63,7 @@ export class OnboardingService {
       for (const qualification of (item.licencesQualifications as unknown[] | undefined) ?? []) {
         const q = qualification as Record<string, unknown>;
         if (!q || typeof q !== "object" || Array.isArray(q) || Object.keys(q).some((key) => !["name", "attachmentUrl", "attachmentName"].includes(key)) || typeof q.name !== "string" || q.name.trim().length < 2 || q.name.length > 200 || typeof q.attachmentUrl !== "string" || q.attachmentUrl.length > 2000) throw new BadRequestException("Each qualification needs a name and attachment reference.");
-        this.assertHttpsUrl(q.attachmentUrl, "Qualification attachment");
+        this.assertAssetId(q.attachmentUrl, "Qualification attachment");
         if (q.attachmentName !== undefined && (typeof q.attachmentName !== "string" || q.attachmentName.length > 255)) throw new BadRequestException("Qualification attachment names must be 255 characters or fewer.");
       }
       if (item.portfolio !== undefined && (!Array.isArray(item.portfolio) || item.portfolio.length > 30)) throw new BadRequestException("Each skill can have up to 30 portfolio items.");
@@ -77,7 +77,10 @@ export class OnboardingService {
         if (work.linkUrl !== undefined && work.linkUrl !== "") this.assertHttpsUrl(work.linkUrl as string, "Portfolio link");
         for (const key of ["links", "imageUrls"]) {
           if (work[key] !== undefined && (!Array.isArray(work[key]) || (work[key] as unknown[]).length > 20 || (work[key] as unknown[]).some((url) => typeof url !== "string" || url.length > 2000))) throw new BadRequestException(`Portfolio ${key} must be a list of valid references.`);
-          for (const url of (work[key] as string[] | undefined) ?? []) this.assertHttpsUrl(url, `Portfolio ${key}`);
+          for (const url of (work[key] as string[] | undefined) ?? []) {
+            if (key === "imageUrls") this.assertAssetId(url, "Portfolio image");
+            else this.assertHttpsUrl(url, "Portfolio link");
+          }
         }
       }
     }
@@ -92,7 +95,44 @@ export class OnboardingService {
       if (typeof work.linkUrl === "string" && work.linkUrl) this.assertHttpsUrl(work.linkUrl, "Portfolio link");
       for (const key of ["links", "imageUrls"]) {
         if (work[key] !== undefined && (!Array.isArray(work[key]) || (work[key] as unknown[]).length > 20 || (work[key] as unknown[]).some((url) => typeof url !== "string" || url.length > 2000))) throw new BadRequestException(`Portfolio ${key} must be a list of valid references.`);
-        for (const url of (work[key] as string[] | undefined) ?? []) this.assertHttpsUrl(url, `Portfolio ${key}`);
+        for (const url of (work[key] as string[] | undefined) ?? []) {
+          if (key === "imageUrls") this.assertAssetId(url, "Portfolio image");
+          else this.assertHttpsUrl(url, "Portfolio link");
+        }
+      }
+    }
+  }
+
+  private assertAssetId(value: string, label: string): void {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+      throw new BadRequestException(`${label} must reference a valid uploaded asset.`);
+    }
+  }
+
+  private async assertOwnedReadyAssets(userId: string, input: SectionInput): Promise<void> {
+    const expected = new Map<string, string>();
+    for (const skill of input.skills ?? []) {
+      const item = skill as Record<string, unknown>;
+      for (const qualification of (item.licencesQualifications as Array<Record<string, unknown>> | undefined) ?? []) {
+        if (typeof qualification.attachmentUrl === "string") expected.set(qualification.attachmentUrl, "PROVIDER_QUALIFICATION");
+      }
+      for (const portfolioItem of (item.portfolio as Array<Record<string, unknown>> | undefined) ?? []) {
+        for (const assetId of (portfolioItem.imageUrls as string[] | undefined) ?? []) expected.set(assetId, "PROVIDER_PORTFOLIO_IMAGE");
+      }
+    }
+    for (const portfolioItem of input.portfolio ?? []) {
+      const item = portfolioItem as Record<string, unknown>;
+      for (const assetId of (item.imageUrls as string[] | undefined) ?? []) expected.set(assetId, "PROVIDER_PORTFOLIO_IMAGE");
+    }
+    if (expected.size === 0) return;
+    const assets = await this.prisma.mediaAsset.findMany({
+      where: { id: { in: [...expected.keys()] }, userId, status: "READY" },
+      select: { id: true, purpose: true },
+    });
+    const found = new Map(assets.map((asset) => [asset.id, asset.purpose]));
+    for (const [assetId, purpose] of expected) {
+      if (found.get(assetId) !== purpose) {
+        throw new BadRequestException("One or more onboarding attachments are unavailable, not ready, or do not belong to this account. Upload them again.");
       }
     }
   }
@@ -170,6 +210,7 @@ export class OnboardingService {
 
   async save(userId: string, input: SectionInput) {
     this.validatePayload(input);
+    await this.assertOwnedReadyAssets(userId, input);
     const data = {
       ...(input.profile !== undefined ? { profile: input.profile as Prisma.InputJsonValue } : {}),
       ...(input.skills !== undefined ? { skills: input.skills as Prisma.InputJsonValue } : {}),
@@ -197,6 +238,7 @@ export class OnboardingService {
       this.get(userId),
       this.prisma.user.findUnique({ where: { id: userId }, select: { initialMode: true } }),
     ]);
+    await this.assertOwnedReadyAssets(userId, { profile: onboarding.profile, skills: onboarding.skills, portfolio: onboarding.portfolio });
     const profile =
       onboarding.profile && typeof onboarding.profile === "object" && !Array.isArray(onboarding.profile)
         ? (onboarding.profile as Record<string, unknown>)
