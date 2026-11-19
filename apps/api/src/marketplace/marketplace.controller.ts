@@ -2,6 +2,7 @@ import {
   BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
 } from "@nestjs/common";
 import { IsOptional, IsUUID } from "class-validator";
+import { Throttle } from "@nestjs/throttler";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MarketplaceAccessGuard, RequireIdentityFor } from "../identity/marketplace-access.guard";
@@ -246,6 +247,7 @@ export class MarketplaceController {
 export class PublicProviderDiscoveryController {
   constructor(private readonly marketplace: MarketplaceService, private readonly places: GooglePlacesService) {}
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get("marketplace/places/autocomplete")
   autocompletePlaces(
     @Query("input") input: string,
@@ -256,6 +258,7 @@ export class PublicProviderDiscoveryController {
     return this.places.autocomplete(input, sessionToken, latitude, longitude);
   }
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get("marketplace/places/reverse-geocode")
   reverseGeocode(
     @Query("latitude") latitude: string,
@@ -264,6 +267,7 @@ export class PublicProviderDiscoveryController {
     return this.places.reverseGeocode(latitude, longitude);
   }
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get("marketplace/places/details/:placeId")
   getPlaceDetails(
     @Param("placeId") placeId: string,
@@ -272,6 +276,7 @@ export class PublicProviderDiscoveryController {
     return this.places.getPlaceDetails(placeId, sessionToken);
   }
 
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get("marketplace/discover/providers")
   discoverProviders(
     @Query("latitude") latitudeValue: string,
