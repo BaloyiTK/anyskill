@@ -368,7 +368,10 @@ export class MarketplaceRolesService {
         orderBy: { category: "asc" },
       });
       const user = await tx.user.findUniqueOrThrow({ where: { id: currentCase.userId },
-        select: { providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } });
+        select: { providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true, deletedAt: true } });
+      if (user.deletedAt !== null || (user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED && user.seekerRoleStatus === MarketplaceRoleStatus.SUSPENDED)) {
+        throw new ConflictException("This account is being closed and cannot receive identity review changes.");
+      }
       const identityStatus = decision === "APPROVED" ? IdentityVerificationStatus.VERIFIED : IdentityVerificationStatus.FAILED;
       const providerActive = decision === "APPROVED" && approvedSkills.length > 0 && user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
       if (providerActive) {
@@ -493,11 +496,15 @@ export class MarketplaceRolesService {
           id: true,
           userId: true,
           status: true,
-          user: { select: { identityVerification: true, providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } },
+          user: { select: { identityVerification: true, providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true, deletedAt: true } },
         },
       });
       if (!currentSkill) throw new NotFoundException("Skill not found.");
       if (currentSkill.userId !== initialSkill.userId) throw new ConflictException("Skill ownership changed. Refresh and try again.");
+      if (currentSkill.user.deletedAt !== null ||
+          (currentSkill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED && currentSkill.user.seekerRoleStatus === MarketplaceRoleStatus.SUSPENDED)) {
+        throw new ConflictException("This account is being closed and cannot receive skill review changes.");
+      }
       if (currentSkill.userId === reviewerId) throw new ForbiddenException("Reviewers cannot approve their own skills.");
       if (currentSkill.status !== "PENDING") throw new ConflictException("This skill has already been decided.");
       if (decision === "APPROVED" && currentSkill.user.identityVerification !== IdentityVerificationStatus.VERIFIED) {
