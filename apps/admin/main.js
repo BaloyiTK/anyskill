@@ -8,6 +8,33 @@ const initials = (value) => String(value || "S").trim().split(/[\s@._-]+/).filte
 const dateLabel = (value) => value ? new Intl.DateTimeFormat("en-ZA", { dateStyle: "medium" }).format(new Date(value)) : "Date unavailable";
 const messageOf = (payload) => typeof payload?.message === "string" ? payload.message : Array.isArray(payload?.message) ? payload.message.join(", ") : "The request could not be completed.";
 
+async function requestBlob(path) {
+  const headers = new Headers();
+  if (state.accessToken) headers.set("Authorization", `Bearer ${state.accessToken}`);
+  let response = await fetch(`${state.api}${path}`, { headers, cache: "no-store" });
+  if (response.status === 401 && state.refreshToken) {
+    const refreshed = await fetch(`${state.api}/auth/refresh`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken: state.refreshToken }),
+    });
+    if (refreshed.ok) {
+      const tokens = await refreshed.json();
+      state.accessToken = tokens.accessToken;
+      state.refreshToken = tokens.refreshToken;
+      headers.set("Authorization", `Bearer ${state.accessToken}`);
+      response = await fetch(`${state.api}${path}`, { headers, cache: "no-store" });
+    } else {
+      signOut(false);
+      throw new Error("Your session expired. Please sign in again.");
+    }
+  }
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(messageOf(payload));
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
 async function request(path, options = {}) {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
@@ -180,7 +207,17 @@ function openSeparateReview(type,id){
  if(type==="identity"){
   $("#review-title").textContent="Review identity documents";$("#review-subtitle").textContent=(item.user?.email||"Account")+" · Submitted "+dateLabel(item.submittedAt);
   const labels={ID_DOCUMENT_FRONT:"Smart ID — front",ID_DOCUMENT_BACK:"Smart ID — back",ID_BOOK_PAGE_1:"Green ID book — details page",ID_BOOK_PAGE_2:"Green ID book — second page",ID_SELFIE:"Live selfie"};
-  $("#review-details").innerHTML='<div class="evidence-grid">'+Object.entries(labels).map(([key,label])=>item.documents?.[key]?'<div class="evidence-item"><span>'+escapeHtml(label)+'</span><a href="'+escapeHtml(item.documents[key])+'" target="_blank" rel="noopener noreferrer"><img src="'+escapeHtml(item.documents[key])+'" alt="'+escapeHtml(label)+'" loading="lazy"></a></div>':'<div class="evidence-item evidence-missing"><span>'+escapeHtml(label)+'</span><small>Not available</small></div>').join("")+'</div>';
+  $("#review-details").innerHTML='<div class="evidence-grid">'+Object.entries(labels).map(([key,label])=>item.documents?.[key]?'<div class="evidence-item"><span>'+escapeHtml(label)+'</span><div data-identity-image="'+escapeHtml(key)+'">Loading securely…</div></div>':'<div class="evidence-item evidence-missing"><span>'+escapeHtml(label)+'</span><small>Not available</small></div>').join("")+'</div>';
+  for (const [key,label] of Object.entries(labels)) {
+   if (!item.documents?.[key]) continue;
+   const slot=$("#review-details [data-identity-image='"+key+"']");
+   try {
+    const url=await requestBlob("/admin/identity-reviews/"+encodeURIComponent(id)+"/documents/"+encodeURIComponent(key));
+    state.identityObjectUrls ||= [];
+    state.identityObjectUrls.push(url);
+    if(slot) slot.innerHTML='<a href="'+url+'" target="_blank" rel="noopener noreferrer"><img src="'+url+'" alt="'+escapeHtml(label)+'" loading="lazy" referrerpolicy="no-referrer"></a>';
+   } catch(error) { if(slot) slot.textContent="Document unavailable: "+error.message; }
+  }
   $("#approve-application").textContent="Verify identity";$("#reject-application").textContent="Reject identity";$("#approve-application").disabled=false;
  }else{
   const d=item.details&&typeof item.details==="object"?item.details:{},q=Array.isArray(d.licencesQualifications)?d.licencesQualifications:[],p=Array.isArray(d.portfolio)?d.portfolio:[];
@@ -245,6 +282,6 @@ $("#staff-list").addEventListener("change",event=>{const el=event.target.closest
 $("#staff-list").addEventListener("click",event=>{const el=event.target.closest("[data-staff-toggle]");if(el)void updateStaffMember(el.dataset.staffToggle,{isActive:el.dataset.active!=="true"});});
 $("#decision-form").addEventListener("submit",event=>{event.preventDefault();void decideSeparateReview("APPROVED");});
 $("#reject-application").addEventListener("click",()=>void decideSeparateReview("REJECTED"));
-$("#close-modal").addEventListener("click",()=>hide($("#review-modal")));
-$("#review-modal").addEventListener("click",event=>{if(event.target===$("#review-modal"))hide($("#review-modal"));});
+$("#close-modal").addEventListener("click",()=>{hide($("#review-modal"));for(const url of state.identityObjectUrls||[])URL.revokeObjectURL(url);state.identityObjectUrls=[];});
+$("#review-modal").addEventListener("click",event=>{if(event.target===$("#review-modal")){hide($("#review-modal"));for(const url of state.identityObjectUrls||[])URL.revokeObjectURL(url);state.identityObjectUrls=[];}});
 document.addEventListener("keydown",event=>{if(event.key==="Escape")hide($("#review-modal"));});
