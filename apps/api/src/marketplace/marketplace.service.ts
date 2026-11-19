@@ -322,50 +322,49 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException("Provide valid coordinates and a supported map radius (5, 10, 20 or 50 km).");
     }
 
-    // Discovery is independent of service-request matching. Show online
-    // Providers within the Seeker's selected map radius. Do not filter by skill,
-    // identity status, Provider role status, or delivery mode.
-    // A map pin is live only while the provider has refreshed it recently.
+    // Use the existing PostGIS geography index instead of loading every online
+    // Provider profile into application memory. A hard result cap bounds query
+    // cost and response size for public discovery.
     const cutoff = new Date(Date.now() - LIVE_LOCATION_MAX_AGE_MS);
-    const profiles = await this.prisma.providerProfile.findMany({
-      where: {
-        isAvailable: true,
-        liveLatitude: { not: null },
-        liveLongitude: { not: null },
-        liveLocationUpdatedAt: { gte: cutoff },
-        liveAccuracyM: { lte: MAX_LIVE_LOCATION_ACCURACY_M },
-      },
-      select: {
-        id: true,
-        skillCategories: true,
-        liveLatitude: true,
-        liveLongitude: true,
-      },
-      orderBy: { liveLocationUpdatedAt: "desc" },
-    });
+    const profiles = await this.prisma.$queryRaw<Array<{
+      id: string;
+      skillCategories: string[];
+      liveLatitude: number;
+      liveLongitude: number;
+      distanceKm: number;
+    }>>\`
+      SELECT
+        p.id,
+        p.skill_categories AS "skillCategories",
+        p.live_latitude AS "liveLatitude",
+        p.live_longitude AS "liveLongitude",
+        ST_Distance(
+          ST_SetSRID(ST_MakePoint(p.live_longitude, p.live_latitude), 4326)::geography,
+          ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography
+        ) / 1000.0 AS "distanceKm"
+      FROM provider_profiles p
+      WHERE p.is_available = TRUE
+        AND p.live_latitude IS NOT NULL
+        AND p.live_longitude IS NOT NULL
+        AND p.live_location_updated_at >= ${cutoff}
+        AND p.live_accuracy_m <= ${MAX_LIVE_LOCATION_ACCURACY_M}
+        AND ST_DWithin(
+          ST_SetSRID(ST_MakePoint(p.live_longitude, p.live_latitude), 4326)::geography,
+          ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography,
+          ${seekerRadiusKm} * 1000.0
+        )
+      ORDER BY "distanceKm" ASC
+      LIMIT 200
+    \`;
 
-    const radians = (degrees: number) => degrees * Math.PI / 180;
-    const distanceKm = (lat: number, lon: number) => {
-      const dLat = radians(lat - latitude);
-      const dLon = radians(lon - longitude);
-      const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(radians(latitude)) * Math.cos(radians(lat)) * Math.sin(dLon / 2) ** 2;
-      return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
-
-    return profiles.flatMap((profile) => {
-      if (profile.liveLatitude == null || profile.liveLongitude == null) return [];
-      const distance = distanceKm(profile.liveLatitude, profile.liveLongitude);
-      if (distance > seekerRadiusKm) return [];
-      return [{
-        id: profile.id,
-        skill: profile.skillCategories[0] || "Skill not added",
-        distanceKm: Math.round(distance * 10) / 10,
-        // Approximately 100 m precision is sufficient for a public discovery pin.
-        latitude: Math.round(profile.liveLatitude * 1000) / 1000,
-        longitude: Math.round(profile.liveLongitude * 1000) / 1000,
-      }];
-    });
+    return profiles.map((profile) => ({
+      id: profile.id,
+      skill: profile.skillCategories[0] || "Skill not added",
+      distanceKm: Math.round(profile.distanceKm * 10) / 10,
+      // Approximately 100 m precision is sufficient for a public discovery pin.
+      latitude: Math.round(profile.liveLatitude * 1000) / 1000,
+      longitude: Math.round(profile.liveLongitude * 1000) / 1000,
+    }));
   }
 
   async registerPushDevice(userId: string, input: RegisterPushDeviceDto) {
