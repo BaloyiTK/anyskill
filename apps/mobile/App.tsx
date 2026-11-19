@@ -21,13 +21,17 @@ import { WelcomeScreen } from "./src/WelcomeScreen";
 import { stopProviderLocationUpdates } from "./src/provider-location";
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data as { type?: string };
+    const matchedRequest = data.type === "MATCHED_REQUEST";
+    return {
+      shouldShowAlert: !matchedRequest,
+      shouldShowBanner: !matchedRequest,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 async function configureIncomingRequestNotifications() {
