@@ -1606,7 +1606,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async dispatchPendingNotifications() {
     const pending = await this.prisma.appNotification.findMany({
       where: { deliveryStatus: "PENDING", attempts: { lt: 5 }, nextAttemptAt: { lte: new Date() } },
-      take: 25,
+      take: 10,
       orderBy: { createdAt: "asc" },
       select: { id: true, userId: true },
     });
@@ -1756,12 +1756,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
     const receipts = await this.prisma.pushNotificationReceipt.findMany({
       where: { status: "PENDING", createdAt: { lte: receiptCutoff } },
-      take: 300,
+      take: 100,
       orderBy: { createdAt: "asc" },
       select: { id: true, expoTicketId: true, pushDeviceId: true },
     });
-    for (let offset = 0; offset < receipts.length; offset += 300) {
-      const batch = receipts.slice(offset, offset + 300);
+    for (let offset = 0; offset < receipts.length; offset += 100) {
+      const batch = receipts.slice(offset, offset + 100);
       try {
         const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
           method: "POST",
