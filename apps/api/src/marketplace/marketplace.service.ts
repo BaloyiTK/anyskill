@@ -1523,13 +1523,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { deliveryStatus: "PENDING", attempts: { lt: 5 }, nextAttemptAt: { lte: new Date() } },
       take: 25,
       orderBy: { createdAt: "asc" },
-      select: { id: true },
+      select: { id: true, userId: true },
     });
+    // Process at most one notification per account in a cycle so one noisy
+    // account cannot monopolize the worker's per-user deletion lock.
+    const uniquePending = [...new Map(pending.map((item) => [item.userId, item])).values()];
 
     // Bounded concurrency keeps notification throughput useful without
     // allowing a slow Expo response to hold the worker cycle indefinitely.
-    for (let offset = 0; offset < pending.length; offset += 5) {
-      const batch = pending.slice(offset, offset + 5);
+    for (let offset = 0; offset < uniquePending.length; offset += 5) {
+      const batch = uniquePending.slice(offset, offset + 5);
       await Promise.all(batch.map(async (item) => {
         await this.prisma.$transaction(async (tx) => {
         const candidate = await tx.appNotification.findUnique({
