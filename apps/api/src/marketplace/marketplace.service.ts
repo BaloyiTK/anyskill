@@ -766,10 +766,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (!job || (job.seekerId !== userId && job.providerId !== userId)) {
       throw new ForbiddenException("Only the Seeker and selected Provider can access this service chat.");
     }
-    return this.prisma.serviceChatMessage.findMany({
+    const messages = await this.prisma.serviceChatMessage.findMany({
       where: { requestId }, orderBy: { createdAt: "asc" }, take: 200,
       select: { id: true, senderId: true, body: true, createdAt: true },
     });
+    return messages.map((message) => ({ ...message, isMine: message.senderId === userId }));
   }
 
   async sendServiceChatMessage(userId: string, requestId: string, body: string) {
