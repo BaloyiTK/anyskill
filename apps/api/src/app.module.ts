@@ -8,6 +8,7 @@ import { HealthController } from "./health/health.controller";
 import { IdentityModule } from "./identity/identity.module";
 import { MarketplaceModule } from "./marketplace/marketplace.module";
 import { OnboardingModule } from "./onboarding/onboarding.module";
+import { PaymentsModule } from "./payments/payments.module";
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { OnboardingModule } from "./onboarding/onboarding.module";
     IdentityModule,
     MarketplaceModule,
     OnboardingModule,
+    PaymentsModule,
     ThrottlerModule.forRootAsync({
       useFactory: async () => {
         const redisConfigured = Boolean(
