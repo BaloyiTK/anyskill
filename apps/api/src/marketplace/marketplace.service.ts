@@ -364,7 +364,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         take: 21,
         ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
         select: {
-          id: true, title: true, skillCategory: true, description: true,
+          id: true, seekerId: true, title: true, skillCategory: true, description: true,
           imageUrls: true, location: true, latitude: true, longitude: true,
           deliveryMode: true, preferredStartAt: true, instructions: true,
           status: true, createdAt: true,
