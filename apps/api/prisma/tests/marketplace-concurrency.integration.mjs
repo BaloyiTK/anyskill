@@ -285,6 +285,7 @@ test("Provider GPS heartbeat cannot race an identity rejection and leave locatio
 
 test("Provider declines expire only their own invitation and advance after the final unanswered match", async () => {
   const fixture = await createFixture(2);
+  await prisma.providerResponse.deleteMany({ where: { requestId: fixture.requestId } });
   const matches = [];
   for (const response of fixture.responses) {
     matches.push(await prisma.requestMatch.create({
@@ -322,6 +323,7 @@ test("Provider declines expire only their own invitation and advance after the f
 test("a Provider cannot accept an invitation after it has been declined or expired", async () => {
   const fixture = await createFixture(1);
   const response = fixture.responses[0];
+  await prisma.providerResponse.deleteMany({ where: { requestId: fixture.requestId, providerId: response.providerId } });
   await prisma.requestMatch.create({
     data: { requestId: fixture.requestId, providerId: response.providerId, status: "EXPIRED", wave: 1, score: 0 },
   });
