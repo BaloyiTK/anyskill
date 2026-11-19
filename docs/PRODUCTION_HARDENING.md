@@ -32,9 +32,9 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 ## P1 — Data integrity and marketplace lifecycle
 
-- [ ] Audit all JobEngagement state transitions for conditional writes and transaction boundaries.
+- [x] Audit and serialize JobEngagement lifecycle transitions. Estimate submission/decision, work start/pause/resume, additional-hours request/decision, and completion submission/decision now acquire the same PostgreSQL transaction-scoped engagement lock before reading state and writing outcomes.
 - [ ] Add database constraints for impossible states and unique business invariants.
-- [ ] Test completion evidence ownership, estimate/extra-hours approval races, timer pause/resume races, and review uniqueness.
+- [x] Add PostgreSQL concurrency integration tests for competing estimate submissions, duplicate pending additional-hours requests, and competing completion decisions. Completion evidence ownership, timer pause/resume race coverage, and review uniqueness remain additional test cases.
 - [ ] Verify cancellation/withdrawal behavior does not leave active matches or engagements behind.
 
 ## P1 — API and infrastructure
@@ -105,6 +105,8 @@ Both processes must use the same production database and compatible environment 
 4. The approved PayGate payment workflow is documented but not implemented. Merchant capabilities and sandbox credentials are unconfirmed. Do not accept live payments or describe payment/settlement as production-ready.
 5. Production throttling now uses atomic Upstash Redis REST storage and explicit trusted-proxy hop configuration. The deployment must provide valid `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, and the correct `TRUST_PROXY_HOPS`; route-by-route authorization and expanded replay/race tests remain outstanding.
 6. Load, soak, worker crash/restart, multi-replica, provider outage, backup/restore, and staging recovery tests have not been demonstrated.
+
+8. Job lifecycle state transitions now serialize by request ID using PostgreSQL transaction-scoped advisory locks. The lock is acquired before reading the engagement state and is held through the transaction, preventing concurrent estimate overwrites, duplicate pending extra-hours requests, timer state races, and competing completion decisions across API replicas. Integration tests for estimate, extra-hours, and completion races have been added and are awaiting CI.
 
 7. Public Google Places autocomplete, place-details, reverse-geocoding, and provider-discovery endpoints now have explicit per-IP throttles. Google Places and Geocoding outbound requests have a five-second timeout and return bounded gateway errors. Other outbound integrations still require a complete timeout/retry audit.
 
