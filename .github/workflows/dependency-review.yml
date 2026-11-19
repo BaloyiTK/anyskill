@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   dependency-review:
+    if: vars.DEPENDENCY_GRAPH_ENABLED == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Review dependency changes
