@@ -23,7 +23,7 @@ export interface CreatePaymentOperationInput {
 }
 
 
-export interface RecordChecksumVerifiedPayGateNotifyInput {
+export interface RecordPayGateNotifyInboxInput {
   providerEventId: string;
   rawPayload: string;
   payload: {
@@ -123,11 +123,13 @@ export class PaymentsService {
   }
 
   /**
-   * Persists a PayWeb3 notification only after the caller has validated the
-   * PayGate CHECKSUM. The normalized allowlist intentionally excludes VAULT_ID
-   * and other token material. This method is not an HTTP endpoint.
+   * Persists an unverified PayWeb3 notification envelope. This method checks
+   * form shape and normalized-field consistency, but deliberately does NOT
+   * validate CHECKSUM. signatureVerified remains false so no payment result
+   * can be trusted or processed until a merchant-confirmed verifier is added.
+   * The normalized allowlist excludes VAULT_ID and other token material.
    */
-  async recordChecksumVerifiedPayGateNotify(input: RecordChecksumVerifiedPayGateNotifyInput) {
+  async recordPayGateNotifyInboxEvent(input: RecordPayGateNotifyInboxInput) {
     if (!/^[A-Za-z0-9._:-]{1,255}$/.test(input.providerEventId)
       || !input.rawPayload
       || Buffer.byteLength(input.rawPayload, "utf8") > 65_536) {
@@ -210,7 +212,7 @@ export class PaymentsService {
           providerEventId: input.providerEventId,
           payloadHash,
           normalizedPayload,
-          signatureVerified: true,
+          signatureVerified: false,
           status: "RECEIVED",
         },
       });
