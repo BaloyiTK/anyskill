@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards, StreamableFile } from "@nestjs/common";
 import { RegistrationMode, StaffRole } from "@prisma/client";
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
@@ -119,6 +119,22 @@ export class MarketplaceRolesController {
   @RequireStaffRole(StaffRole.IDENTITY_REVIEWER)
   listIdentityReviews(@CurrentUser() user: AuthenticatedUser) {
     return this.roles.listIdentityReviews(user.id);
+  }
+
+  @Get("admin/identity-reviews/:caseId/documents/:purpose")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.IDENTITY_REVIEWER)
+  async getIdentityReviewDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("caseId", new ParseUUIDPipe()) caseId: string,
+    @Param("purpose") purpose: string,
+  ) {
+    const document = await this.roles.getIdentityDocumentForReviewer(user.id, caseId, purpose);
+    return new StreamableFile(document.bytes, {
+      type: document.contentType,
+      disposition: "inline",
+      length: document.bytes.length,
+    });
   }
 
   @Post("admin/identity-reviews/:caseId/decision")
