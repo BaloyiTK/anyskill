@@ -87,5 +87,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
 
+      - name: Test incoming request actions
+        run: pnpm --filter @anyskill/api test:marketplace-incoming-actions
+
       - name: Type-check all workspaces
         run: pnpm typecheck
