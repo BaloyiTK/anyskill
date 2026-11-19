@@ -495,6 +495,8 @@ model JobCostAdjustment {
 model JobCompletionSubmission {
   id             String                           @id @default(uuid()) @db.Uuid
   engagementId   String                           @db.Uuid @map("engagement_id")
+  idempotencyKey String?                          @db.VarChar(100) @map("idempotency_key")
+  idempotencyPayloadHash String?                  @db.Char(64) @map("idempotency_payload_hash")
   providerId     String?                          @db.Uuid @map("provider_id")
   notes          String                           @db.VarChar(3000)
   evidenceUrls   String[]                         @default([]) @map("evidence_urls")
@@ -504,6 +506,7 @@ model JobCompletionSubmission {
   submittedAt    DateTime                         @default(now()) @map("submitted_at")
   reviewedAt     DateTime?                        @map("reviewed_at")
   engagement     JobEngagement                    @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  @@unique([engagementId, idempotencyKey])
   @@index([engagementId, status, submittedAt])
   @@map("job_completion_submissions")
 }
