@@ -168,6 +168,8 @@ model User {
   staffTargets              StaffAuditLog[]             @relation("StaffAuditTarget")
   providerReviewsReceived   ProviderReview[]             @relation("ProviderReviewsReceived")
   providerReviewsGiven      ProviderReview[]             @relation("ProviderReviewsGiven")
+  seekerReviewsReceived     SeekerReview[]                @relation("SeekerReviewsReceived")
+  seekerReviewsGiven        SeekerReview[]                @relation("SeekerReviewsGiven")
 
   @@index([identityVerification])
   @@map("users")
@@ -417,9 +419,27 @@ model JobEngagement {
   adjustments         JobCostAdjustment[]
   completionSubmissions JobCompletionSubmission[]
   review                ProviderReview?
+  seekerReview          SeekerReview?
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@map("job_engagements")
+}
+
+model SeekerReview {
+  id           String        @id @default(uuid()) @db.Uuid
+  engagementId String        @unique @db.Uuid @map("engagement_id")
+  providerId   String        @db.Uuid @map("provider_id")
+  seekerId     String        @db.Uuid @map("seeker_id")
+  rating       Int
+  comment      String?       @db.VarChar(1500)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  engagement  JobEngagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  provider    User          @relation("SeekerReviewsGiven", fields: [providerId], references: [id], onDelete: Cascade)
+  seeker      User          @relation("SeekerReviewsReceived", fields: [seekerId], references: [id], onDelete: Cascade)
+
+  @@index([seekerId, createdAt])
+  @@index([providerId, createdAt])
+  @@map("seeker_reviews")
 }
 
 model JobCostAdjustment {
