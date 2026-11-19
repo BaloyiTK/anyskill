@@ -392,14 +392,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
     });
   }
-    return this.prisma.pushDevice.upsert({
-      where: { expoPushToken: input.expoPushToken },
-      create: { userId, expoPushToken: input.expoPushToken, platform: input.platform },
-      update: { userId, platform: input.platform, lastSeenAt: new Date() },
-      select: { id: true, platform: true, lastSeenAt: true },
-    });
-  }
-
   async listNotifications(userId: string) {
     return this.prisma.appNotification.findMany({
       where: { userId },
