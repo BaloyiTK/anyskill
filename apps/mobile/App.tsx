@@ -95,6 +95,7 @@ export default function App() {
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [pendingIncomingPushId, setPendingIncomingPushId] = useState<string | null>(null);
   const [activeIncomingRequestId, setActiveIncomingRequestId] = useState<string | null>(null);
+  const handledNotificationResponses = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   // AuthSession is global: prevent sign-in and account-link flows from overlapping.
   const googleAuthInProgress = useRef(false);
@@ -363,6 +364,55 @@ export default function App() {
     setPendingIncomingPushId(requestId);
   };
 
+  const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+    const data = response.notification.request.content.data as { type?: string; requestId?: string };
+    const responseKey = response.notification.request.identifier + ":" + response.actionIdentifier;
+    if (handledNotificationResponses.current.has(responseKey)) return;
+    handledNotificationResponses.current.add(responseKey);
+    if (handledNotificationResponses.current.size > 100) {
+      const oldest = handledNotificationResponses.current.values().next().value;
+      if (oldest) handledNotificationResponses.current.delete(oldest);
+    }
+
+    if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
+      const requestId = data.requestId;
+      if (response.actionIdentifier === "ACCEPT_REQUEST") {
+        void apiRequest("/marketplace/requests/" + requestId + "/accept", {
+          method: "POST",
+          body: JSON.stringify({}),
+        }, true).then(() => {
+          setActiveIncomingRequestId(null);
+          setPendingAcceptRequestId(requestId);
+          setActiveTab("home");
+          setMode("provider");
+          setScreen("marketplace");
+        }).catch((e) => {
+          setError(e instanceof Error ? e.message : "Could not accept this request.");
+          openMatchedRequest(requestId);
+        });
+        return;
+      }
+      if (response.actionIdentifier === "DECLINE_REQUEST") {
+        void apiRequest("/marketplace/requests/" + requestId + "/decline", {
+          method: "POST",
+        }, true).then(() => {
+          setActiveIncomingRequestId(null);
+          setPendingAcceptRequestId(null);
+          setMessage("Request declined.");
+        }).catch((e) => {
+          setError(e instanceof Error ? e.message : "Could not decline this request.");
+          openMatchedRequest(requestId);
+        });
+        return;
+      }
+      openMatchedRequest(requestId);
+      return;
+    }
+    setActiveTab("notifications");
+    setScreen("dashboard");
+    void loadNotifications();
+  };
+
   useEffect(() => {
     if (!account || roleSummary?.providerStatus !== "ACTIVE" || !pendingIncomingPushId) return;
     if (!["dashboard", "onboarding", "marketplace"].includes(screen)) return;
@@ -411,51 +461,9 @@ export default function App() {
         void openMatchedRequest(data.requestId);
       }
     });
-    const response = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as { type?: string; requestId?: string };
-      if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
-        const requestId = data.requestId;
-        if (response.actionIdentifier === "ACCEPT_REQUEST") {
-          void apiRequest("/marketplace/requests/" + requestId + "/accept", {
-            method: "POST",
-            body: JSON.stringify({}),
-          }, true).then(() => {
-            setActiveIncomingRequestId(null);
-            setPendingAcceptRequestId(requestId);
-            setActiveTab("home");
-            setMode("provider");
-            setScreen("marketplace");
-          }).catch((e) => {
-            setError(e instanceof Error ? e.message : "Could not accept this request.");
-            openMatchedRequest(requestId);
-          });
-          return;
-        }
-        if (response.actionIdentifier === "DECLINE_REQUEST") {
-          void apiRequest("/marketplace/requests/" + requestId + "/decline", {
-            method: "POST",
-          }, true).then(() => {
-            setActiveIncomingRequestId(null);
-            setPendingAcceptRequestId(null);
-            setMessage("Request declined.");
-          }).catch((e) => {
-            setError(e instanceof Error ? e.message : "Could not decline this request.");
-            openMatchedRequest(requestId);
-          });
-          return;
-        }
-        void openMatchedRequest(requestId);
-        return;
-      }
-      setActiveTab("notifications");
-      setScreen("dashboard");
-      void loadNotifications();
-    });
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      const data = response?.notification.request.content.data as { type?: string; requestId?: string } | undefined;
-      if (data?.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
-        void openMatchedRequest(data.requestId);
-      }
+    const response = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    void Notifications.getLastNotificationResponseAsync().then((lastResponse) => {
+      if (lastResponse) handleNotificationResponse(lastResponse);
     }).catch(() => undefined);
     return () => { received.remove(); response.remove(); };
   }, [account?.id, roleSummary?.providerStatus]);
