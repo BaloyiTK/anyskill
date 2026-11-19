@@ -55,7 +55,7 @@ function writeErrorLog(entry: Record<string, unknown>): void {
   if (process.env.NODE_ENV === "production") {
     // Container platforms collect stdout/stderr. Never rely on ephemeral
     // filesystem logs in production; emit one redacted JSON record per line.
-    process.stderr.write(`${JSON.stringify(entry)}\\n`);
+    process.stderr.write(JSON.stringify(entry) + String.fromCharCode(10));
     return;
   }
 
