@@ -1693,58 +1693,61 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const attempts = notification.attempts + 1;
         const retryDelayMs = Math.min(5 * 60_000, 5_000 * (2 ** Math.max(0, attempts - 1)));
         try {
-          const response = await fetch("https://exp.host/--/api/v2/push/send", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
-            signal: AbortSignal.timeout(15_000),
-            body: JSON.stringify(devices.map((device) => ({
-              to: device.expoPushToken,
-              title: notification.title,
-              body: notification.body,
-              data: notification.data ?? {},
-              sound: "default",
-              priority: "high",
-              channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
-                ? "incoming_requests"
-                : "default",
-            }))),
-          });
-          if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
-          const payload = await response.json() as {
-            data?: Array<{ status?: string; id?: string; message?: string; details?: { error?: string } }>;
-          };
-          const tickets = payload.data ?? [];
-          if (tickets.length !== devices.length) {
-            throw new Error(`Expo returned ${tickets.length} ticket(s) for ${devices.length} device(s).`);
-          }
-
-          const receiptRows: Array<{ notificationId: string; pushDeviceId: string; expoTicketId: string }> = [];
-          const invalidDeviceIds: string[] = [];
+          // Expo accepts at most 100 messages per send request. Persist each
+          // batch's accepted tickets before sending the next batch so a timeout
+          // later in the sequence cannot cause already-accepted pushes to be
+          // sent again when this notification is retried.
           let transientTicketErrors = 0;
-          for (const [index, ticket] of tickets.entries()) {
-            const device = devices[index];
-            if (!device) {
-              transientTicketErrors += 1;
-              this.logger.error(`Expo returned an unmatched ticket at index ${index} for notification ${notification.id}.`);
-              continue;
+          for (let offset = 0; offset < devices.length; offset += 100) {
+            const batch = devices.slice(offset, offset + 100);
+            const response = await fetch("https://exp.host/--/api/v2/push/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
+              signal: AbortSignal.timeout(15_000),
+              body: JSON.stringify(batch.map((device) => ({
+                to: device.expoPushToken,
+                title: notification.title,
+                body: notification.body,
+                data: notification.data ?? {},
+                sound: "default",
+                priority: "high",
+                channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
+                  ? "incoming_requests"
+                  : "default",
+              }))),
+            });
+            if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
+            const payload = await response.json() as {
+              data?: Array<{ status?: string; id?: string; message?: string; details?: { error?: string } }>;
+            };
+            const tickets = payload.data ?? [];
+            if (tickets.length !== batch.length) {
+              throw new Error(`Expo returned ${tickets.length} ticket(s) for ${batch.length} device(s).`);
             }
-            if (ticket.status === "ok" && ticket.id) {
-              receiptRows.push({ notificationId: notification.id, pushDeviceId: device.id, expoTicketId: ticket.id });
-            } else if (ticket.details?.error === "DeviceNotRegistered") {
-              invalidDeviceIds.push(device.id);
-            } else {
-              transientTicketErrors += 1;
-              this.logger.warn(`Expo rejected push for device ${device.id}: ${ticket.message ?? ticket.details?.error ?? "unknown ticket error"}`);
-            }
-          }
 
-          if (receiptRows.length) {
-            await tx.pushNotificationReceipt.createMany({ data: receiptRows, skipDuplicates: true });
+            const receiptRows: Array<{ notificationId: string; pushDeviceId: string; expoTicketId: string }> = [];
+            const invalidDeviceIds: string[] = [];
+            for (const [index, ticket] of tickets.entries()) {
+              const device = batch[index];
+              if (ticket.status === "ok" && ticket.id) {
+                receiptRows.push({ notificationId: notification.id, pushDeviceId: device.id, expoTicketId: ticket.id });
+                alreadyTicketed.add(device.id);
+              } else if (ticket.details?.error === "DeviceNotRegistered") {
+                invalidDeviceIds.push(device.id);
+              } else {
+                transientTicketErrors += 1;
+                this.logger.warn(`Expo rejected push for device ${device.id}: ${ticket.message ?? ticket.details?.error ?? "unknown ticket error"}`);
+              }
+            }
+
+            if (receiptRows.length) {
+              await tx.pushNotificationReceipt.createMany({ data: receiptRows, skipDuplicates: true });
+            }
+            if (invalidDeviceIds.length) {
+              await tx.pushDevice.deleteMany({ where: { id: { in: invalidDeviceIds }, userId: notification.userId } });
+            }
           }
-          if (invalidDeviceIds.length) {
-            await tx.pushDevice.deleteMany({ where: { id: { in: invalidDeviceIds }, userId: notification.userId } });
-          }
-          const hasAcceptedTicket = receiptRows.length > 0 || existingReceipts.length > 0;
+          const hasAcceptedTicket = alreadyTicketed.size > 0;
           await tx.appNotification.updateMany({
             where: { id: notification.id, userId: notification.userId, deliveryStatus: "SENDING" },
             data: {
