@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiRequest } from "./api";
 
-type IncomingRequest = { id: string; title: string; skillCategory: string; description: string; deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null; createdAt: string; alreadyResponded: boolean };
 import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
+
+type IncomingRequest = { id: string; title: string; skillCategory: string; description: string; deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null; alreadyResponded: boolean };
 
 type ProviderProfile = {
   publicName: string;
