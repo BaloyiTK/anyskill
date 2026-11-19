@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards, StreamableFile } from "@nestjs/common";
 import { RegistrationMode, StaffRole } from "@prisma/client";
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { Throttle } from "@nestjs/throttler";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MarketplaceRolesService, ProviderApplicationInput } from "./marketplace-roles.service";
@@ -122,6 +123,7 @@ export class MarketplaceRolesController {
   }
 
   @Get("admin/identity-reviews/:caseId/documents/:purpose")
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @UseGuards(StaffAccessGuard)
   @RequireStaffRole(StaffRole.IDENTITY_REVIEWER)
   async getIdentityReviewDocument(
