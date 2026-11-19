@@ -600,6 +600,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (!request) throw new NotFoundException("This service request could not be found.");
       if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
+      const matchedProviders = await tx.requestMatch.findMany({
+        where: { requestId, status: { in: ["NOTIFIED", "RESPONDED"] }, providerId: { not: null } },
+        select: { providerId: true },
+      });
       const changed = await tx.serviceRequest.updateMany({
         where: { id: requestId, seekerId, status: "OPEN" },
         data: { status: "CANCELLED", matchingNextAt: null },
@@ -613,6 +617,17 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { requestId, status: "OFFERED" },
         data: { status: "WITHDRAWN" },
       });
+      const providerIds = [...new Set(matchedProviders.map((match) => match.providerId).filter((id): id is string => Boolean(id)))];
+      if (providerIds.length > 0) {
+        await tx.appNotification.createMany({
+          data: providerIds.map((providerId) => ({
+            userId: providerId,
+            title: "Service request cancelled",
+            body: "The Skill Seeker has cancelled this service request. No further action is required.",
+            data: { type: "REQUEST_CANCELLED", requestId },
+          })),
+        });
+      }
       return { success: true, requestId, status: "CANCELLED" };
     });
   }
