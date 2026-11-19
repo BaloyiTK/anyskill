@@ -319,16 +319,31 @@ export function MarketplaceScreen(p: Props) {
           headers: { "Idempotency-Key": idempotencyKey },
           body: JSON.stringify(uploadPayload),
         }, true);
-        if (!reservation.alreadyUploaded) {
-          const body = new FormData();
-          body.append("file", { uri: file.uri, name: fileName, type: mime } as unknown as Blob);
-          body.append("api_key", reservation.apiKey!); body.append("timestamp", String(reservation.timestamp)); body.append("signature", reservation.signature!);
-          body.append("public_id", reservation.publicId!); body.append("asset_folder", reservation.assetFolder!);
-          body.append("overwrite", "false"); body.append("unique_filename", "false"); body.append("use_filename", "false");
-          const uploaded = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated", { method: "POST", body });
-          if (!uploaded.ok) { const detail = await uploaded.json().catch(() => ({})); throw new Error(detail.error?.message ?? "Cloudinary upload failed."); }
+        let confirmed = false;
+        try {
+          await apiRequest("/marketplace/media/uploads/confirm", {
+            method: "POST", body: JSON.stringify({ assetId: reservation.assetId }),
+          }, true);
+          confirmed = true;
+        } catch (confirmError) {
+          const imageNotUploaded = confirmError instanceof Error
+            && confirmError.message.includes("Cloudinary has not received this image.");
+          if (!imageNotUploaded || reservation.alreadyUploaded) throw confirmError;
         }
-        await apiRequest("/marketplace/media/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
+        if (!confirmed) {
+          if (!reservation.alreadyUploaded) {
+            const body = new FormData();
+            body.append("file", { uri: file.uri, name: fileName, type: mime } as unknown as Blob);
+            body.append("api_key", reservation.apiKey!); body.append("timestamp", String(reservation.timestamp)); body.append("signature", reservation.signature!);
+            body.append("public_id", reservation.publicId!); body.append("asset_folder", reservation.assetFolder!);
+            body.append("overwrite", "false"); body.append("unique_filename", "false"); body.append("use_filename", "false");
+            const uploaded = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated", { method: "POST", body });
+            if (!uploaded.ok) { const detail = await uploaded.json().catch(() => ({})); throw new Error(detail.error?.message ?? "Cloudinary upload failed."); }
+          }
+          await apiRequest("/marketplace/media/uploads/confirm", {
+            method: "POST", body: JSON.stringify({ assetId: reservation.assetId }),
+          }, true);
+        }
         await clearIdempotencyKey(idempotencyStorageKey);
         setCompletionEvidenceAssets((current) => [...current, { id: reservation.assetId, name: fileName, uri: file.uri, contentType: mime, sizeBytes: size }]);
       }
