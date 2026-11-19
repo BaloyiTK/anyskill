@@ -40,9 +40,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    // Matching deadlines and notification retries are persisted in PostgreSQL.
-    // This lightweight poller is a development/single-instance worker; production
-    // should run the same methods in a dedicated queue worker.
+    // API replicas must never start background polling. Run this Nest application
+    // context separately with ANYSKILL_PROCESS_ROLE=worker.
+    if (process.env.ANYSKILL_PROCESS_ROLE !== "worker") return;
+
+    this.logger.log("Marketplace background worker started; polling persisted jobs every 15 seconds.");
+    void this.runWorkerCycle();
     this.worker = setInterval(() => { void this.runWorkerCycle(); }, 15_000);
     this.worker.unref?.();
   }
