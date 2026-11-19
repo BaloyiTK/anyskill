@@ -117,7 +117,7 @@ Do not assume PayWeb3 and PayHost provide the same saved-card, authorisation, ca
 
 ## Engineering foundation added (19 November 2026)
 
-The hardening branch now contains persistence primitives for the approved workflow:
+The hardening branch now contains persistence primitives and an internal accounting/operation service for the approved workflow:
 
 - One payment aggregate per job engagement, tied to the estimate version and denominated in integer minor units (ZAR cents).
 - Saved payment-method references store only an encrypted gateway token plus masked metadata and consent evidence. Raw PAN and CVV have no fields in the AnySkill schema.
@@ -125,8 +125,10 @@ The hardening branch now contains persistence primitives for the approved workfl
 - Webhook inbox records deduplicate by provider and provider event ID and retain a payload hash and signature-verification result.
 - Provider payout records are separate from card payment capture.
 - Financial ledger entries are append-only at the database level; corrections require compensating entries.
+- An internal PaymentsService creates idempotent AUTHORIZE/CAPTURE/VOID/REFUND operation intents under PostgreSQL advisory locks and rejects key reuse with a different request hash.
+- The same service validates journal groups for per-currency debit/credit equality and writes all lines atomically with line-level idempotency keys. Replayed groups are checked against their original entries.
 
-These are persistence controls, not a completed payment integration. No API endpoint, gateway request, payment-state transition service, webhook verifier, ledger posting engine, or payout executor is enabled yet. The migration and Prisma schema must pass CI before being applied to any environment.
+These controls are not a completed payment integration. No gateway request, public payment endpoint, verified webhook processor, operation-result processor, or payout executor is enabled. The service deliberately does not claim that a payment succeeded or that funds moved. The payment schema/migration passed CI on 19 November 2026; the new service changes require their own CI run before use.
 
 ## Current PayGate integration evidence
 
