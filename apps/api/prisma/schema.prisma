@@ -117,6 +117,7 @@ enum JobCompletionSubmissionStatus {
 
 enum MediaAssetStatus {
   PENDING
+  VERIFYING
   READY
   EXPIRED
 }
@@ -519,6 +520,7 @@ model MediaAsset {
   status                  MediaAssetStatus             @default(PENDING)
   expiresAt               DateTime                     @map("expires_at")
   uploadedAt              DateTime?                    @map("uploaded_at")
+  verificationStartedAt   DateTime?                    @map("verification_started_at")
   completionSubmissionId  String?                      @db.Uuid @map("completion_submission_id")
   createdAt               DateTime                     @default(now()) @map("created_at")
   user                    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
