@@ -1316,9 +1316,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           await tx.appNotification.updateMany({
             where: { id: notification.id, deliveryStatus: "SENDING" },
             data: {
-              deliveryStatus: transientTicketErrors > 0 && !hasAcceptedTicket
-                ? (attempts >= 5 ? "FAILED" : "PENDING")
-                : "SENT",
+              deliveryStatus: transientTicketErrors > 0
+                ? (attempts >= 5 ? (hasAcceptedTicket ? "SENT" : "FAILED") : "PENDING")
+                : hasAcceptedTicket ? "SENT" : "IN_APP_ONLY",
               sentAt: hasAcceptedTicket ? new Date() : null,
               sendingStartedAt: null,
               nextAttemptAt: new Date(Date.now() + retryDelayMs),
