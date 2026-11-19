@@ -506,7 +506,13 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       if (!await save("profile")) return;
       // Trust the API's canonical required-field validation, not the presence
       // of a successful draft-save response.
-      const latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
+      let latest: Payload;
+      try {
+        latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not confirm your saved profile details.");
+        return;
+      }
       setData(latest);
       if (!latest.sections?.profile) {
         setError(accountType === "BUSINESS"
@@ -530,7 +536,13 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     }
     if (active === "Skills") {
       if (!await save("skills")) return;
-      const latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
+      let latest: Payload;
+      try {
+        latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not confirm your saved skills.");
+        return;
+      }
       setData(latest);
       if (!latest.sections?.skills) {
         setError("Add at least one valid skill before continuing.");
