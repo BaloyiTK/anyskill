@@ -238,7 +238,11 @@ export class OnboardingService {
       this.get(userId),
       this.prisma.user.findUnique({ where: { id: userId }, select: { initialMode: true } }),
     ]);
-    await this.assertOwnedReadyAssets(userId, { profile: onboarding.profile, skills: onboarding.skills, portfolio: onboarding.portfolio });
+    await this.assertOwnedReadyAssets(userId, {
+      profile: (onboarding.profile ?? {}) as Record<string, unknown>,
+      skills: (Array.isArray(onboarding.skills) ? onboarding.skills : []) as unknown[],
+      portfolio: (Array.isArray(onboarding.portfolio) ? onboarding.portfolio : []) as unknown[],
+    });
     const profile =
       onboarding.profile && typeof onboarding.profile === "object" && !Array.isArray(onboarding.profile)
         ? (onboarding.profile as Record<string, unknown>)
