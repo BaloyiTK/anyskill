@@ -81,7 +81,7 @@ export class PaymentsService {
 
       await this.assertOperationAllowed(tx, payment, input.type, input.amountMinor);
 
-      return tx.paymentOperation.create({
+      const operation = await tx.paymentOperation.create({
         data: {
           paymentId: payment.id,
           type: input.type,
@@ -92,6 +92,15 @@ export class PaymentsService {
           status: PaymentOperationStatus.PENDING,
         },
       });
+
+      if (input.type === PaymentOperationType.AUTHORIZE) {
+        await tx.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.AUTHORIZATION_PENDING } });
+      } else if (input.type === PaymentOperationType.CAPTURE) {
+        await tx.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.CAPTURE_PENDING } });
+      } else if (input.type === PaymentOperationType.REFUND) {
+        await tx.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.REFUND_PENDING } });
+      }
+      return operation;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
@@ -368,6 +377,7 @@ export class PaymentsService {
     const totals = new Map<string, { debit: bigint; credit: bigint }>();
     for (const line of input.lines) {
       if (!/^[A-Z0-9_.:-]{2,80}$/.test(line.accountCode)
+        || (line.direction !== LedgerDirection.DEBIT && line.direction !== LedgerDirection.CREDIT)
         || !/^[A-Z]{3}$/.test(line.currency)
         || !line.description.trim()
         || line.description.length > 500
