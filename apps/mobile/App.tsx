@@ -30,6 +30,34 @@ Notifications.setNotificationHandler({
   }),
 });
 
+async function configureIncomingRequestNotifications() {
+  await Notifications.setNotificationCategoryAsync("incoming_request", [
+    {
+      identifier: "ACCEPT_REQUEST",
+      buttonTitle: "Accept",
+      options: { isAuthenticationRequired: true, opensAppToForeground: true },
+    },
+    {
+      identifier: "DECLINE_REQUEST",
+      buttonTitle: "Decline",
+      options: { isAuthenticationRequired: true, isDestructive: true, opensAppToForeground: true },
+    },
+  ]);
+
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("incoming_requests", {
+      name: "Incoming service requests",
+      description: "High-priority alerts when AnySkill matches you with a service request.",
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 300, 150, 300],
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      sound: "default",
+      bypassDnd: false,
+      enableVibrate: true,
+      showBadge: true,
+    });
+  }
+}
 
 type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding" | "profile-check";
 type UserMode = "seeker" | "provider";
@@ -129,33 +157,9 @@ export default function App() {
   );
 
   useEffect(() => {
-    void Notifications.setNotificationCategoryAsync("incoming_request", [
-      {
-        identifier: "ACCEPT_REQUEST",
-        buttonTitle: "Accept",
-        options: { isAuthenticationRequired: true, opensAppToForeground: true },
-      },
-      {
-        identifier: "DECLINE_REQUEST",
-        buttonTitle: "Decline",
-        options: { isAuthenticationRequired: true, isDestructive: true, opensAppToForeground: true },
-      },
-    ]).catch((e) => console.warn("[AnySkill notifications] Could not configure request actions.", e));
-  }, []);
-
-  useEffect(() => {
-    if (Platform.OS !== "android") return;
-    void Notifications.setNotificationChannelAsync("incoming_requests", {
-      name: "Incoming service requests",
-      description: "High-priority alerts when AnySkill matches you with a service request.",
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 300, 150, 300],
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      sound: "default",
-      bypassDnd: false,
-      enableVibrate: true,
-      showBadge: true,
-    }).catch((e) => console.warn("[AnySkill notifications] Could not configure incoming request channel.", e));
+    void configureIncomingRequestNotifications().catch((e) => {
+      console.warn("[AnySkill notifications] Could not configure incoming request presentation.", e);
+    });
   }, []);
 
   const feedback = () => { setMessage(""); setError(""); };
@@ -303,6 +307,7 @@ export default function App() {
         if (!projectId) {
           throw new Error("Set EXPO_PUBLIC_EAS_PROJECT_ID to the AnySkill EAS project ID before registering push notifications.");
         }
+        await configureIncomingRequestNotifications();
         const token = await Notifications.getExpoPushTokenAsync({ projectId });
         if (cancelled) return;
         await apiRequest("/notifications/devices", {
