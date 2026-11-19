@@ -53,7 +53,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 ## P1 — Security and release verification
 
-- [ ] Complete dependency, secret and static security scanning. CI now runs `pnpm check:security` to fail on high/critical production dependency advisories; secret scanning and broader static security analysis remain outstanding.
+- [ ] Complete dependency, secret and static security scanning. CI runs `pnpm check:security` for high/critical production dependency advisories, pull requests run Dependency Review, and scheduled/push CodeQL analysis covers TypeScript/JavaScript. Repository-level secret scanning still needs to be enabled and verified in GitHub settings.
 - [ ] Add load/soak tests for matching, notification fan-out, authentication, and concurrent offer selection.
 - [ ] Test worker crash/restart, database interruption, Expo outage, duplicate webhook/event delivery, and multi-replica execution.
 - [ ] Document incident response, support/admin recovery procedures, data retention, privacy, and POPIA controls.
