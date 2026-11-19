@@ -13,6 +13,7 @@ import {
   IsUUID,
   MaxLength,
   MinLength,
+  ValidateIf,
 } from "class-validator";
 
 export class CreateServiceRequestDto {
@@ -45,11 +46,17 @@ export class CreateServiceRequestDto {
   @IsIn(["ONSITE", "REMOTE", "EITHER"])
   deliveryMode!: "ONSITE" | "REMOTE" | "EITHER";
 
-  @IsOptional() @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90)
+  @ValidateIf((input: CreateServiceRequestDto) => input.deliveryMode !== "REMOTE")
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90)
   latitude?: number;
 
-  @IsOptional() @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180)
+  @ValidateIf((input: CreateServiceRequestDto) => input.deliveryMode !== "REMOTE")
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180)
   longitude?: number;
+
+  @IsOptional()
+  @IsIn([5, 10, 20, 50])
+  searchRadiusKm?: number;
 
   @IsOptional()
   @IsDateString()
@@ -59,6 +66,11 @@ export class CreateServiceRequestDto {
   @IsString()
   @MaxLength(2000)
   instructions?: string;
+}
+
+export class ScheduleServiceRequestDto {
+  @IsDateString()
+  preferredStartAt!: string;
 }
 
 export class ProviderResponseDto {
@@ -103,8 +115,26 @@ export class UpdateProviderProfileDto {
   @IsIn([true, false])
   isAvailable!: boolean;
 
-  @IsOptional() @IsNumber({ maxDecimalPlaces: 1 }) @Min(1) @Max(200)
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 1 })
+  @Min(1)
+  @Max(200)
   maxTravelDistanceKm?: number;
+
+  // Going online is atomic with the first reliable GPS fix. Offline profile
+  // edits do not need to provide coordinates.
+  @ValidateIf((input: UpdateProviderProfileDto) => input.isAvailable)
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90)
+  latitude?: number;
+
+  @ValidateIf((input: UpdateProviderProfileDto) => input.isAvailable)
+  @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180)
+  longitude?: number;
+
+  @ValidateIf((input: UpdateProviderProfileDto) => input.isAvailable)
+  @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(50)
+  accuracyM?: number;
+
 }
 
 export class RegisterPushDeviceDto {
@@ -201,4 +231,35 @@ export class UpdateLiveLocationDto {
   @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90) latitude!: number;
   @IsNumber({ maxDecimalPlaces: 7 }) @Min(-180) @Max(180) longitude!: number;
   @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(1000) accuracyM!: number;
+}
+
+
+export class SubmitProviderReviewDto {
+  @IsNumber({ maxDecimalPlaces: 0 })
+  @Min(1)
+  @Max(5)
+  skillRating!: number;
+
+  @IsNumber({ maxDecimalPlaces: 0 })
+  @Min(1)
+  @Max(5)
+  platformRating!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1500)
+  comment?: string;
+}
+
+
+export class SubmitSeekerReviewDto {
+  @IsNumber({ maxDecimalPlaces: 0 })
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1500)
+  comment?: string;
 }

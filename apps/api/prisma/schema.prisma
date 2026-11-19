@@ -12,6 +12,39 @@ enum RegistrationMode {
   PROVIDER
 }
 
+enum MarketplaceRoleStatus {
+  NOT_REQUESTED
+  PENDING
+  ACTIVE
+  REJECTED
+  REQUIRES_INFORMATION
+  SUSPENDED
+}
+
+enum ProviderApplicationStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  NEEDS_INFORMATION
+}
+
+enum ProviderSkillStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum StaffRole {
+  PROVIDER_REVIEWER
+  IDENTITY_REVIEWER
+  SUPPORT_AGENT
+  FINANCE_OFFICER
+  FRAUD_OFFICER
+  ADMIN
+  SUPER_ADMIN
+}
+
 enum IdentityVerificationStatus {
   NOT_STARTED
   PENDING
@@ -102,6 +135,9 @@ model User {
   phone                    String?                     @unique @db.VarChar(32)
   googleSubject            String?                     @unique @map("google_subject") @db.VarChar(255)
   initialMode              RegistrationMode            @default(SEEKER) @map("initial_mode")
+  seekerRoleStatus         MarketplaceRoleStatus       @default(ACTIVE) @map("seeker_role_status")
+  providerRoleStatus       MarketplaceRoleStatus       @default(NOT_REQUESTED) @map("provider_role_status")
+  activeMarketplaceMode    RegistrationMode?           @default(SEEKER) @map("active_marketplace_mode")
   homeLocationLabel         String?                      @map("home_location_label") @db.VarChar(500)
   homeLatitude              Float?                       @map("home_latitude")
   homeLongitude             Float?                       @map("home_longitude")
@@ -111,17 +147,29 @@ model User {
   identityVerifiedAt       DateTime?                   @map("identity_verified_at")
   createdAt                DateTime                    @default(now()) @map("created_at")
   updatedAt                DateTime                    @updatedAt @map("updated_at")
+  deletedAt                DateTime?                   @map("deleted_at")
   refreshSessions          RefreshSession[]
   emailVerificationTokens  EmailVerificationToken[]
   passwordResetTokens      PasswordResetToken[]
+  passwordResetOtp         PasswordResetOtp?
   identityCases            IdentityVerificationCase[]
   serviceRequests          ServiceRequest[]
   providerResponses        ProviderResponse[]
   providerProfile          ProviderProfile?
+  providerSkills           ProviderSkill[]
   pushDevices              PushDevice[]
   notifications            AppNotification[]
   mediaAssets              MediaAsset[]
   onboardingDraft           OnboardingDraft?
+  providerRoleApplication   ProviderRoleApplication?   @relation("ProviderApplicationApplicant")
+  reviewedProviderApplications ProviderRoleApplication[] @relation("ProviderApplicationReviewer")
+  staffMembership           StaffMembership?
+  staffActions              StaffAuditLog[]             @relation("StaffAuditActor")
+  staffTargets              StaffAuditLog[]             @relation("StaffAuditTarget")
+  providerReviewsReceived   ProviderReview[]             @relation("ProviderReviewsReceived")
+  providerReviewsGiven      ProviderReview[]             @relation("ProviderReviewsGiven")
+  seekerReviewsReceived     SeekerReview[]                @relation("SeekerReviewsReceived")
+  seekerReviewsGiven        SeekerReview[]                @relation("SeekerReviewsGiven")
 
   @@index([identityVerification])
   @@map("users")
@@ -131,12 +179,14 @@ model RefreshSession {
   id          String   @id @default(uuid()) @db.Uuid
   userId      String   @db.Uuid @map("user_id")
   tokenHash   String   @unique @map("token_hash")
+  tokenFamilyId String  @db.Uuid @map("token_family_id")
   expiresAt   DateTime @map("expires_at")
   revokedAt   DateTime? @map("revoked_at")
   createdAt   DateTime @default(now()) @map("created_at")
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
+  @@index([tokenFamilyId, revokedAt])
   @@map("refresh_sessions")
 }
 
@@ -151,6 +201,21 @@ model EmailVerificationToken {
 
   @@index([userId, expiresAt])
   @@map("email_verification_tokens")
+}
+
+model PasswordResetOtp {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @unique @db.Uuid @map("user_id")
+  otpHash           String   @map("otp_hash") @db.VarChar(64)
+  attempts          Int      @default(0)
+  expiresAt         DateTime @map("expires_at")
+  resendAvailableAt DateTime @map("resend_available_at")
+  consumedAt        DateTime? @map("consumed_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("password_reset_otps")
 }
 
 model PasswordResetToken {
@@ -188,7 +253,7 @@ model IdentityVerificationCase {
  
 model ServiceRequest {
   id                 String                @id @default(uuid()) @db.Uuid
-  seekerId           String                @db.Uuid @map("seeker_id")
+  seekerId           String?               @db.Uuid @map("seeker_id")
   title              String                @db.VarChar(120)
   skillCategory      String                @map("skill_category") @db.VarChar(100)
   description        String                @db.VarChar(5000)
@@ -196,16 +261,18 @@ model ServiceRequest {
   location           String?               @db.VarChar(500)
   latitude           Float?
   longitude          Float?
+  searchRadiusKm      Int                   @default(10) @map("search_radius_km")
   deliveryMode       ServiceDeliveryMode   @map("delivery_mode")
   preferredStartAt   DateTime?             @map("preferred_start_at")
   instructions       String?               @db.VarChar(2000)
   status             ServiceRequestStatus  @default(OPEN)
+  matchingStartedAt  DateTime              @default(now()) @map("matching_started_at")
   matchingWave       Int                   @default(0) @map("matching_wave")
   matchingNextAt     DateTime?             @map("matching_next_at")
   matchingExhaustedAt DateTime?            @map("matching_exhausted_at")
   createdAt          DateTime              @default(now()) @map("created_at")
   updatedAt          DateTime              @updatedAt @map("updated_at")
-  seeker             User                  @relation(fields: [seekerId], references: [id], onDelete: Restrict)
+  seeker             User?                 @relation(fields: [seekerId], references: [id], onDelete: SetNull)
   providerResponses ProviderResponse[]
   matches           RequestMatch[]
   jobEngagement     JobEngagement?
@@ -218,7 +285,7 @@ model ServiceRequest {
 model ProviderResponse {
   id          String                 @id @default(uuid()) @db.Uuid
   requestId   String                 @db.Uuid @map("request_id")
-  providerId  String                 @db.Uuid @map("provider_id")
+  providerId  String?                @db.Uuid @map("provider_id")
   status      ProviderResponseStatus @default(OFFERED)
   message     String?                @db.VarChar(2000)
   hourlyRateAtOffer Decimal?           @map("hourly_rate_at_offer") @db.Decimal(10, 2)
@@ -226,7 +293,7 @@ model ProviderResponse {
   createdAt   DateTime               @default(now()) @map("created_at")
   updatedAt   DateTime               @updatedAt @map("updated_at")
   request     ServiceRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  provider    User                   @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  provider    User?                  @relation(fields: [providerId], references: [id], onDelete: SetNull)
   jobEngagement JobEngagement?
 
   @@unique([requestId, providerId])
@@ -236,6 +303,26 @@ model ProviderResponse {
 }
 
  
+model ProviderSkill {
+  id             String             @id @default(uuid()) @db.Uuid
+  userId         String             @db.Uuid @map("user_id")
+  category       String             @db.VarChar(100)
+  details        Json?
+  status         ProviderSkillStatus @default(PENDING)
+  decisionReason String?            @map("decision_reason") @db.VarChar(1000)
+  reviewerId     String?            @db.Uuid @map("reviewer_id")
+  submittedAt    DateTime           @default(now()) @map("submitted_at")
+  reviewedAt     DateTime?          @map("reviewed_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@index([status, submittedAt])
+  @@index([userId, status])
+  @@map("provider_skills")
+}
+
 model ProviderProfile {
   id              String   @id @default(uuid()) @db.Uuid
   userId          String   @unique @db.Uuid @map("user_id")
@@ -261,7 +348,7 @@ model ProviderProfile {
 model RequestMatch {
   id          String            @id @default(uuid()) @db.Uuid
   requestId   String            @db.Uuid @map("request_id")
-  providerId  String            @db.Uuid @map("provider_id")
+  providerId  String?           @db.Uuid @map("provider_id")
   score       Int
   wave        Int
   status      RequestMatchStatus @default(NOTIFIED)
@@ -311,8 +398,8 @@ model JobEngagement {
   id                    String              @id @default(uuid()) @db.Uuid
   requestId             String              @unique @db.Uuid @map("request_id")
   responseId            String              @unique @db.Uuid @map("response_id")
-  seekerId              String              @db.Uuid @map("seeker_id")
-  providerId            String              @db.Uuid @map("provider_id")
+  seekerId              String?             @db.Uuid @map("seeker_id")
+  providerId            String?             @db.Uuid @map("provider_id")
   status                JobEngagementStatus @default(ASSESSMENT_PENDING)
   hourlyRate            Decimal             @map("hourly_rate") @db.Decimal(10, 2)
   assessmentFee         Decimal             @default(0) @map("assessment_fee") @db.Decimal(10, 2)
@@ -322,16 +409,39 @@ model JobEngagement {
   estimateDecisionNote String?             @map("estimate_decision_note") @db.VarChar(1000)
   estimateSubmittedAt DateTime?            @map("estimate_submitted_at")
   estimateDecidedAt   DateTime?            @map("estimate_decided_at")
-  workStartedAt       DateTime?            @map("work_started_at")
+  workStartedAt          DateTime? @map("work_started_at")
+  workAccumulatedMs       Int       @default(0) @map("work_accumulated_ms")
+  workSegmentStartedAt    DateTime? @map("work_segment_started_at")
+  workPausedAt            DateTime? @map("work_paused_at")
+  workEndedAt             DateTime? @map("work_ended_at")
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt @map("updated_at")
   request             ServiceRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
   response            ProviderResponse     @relation(fields: [responseId], references: [id], onDelete: Restrict)
   adjustments         JobCostAdjustment[]
   completionSubmissions JobCompletionSubmission[]
+  review                ProviderReview?
+  seekerReview          SeekerReview?
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@map("job_engagements")
+}
+
+model SeekerReview {
+  id           String        @id @default(uuid()) @db.Uuid
+  engagementId String        @unique @db.Uuid @map("engagement_id")
+  providerId   String        @db.Uuid @map("provider_id")
+  seekerId     String        @db.Uuid @map("seeker_id")
+  rating       Int
+  comment      String?       @db.VarChar(1500)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  engagement  JobEngagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  provider    User          @relation("SeekerReviewsGiven", fields: [providerId], references: [id], onDelete: Cascade)
+  seeker      User          @relation("SeekerReviewsReceived", fields: [seekerId], references: [id], onDelete: Cascade)
+
+  @@index([seekerId, createdAt])
+  @@index([providerId, createdAt])
+  @@map("seeker_reviews")
 }
 
 model JobCostAdjustment {
@@ -354,7 +464,7 @@ model JobCostAdjustment {
 model JobCompletionSubmission {
   id             String                           @id @default(uuid()) @db.Uuid
   engagementId   String                           @db.Uuid @map("engagement_id")
-  providerId     String                           @db.Uuid @map("provider_id")
+  providerId     String?                          @db.Uuid @map("provider_id")
   notes          String                           @db.VarChar(3000)
   evidenceUrls   String[]                         @default([]) @map("evidence_urls")
   evidenceAssets MediaAsset[]
@@ -418,4 +528,71 @@ model OnboardingDraft {
   updatedAt DateTime @updatedAt @map("updated_at")
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@map("onboarding_drafts")
+}
+
+model ProviderRoleApplication {
+  id              String                    @id @default(uuid()) @db.Uuid
+  userId          String                    @unique @db.Uuid @map("user_id")
+  status          ProviderApplicationStatus @default(PENDING)
+  applicationData Json                      @map("application_data")
+  submittedAt     DateTime                  @default(now()) @map("submitted_at")
+  reviewedAt      DateTime?                 @map("reviewed_at")
+  reviewerId      String?                   @db.Uuid @map("reviewer_id")
+  decisionReason  String?                   @map("decision_reason") @db.VarChar(1000)
+  createdAt       DateTime                  @default(now()) @map("created_at")
+  updatedAt       DateTime                  @updatedAt @map("updated_at")
+  user            User                      @relation("ProviderApplicationApplicant", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer        User?                     @relation("ProviderApplicationReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status, submittedAt])
+  @@index([reviewerId, reviewedAt])
+  @@map("provider_role_applications")
+}
+
+model StaffMembership {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid @map("user_id")
+  role      StaffRole
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([role, isActive])
+  @@map("staff_memberships")
+}
+
+model StaffAuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  actorId      String   @db.Uuid @map("actor_id")
+  targetUserId String   @db.Uuid @map("target_user_id")
+  action       String   @db.VarChar(80)
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+  actor        User     @relation("StaffAuditActor", fields: [actorId], references: [id], onDelete: Restrict)
+  targetUser   User     @relation("StaffAuditTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+
+  @@index([targetUserId, createdAt])
+  @@index([actorId, createdAt])
+  @@map("staff_audit_logs")
+}
+
+
+model ProviderReview {
+  id            String        @id @default(uuid()) @db.Uuid
+  engagementId  String        @unique @db.Uuid @map("engagement_id")
+  seekerId      String        @db.Uuid @map("seeker_id")
+  providerId    String        @db.Uuid @map("provider_id")
+  skillCategory String        @map("skill_category") @db.VarChar(100)
+  skillRating   Int           @map("skill_rating")
+  platformRating Int          @map("platform_rating")
+  comment       String?       @db.VarChar(1500)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  engagement    JobEngagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  seeker        User          @relation("ProviderReviewsGiven", fields: [seekerId], references: [id], onDelete: Cascade)
+  provider      User          @relation("ProviderReviewsReceived", fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, skillCategory, createdAt])
+  @@index([providerId, createdAt])
+  @@map("provider_reviews")
 }

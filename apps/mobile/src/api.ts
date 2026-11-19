@@ -10,6 +10,11 @@ const configuredApiBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 const API_BASE_URL = Platform.OS === "web" && configuredApiBaseUrl?.includes("10.0.2.2")
   ? "http://localhost:3000/api/v1"
   : configuredApiBaseUrl ?? DEFAULT_API_BASE_URL;
+
+export function liveWebSocketUrl(path: string): string {
+  const base = API_BASE_URL.replace(/^https:/, "wss:").replace(/^http:/, "ws:");
+  return `${base}${path}`;
+}
 const ACCESS_TOKEN_KEY = "anyskill.access-token";
 const REFRESH_TOKEN_KEY = "anyskill.refresh-token";
 
@@ -43,6 +48,32 @@ type TokenResponse = {
   expiresIn: number;
 };
 
+let refreshInFlight: Promise<TokenResponse | null> | null = null;
+
+async function refreshSessionOnce(): Promise<TokenResponse | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      const refreshToken = await getStoredItem(REFRESH_TOKEN_KEY);
+      if (!refreshToken) return null;
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!response.ok) {
+        await clearTokens();
+        return null;
+      }
+      const tokens = (await response.json()) as TokenResponse;
+      await saveTokens(tokens);
+      return tokens;
+    })().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
 async function readJson(response: Response) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -71,13 +102,23 @@ export async function clearTokens(): Promise<void> {
   ]);
 }
 
+export async function hasStoredAuthSession(): Promise<boolean> {
+  const [accessToken, refreshToken] = await Promise.all([
+    getStoredItem(ACCESS_TOKEN_KEY),
+    getStoredItem(REFRESH_TOKEN_KEY),
+  ]);
+  return Boolean(accessToken || refreshToken);
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
   authenticated = false,
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  headers.set("Content-Type", "application/json");
+  const isMultipart = typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (!isMultipart) headers.set("Content-Type", "application/json");
+  else headers.delete("Content-Type");
 
   if (authenticated) {
     const accessToken = await getStoredItem(ACCESS_TOKEN_KEY);
@@ -90,25 +131,13 @@ export async function apiRequest<T>(
   });
 
   if (authenticated && response.status === 401) {
-    const refreshToken = await getStoredItem(REFRESH_TOKEN_KEY);
-    if (refreshToken) {
-      const refreshResponse = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken }),
+    const tokens = await refreshSessionOnce();
+    if (tokens) {
+      headers.set("Authorization", `Bearer ${tokens.accessToken}`);
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers,
       });
-
-      if (refreshResponse.ok) {
-        const tokens = (await refreshResponse.json()) as TokenResponse;
-        await saveTokens(tokens);
-        headers.set("Authorization", `Bearer ${tokens.accessToken}`);
-        response = await fetch(`${API_BASE_URL}${path}`, {
-          ...options,
-          headers,
-        });
-      } else {
-        await clearTokens();
-      }
     }
   }
 
@@ -139,6 +168,10 @@ export type AccountSummary = {
   emailVerified: boolean;
   identityVerification: string;
   googleLinked: boolean;
+  seekerRoleStatus: string;
+  providerRoleStatus: string;
+  activeMarketplaceMode: "SEEKER" | "PROVIDER" | null;
+  initialMode: "SEEKER" | "PROVIDER";
 };
 
 export type IdentitySummary = {
@@ -151,4 +184,25 @@ export type IdentitySummary = {
     reviewedAt: string | null;
     decisionReason: string | null;
   } | null;
+  previews?: {
+    ID_SELFIE?: string | null;
+  };
 };
+
+
+export type AppNotification = {
+  id: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown> | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export async function fetchNotifications(): Promise<AppNotification[]> {
+  return apiRequest<AppNotification[]>("/notifications", {}, true);
+}
+
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  await apiRequest(`/notifications/${notificationId}/read`, { method: "PATCH" }, true);
+}

@@ -15,13 +15,15 @@
 - The request feed exposes the coarse label to matched Providers. Exact coordinates are returned to the Seeker and the selected Provider's job view.
 
 ### Provider Live Location
-- Device foreground location is requested only when a Provider is Available and has ONSITE or EITHER delivery enabled.
-- The app sends an initial fix and watches for changes (15-second interval / 50-metre distance threshold).
-- Fixes with accuracy worse than 250 metres are not submitted.
-- The API accepts updates only for an existing, currently Available Provider profile with on-site delivery enabled.
-- Setting the Provider unavailable clears the stored live coordinates and timestamp.
-- Matching ignores fixes older than 10 minutes, missing coordinates, or accuracy worse than 250 metres.
-- Current implementation is foreground-only. It does not request background/Always location permission. Location updates stop when the app leaves the foreground; the last fix ages out of matching after 10 minutes. Background tracking requires a separate permission, foreground-service configuration, battery-policy handling and platform testing before enabling it.
+- Provider availability is a deliberate Online/Offline choice. Going Online requires a fresh device GPS fix with accuracy of 50 metres or better.
+- The mobile app obtains foreground and background location permission only when the Provider chooses to go Online. The API saves the first GPS fix and `isAvailable=true` in the same profile update, so a Provider cannot become discoverable before a valid first fix is stored.
+- The app registers one global Expo TaskManager task at startup and uses `Location.startLocationUpdatesAsync` while the Provider is Online. Native foreground `watchPositionAsync` trackers are not used for provider tracking.
+- Location updates request high accuracy, a 3-second time interval and a 5-metre movement threshold. Only finite coordinates with accuracy of 50 metres or better are sent to the API.
+- Android uses a user-initiated location foreground service with a persistent notification while online; the app requests foreground location and the Android 14+ foreground-service location permission, not the broader always-on background-location permission. iOS requests Always location permission, enables the location background mode and shows the system background-location indicator.
+- The API accepts live updates only for an existing, currently Available Provider profile. Going Offline clears the stored live coordinates, accuracy and GPS timestamp, and the app stops the background task.
+- GPS freshness is independent from app/network presence. A network retry or heartbeat must never refresh `liveLocationUpdatedAt`; only a newly received GPS fix may do that.
+- Public discovery uses the latest fix only while it is no older than 30 seconds and rounds map coordinates to approximately 100 metres. Exact provider coordinates must not be exposed through public discovery.
+- Background delivery remains subject to iOS/Android scheduling, device battery policies and manufacturer restrictions. If a user force-stops/terminates the app, background updates can stop; Android does not automatically restart a terminated app for ordinary location updates. Providers must reopen AnySkill and go Online again if tracking has stopped.
 
 ## Map pin selection
 
@@ -64,14 +66,14 @@
 2. Save and retrieve Home Location; reject out-of-range coordinates and partial coordinate pairs.
 3. Tap the map pin picker at several zoom levels; verify the returned latitude/longitude follows the tapped map position and that tile attribution remains visible.
 4. Deny GPS permission; confirm no location update is sent and remote mode remains usable.
-5. Set Provider Available with ONSITE; submit a valid live fix and confirm it is stored.
+5. Go Online; confirm the API stores the first GPS fix and availability atomically, and rejects missing or inaccurate fixes.
 6. Attempt a live fix while unavailable; expect a conflict response.
-7. Submit a fix with accuracy greater than 250 m; expect rejection.
-8. Confirm stale fixes older than 10 minutes are excluded from on-site matching.
+7. Submit a fix with accuracy greater than 50 m; expect rejection.
+8. Confirm stale fixes older than 30 seconds are excluded from live discovery and on-site matching.
 9. Confirm Providers outside their configured travel radius are excluded and nearer Providers rank higher.
 10. Confirm remote requests match without coordinates.
 11. Confirm exact job coordinates are not included in the matched incoming-request feed and are visible to the selected Provider job view.
 
 ## Deployment note
 
-Apply migrations only after confirming the target PostgreSQL service supports PostGIS and that the application database role can use the extension. Mobile location permissions are native configuration: a new iOS/Android development build is required after adding the Expo Location plugin. The map pin picker uses standard React Native image rendering and does not require a Google Maps SDK. Foreground GPS and tile rendering still require physical-device testing on iOS, Android and Huawei Android. HarmonyOS NEXT requires its separately planned native ArkTS app and is not covered by the React Native build.
+Apply migrations only after confirming the target PostgreSQL service supports PostGIS and that the application database role can use the extension. Mobile location permissions and foreground-service declarations are native configuration: create a new iOS/Android development build after changing the Expo Location plugin. Background tracking must be tested on physical devices, including Android devices with aggressive battery management. The operating system may stop updates after the user terminates the app. The map pin picker uses standard React Native image rendering and does not require a Google Maps SDK. Foreground GPS and tile rendering still require physical-device testing on iOS, Android and Huawei Android. HarmonyOS NEXT requires its separately planned native ArkTS app and is not covered by the React Native build.

@@ -37,16 +37,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         emailVerifiedAt: true,
         identityVerification: true,
         googleSubject: true,
+        deletedAt: true,
+        seekerRoleStatus: true,
+        providerRoleStatus: true,
+        activeMarketplaceMode: true,
+        initialMode: true,
       },
     });
 
-    if (!user || !user.emailVerifiedAt) throw new UnauthorizedException();
+    if (!user || !user.emailVerifiedAt || user.deletedAt) throw new UnauthorizedException();
 
     return {
       id: user.id,
       email: user.email,
       emailVerified: Boolean(user.emailVerifiedAt),
       identityVerification: user.identityVerification,
+      seekerRoleStatus: user.seekerRoleStatus,
+      providerRoleStatus: user.providerRoleStatus,
+      activeMarketplaceMode: user.activeMarketplaceMode,
+      initialMode: user.initialMode,
       googleLinked: Boolean(user.googleSubject),
     };
   }

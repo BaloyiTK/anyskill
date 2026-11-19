@@ -5,6 +5,10 @@ export interface AuthenticatedUser {
   email: string;
   emailVerified: boolean;
   identityVerification: string;
+  seekerRoleStatus: string;
+  providerRoleStatus: string;
+  activeMarketplaceMode: "SEEKER" | "PROVIDER" | null;
+  initialMode: "SEEKER" | "PROVIDER";
 }
 
 export const CurrentUser = createParamDecorator(

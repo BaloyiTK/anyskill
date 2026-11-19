@@ -5,14 +5,27 @@ on:
     branches:
       - main
       - "foundation/**"
+      - "feature/**"
   pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
 
 jobs:
+  verify-project-standards:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Verify protected project standards and configuration
+        run: node scripts/check-project-standards.mjs
+
   validate:
     runs-on: ubuntu-latest
     services:
@@ -43,8 +56,8 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma client
         run: pnpm db:generate
@@ -53,6 +66,11 @@ jobs:
 
       - name: Apply database migrations (including PostGIS)
         run: pnpm db:deploy
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
+
+      - name: Test concurrent authentication operations
+        run: pnpm --filter @anyskill/api test:auth-concurrency
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
 

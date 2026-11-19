@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
-import { IsEmail, IsString, MaxLength, MinLength } from "class-validator";
+import { Body, Controller, Delete, Get, Post, UseGuards } from "@nestjs/common";
+import { IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
 import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
 import { CurrentUser, AuthenticatedUser } from "./current-user.decorator";
@@ -17,6 +17,10 @@ class GoogleIdTokenDto {
   @MinLength(100)
   @MaxLength(8192)
   idToken!: string;
+
+  @IsOptional()
+  @IsIn(["SEEKER", "PROVIDER"])
+  mode?: "SEEKER" | "PROVIDER";
 }
 
 class GoogleAuthorizationCodeDto {
@@ -34,6 +38,10 @@ class GoogleAuthorizationCodeDto {
   @MinLength(8)
   @MaxLength(2048)
   redirectUri!: string;
+
+  @IsOptional()
+  @IsIn(["SEEKER", "PROVIDER"])
+  mode?: "SEEKER" | "PROVIDER";
 }
 
 class RefreshDto {
@@ -41,6 +49,16 @@ class RefreshDto {
   @MinLength(32)
   @MaxLength(128)
   refreshToken!: string;
+}
+
+class VerifyPasswordResetOtpDto {
+  @IsEmail()
+  @MaxLength(320)
+  email!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/)
+  otp!: string;
 }
 
 class ForgotPasswordDto {
@@ -60,6 +78,12 @@ export class AuthController {
   @Post("register")
   register(@Body() dto: RegisterDto) { return this.auth.register(dto); }
 
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("resend-registration-otp")
+  resendRegistrationOtp(@Body() dto: ForgotPasswordDto) {
+    return this.auth.resendRegistrationOtp(dto.email);
+  }
+
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post("verify-registration-otp")
   verifyRegistrationOtp(@Body() dto: VerifyRegistrationOtpDto) { return this.auth.verifyRegistrationOtp(dto.email, dto.otp); }
@@ -71,13 +95,13 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("google")
   googleSignIn(@Body() dto: GoogleIdTokenDto) {
-    return this.auth.googleSignIn(dto.idToken);
+    return this.auth.googleSignIn(dto.idToken, dto.mode);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("google/exchange")
   googleSignInWithAuthorizationCode(@Body() dto: GoogleAuthorizationCodeDto) {
-    return this.auth.googleSignInWithAuthorizationCode(dto.code, dto.codeVerifier, dto.redirectUri);
+    return this.auth.googleSignInWithAuthorizationCode(dto.code, dto.codeVerifier, dto.redirectUri, dto.mode);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
@@ -134,10 +158,28 @@ export class AuthController {
     return this.auth.requestPasswordReset(dto.email);
   }
 
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("resend-password-reset-otp")
+  resendPasswordResetOtp(@Body() dto: ForgotPasswordDto) {
+    return this.auth.resendPasswordResetOtp(dto.email);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("verify-password-reset-otp")
+  verifyPasswordResetOtp(@Body() dto: VerifyPasswordResetOtpDto) {
+    return this.auth.verifyPasswordResetOtp(dto.email, dto.otp);
+  }
+
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post("reset-password")
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPassword(dto.token, dto.newPassword);
+  }
+
+  @Delete("account")
+  @UseGuards(JwtAuthGuard)
+  deleteAccount(@CurrentUser() user: AuthenticatedUser) {
+    return this.auth.deleteAccount(user.id);
   }
 
   @Get("me")
