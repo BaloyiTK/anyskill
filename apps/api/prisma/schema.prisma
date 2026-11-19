@@ -385,11 +385,13 @@ model AppNotification {
   attempts       Int                       @default(0)
   readAt         DateTime?                 @map("read_at")
   sentAt         DateTime?                 @map("sent_at")
+  sendingStartedAt DateTime?               @map("sending_started_at")
+  nextAttemptAt  DateTime                  @default(now()) @map("next_attempt_at")
   createdAt      DateTime                  @default(now()) @map("created_at")
   user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt, createdAt])
-  @@index([deliveryStatus, createdAt])
+  @@index([deliveryStatus, nextAttemptAt, createdAt])
   @@map("app_notifications")
 }
 
