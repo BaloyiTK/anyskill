@@ -616,7 +616,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     ? idFrontReady && idBackReady && selfieReady
     : bookPage1Ready && selfieReady;
   const identityApproved = ["VERIFIED", "APPROVED", "COMPLETE", "COMPLETED"].includes(identityStatus.toUpperCase());
-  const verificationComplete = identityApproved && identityRequirementsComplete;
+  const verificationComplete = identityApproved;
   // Show the orange review marker once the required identity evidence is
   // complete; approval alone turns the stage green.
   const verificationPending = !identityApproved && identityRequirementsComplete;
