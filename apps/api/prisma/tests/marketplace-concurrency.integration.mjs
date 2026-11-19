@@ -70,7 +70,7 @@ async function createFixture(providerCount = 2) {
 test("concurrent provider selections produce exactly one selected offer", async () => {
   const fixture = await createFixture();
   const select = (responseId) => prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
     const request = await tx.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { status: true } });
     if (request?.status !== "OPEN") return false;
     const offer = await tx.providerResponse.findFirst({
@@ -102,7 +102,7 @@ test("seeker cancellation and provider selection cannot both win", async () => {
   const fixture = await createFixture();
   const selected = fixture.responses[0];
   const cancel = () => prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
     const changed = await tx.serviceRequest.updateMany({
       where: { id: fixture.requestId, seekerId: fixture.seekerId, status: "OPEN" },
       data: { status: "CANCELLED", matchingNextAt: null },
@@ -115,7 +115,7 @@ test("seeker cancellation and provider selection cannot both win", async () => {
     return true;
   });
   const select = () => prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
     const changed = await tx.serviceRequest.updateMany({
       where: { id: fixture.requestId, seekerId: fixture.seekerId, status: "OPEN" },
       data: { status: "CLOSED", matchingNextAt: null },
@@ -146,7 +146,7 @@ test("duplicate matching dispatch inserts one match and one notification per pro
   const fixture = await createFixture(1);
   const providerId = fixture.responses[0].providerId;
   const dispatch = () => prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
     const inserted = await tx.requestMatch.createManyAndReturn({
       data: [{ requestId: fixture.requestId, providerId, score: 90, wave: 1 }],
       skipDuplicates: true,
