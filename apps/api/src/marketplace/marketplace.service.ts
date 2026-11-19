@@ -2025,22 +2025,53 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async checkExpoPushReceipts() {
-    const receiptCutoff = new Date(Date.now() - 15 * 60_000);
-    const expiredCutoff = new Date(Date.now() - 24 * 60 * 60_000);
+    const now = new Date();
+    const receiptCutoff = new Date(now.getTime() - 15 * 60_000);
+    const expiredCutoff = new Date(now.getTime() - 24 * 60 * 60_000);
     const expired = await this.prisma.pushNotificationReceipt.updateMany({
       where: { status: "PENDING", createdAt: { lt: expiredCutoff } },
-      data: { status: "ERROR", errorCode: "ReceiptUnavailable", errorMessage: "Expo receipt was not available within 24 hours.", checkedAt: new Date() },
+      data: {
+        status: "ERROR",
+        errorCode: "ReceiptUnavailable",
+        errorMessage: "Expo receipt was not available within 24 hours.",
+        checkedAt: now,
+      },
     });
-    if (expired.count > 0) this.logger.warn(`Marked ${expired.count} Expo receipt(s) unavailable after 24 hours.`);
+    if (expired.count > 0) {
+      this.logger.warn(`Marked ${expired.count} Expo receipt(s) unavailable after 24 hours.`);
+    }
 
+    // nextCheckAt is advanced before the network call. A missing receipt or a
+    // transient Expo outage therefore cannot pin the first 100 rows forever.
     const receipts = await this.prisma.pushNotificationReceipt.findMany({
-      where: { status: "PENDING", createdAt: { lte: receiptCutoff } },
+      where: {
+        status: "PENDING",
+        createdAt: { lte: receiptCutoff },
+        nextCheckAt: { lte: now },
+      },
       take: 100,
-      orderBy: { createdAt: "asc" },
-      select: { id: true, expoTicketId: true, pushDeviceId: true },
+      orderBy: [{ nextCheckAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, expoTicketId: true, pushDeviceId: true, checkAttempts: true },
     });
-    for (let offset = 0; offset < receipts.length; offset += 100) {
-      const batch = receipts.slice(offset, offset + 100);
+    if (receipts.length === 0) return;
+
+    const claimed = [];
+    for (const receipt of receipts) {
+      const nextAttempt = receipt.checkAttempts + 1;
+      const retryDelayMs = Math.min(6 * 60 * 60_000, 15 * 60_000 * (2 ** Math.min(nextAttempt, 5)));
+      const claim = await this.prisma.pushNotificationReceipt.updateMany({
+        where: { id: receipt.id, status: "PENDING", nextCheckAt: { lte: now } },
+        data: {
+          checkAttempts: { increment: 1 },
+          nextCheckAt: new Date(now.getTime() + retryDelayMs),
+        },
+      });
+      if (claim.count === 1) claimed.push(receipt);
+    }
+    if (claimed.length === 0) return;
+
+    for (let offset = 0; offset < claimed.length; offset += 100) {
+      const batch = claimed.slice(offset, offset + 100);
       try {
         const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
           method: "POST",
@@ -2052,10 +2083,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const payload = await response.json() as {
           data?: Record<string, { status?: string; message?: string; details?: { error?: string } }>;
         };
-        const results = payload.data ?? {};
+        if (!payload.data || typeof payload.data !== "object" || Array.isArray(payload.data)) {
+          throw new Error("Expo receipt response did not contain a valid data object.");
+        }
         for (const receipt of batch) {
-          const result = results[receipt.expoTicketId];
-          if (!result) continue;
+          const result = payload.data[receipt.expoTicketId];
+          if (!result) continue; // nextCheckAt already schedules a bounded retry.
           const status = result.status === "ok" ? "OK" : result.status === "error" ? "ERROR" : null;
           if (!status) continue;
           await this.prisma.$transaction(async (tx) => {
@@ -2063,7 +2096,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               where: { id: receipt.id, status: "PENDING" },
               data: {
                 status,
-                errorCode: result.details?.error ?? null,
+                errorCode: result.details?.error?.slice(0, 100) ?? null,
                 errorMessage: result.message?.slice(0, 500) ?? null,
                 checkedAt: new Date(),
               },
@@ -2077,7 +2110,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           }
         }
       } catch (error) {
-        this.logger.warn(`Expo receipt polling failed: ${String(error)}`);
+        this.logger.warn(`Expo receipt polling failed for ${batch.length} receipt(s); retry scheduled: ${String(error)}`);
       }
     }
   }
