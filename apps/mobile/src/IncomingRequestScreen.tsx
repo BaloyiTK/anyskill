@@ -8,6 +8,7 @@ type IncomingRequest = {
   preferredStartAt: string | null; createdAt: string;
   seeker: { firstName: string; lastName: string; identityVerified: boolean };
   distanceKm: number | null;
+  alreadyResponded: boolean;
 };
 type Props = { requestId: string | null; onClose: () => void; onAccepted: (requestId: string) => void };
 
@@ -24,7 +25,7 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
     apiRequest<{ items: IncomingRequest[] }>("/marketplace/incoming-requests", {}, true)
       .then((result) => {
         if (!active) return;
-        const found = result.items.find((item) => item.id === requestId && item.status === "OPEN");
+        const found = result.items.find((item) => item.id === requestId && item.status === "OPEN" && !item.alreadyResponded);
         setRequest(found ?? null);
         if (!found) setError("This request is no longer available. Your incoming requests have been refreshed.");
       })
