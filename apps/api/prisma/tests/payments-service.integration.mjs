@@ -243,4 +243,33 @@ test("balanced ledger groups are atomic, replay-safe, and reject imbalance", asy
     }),
     (error) => error?.getStatus?.() === 422,
   );
+
+  const invalidGroupId = randomUUID();
+  await assert.rejects(
+    prisma.$transaction((tx) => tx.financialLedgerEntry.createMany({
+      data: [
+        {
+          entryGroupId: invalidGroupId,
+          paymentId,
+          accountCode: "UNBALANCED_DEBIT_A",
+          direction: LedgerDirection.DEBIT,
+          amountMinor: 10000n,
+          currency: "ZAR",
+          idempotencyKey: key("db-ledger"),
+          description: "Database constraint test debit",
+        },
+        {
+          entryGroupId: invalidGroupId,
+          paymentId,
+          accountCode: "UNBALANCED_DEBIT_B",
+          direction: LedgerDirection.DEBIT,
+          amountMinor: 10000n,
+          currency: "ZAR",
+          idempotencyKey: key("db-ledger"),
+          description: "Database constraint test second debit",
+        },
+      ],
+    })),
+  );
+  assert.equal(await prisma.financialLedgerEntry.count({ where: { entryGroupId: invalidGroupId } }), 0);
 });
