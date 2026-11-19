@@ -33,7 +33,7 @@ type RequestItem = {
 };
 type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
-type JobEngagement = { id: string; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
+type JobEngagement = { id: string; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
@@ -88,6 +88,7 @@ export function MarketplaceScreen(p: Props) {
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [completionReviewNote, setCompletionReviewNote] = useState("");
   const [ratingDraft, setRatingDraft] = useState<{requestId:string;skillRating:number;platformRating:number;comment:string}|null>(null);
+  const [seekerRatingDraft, setSeekerRatingDraft] = useState<{requestId:string;rating:number;comment:string}|null>(null);
   const [jobActionBusy, setJobActionBusy] = useState(false);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
@@ -364,6 +365,21 @@ export function MarketplaceScreen(p: Props) {
       setNotice("Thank you. Your skill and overall AnySkill ratings have been submitted.");
       await loadMyRequests();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your Provider rating."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const submitSeekerRating = async (requestId: string) => {
+    if (!seekerRatingDraft || seekerRatingDraft.requestId !== requestId) return;
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest("/marketplace/requests/" + requestId + "/seeker-rating", {
+        method: "POST",
+        body: JSON.stringify({ rating: seekerRatingDraft.rating, comment: seekerRatingDraft.comment.trim() || undefined }),
+      }, true);
+      setSeekerRatingDraft(null);
+      setNotice("Thank you. Your rating of the Skill Seeker has been submitted.");
+      await loadMyJobs();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your Skill Seeker rating."); }
     finally { setJobActionBusy(false); }
   };
 
@@ -1046,7 +1062,23 @@ export function MarketplaceScreen(p: Props) {
             <Primary label="Submit job completion" onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 || completionEvidenceAssets.length < 1} />
           </> : null}
           {job.status === "COMPLETION_PENDING" ? <Text style={s.helper}>Completion submitted. Wait for the Seeker to review it. Do not mark the job complete yourself.</Text> : null}
-          {job.status === "COMPLETED" ? <Text style={s.response}>The Seeker approved this job's completion.</Text> : null}
+          {job.status === "COMPLETED" ? <>
+            <Text style={s.response}>The Seeker approved this job's completion.</Text>
+            {job.seekerReview ? <View style={s.offerCard}>
+              <Text style={s.offerTitle}>Your submitted rating of the Skill Seeker</Text>
+              <Text style={s.meta}>{job.seekerReview.rating}.0 ★</Text>
+              {job.seekerReview.comment ? <Text style={s.body}>{job.seekerReview.comment}</Text> : null}
+            </View> : <View style={s.offerCard}>
+              <Text style={s.offerTitle}>Rate your Skill Seeker</Text>
+              <Text style={s.meta}>Rate communication, cooperation, professionalism and reliability.</Text>
+              {seekerRatingDraft?.requestId !== job.request.id ? <Primary label="Rate this Skill Seeker" onPress={() => setSeekerRatingDraft({requestId:job.request.id,rating:5,comment:""})} /> : <>
+                <Text style={s.label}>Overall Skill Seeker rating</Text>
+                <View style={s.choiceRow}>{[1,2,3,4,5].map((value) => <Pressable key={"seeker-"+value} onPress={() => setSeekerRatingDraft((draft) => draft ? {...draft,rating:value} : draft)} style={[s.choice,(seekerRatingDraft.rating===value)&&s.choiceActive]}><Text style={[s.choiceText,(seekerRatingDraft.rating===value)&&s.choiceTextActive]}>{value} ★</Text></Pressable>)}</View>
+                <TextInput value={seekerRatingDraft.comment} onChangeText={(comment) => setSeekerRatingDraft((draft) => draft ? {...draft,comment} : draft)} placeholder="Optional feedback about working with this Seeker..." multiline style={[s.input,s.multiline]} />
+                <Primary label="Submit Seeker rating" onPress={() => void submitSeekerRating(job.request.id)} disabled={jobActionBusy} />
+              </>}
+            </View>}
+          </> : null}
           {job.completionSubmissions.map((submission) => <View key={submission.id} style={s.offerCard}>
             <Text style={s.meta}>Completion submission · {submission.status} · {new Date(submission.submittedAt).toLocaleString()}</Text>
             <Text style={s.body}>{submission.notes}</Text>
