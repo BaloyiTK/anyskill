@@ -109,6 +109,20 @@ async function bootstrap(): Promise<void> {
   appendFileSync(ERROR_LOG_FILE, "", { encoding: "utf8", mode: 0o600 });
   const app = await NestFactory.create(AppModule);
 
+  // Express only trusts forwarded client IP headers from the configured number
+  // of proxy hops. Never enable blanket "trust proxy" in production.
+  const trustProxyHops = process.env.TRUST_PROXY_HOPS === undefined
+    ? 0
+    : Number(process.env.TRUST_PROXY_HOPS);
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 10) {
+    throw new Error("TRUST_PROXY_HOPS must be an integer between 0 and 10.");
+  }
+  const expressInstance = app.getHttpAdapter().getInstance() as {
+    set(name: string, value: number): void;
+  };
+  expressInstance.set("trust proxy", trustProxyHops);
+  logger.log(`Express trusted proxy hops: ${trustProxyHops}`);
+
   app.use((
     request: { method: string; originalUrl?: string; url: string; requestId?: string },
     response: {
