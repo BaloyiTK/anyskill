@@ -604,13 +604,19 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   // Show the orange review marker once the required identity evidence is
   // complete; approval alone turns the stage green.
   const verificationPending = !identityApproved && (identitySubmitted || identityRequirementsComplete);
-  // One approved skill is sufficient to complete the Skills review stage.
-  const anySkillApproved = Boolean(data.skillReviewStatuses?.some((skill) => skill.status === "APPROVED"));
-  const allSkillsApproved = anySkillApproved;
-  const skillsPending = isProvider && skills.some((skill) => skill.category.trim()) && !anySkillApproved;
+  // The Skills stage is green only when every currently entered skill
+  // has a matching approved review record. One approved skill is not enough.
+  const submittedSkillCategories = [...new Set(
+    skills.map((skill) => skill.category.trim().toLocaleLowerCase("en-ZA")).filter(Boolean),
+  )];
+  const reviewForSkill = (category: string) => data.skillReviewStatuses?.find(
+    (item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"),
+  );
+  const allSkillsApproved = submittedSkillCategories.length > 0 &&
+    submittedSkillCategories.every((category) => reviewForSkill(category)?.status === "APPROVED");
+  const skillsPending = isProvider && submittedSkillCategories.length > 0 && !allSkillsApproved;
   const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, allSkillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
   const pendingStates = isProvider ? [false, verificationPending, skillsPending, false] : [false, verificationPending, false];
-  const reviewForSkill = (category: string) => data.skillReviewStatuses?.find((item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"));
   const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills)] : [])].filter(Boolean).length;
   const completionPercentage = Math.round((completedSectionCount / (isProvider ? 2 : 1)) * 100);
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Not complete";
