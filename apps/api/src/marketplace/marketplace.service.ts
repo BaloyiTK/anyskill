@@ -1301,17 +1301,23 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const invalidDeviceIds: string[] = [];
         let transientTicketErrors = 0;
         for (const [index, ticket] of tickets.entries()) {
+          const device = devices[index];
+          if (!device) {
+            transientTicketErrors += 1;
+            this.logger.error(`Expo returned an unmatched ticket at index ${index} for notification ${notification.id}.`);
+            continue;
+          }
           if (ticket.status === "ok" && ticket.id) {
             receiptRows.push({
               notificationId: notification.id,
-              pushDeviceId: devices[index].id,
+              pushDeviceId: device.id,
               expoTicketId: ticket.id,
             });
           } else if (ticket.details?.error === "DeviceNotRegistered") {
-            invalidDeviceIds.push(devices[index].id);
+            invalidDeviceIds.push(device.id);
           } else {
             transientTicketErrors += 1;
-            this.logger.warn(`Expo rejected push for device ${devices[index].id}: ${ticket.message ?? ticket.details?.error ?? "unknown ticket error"}`);
+            this.logger.warn(`Expo rejected push for device ${device.id}: ${ticket.message ?? ticket.details?.error ?? "unknown ticket error"}`);
           }
         }
         await this.prisma.$transaction(async (tx) => {
