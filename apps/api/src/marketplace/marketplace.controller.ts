@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
+  BadRequestException, Body, Controller, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
 } from "@nestjs/common";
 import { IsOptional, IsUUID } from "class-validator";
 import { Throttle } from "@nestjs/throttler";
@@ -65,8 +65,12 @@ export class MarketplaceController {
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("SEEKER_SUBMIT_REQUEST")
   @RequireMarketplaceRole("SEEKER")
-  createRequest(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateServiceRequestDto) {
-    return this.marketplace.createRequest(user.id, dto);
+  createRequest(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateServiceRequestDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.marketplace.createRequest(user.id, dto, idempotencyKey);
   }
 
   @Get("marketplace/incoming-requests")
