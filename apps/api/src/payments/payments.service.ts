@@ -158,14 +158,25 @@ export class PaymentsService {
       if (input.outcome === PaymentOperationStatus.UNKNOWN) {
         paymentUpdate.status = PaymentStatus.RECONCILIATION_REQUIRED;
       } else if (input.outcome === PaymentOperationStatus.FAILED) {
-        paymentUpdate.status = operation.type === PaymentOperationType.AUTHORIZE
-          ? PaymentStatus.FAILED
-          : operation.type === PaymentOperationType.CAPTURE
-            || operation.type === PaymentOperationType.VOID
-            ? PaymentStatus.AUTHORIZED
-            : operation.payment.amountCapturedMinor === operation.amountMinor
-              ? PaymentStatus.CAPTURED
-              : PaymentStatus.PARTIALLY_REFUNDED;
+        if (operation.type === PaymentOperationType.AUTHORIZE) {
+          paymentUpdate.status = PaymentStatus.FAILED;
+        } else if (operation.type === PaymentOperationType.CAPTURE
+          || operation.type === PaymentOperationType.VOID) {
+          paymentUpdate.status = PaymentStatus.AUTHORIZED;
+        } else {
+          const priorRefunds = await tx.paymentOperation.aggregate({
+            where: {
+              paymentId: operation.paymentId,
+              type: PaymentOperationType.REFUND,
+              status: PaymentOperationStatus.SUCCEEDED,
+              id: { not: operation.id },
+            },
+            _sum: { amountMinor: true },
+          });
+          paymentUpdate.status = (priorRefunds._sum.amountMinor ?? 0n) > 0n
+            ? PaymentStatus.PARTIALLY_REFUNDED
+            : PaymentStatus.CAPTURED;
+        }
       } else {
         switch (operation.type) {
           case PaymentOperationType.AUTHORIZE:
