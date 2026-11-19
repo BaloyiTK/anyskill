@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { MarketplaceRoleStatus, Prisma, ProviderApplicationStatus, RegistrationMode } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
 
@@ -134,10 +134,15 @@ export class OnboardingService {
       ...(input.portfolio !== undefined ? { portfolio: input.portfolio as Prisma.InputJsonValue } : {}),
       submittedAt: null,
     };
-    await this.prisma.onboardingDraft.upsert({
-      where: { userId },
-      create: { userId, profile: (input.profile ?? {}) as Prisma.InputJsonValue, skills: (input.skills ?? []) as Prisma.InputJsonValue, portfolio: (input.portfolio ?? []) as Prisma.InputJsonValue },
-      update: data,
+    await this.prisma.$transaction(async (tx) => {
+      // Draft edits and submission share the account lifecycle lock. This makes
+      // a save atomic with respect to a simultaneous submit/review decision.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      await tx.onboardingDraft.upsert({
+        where: { userId },
+        create: { userId, profile: (input.profile ?? {}) as Prisma.InputJsonValue, skills: (input.skills ?? []) as Prisma.InputJsonValue, portfolio: (input.portfolio ?? []) as Prisma.InputJsonValue },
+        update: data,
+      });
     });
 
     // Saving a draft must not create review-queue records. ProviderSkill
@@ -208,6 +213,13 @@ export class OnboardingService {
       // review decisions. This prevents duplicate review notifications and stale
       // role state from winning when two lifecycle actions race across replicas.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const currentDraft = await tx.onboardingDraft.findUnique({
+        where: { userId },
+        select: { updatedAt: true },
+      });
+      if (!currentDraft || currentDraft.updatedAt.getTime() !== onboarding.updatedAt?.getTime()) {
+        throw new ConflictException("Your onboarding details changed while you were submitting. Refresh your profile and submit again.");
+      }
       await tx.onboardingDraft.update({
         where: { userId },
         data: { submittedAt },
