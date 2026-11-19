@@ -301,17 +301,24 @@ export class MarketplaceRolesService {
         user: { select: { id: true, email: true, identityVerification: true } },
       },
     });
-    return cases.map((item) => ({
-      ...item,
-      // No document URLs or storage identifiers are returned in the queue.
-      // Each image is retrieved through a separately authorised and audited API call.
-      documents: {
-        ID_DOCUMENT_FRONT: true,
-        ID_DOCUMENT_BACK: true,
-        ID_BOOK_PAGE_1: true,
-        ID_BOOK_PAGE_2: true,
-        ID_SELFIE: true,
-      },
+    return Promise.all(cases.map(async (item) => {
+      const assets = await this.prisma.mediaAsset.findMany({
+        where: {
+          userId: item.user.id,
+          status: "READY",
+          purpose: { in: ["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] },
+        },
+        select: { purpose: true },
+      });
+      const available = new Set(assets.map((asset) => asset.purpose));
+      return {
+        ...item,
+        // Never return storage URLs or asset IDs in the review queue.
+        documents: Object.fromEntries(
+          (["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] as const)
+            .map((purpose) => [purpose, available.has(purpose)]),
+        ),
+      };
     }));
   }
 
