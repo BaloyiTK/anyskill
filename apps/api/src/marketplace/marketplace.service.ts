@@ -1209,26 +1209,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async respondToRequest(providerId: string, requestId: string, input: ProviderResponseDto) {
-    const provider = await this.prisma.user.findUnique({
-      where: { id: providerId },
-      select: { identityVerification: true, providerProfile: { select: { hourlyRate: true, assessmentFee: true } } },
-    });
-    if (!provider || provider.identityVerification !== "VERIFIED") {
-      throw new ForbiddenException({
-        code: "IDENTITY_VERIFICATION_REQUIRED",
-        action: "PROVIDER_ACCEPT_REQUEST",
-        message: "You can view this request, but you must complete identity verification before accepting it. Your request will remain available if it has not been taken or closed.",
-      });
-    }
-
-    if (!provider.providerProfile?.hourlyRate) {
-      throw new ConflictException("Complete your Provider profile and set your hourly rate before sending an offer.");
-    }
-
     try {
       return await this.prisma.$transaction(async (tx) => {
-        // Serialize provider offer creation with seeker cancellation/selection.
+        // Lock order is request first, then Provider eligibility. Account
+        // deletion and offer decisions use the same order for this workflow.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${providerId}))`;
+
         const request = await tx.serviceRequest.findUnique({
           where: { id: requestId },
           select: { id: true, seekerId: true, status: true },
@@ -1238,23 +1225,53 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         if (request.seekerId === providerId) throw new ForbiddenException("You cannot respond to your own service request.");
         if (request.status !== "OPEN") throw new ConflictException("This service request is no longer available.");
 
+        const provider = await tx.user.findUnique({
+          where: { id: providerId },
+          select: {
+            identityVerification: true,
+            providerRoleStatus: true,
+            providerProfile: { select: { hourlyRate: true, assessmentFee: true } },
+          },
+        });
+        if (!provider || provider.providerRoleStatus !== "ACTIVE" || provider.identityVerification !== "VERIFIED") {
+          throw new ForbiddenException({
+            code: "IDENTITY_VERIFICATION_REQUIRED",
+            action: "PROVIDER_ACCEPT_REQUEST",
+            message: "You can view this request, but an active, identity-verified Provider account is required to send an offer.",
+          });
+        }
+        if (!provider.providerProfile?.hourlyRate) {
+          throw new ConflictException("Complete your Provider profile and set your hourly rate before sending an offer.");
+        }
+
         const match = await tx.requestMatch.findUnique({
           where: { requestId_providerId: { requestId, providerId } },
-          select: { id: true },
+          select: { id: true, status: true },
         });
-        if (!match) throw new ForbiddenException("This request has not been matched to your Provider profile.");
+        if (!match || match.status !== "NOTIFIED") {
+          throw new ConflictException("This matching invitation is no longer available.");
+        }
 
         const response = await tx.providerResponse.create({
           data: {
-            requestId, providerId, message: input.message?.trim() || null, status: "OFFERED",
-            hourlyRateAtOffer: provider.providerProfile!.hourlyRate!,
-            assessmentFeeAtOffer: provider.providerProfile!.assessmentFee,
+            requestId,
+            providerId,
+            message: input.message?.trim() || null,
+            status: "OFFERED",
+            hourlyRateAtOffer: provider.providerProfile.hourlyRate,
+            assessmentFeeAtOffer: provider.providerProfile.assessmentFee,
           },
-          select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true },
+          select: {
+            id: true, requestId: true, status: true, message: true,
+            hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true,
+          },
         });
         await tx.requestMatch.update({ where: { id: match.id }, data: { status: "RESPONDED" } });
-        await tx.serviceRequest.update({ where: { id: requestId }, data: { matchingNextAt: null } });
-        if (request.seekerId) await tx.appNotification.create({
+        await tx.serviceRequest.update({
+          where: { id: requestId },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+        await tx.appNotification.create({
           data: {
             userId: request.seekerId,
             title: "A Provider has responded",
