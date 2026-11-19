@@ -21,6 +21,8 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
   useEffect(() => {
     if (!requestId) { setRequest(null); return; }
     let active = true;
+    setRequest(null);
+    setAction(null);
     setLoading(true); setError("");
     apiRequest<{ items: IncomingRequest[] }>("/marketplace/incoming-requests", {}, true)
       .then((result) => {
