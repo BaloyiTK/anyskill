@@ -695,3 +695,39 @@ test("duplicate matching dispatch inserts one match and one notification per pro
     where: { userId: providerId, data: { path: ["requestId"], equals: fixture.requestId } },
   }), 1);
 });
+
+test("notification queue selects distinct recipients before applying its page limit", async () => {
+  const fixture = await createFixture(1);
+  const noisyProviderId = fixture.responses[0].providerId;
+  const otherRecipientId = fixture.seekerId;
+  await prisma.appNotification.createMany({
+    data: Array.from({ length: 12 }, (_, index) => ({
+      userId: noisyProviderId,
+      title: `Noisy account notification ${index}`,
+      body: "Queue fairness integration test",
+      data: { type: "QUEUE_FAIRNESS_TEST", index },
+    })),
+  });
+  await prisma.appNotification.create({
+    data: {
+      userId: otherRecipientId,
+      title: "Other account notification",
+      body: "Must not be starved by another recipient",
+      data: { type: "QUEUE_FAIRNESS_TEST" },
+    },
+  });
+
+  const selected = await prisma.$queryRaw<Array<{ userId: string }>>`
+    SELECT DISTINCT ON (user_id) user_id AS "userId"
+    FROM app_notifications
+    WHERE delivery_status = 'PENDING'
+      AND attempts < 5
+      AND next_attempt_at <= NOW()
+      AND data->>'type' = 'QUEUE_FAIRNESS_TEST'
+    ORDER BY user_id, created_at ASC, id ASC
+    LIMIT 10
+  `;
+  assert.equal(new Set(selected.map((row) => row.userId)).size, selected.length);
+  assert.ok(selected.some((row) => row.userId === otherRecipientId));
+  assert.ok(selected.some((row) => row.userId === noisyProviderId));
+});
