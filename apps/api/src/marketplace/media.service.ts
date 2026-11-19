@@ -242,18 +242,20 @@ export class MediaService {
         `bytes=${String(remote.bytes ?? "missing")} expectedBytes=${asset.sizeBytes} ` +
         `resourceType=${String(remote.resource_type ?? "missing")} deliveryType=${String(remote.type ?? "missing")}`,
       );
-      await this.prisma.mediaAsset.updateMany({
+      const expiredClaim = await this.prisma.mediaAsset.updateMany({
         where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
         data: { status: "EXPIRED", verificationStartedAt: null },
       });
-      try {
-        await cloudinary.uploader.destroy(expectedPublicId, {
-          resource_type: "image",
-          type: "authenticated",
-          invalidate: true,
-        });
-      } catch {
-        // The asset is unusable in the database even if remote cleanup is delayed.
+      if (expiredClaim.count === 1) {
+        try {
+          await cloudinary.uploader.destroy(expectedPublicId, {
+            resource_type: "image",
+            type: "authenticated",
+            invalidate: true,
+          });
+        } catch {
+          // The asset is unusable in the database even if remote cleanup is delayed.
+        }
       }
       throw new BadRequestException("Uploaded image failed Cloudinary asset, folder, format, size or access validation.");
     }
