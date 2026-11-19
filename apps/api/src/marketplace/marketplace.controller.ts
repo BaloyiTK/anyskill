@@ -93,6 +93,12 @@ export class MarketplaceController {
   }
 
 
+  @Post("marketplace/requests/:requestId/decline")
+  @RequireMarketplaceRole("PROVIDER")
+  declineIncomingRequest(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.declineIncomingRequest(user.id, requestId);
+  }
+
   @Post("marketplace/requests/:requestId/cancel")
   @RequireMarketplaceRole("SEEKER")
   cancelRequest(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
