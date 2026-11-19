@@ -26,7 +26,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 ## P1 — Notifications and background processing
 
 - [ ] Bound outbound HTTP timeouts and batch sizes; retry transient failures only.
-- [ ] Add worker metrics: queue age/depth, claim age, attempts, expired leases, receipt failures, and processing latency.
+- [ ] Complete worker metrics and alerting. Structured worker logs now include queue counts by delivery status, oldest pending age, cycle duration and expired media cleanup count; claim age, per-attempt metrics, receipt failure detail and external alerts remain outstanding.
 - [ ] Ensure in-app notification creation is transactional with the business event (outbox pattern).
 - [ ] Add operational alerts for stuck work, exhausted retries, and matching requests approaching expiry.
 
@@ -40,7 +40,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 ## P1 — API and infrastructure
 
 - [ ] Complete request DTO limits and pagination caps across all endpoints. Coordinate/range checks are enforced; public provider discovery now uses the existing PostGIS geography index and caps responses at 200 results instead of loading every online profile into API memory.
-- [ ] Complete production health/readiness checks and graceful shutdown. `/api/v1/health` is a liveness probe; `/api/v1/health/ready` now verifies PostgreSQL connectivity. Migration compatibility and dedicated-worker health are still deployment gates and are not claimed by the HTTP readiness probe.
+- [ ] Complete production health/readiness checks. `/api/v1/health` is a liveness probe; `/api/v1/health/ready` verifies PostgreSQL connectivity. Worker shutdown now drains its in-flight cycle before Prisma disconnects. Migration compatibility and dedicated-worker health are still deployment gates and are not claimed by the HTTP readiness probe.
 - [ ] Complete centralized log collection and alerting. Production API now emits structured JSON log records to stderr for container collection instead of relying on ephemeral local files; request IDs are included and common credential/token patterns are redacted.
 - [ ] Add metrics, tracing, and alert thresholds. Request IDs are returned and logged; API responses now set nosniff, frame-denial, no-referrer, no-store, and production HSTS headers.
 - [ ] Verify backup/restore, migration rollback strategy, connection-pool sizing, and deployment rollback.
@@ -73,7 +73,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [x] Replace the default in-memory `@nestjs/throttler` storage with an atomic shared Redis-backed store for production. The custom Upstash Redis REST storage uses a Lua script for atomic sliding-window counters and block state; it fails closed with HTTP 503 if the shared store is unavailable. Local development retains the built-in in-memory store when Redis credentials are absent.
 - [x] Configure explicit Express trusted-proxy hops using `TRUST_PROXY_HOPS` (integer 0–10, default 0). Forwarded client IP headers are not trusted by default; production must set the exact proxy hop count for its deployment topology.
 - [x] Run marketplace deadlines, retries and Expo receipt polling in a separately deployed worker process. API replicas do not start the polling interval; a PostgreSQL transaction-scoped advisory lock prevents overlapping cycles.
-- [ ] Ensure worker ownership, health, restart behavior, queue age and failed-notification counts are observable and alerted.
+- [ ] Configure external alerts for worker process liveness, missed cycles, queue age, failed-notification growth and receipt failures. Structured logs now expose queue age/depth and cycle duration; process supervision and alert routing must be configured in the deployment platform.
 
 ## Additional hardening changes
 
@@ -168,4 +168,4 @@ Production readiness is not declared until all P0 items are complete, the P1 ite
 - Access-token validation reloads the account from PostgreSQL on every authenticated request, so deleting the user immediately invalidates outstanding access tokens as well as removing refresh sessions.
 - Account deletion removes the user's push devices and queued in-app notifications in the same database transaction that removes the account. Push receipts cascade with their deleted device/notification records.
 - Account deletion is rate-limited to two attempts per minute. Storage cleanup must succeed before the database deletion transaction proceeds; retrying cleanup treats already-removed Cloudinary assets as complete.
-- Integration coverage verifies that registered push tokens and queued private notifications are absent after account cleanup. Staging must still verify a deletion racing an active notification worker and confirm no later push is delivered.
+- Integration coverage verifies the per-user advisory-lock boundary between notification delivery and account deletion, and that registered push tokens/queued notifications are absent after cleanup. Staging must still exercise a real Expo delivery racing account deletion and confirm no later push is delivered.
