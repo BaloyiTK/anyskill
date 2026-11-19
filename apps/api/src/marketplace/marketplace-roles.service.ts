@@ -85,7 +85,7 @@ export class MarketplaceRolesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-application-submit'), hashtext(${userId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
       const user = await tx.user.findUniqueOrThrow({
         where: { id: userId },
         select: { providerRoleStatus: true },
@@ -261,7 +261,7 @@ export class MarketplaceRolesService {
     await this.prisma.$transaction(async (tx) => {
       // Use the same per-user lock as identity submission so a reviewer decision
       // cannot race a new submission and accidentally downgrade VERIFIED status.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('identity-verification-submit'), hashtext(${verificationCase.userId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${verificationCase.userId}))`;
       const currentCase = await tx.identityVerificationCase.findUnique({
         where: { id: caseId },
         select: { id: true, userId: true, status: true },
@@ -376,28 +376,48 @@ export class MarketplaceRolesService {
     if (decision === "REJECTED" && trimmedReason.length < 5) {
       throw new ConflictException("A rejection reason of at least 5 characters is required.");
     }
-    const skill = await this.prisma.providerSkill.findUnique({ where: { id: skillId },
-      select: { id: true, userId: true, status: true, user: { select: { identityVerification: true, providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } } } });
-    if (!skill) throw new NotFoundException("Skill not found.");
-    if (skill.userId === reviewerId) throw new ForbiddenException("Reviewers cannot approve their own skills.");
-    if (skill.status !== "PENDING") throw new ConflictException("This skill has already been decided.");
-    if (decision === "APPROVED" && skill.user.identityVerification !== IdentityVerificationStatus.VERIFIED) {
-      throw new ConflictException("Identity must be verified before a skill can be approved.");
-    }
+    const initialSkill = await this.prisma.providerSkill.findUnique({
+      where: { id: skillId },
+      select: { id: true, userId: true },
+    });
+    if (!initialSkill) throw new NotFoundException("Skill not found.");
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      const changed = await tx.providerSkill.updateMany({ where: { id: skillId, status: "PENDING" },
-        data: { status: decision, reviewerId, reviewedAt: now, decisionReason: trimmedReason || null } });
+      // Serialize all eligibility changes for one Provider account. Identity
+      // decisions, skill decisions and Provider applications use this same lock.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${initialSkill.userId}))`;
+      const currentSkill = await tx.providerSkill.findUnique({
+        where: { id: skillId },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          user: { select: { identityVerification: true, providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } },
+        },
+      });
+      if (!currentSkill) throw new NotFoundException("Skill not found.");
+      if (currentSkill.userId !== initialSkill.userId) throw new ConflictException("Skill ownership changed. Refresh and try again.");
+      if (currentSkill.userId === reviewerId) throw new ForbiddenException("Reviewers cannot approve their own skills.");
+      if (currentSkill.status !== "PENDING") throw new ConflictException("This skill has already been decided.");
+      if (decision === "APPROVED" && currentSkill.user.identityVerification !== IdentityVerificationStatus.VERIFIED) {
+        throw new ConflictException("Identity must be verified before a skill can be approved.");
+      }
+
+      const changed = await tx.providerSkill.updateMany({
+        where: { id: skillId, userId: currentSkill.userId, status: "PENDING" },
+        data: { status: decision, reviewerId, reviewedAt: now, decisionReason: trimmedReason || null },
+      });
       if (changed.count !== 1) throw new ConflictException("This skill has already been decided.");
+
       const approvedSkills = await tx.providerSkill.findMany({
-        where: { userId: skill.userId, status: "APPROVED" },
+        where: { userId: currentSkill.userId, status: "APPROVED" },
         select: { category: true },
         orderBy: { category: "asc" },
       });
-      const providerActive = skill.user.identityVerification === IdentityVerificationStatus.VERIFIED &&
-        approvedSkills.length > 0 && skill.user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
+      const providerActive = currentSkill.user.identityVerification === IdentityVerificationStatus.VERIFIED &&
+        approvedSkills.length > 0 && currentSkill.user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
       if (providerActive) {
-        const draft = await tx.onboardingDraft.findUnique({ where: { userId: skill.userId }, select: { profile: true } });
+        const draft = await tx.onboardingDraft.findUnique({ where: { userId: currentSkill.userId }, select: { profile: true } });
         const profile = draft?.profile && typeof draft.profile === "object" && !Array.isArray(draft.profile)
           ? draft.profile as Record<string, unknown> : {};
         const fullName = [profile.firstName, profile.lastName]
@@ -406,15 +426,15 @@ export class MarketplaceRolesService {
           .find((value) => typeof value === "string" && value.trim()) as string | undefined;
         if (publicName) {
           await tx.providerProfile.upsert({
-            where: { userId: skill.userId },
-            create: { userId: skill.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
+            where: { userId: currentSkill.userId },
+            create: { userId: currentSkill.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
             update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category) },
           });
         }
       }
       if (!providerActive) {
         await tx.providerProfile.updateMany({
-          where: { userId: skill.userId },
+          where: { userId: currentSkill.userId },
           data: {
             isAvailable: false,
             liveLatitude: null,
@@ -424,19 +444,34 @@ export class MarketplaceRolesService {
           },
         });
       }
-      await tx.user.update({ where: { id: skill.userId }, data: {
-        providerRoleStatus: skill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
-          ? MarketplaceRoleStatus.SUSPENDED
-          : providerActive ? MarketplaceRoleStatus.ACTIVE : MarketplaceRoleStatus.PENDING,
-        activeMarketplaceMode: providerActive && skill.user.activeMarketplaceMode === null &&
-          skill.user.seekerRoleStatus !== MarketplaceRoleStatus.ACTIVE ? RegistrationMode.PROVIDER : skill.user.activeMarketplaceMode,
-      } });
-      await tx.staffAuditLog.create({ data: { actorId: reviewerId, targetUserId: skill.userId,
-        action: `PROVIDER_SKILL_${decision}`, metadata: { skillId, reason: trimmedReason || null } } });
-      await tx.appNotification.create({ data: { userId: skill.userId,
-        title: decision === "APPROVED" ? "Skill approved" : "Skill rejected",
-        body: decision === "APPROVED" ? `Your skill "${skillId}" has been approved.` : trimmedReason,
-        data: { type: "PROVIDER_SKILL_DECISION", skillId, decision } } });
+      await tx.user.update({
+        where: { id: currentSkill.userId },
+        data: {
+          providerRoleStatus: currentSkill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
+            ? MarketplaceRoleStatus.SUSPENDED
+            : providerActive ? MarketplaceRoleStatus.ACTIVE : MarketplaceRoleStatus.PENDING,
+          activeMarketplaceMode: providerActive && currentSkill.user.activeMarketplaceMode === null &&
+            currentSkill.user.seekerRoleStatus !== MarketplaceRoleStatus.ACTIVE
+            ? RegistrationMode.PROVIDER
+            : currentSkill.user.activeMarketplaceMode,
+        },
+      });
+      await tx.staffAuditLog.create({
+        data: {
+          actorId: reviewerId,
+          targetUserId: currentSkill.userId,
+          action: `PROVIDER_SKILL_${decision}`,
+          metadata: { skillId, reason: trimmedReason || null },
+        },
+      });
+      await tx.appNotification.create({
+        data: {
+          userId: currentSkill.userId,
+          title: decision === "APPROVED" ? "Skill approved" : "Skill rejected",
+          body: decision === "APPROVED" ? `Your skill "${skillId}" has been approved.` : trimmedReason,
+          data: { type: "PROVIDER_SKILL_DECISION", skillId, decision },
+        },
+      });
     });
     return { skillId, status: decision, reason: trimmedReason || null };
   }
