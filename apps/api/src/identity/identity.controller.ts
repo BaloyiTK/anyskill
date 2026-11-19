@@ -135,9 +135,18 @@ export class IdentityController {
     if (!validId || !selfie) throw new BadRequestException(body.idType === "GREEN_ID_BOOK" ? "Upload the Green ID book photo/details page and take a live selfie before submitting verification." : "Upload both sides of your Smart ID card and take a live selfie before submitting verification.");
 
     const result = await this.prisma.$transaction(async (tx) => {
-      // Serialize submissions per account across API replicas. The database
-      // partial unique index is the final invariant if another write path is added.
+      // Serialize submissions and reviewer decisions per account across API replicas.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('identity-verification-submit'), hashtext(${user.id}))`;
+      const currentAccount = await tx.user.findUniqueOrThrow({
+        where: { id: user.id },
+        select: { identityVerification: true },
+      });
+      if (currentAccount.identityVerification === "VERIFIED") {
+        return { verificationCase: null, created: false, alreadyVerified: true };
+      }
+      if (currentAccount.identityVerification === "SUSPENDED" || currentAccount.identityVerification === "REVOKED") {
+        throw new ForbiddenException("Identity verification is suspended. Contact AnySkill support.");
+      }
 
       const existingPending = await tx.identityVerificationCase.findFirst({
         where: {
@@ -146,7 +155,7 @@ export class IdentityController {
         },
         select: { id: true, status: true, submittedAt: true },
       });
-      if (existingPending) return { verificationCase: existingPending, created: false };
+      if (existingPending) return { verificationCase: existingPending, created: false, alreadyVerified: false };
 
       const verificationCase = await tx.identityVerificationCase.create({
         data: {
@@ -174,9 +183,13 @@ export class IdentityController {
         },
       });
 
-      return { verificationCase, created: true };
+      return { verificationCase, created: true, alreadyVerified: false };
     });
 
+    if (result.alreadyVerified) {
+      return { status: "verified", message: "Your identity is already verified." };
+    }
+    if (!result.verificationCase) throw new ConflictException("Identity verification submission could not be completed.");
     return {
       caseId: result.verificationCase.id,
       status: result.verificationCase.status.toLowerCase(),
