@@ -74,7 +74,7 @@ async function createPaymentFixture() {
 const key = (prefix) => `${prefix}-${randomUUID()}`;
 
 test("checksum-verified PayGate notifications are durably deduplicated without storing vault tokens", async () => {
-  const eventId = key("paygate-event");
+  const eventId = "78705178";
   const input = {
     providerEventId: eventId,
     rawPayload: `PAYGATE_ID=TEST&TRANSACTION_ID=${eventId}&AMOUNT=7500`,
