@@ -388,6 +388,80 @@ test("concurrent additional-hours requests create only one pending adjustment", 
   assert.equal(await prisma.jobCostAdjustment.count({ where: { engagementId: fixture.jobId, status: "PENDING" } }), 1);
 });
 
+test("a Provider can submit completion while the shared work timer is paused", async () => {
+  const pausedAt = new Date();
+  const fixture = await createEngagementFixture("IN_PROGRESS");
+  await prisma.jobEngagement.update({
+    where: { id: fixture.jobId },
+    data: { workAccumulatedMs: 125_000, workSegmentStartedAt: null, workPausedAt: pausedAt },
+  });
+
+  const completed = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
+    const job = await tx.jobEngagement.findUnique({ where: { requestId: fixture.requestId } });
+    assert.ok(job?.workPausedAt);
+    assert.equal(job?.workSegmentStartedAt, null);
+    const changed = await tx.jobEngagement.updateMany({
+      where: {
+        id: fixture.jobId,
+        status: "IN_PROGRESS",
+        workSegmentStartedAt: null,
+        workPausedAt: job.workPausedAt,
+      },
+      data: {
+        status: "COMPLETION_PENDING",
+        workAccumulatedMs: job.workAccumulatedMs,
+        workSegmentStartedAt: null,
+        workPausedAt: null,
+        workEndedAt: new Date(),
+      },
+    });
+    return changed.count;
+  });
+  assert.equal(completed, 1);
+  const job = await prisma.jobEngagement.findUnique({ where: { id: fixture.jobId } });
+  assert.equal(job?.status, "COMPLETION_PENDING");
+  assert.equal(job?.workAccumulatedMs, 125_000);
+  assert.equal(job?.workSegmentStartedAt, null);
+  assert.equal(job?.workPausedAt, null);
+});
+
+test("additional-hours requests can be recorded during a paused work segment", async () => {
+  const fixture = await createEngagementFixture("IN_PROGRESS");
+  const pausedAt = new Date();
+  await prisma.jobEngagement.update({
+    where: { id: fixture.jobId },
+    data: { workAccumulatedMs: 90_000, workSegmentStartedAt: null, workPausedAt: pausedAt },
+  });
+  const adjustment = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
+    const job = await tx.jobEngagement.findUnique({ where: { requestId: fixture.requestId } });
+    assert.ok(job?.workPausedAt);
+    assert.equal(job?.workSegmentStartedAt, null);
+    const claimed = await tx.jobEngagement.updateMany({
+      where: {
+        id: fixture.jobId,
+        status: "IN_PROGRESS",
+        workSegmentStartedAt: null,
+        workPausedAt: job.workPausedAt,
+      },
+      data: { workAccumulatedMs: job.workAccumulatedMs },
+    });
+    assert.equal(claimed.count, 1);
+    return tx.jobCostAdjustment.create({
+      data: {
+        engagementId: fixture.jobId,
+        requestedHours: "1.00",
+        hourlyRate: "250.00",
+        requestedAmount: "250.00",
+        reason: "Additional work identified during a break",
+      },
+    });
+  });
+  assert.equal(adjustment.status, "PENDING");
+  assert.equal(await prisma.jobCostAdjustment.count({ where: { engagementId: fixture.jobId, status: "PENDING" } }), 1);
+});
+
 test("concurrent completion decisions cannot both change the submission", async () => {
   const fixture = await createEngagementFixture("COMPLETION_PENDING");
   const submission = await prisma.jobCompletionSubmission.create({
