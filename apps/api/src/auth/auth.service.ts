@@ -583,6 +583,22 @@ export class AuthService {
       throw new UnauthorizedException("This account is no longer active.");
     }
 
+    const [activeEngagement, openRequests, outstandingOffers, incomingInvitations] = await Promise.all([
+      this.prisma.jobEngagement.findFirst({
+        where: { OR: [{ seekerId: userId }, { providerId: userId }], status: { not: "COMPLETED" } },
+        select: { id: true, status: true },
+      }),
+      this.prisma.serviceRequest.count({ where: { seekerId: userId, status: "OPEN" } }),
+      this.prisma.providerResponse.count({ where: { providerId: userId, status: "OFFERED" } }),
+      this.prisma.requestMatch.count({ where: { providerId: userId, status: "NOTIFIED" } }),
+    ]);
+    if (activeEngagement) {
+      throw new ConflictException("Complete or resolve your active service engagement before deleting your account.");
+    }
+    if (openRequests > 0 || outstandingOffers > 0 || incomingInvitations > 0) {
+      throw new ConflictException("Cancel your open service requests, withdraw outstanding offers, and decline incoming Provider invitations before deleting your account.");
+    }
+
     // Remove private files first. If storage cleanup fails, keep the account
     // intact so deletion can be retried without leaving private files behind.
     await this.media.deleteUserAssets(userId);
