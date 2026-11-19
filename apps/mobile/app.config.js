@@ -24,10 +24,20 @@ module.exports = ({ config }) => {
     : path.resolve(projectRoot, "google-services.json");
   const hasGoogleServices = fs.existsSync(googleServicesPath);
 
+  const isProductionAndroidBuild =
+    process.env.EAS_BUILD_PROFILE === "production" &&
+    process.env.EAS_BUILD_PLATFORM === "android";
+
   if (!key) {
+    if (isProductionAndroidBuild) {
+      throw new Error("GOOGLE_MAPS_API_KEY is required for production Android builds.");
+    }
     console.warn("[AnySkill] GOOGLE_MAPS_API_KEY is missing; Google Maps may show a blank map.");
   }
   if (!hasGoogleServices) {
+    if (isProductionAndroidBuild) {
+      throw new Error("Firebase google-services.json is required for production Android builds. Configure it as an EAS file environment variable named GOOGLE_SERVICES_JSON; do not commit the file.");
+    }
     console.warn("[AnySkill] Firebase google-services.json is missing. Android push notifications will not initialize.");
   }
 
