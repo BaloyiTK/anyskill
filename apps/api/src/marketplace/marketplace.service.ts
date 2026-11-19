@@ -530,9 +530,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               experience: (() => {
                 const skills = response.provider.user?.onboardingDraft?.skills;
                 if (!Array.isArray(skills)) return null;
-                const requested = normalise(request.skillCategory).replace(/[^\\p{L}\\p{N}]+/gu, "");
+                const requested = normalise(request.skillCategory).replace(/[^\p{L}\p{N}]+/gu, "");
                 const entry = skills.find((item) => item && typeof item === "object" && !Array.isArray(item)
-                  && normalise(String((item as Record<string, unknown>).category ?? "")).replace(/[^\\p{L}\\p{N}]+/gu, "") === requested) as Record<string, unknown> | undefined;
+                  && normalise(String((item as Record<string, unknown>).category ?? "")).replace(/[^\p{L}\p{N}]+/gu, "") === requested) as Record<string, unknown> | undefined;
                 return typeof entry?.yearsOfExperience === "string" ? entry.yearsOfExperience : entry?.yearsOfExperience == null ? null : String(entry.yearsOfExperience);
               })(),
               distanceKm: (() => {
