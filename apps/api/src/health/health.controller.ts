@@ -28,7 +28,7 @@ export class HealthController {
     timestamp: string;
   }> {
     try {
-      await this.prisma.$queryRaw\`SELECT 1\`;
+      await this.prisma.$queryRawUnsafe("SELECT 1");
     } catch {
       throw new ServiceUnavailableException({
         status: "not_ready",
