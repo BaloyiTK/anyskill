@@ -767,3 +767,42 @@ test("business notification event keys are unique and notification failure rolls
   });
   assert.equal(persisted.title, original.title);
 });
+
+test("stale notification claims become UNKNOWN instead of being blindly resent", async () => {
+  const fixture = await createFixture(1);
+  const providerId = fixture.responses[0].providerId;
+  const notification = await prisma.appNotification.create({
+    data: {
+      userId: providerId,
+      title: "Ambiguous Expo delivery",
+      body: "Simulate worker interruption after outbound request",
+      deliveryStatus: "SENDING",
+      attempts: 1,
+      sendingStartedAt: new Date(Date.now() - 3 * 60_000),
+    },
+    select: { id: true },
+  });
+
+  const recovered = await prisma.$executeRaw`
+    UPDATE app_notifications AS notification
+    SET delivery_status = CASE
+          WHEN EXISTS (
+            SELECT 1 FROM push_notification_receipts AS receipt
+            WHERE receipt.notification_id = notification.id
+          ) THEN 'SENT'::"NotificationDeliveryStatus"
+          ELSE 'UNKNOWN'::"NotificationDeliveryStatus"
+        END,
+        sending_started_at = NULL
+    WHERE notification.id = ${notification.id}::uuid
+      AND notification.delivery_status = 'SENDING'::"NotificationDeliveryStatus"
+      AND notification.sending_started_at < ${new Date(Date.now() - 2 * 60_000)}
+  `;
+  assert.equal(recovered, 1);
+  const persisted = await prisma.appNotification.findUniqueOrThrow({
+    where: { id: notification.id },
+    select: { deliveryStatus: true, sendingStartedAt: true, attempts: true },
+  });
+  assert.equal(persisted.deliveryStatus, "UNKNOWN");
+  assert.equal(persisted.sendingStartedAt, null);
+  assert.equal(persisted.attempts, 1);
+});
