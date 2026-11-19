@@ -93,6 +93,14 @@ export class MarketplaceController {
     return this.marketplace.listMyRequests(user.id);
   }
 
+  @Post("marketplace/requests/:requestId/decline")
+  declineIncomingRequest(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+  ) {
+    return this.marketplace.declineIncomingRequest(user.id, requestId);
+  }
+
   @Post("marketplace/requests/:requestId/accept")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("PROVIDER_ACCEPT_REQUEST")
