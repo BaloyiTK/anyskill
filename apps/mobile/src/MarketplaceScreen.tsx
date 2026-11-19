@@ -33,7 +33,7 @@ type RequestItem = {
 };
 type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
-type JobEngagement = { id: string; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
+type JobEngagement = { id: string; providerId?: string | null; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
 type ProviderJob = JobEngagement & {
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
   seeker?: { firstName: string; lastName: string; profilePhotoUrl: string | null; phone: string | null; identityVerified: boolean };
@@ -82,7 +82,7 @@ export function MarketplaceScreen(p: Props) {
   const [activeOfferId, setActiveOfferId] = useState<string | null>(null);
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
-  const [journeyScreen, setJourneyScreen] = useState<{title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string}|null>(null);
+  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
   const [dismissedProviderOfferIds, setDismissedProviderOfferIds] = useState<string[]>([]);
   const [myJobs, setMyJobs] = useState<ProviderJob[]>([]);
@@ -258,10 +258,10 @@ export function MarketplaceScreen(p: Props) {
   }, [p.mode, myJobs, providerOfferReview]);
 
   useEffect(() => {
-    if (p.mode !== "provider" || providerOfferReview?.status !== "SELECTED") return;
+    if (p.mode !== "provider") return;
     const selectedJob = myJobs.find((job) => job.status !== "COMPLETED" && !dismissedActiveJobIds.includes(job.request.id));
     if (selectedJob) setActiveProviderJobId(selectedJob.request.id);
-  }, [p.mode, myJobs, providerOfferReview, dismissedActiveJobIds]);
+  }, [p.mode, myJobs, dismissedActiveJobIds]);
 
   const loadServiceChat = useCallback(async (requestId: string) => {
     setServiceChatLoading(true);
@@ -284,12 +284,13 @@ export function MarketplaceScreen(p: Props) {
     finally { setServiceChatBusy(false); }
   };
 
+  const activeChatRequestId = p.mode === "provider" ? activeProviderJobId : p.mode === "seeker" ? journeyScreen?.requestId ?? null : null;
   useEffect(() => {
-    if (!activeProviderJobId || p.mode !== "provider") return;
-    void loadServiceChat(activeProviderJobId);
-    const timer = setInterval(() => { void loadServiceChat(activeProviderJobId); }, 5000);
+    if (!activeChatRequestId) return;
+    void loadServiceChat(activeChatRequestId);
+    const timer = setInterval(() => { void loadServiceChat(activeChatRequestId); }, 5000);
     return () => clearInterval(timer);
-  }, [activeProviderJobId, p.mode, loadServiceChat]);
+  }, [activeChatRequestId, loadServiceChat]);
 
   const acceptRequest = async (request: RequestItem) => {
     if (!p.verified) { p.onIdentityRequired(request.id); return; }
@@ -333,6 +334,7 @@ export function MarketplaceScreen(p: Props) {
       const selectedRequest = myRequests.find((item) => item.id === requestId);
       const selectedOffer = selectedRequest?.providerResponses.find((offer) => offer.id === responseId);
       setJourneyScreen({
+        requestId,
         title: selectedRequest?.title ?? matchingRequest?.title ?? "Your service",
         location: selectedRequest?.location ?? matchingRequest?.location ?? null,
         latitude: selectedRequest?.latitude ?? null,
@@ -1425,6 +1427,16 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20 }}>This request does not have a physical destination. No travel navigation is required.</Text>
           </View>
         )}
+        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}><Text style={{ color: "#15251E", fontSize: 17, fontWeight: "900" }}>Chat with Provider</Text><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900" }}>ACTIVE</Text></View>
+          <View style={{ maxHeight: 220, marginTop: 12 }}>
+            {serviceChatLoading && serviceChatMessages.length === 0 ? <ActivityIndicator color="#176B55" /> : serviceChatMessages.length === 0 ? <Text style={{ color: "#66756D", fontSize: 12, paddingVertical: 14 }}>Your service chat is ready. Send the Provider a message.</Text> : serviceChatMessages.map((message) => <View key={message.id} style={{ alignSelf: message.senderId === "CURRENT_USER" ? "flex-end" : "flex-start", maxWidth: "88%", backgroundColor: "#F1F4F2", borderRadius: 13, padding: 10, marginBottom: 8 }}><Text style={{ color: "#24352C", fontSize: 12, lineHeight: 18 }}>{message.body}</Text><Text style={{ color: "#718078", fontSize: 9, marginTop: 4 }}>{new Date(message.createdAt).toLocaleString()}</Text></View>)}
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>
+            <TextInput value={serviceChatDraft} onChangeText={setServiceChatDraft} placeholder="Message your Provider..." multiline style={{ flex: 1, minHeight: 46, maxHeight: 100, borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: "#15251E" }} />
+            <Pressable disabled={serviceChatBusy || !serviceChatDraft.trim()} onPress={() => void sendServiceChatMessage(journeyScreen!.requestId)} style={{ backgroundColor: "#176B55", opacity: serviceChatBusy || !serviceChatDraft.trim() ? 0.5 : 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 15 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{serviceChatBusy ? "..." : "Send"}</Text></Pressable>
+          </View>
+        </View>
         <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 14, marginTop: 18 }}>
           <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>WHAT HAPPENS NEXT</Text>
           <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>The Provider must complete the assessment and submit an estimate. Work starts only after the estimate is approved in AnySkill.</Text>
