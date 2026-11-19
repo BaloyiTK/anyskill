@@ -51,7 +51,13 @@ export class MarketplaceController {
 
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("marketplace/media/uploads")
-  createMediaUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateMediaUploadDto) { return this.media.createUpload(user.id, dto); }
+  createMediaUpload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateMediaUploadDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.media.createUpload(user.id, dto, idempotencyKey);
+  }
 
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post("marketplace/media/uploads/confirm")
