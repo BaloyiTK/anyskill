@@ -957,13 +957,34 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (this.workerRunning) return;
     this.workerRunning = true;
     try {
-      await this.expandExpiredWaves();
-      await this.retryExhaustedRequests();
-      await this.dispatchPendingNotifications();
+      // Transaction-scoped advisory lock coordinates all API replicas.
+      await this.prisma.$transaction(async (tx) => {
+        const acquired = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(741928364::bigint) AS locked`;
+        if (!acquired[0]?.locked) return;
+        await this.recoverStaleNotificationClaims();
+        await this.expandExpiredWaves();
+        await this.retryExhaustedRequests();
+        await this.dispatchPendingNotifications();
+      }, { maxWait: 10_000, timeout: 120_000 });
     } catch (error) {
       this.logger.error("Marketplace worker cycle failed.", error);
     } finally {
       this.workerRunning = false;
+    }
+  }
+
+  private async recoverStaleNotificationClaims() {
+    const staleBefore = new Date(Date.now() - 2 * 60_000);
+    const stale = await this.prisma.appNotification.updateMany({
+      where: { deliveryStatus: "SENDING", sendingStartedAt: { lt: staleBefore } },
+      data: {
+        deliveryStatus: "PENDING",
+        sendingStartedAt: null,
+        nextAttemptAt: new Date(),
+      },
+    });
+    if (stale.count > 0) {
+      this.logger.warn(`Recovered ${stale.count} notification(s) left in SENDING after a worker interruption.`);
     }
   }
 
@@ -1207,7 +1228,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   private async dispatchPendingNotifications() {
     const pending = await this.prisma.appNotification.findMany({
-      where: { deliveryStatus: "PENDING", attempts: { lt: 5 } },
+      where: { deliveryStatus: "PENDING", attempts: { lt: 5 }, nextAttemptAt: { lte: new Date() } },
       take: 50,
       orderBy: { createdAt: "asc" },
       select: { id: true, userId: true, title: true, body: true, data: true, attempts: true },
@@ -1220,19 +1241,20 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (devices.length === 0) {
         await this.prisma.appNotification.updateMany({
           where: { id: notification.id, deliveryStatus: "PENDING" },
-          data: { deliveryStatus: "IN_APP_ONLY" },
+          data: { deliveryStatus: "IN_APP_ONLY", sendingStartedAt: null },
         });
         continue;
       }
       const claim = await this.prisma.appNotification.updateMany({
         where: { id: notification.id, deliveryStatus: "PENDING" },
-        data: { deliveryStatus: "SENDING", attempts: { increment: 1 } },
+        data: { deliveryStatus: "SENDING", sendingStartedAt: new Date(), attempts: { increment: 1 } },
       });
       if (claim.count === 0) continue;
       try {
         const response = await fetch("https://exp.host/--/api/v2/push/send", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
+          signal: AbortSignal.timeout(15_000),
           body: JSON.stringify(devices.map((device) => ({
             to: device.expoPushToken,
             title: notification.title,
@@ -1253,15 +1275,20 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         }
         await this.prisma.appNotification.update({
           where: { id: notification.id },
-          data: { deliveryStatus: "SENT", sentAt: new Date() },
+          data: { deliveryStatus: "SENT", sentAt: new Date(), sendingStartedAt: null },
         });
       } catch (error) {
         const attempts = notification.attempts + 1;
-        await this.prisma.appNotification.update({
-          where: { id: notification.id },
-          data: { deliveryStatus: attempts >= 5 ? "FAILED" : "PENDING" },
+        const retryDelayMs = Math.min(5 * 60_000, 5_000 * (2 ** Math.max(0, attempts - 1)));
+        await this.prisma.appNotification.updateMany({
+          where: { id: notification.id, deliveryStatus: "SENDING" },
+          data: {
+            deliveryStatus: attempts >= 5 ? "FAILED" : "PENDING",
+            sendingStartedAt: null,
+            nextAttemptAt: new Date(Date.now() + retryDelayMs),
+          },
         });
-        this.logger.warn(`Push notification ${notification.id} failed: ${String(error)}`);
+        this.logger.warn(`Push notification ${notification.id} failed (attempt ${attempts}/5): ${String(error)}`);
       }
     }
   }
