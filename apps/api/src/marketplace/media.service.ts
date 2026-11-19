@@ -175,7 +175,7 @@ export class MediaService {
       publicId,
       assetFolder: folder,
       maxBytes: MAX_BYTES,
-      alreadyUploaded: false,
+      alreadyUploaded: asset.status === "READY",
     };
   }
 
