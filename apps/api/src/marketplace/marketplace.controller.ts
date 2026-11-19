@@ -240,6 +240,7 @@ export class MarketplaceController {
     return this.marketplace.updateProviderProfile(user.id, dto);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("notifications/devices")
   registerPushDevice(@CurrentUser() user: AuthenticatedUser, @Body() dto: RegisterPushDeviceDto) {
     return this.marketplace.registerPushDevice(user.id, dto);
