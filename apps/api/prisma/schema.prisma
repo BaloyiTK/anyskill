@@ -277,6 +277,8 @@ model IdentityVerificationCase {
 model ServiceRequest {
   id                 String                @id @default(uuid()) @db.Uuid
   seekerId           String?               @db.Uuid @map("seeker_id")
+  idempotencyKey     String?               @db.VarChar(100) @map("idempotency_key")
+  idempotencyPayloadHash String?           @db.Char(64) @map("idempotency_payload_hash")
   title              String                @db.VarChar(120)
   skillCategory      String                @map("skill_category") @db.VarChar(100)
   description        String                @db.VarChar(5000)
@@ -302,6 +304,7 @@ model ServiceRequest {
 
   @@index([status, createdAt])
   @@index([seekerId, createdAt])
+  @@unique([seekerId, idempotencyKey])
   @@map("service_requests")
 }
 
