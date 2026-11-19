@@ -152,6 +152,8 @@ export default function App() {
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       sound: "default",
       bypassDnd: false,
+      enableVibrate: true,
+      showBadge: true,
     }).catch((e) => console.warn("[AnySkill notifications] Could not configure incoming request channel.", e));
   }, []);
 
@@ -300,14 +302,6 @@ export default function App() {
         if (!projectId) {
           throw new Error("Set EXPO_PUBLIC_EAS_PROJECT_ID to the AnySkill EAS project ID before registering push notifications.");
         }
-        await Notifications.setNotificationChannelAsync("incoming_requests", {
-          name: "Incoming service requests",
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 500, 250, 500, 250, 700],
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          enableVibrate: true,
-          showBadge: true,
-        });
         const token = await Notifications.getExpoPushTokenAsync({ projectId });
         if (cancelled) return;
         await apiRequest("/notifications/devices", {
