@@ -369,7 +369,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async registerPushDevice(userId: string, input: RegisterPushDeviceDto) {
-    if (!/^(Expo|Exponent)PushToken\\[[^\\]]+\\]$/.test(input.expoPushToken)) {
+    if (!/^(Expo|Exponent)PushToken\[[^\]]+\]$/.test(input.expoPushToken)) {
       throw new ConflictException("The device did not provide a valid Expo push token.");
     }
 
