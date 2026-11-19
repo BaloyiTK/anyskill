@@ -91,28 +91,39 @@ export class MediaService {
     const payloadHash = createHash("sha256").update(JSON.stringify({
       fileName: input.fileName.slice(0, 255), contentType: input.contentType, sizeBytes: input.sizeBytes, purpose,
     })).digest("hex");
-    let asset = idempotencyKey
-      ? await this.prisma.mediaAsset.findFirst({ where: { userId, idempotencyKey } })
-      : null;
+    let asset;
+    try {
+      asset = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+        const account = await tx.user.findUnique({
+          where: { id: userId },
+          select: { deletedAt: true, seekerRoleStatus: true, providerRoleStatus: true },
+        });
+        if (!account || account.deletedAt !== null ||
+            (account.seekerRoleStatus === "SUSPENDED" && account.providerRoleStatus === "SUSPENDED")) {
+          throw new ForbiddenException("This account is not active for new uploads.");
+        }
 
-    if (asset) {
-      if (asset.idempotencyPayloadHash !== payloadHash) {
-        throw new ConflictException("This Idempotency-Key was already used with a different upload.");
-      }
-      if (asset.status === "READY") return { assetId: asset.id, status: "READY" as const, alreadyUploaded: true };
-      if (asset.status === "VERIFYING") throw new ConflictException("This upload is already being verified. Please retry shortly.");
-      if (asset.status !== "PENDING" || asset.expiresAt <= new Date()) {
-        throw new ConflictException("This upload reservation has expired. Start a new upload.");
-      }
-    } else {
-      const id = randomUUID();
-      const publicId = `${userId}/${id}`;
-      try {
-        asset = await this.prisma.mediaAsset.create({
+        const existing = idempotencyKey
+          ? await tx.mediaAsset.findFirst({ where: { userId, idempotencyKey } })
+          : null;
+        if (existing) {
+          if (existing.idempotencyPayloadHash !== payloadHash) {
+            throw new ConflictException("This Idempotency-Key was already used with a different upload.");
+          }
+          if (existing.status === "READY") return existing;
+          if (existing.status === "VERIFYING") throw new ConflictException("This upload is already being verified. Please retry shortly.");
+          if (existing.status !== "PENDING" || existing.expiresAt <= new Date()) {
+            throw new ConflictException("This upload reservation has expired. Start a new upload.");
+          }
+          return existing;
+        }
+
+        return tx.mediaAsset.create({
           data: {
             userId,
             ...(idempotencyKey ? { idempotencyKey, idempotencyPayloadHash: payloadHash } : {}),
-            objectKey: `${folder}/${publicId}`,
+            objectKey: `${folder}/${userId}/${randomUUID()}`,
             originalName: input.fileName.slice(0, 255),
             contentType: input.contentType,
             sizeBytes: input.sizeBytes,
@@ -120,19 +131,27 @@ export class MediaService {
             expiresAt: new Date(Date.now() + 30 * 60_000),
           },
         });
-      } catch (error) {
-        const isUniqueConflict = Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
-        if (!idempotencyKey || !isUniqueConflict) throw error;
-        asset = await this.prisma.mediaAsset.findFirst({ where: { userId, idempotencyKey } });
-        if (!asset) throw error;
-        if (asset.idempotencyPayloadHash !== payloadHash) {
-          throw new ConflictException("This Idempotency-Key was already used with a different upload.");
-        }
-        if (asset.status === "READY") return { assetId: asset.id, status: "READY" as const, alreadyUploaded: true };
-        if (asset.status !== "PENDING" || asset.expiresAt <= new Date()) {
-          throw new ConflictException("This upload reservation is not available for retry.");
-        }
+      });
+    } catch (error) {
+      const isUniqueConflict = Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
+      if (!idempotencyKey || !isUniqueConflict) throw error;
+      const [account, existing] = await Promise.all([
+        this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { deletedAt: true, seekerRoleStatus: true, providerRoleStatus: true },
+        }),
+        this.prisma.mediaAsset.findFirst({ where: { userId, idempotencyKey } }),
+      ]);
+      if (!account || account.deletedAt !== null ||
+          (account.seekerRoleStatus === "SUSPENDED" && account.providerRoleStatus === "SUSPENDED")) {
+        throw new ForbiddenException("This account is not active for new uploads.");
       }
+      if (!existing || existing.idempotencyPayloadHash !== payloadHash) {
+        throw new ConflictException("This Idempotency-Key was already used with a different upload.");
+      }
+      if (existing.status === "READY") asset = existing;
+      else if (existing.status === "PENDING" && existing.expiresAt > new Date()) asset = existing;
+      else throw new ConflictException("This upload reservation is not available for retry.");
     }
 
     const publicId = asset.objectKey.slice(folder.length + 1);
