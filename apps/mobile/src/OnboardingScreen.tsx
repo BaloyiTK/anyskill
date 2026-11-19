@@ -552,10 +552,10 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const identityApproved = ["VERIFIED", "APPROVED", "COMPLETE", "COMPLETED"].includes(identityStatus.toUpperCase());
   const verificationComplete = identityApproved && identityRequirementsComplete;
   const verificationPending = identitySubmitted && !identityApproved;
-  const providerApplicationStatus = (data.providerApplicationStatus ?? "").toUpperCase();
-  const skillsApproved = Boolean(data.skillReviewStatuses?.some((skill) => skill.status === "APPROVED"));
+  const allSkillsApproved = Boolean(data.skillReviewStatuses?.length)
+    && data.skillReviewStatuses!.every((skill) => skill.status === "APPROVED");
   const skillsPending = Boolean(data.skillReviewStatuses?.some((skill) => skill.status === "PENDING"));
-  const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, skillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
+  const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, allSkillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
   const pendingStates = isProvider ? [false, verificationPending, skillsPending, false] : [false, verificationPending, false];
   const reviewForSkill = (category: string) => data.skillReviewStatuses?.find((item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"));
   const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills)] : [])].filter(Boolean).length;
