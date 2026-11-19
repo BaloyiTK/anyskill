@@ -195,6 +195,23 @@ async function bootstrap(): Promise<void> {
     ? [...new Set([...configuredOrigins, "http://localhost:4173", "http://127.0.0.1:4173"])]
     : configuredOrigins;
 
+  if (process.env.NODE_ENV === "production" && allowedOrigins.length === 0) {
+    throw new Error("CORS_ALLOWED_ORIGINS must contain the exact deployed browser origins in production.");
+  }
+  for (const origin of allowedOrigins) {
+    let parsedOrigin: URL;
+    try {
+      parsedOrigin = new URL(origin);
+    } catch {
+      throw new Error(`Invalid CORS origin configured: ${origin}`);
+    }
+    if (!["https:", "http:"].includes(parsedOrigin.protocol) ||
+        parsedOrigin.origin !== origin ||
+        (process.env.NODE_ENV === "production" && parsedOrigin.protocol !== "https:")) {
+      throw new Error(`CORS origin must be an exact origin without a path; production origins must use HTTPS: ${origin}`);
+    }
+  }
+
   if (allowedOrigins.length > 0) {
     app.enableCors({ origin: allowedOrigins, credentials: true });
   }
