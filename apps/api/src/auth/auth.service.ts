@@ -596,6 +596,13 @@ export class AuthService {
         select: { id: true, deletedAt: true },
       });
       if (!current || current.deletedAt) throw new UnauthorizedException("This account is no longer active.");
+      const staffMembership = await tx.staffMembership.findUnique({
+        where: { userId },
+        select: { role: true, isActive: true },
+      });
+      if (staffMembership?.isActive && staffMembership.role === "SUPER_ADMIN") {
+        throw new ConflictException("The Super Administrator account cannot be self-deleted. Transfer administrator responsibility through the approved support process first.");
+      }
 
       const [activeEngagement, openRequests, outstandingOffers, incomingInvitations] = await Promise.all([
         tx.jobEngagement.findFirst({
