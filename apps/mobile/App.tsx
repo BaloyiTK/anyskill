@@ -35,7 +35,7 @@ async function configureIncomingRequestNotifications() {
     {
       identifier: "ACCEPT_REQUEST",
       buttonTitle: "Accept",
-      options: { isAuthenticationRequired: true, opensAppToForeground: true },
+      options: { isAuthenticationRequired: true, isDestructive: false, opensAppToForeground: true },
     },
     {
       identifier: "DECLINE_REQUEST",
