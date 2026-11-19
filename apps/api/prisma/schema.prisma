@@ -413,6 +413,7 @@ model AppNotification {
   nextAttemptAt  DateTime                  @default(now()) @map("next_attempt_at")
   createdAt      DateTime                  @default(now()) @map("created_at")
   user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushReceipts   PushNotificationReceipt[]
 
   @@index([userId, readAt, createdAt])
   @@index([deliveryStatus, nextAttemptAt, createdAt])
