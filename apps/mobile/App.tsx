@@ -230,7 +230,7 @@ export default function App() {
     setIdentity(null);
     setProfileComplete(false);
 
-    // Both Seeker and Provider accounts start in onboarding after authentication.
+    // Returning users go directly to Home once their required profile sections are submitted.
     await routeAfterAuthentication(me.initialMode);
   };
 
