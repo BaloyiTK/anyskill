@@ -1337,20 +1337,31 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     id: string; seekerId: string; skillCategory: string; location: string | null;
     latitude?: number | null; longitude?: number | null; deliveryMode: string; searchRadiusKm: number;
   }, db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<RankedProvider[]> {
+    const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
+    const requestedSkill = compact(request.skillCategory);
+    const compatibleModes = request.deliveryMode === "REMOTE"
+      ? ["REMOTE", "EITHER"]
+      : request.deliveryMode === "ONSITE"
+        ? ["ONSITE", "EITHER"]
+        : ["REMOTE", "ONSITE", "EITHER"];
+    // GIN-indexed normalized skill keys avoid loading every online Provider
+    // profile. A deterministic 5,000-candidate cap bounds memory and groupBy cost.
     const profiles = await db.providerProfile.findMany({
       where: {
         isAvailable: true,
-        user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } },
+        normalizedSkillKeys: { has: requestedSkill },
+        deliveryModes: { hasSome: compatibleModes },
+        user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED", deletedAt: null } },
         userId: { not: request.seekerId },
       },
+      orderBy: [{ updatedAt: "desc" }, { userId: "asc" }],
+      take: 5000,
       select: {
         userId: true, skillCategories: true, deliveryModes: true, maxTravelDistanceKm: true,
         liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true,
         user: { select: { onboardingDraft: { select: { skills: true } } } },
       },
     });
-    const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
-    const requestedSkill = compact(request.skillCategory);
     const matchingProfiles = profiles.filter((profile) => profile.skillCategories.some((skill) => compact(skill) === requestedSkill));
     if (!matchingProfiles.length) return [];
     const providerIds = matchingProfiles.map((profile) => profile.userId);
