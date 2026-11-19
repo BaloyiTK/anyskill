@@ -13,6 +13,7 @@ import {
   AppNotification, fetchNotifications, markNotificationRead,
 } from "./src/api";
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
+import { IncomingRequestScreen } from "./src/IncomingRequestScreen";
 import { ProviderHomeScreen } from "./src/ProviderHomeScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
@@ -93,6 +94,7 @@ export default function App() {
   const [profileComplete, setProfileComplete] = useState(false);
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [pendingIncomingPushId, setPendingIncomingPushId] = useState<string | null>(null);
+  const [activeIncomingRequestId, setActiveIncomingRequestId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // AuthSession is global: prevent sign-in and account-link flows from overlapping.
   const googleAuthInProgress = useRef(false);
@@ -334,26 +336,50 @@ export default function App() {
 
   const openMatchedRequest = (requestId: string) => {
     if (!requestId) return;
+    setActiveIncomingRequestId(requestId);
     setPendingAcceptRequestId(requestId);
     setPendingIncomingPushId(requestId);
   };
 
   useEffect(() => {
     if (!account || roleSummary?.providerStatus !== "ACTIVE" || !pendingIncomingPushId) return;
-    // Wait until initial authentication routing has completed. This also
-    // handles a notification tapped while AnySkill was fully closed.
     if (!["dashboard", "onboarding", "marketplace"].includes(screen)) return;
     setPendingIncomingPushId(null);
     setActiveTab("home");
     setMode("provider");
-    setScreen("marketplace");
+    setScreen("dashboard");
     void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
       method: "PATCH",
       body: JSON.stringify({ mode: "PROVIDER" }),
     }, true).then(setRoleSummary).catch((e) => {
-      console.warn("[AnySkill notifications] Could not switch to Provider mode.", e);
+      console.warn("[AnySkill incoming request] Could not switch to Provider mode.", e);
     });
   }, [account?.id, roleSummary?.providerStatus, pendingIncomingPushId, screen]);
+
+  // Reconcile matches from the API while a Provider is online. Push delivery
+  // is an alerting channel only; the persisted match is the source of truth.
+  useEffect(() => {
+    if (!account || screen !== "dashboard" || activeTab !== "home" || mode !== "provider" || roleSummary?.providerStatus !== "ACTIVE") return;
+    let active = true;
+    let checking = false;
+    const reconcile = async () => {
+      if (checking || activeIncomingRequestId) return;
+      checking = true;
+      try {
+        const profile = await apiRequest<{ isAvailable: boolean } | null>("/marketplace/provider-profile", {}, true);
+        if (!active || !profile?.isAvailable) return;
+        const result = await apiRequest<{ items: Array<{ id: string; alreadyResponded: boolean }> }>("/marketplace/incoming-requests", {}, true);
+        if (!active) return;
+        const next = result.items.find((item) => !item.alreadyResponded);
+        if (next) setActiveIncomingRequestId(next.id);
+      } catch {
+        // Keep Home visible; the next reconciliation retries transient failures.
+      } finally { checking = false; }
+    };
+    void reconcile();
+    const interval = setInterval(() => { void reconcile(); }, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, [account?.id, screen, activeTab, mode, roleSummary?.providerStatus, activeIncomingRequestId]);
 
 
   useEffect(() => {
@@ -1392,6 +1418,18 @@ export default function App() {
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Profile" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setShowAccountSettings(false); setScreen("dashboard"); feedback(); }} />
       </View>}
+      <IncomingRequestScreen
+        requestId={activeIncomingRequestId}
+        onClose={() => { setActiveIncomingRequestId(null); setPendingAcceptRequestId(null); }}
+        onAccepted={(requestId) => {
+          setActiveIncomingRequestId(null);
+          setPendingAcceptRequestId(null);
+          setMessage("Request accepted. Continue to your Provider workspace.");
+          setActiveTab("home");
+          setMode("provider");
+          setScreen("marketplace");
+        }}
+      />
       </SafeAreaView>
     </SafeAreaProvider>
   );
