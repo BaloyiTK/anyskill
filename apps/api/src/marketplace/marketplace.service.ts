@@ -12,6 +12,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
 import { LiveProviderMapService } from "./live-provider-map.service";
+import { MediaService } from "./media.service";
 import {
   CreateServiceRequestDto,
   ProviderResponseDto,
@@ -38,6 +39,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly liveProviderMap: LiveProviderMapService,
+    private readonly media: MediaService,
   ) {}
 
   onModuleInit() {
@@ -1275,6 +1277,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         await this.retryExhaustedRequests();
         await this.dispatchPendingNotifications();
         await this.checkExpoPushReceipts();
+        const expiredMediaReservationsCleaned = await this.media.cleanupExpiredReservations();
 
         const queueGroups = await tx.appNotification.groupBy({
           by: ["deliveryStatus"],
@@ -1289,6 +1292,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           acquired: true as const,
           queueCounts: Object.fromEntries(queueGroups.map((group) => [group.deliveryStatus, group._count._all])),
           oldestPendingAgeMs: oldestPending ? Math.max(0, Date.now() - oldestPending.createdAt.getTime()) : 0,
+          expiredMediaReservationsCleaned,
         };
       }, { maxWait: 10_000, timeout: 120_000 });
 
@@ -1298,6 +1302,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           durationMs: Date.now() - startedAt,
           queueCounts: cycle.queueCounts,
           oldestPendingAgeMs: cycle.oldestPendingAgeMs,
+          expiredMediaReservationsCleaned: cycle.expiredMediaReservationsCleaned,
         }));
       }
     } catch (error) {
