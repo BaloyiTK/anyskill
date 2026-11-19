@@ -70,11 +70,23 @@ export class OnboardingService {
     const portfolio = Array.isArray(data.portfolio) ? data.portfolio : [];
     const roles = Array.isArray(p.marketplaceRoles) ? p.marketplaceRoles : p.marketplaceRole ? [p.marketplaceRole] : [];
     const hasRole = roles.some((role: unknown) => role === "SEEKER" || role === "PROVIDER");
-    const individualComplete = Boolean(p.firstName?.trim() && p.lastName?.trim() && p.phone?.trim());
+    const value = (item: unknown) => typeof item === "string" ? item.trim() : "";
+    const validEmail = (item: unknown) => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value(item));
+    const validPhone = (...parts: unknown[]) => {
+      const digits = parts.map(value).join("").replace(/\\D/g, "");
+      return digits.length >= 7 && digits.length <= 15;
+    };
+    const individualComplete = Boolean(
+      value(p.firstName) && value(p.lastName) &&
+      validPhone(p.phoneDialCode, p.phone),
+    );
     const businessComplete = Boolean(
-      p.businessName?.trim() && p.businessType?.trim() && p.businessEmail?.trim() && p.businessPhone?.trim() &&
-      p.businessCountry?.trim() && p.businessProvince?.trim() && p.businessAddress?.trim() &&
-      p.contactFirstName?.trim() && p.contactLastName?.trim() && p.contactJobTitle?.trim() && p.contactEmail?.trim() && p.contactPhone?.trim()
+      value(p.businessName) && value(p.businessType) &&
+      validEmail(p.businessEmail) && validPhone(p.businessPhone) &&
+      value(p.businessCountry) && value(p.businessProvince) &&
+      value(p.businessAddress) && value(p.contactFirstName) &&
+      value(p.contactLastName) && value(p.contactJobTitle) &&
+      validEmail(p.contactEmail) && validPhone(p.contactPhone),
     );
     const sections = {
       profile: Boolean(p.accountType && hasRole && (p.accountType === "BUSINESS" ? businessComplete : individualComplete)),
@@ -88,15 +100,27 @@ export class OnboardingService {
   }
 
   async get(userId: string) {
-    const [draft, providerApplication] = await Promise.all([
+    const [draft, providerApplication, providerSkills] = await Promise.all([
       this.prisma.onboardingDraft.findUnique({ where: { userId } }),
       this.prisma.providerRoleApplication.findUnique({ where: { userId }, select: { status: true } }),
+      this.prisma.providerSkill.findMany({
+        where: { userId },
+        select: { category: true, status: true, decisionReason: true, submittedAt: true, reviewedAt: true },
+        orderBy: [{ category: "asc" }],
+      }),
     ]);
     const data = { profile: draft?.profile ?? {}, skills: draft?.skills ?? [], portfolio: draft?.portfolio ?? [] };
     return {
       ...data,
       ...this.completion(data),
       providerApplicationStatus: providerApplication?.status ?? null,
+      skillReviewStatuses: providerSkills.map((skill) => ({
+        category: skill.category,
+        status: skill.status,
+        decisionReason: skill.decisionReason,
+        submittedAt: skill.submittedAt,
+        reviewedAt: skill.reviewedAt,
+      })),
       submittedAt: draft?.submittedAt ?? null,
       updatedAt: draft?.updatedAt ?? null,
     };
@@ -164,9 +188,8 @@ export class OnboardingService {
       : typeof profile.marketplaceRole === "string" ? [profile.marketplaceRole] : [];
     const providerRequired = user?.initialMode === "PROVIDER" || roles.includes("PROVIDER");
     const missingSections = [
-      ...(!onboarding.sections.profile ? ["Profile"] : []),
-      ...(providerRequired && !onboarding.sections.skills ? ["Skills"] : []),
-
+      ...(!onboarding.sections.profile ? ["Profile (complete contact details)"] : []),
+      ...(providerRequired && !onboarding.sections.skills ? ["Skills (at least one valid skill)"] : []),
     ];
     if (missingSections.length) {
       throw new BadRequestException(
