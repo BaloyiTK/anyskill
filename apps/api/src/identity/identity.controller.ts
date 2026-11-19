@@ -137,7 +137,7 @@ export class IdentityController {
 
     const result = await this.prisma.$transaction(async (tx) => {
       // Serialize submissions and reviewer decisions per account across API replicas.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('identity-verification-submit'), hashtext(${user.id}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${user.id}))`;
       const currentAccount = await tx.user.findUniqueOrThrow({
         where: { id: user.id },
         select: { identityVerification: true },
