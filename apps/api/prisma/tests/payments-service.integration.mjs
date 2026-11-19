@@ -73,7 +73,7 @@ async function createPaymentFixture() {
 
 const key = (prefix) => `${prefix}-${randomUUID()}`;
 
-test("checksum-verified PayGate notifications are durably deduplicated without storing vault tokens", async () => {
+test("PayGate notification inbox deduplicates events without storing vault tokens", async () => {
   const eventId = BigInt(`0x${randomUUID().replaceAll("-", "").slice(0, 16)}`).toString();
   const payRequestId = randomUUID();
   const reference = key("anyskill-payment");
