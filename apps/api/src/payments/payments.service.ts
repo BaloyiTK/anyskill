@@ -182,7 +182,7 @@ export class PaymentsService {
         }
         break;
       case PaymentOperationType.REFUND: {
-        if (![PaymentStatus.CAPTURED, PaymentStatus.PARTIALLY_REFUNDED].includes(payment.status)
+        if ((payment.status !== PaymentStatus.CAPTURED && payment.status !== PaymentStatus.PARTIALLY_REFUNDED)
           || payment.amountCapturedMinor === null) {
           throw new ConflictException("This payment is not eligible for a refund.");
         }
