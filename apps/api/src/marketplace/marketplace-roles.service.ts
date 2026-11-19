@@ -257,12 +257,20 @@ export class MarketplaceRolesService {
       select: { id: true, userId: true, status: true },
     });
     if (!verificationCase) throw new NotFoundException("Identity verification case not found.");
-    if (verificationCase.userId === reviewerId) throw new ForbiddenException("Reviewers cannot verify their own identity.");
-    if (verificationCase.status !== VerificationCaseStatus.SUBMITTED && verificationCase.status !== VerificationCaseStatus.UNDER_REVIEW) {
-      throw new ConflictException("This identity verification case has already been decided.");
-    }
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
+      // Use the same per-user lock as identity submission so a reviewer decision
+      // cannot race a new submission and accidentally downgrade VERIFIED status.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('identity-verification-submit'), hashtext(${verificationCase.userId}))`;
+      const currentCase = await tx.identityVerificationCase.findUnique({
+        where: { id: caseId },
+        select: { id: true, userId: true, status: true },
+      });
+      if (!currentCase) throw new NotFoundException("Identity verification case not found.");
+      if (currentCase.userId === reviewerId) throw new ForbiddenException("Reviewers cannot verify their own identity.");
+      if (currentCase.status !== VerificationCaseStatus.SUBMITTED && currentCase.status !== VerificationCaseStatus.UNDER_REVIEW) {
+        throw new ConflictException("This identity verification case has already been decided.");
+      }
       const changed = await tx.identityVerificationCase.updateMany({
         where: { id: caseId, status: { in: [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW] } },
         data: { status: decision === "APPROVED" ? VerificationCaseStatus.APPROVED : VerificationCaseStatus.REJECTED,
@@ -270,29 +278,29 @@ export class MarketplaceRolesService {
       });
       if (changed.count !== 1) throw new ConflictException("This identity verification case has already been decided.");
       const approvedSkills = await tx.providerSkill.findMany({
-        where: { userId: verificationCase.userId, status: "APPROVED" },
+        where: { userId: currentCase.userId, status: "APPROVED" },
         select: { category: true },
         orderBy: { category: "asc" },
       });
-      const user = await tx.user.findUniqueOrThrow({ where: { id: verificationCase.userId },
+      const user = await tx.user.findUniqueOrThrow({ where: { id: currentCase.userId },
         select: { providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } });
       const identityStatus = decision === "APPROVED" ? IdentityVerificationStatus.VERIFIED : IdentityVerificationStatus.FAILED;
       const providerActive = decision === "APPROVED" && approvedSkills.length > 0 && user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
       if (providerActive) {
-        const draft = await tx.onboardingDraft.findUnique({ where: { userId: verificationCase.userId }, select: { profile: true } });
+        const draft = await tx.onboardingDraft.findUnique({ where: { userId: currentCase.userId }, select: { profile: true } });
         const profile = draft?.profile && typeof draft.profile === "object" && !Array.isArray(draft.profile)
           ? draft.profile as Record<string, unknown> : {};
         const fullName = [profile.firstName, profile.lastName].filter((value) => typeof value === "string" && value.trim()).join(" ");
         const publicName = [profile.businessName, fullName].find((value) => typeof value === "string" && value.trim()) as string | undefined;
         if (publicName) {
           await tx.providerProfile.upsert({
-            where: { userId: verificationCase.userId },
-            create: { userId: verificationCase.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
+            where: { userId: currentCase.userId },
+            create: { userId: currentCase.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
             update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category) },
           });
         }
       }
-      await tx.user.update({ where: { id: verificationCase.userId }, data: {
+      await tx.user.update({ where: { id: currentCase.userId }, data: {
         identityVerification: identityStatus, identityVerifiedAt: decision === "APPROVED" ? now : null,
         providerRoleStatus: user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
           ? MarketplaceRoleStatus.SUSPENDED
@@ -302,9 +310,9 @@ export class MarketplaceRolesService {
           : providerActive && user.activeMarketplaceMode === null && user.seekerRoleStatus !== MarketplaceRoleStatus.ACTIVE
             ? RegistrationMode.PROVIDER : user.activeMarketplaceMode,
       } });
-      await tx.staffAuditLog.create({ data: { actorId: reviewerId, targetUserId: verificationCase.userId,
+      await tx.staffAuditLog.create({ data: { actorId: reviewerId, targetUserId: currentCase.userId,
         action: `IDENTITY_VERIFICATION_${decision}`, metadata: { caseId, reason: trimmedReason || null } } });
-      await tx.appNotification.create({ data: { userId: verificationCase.userId,
+      await tx.appNotification.create({ data: { userId: currentCase.userId,
         title: decision === "APPROVED" ? "Identity verified" : "Identity verification rejected",
         body: decision === "APPROVED" ? "Your identity has been verified." : trimmedReason,
         data: { type: "IDENTITY_VERIFICATION_DECISION", caseId, decision } } });
