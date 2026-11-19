@@ -4,6 +4,7 @@ import { v2 as cloudinary } from "cloudinary";
 import { PrismaService } from "../database/prisma.service";
 
 const MAX_BYTES = 10 * 1024 * 1024;
+const CLOUDINARY_API_TIMEOUT_MS = 15_000;
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp"]);
 const FORMAT_MIME: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
 const FOLDERS: Record<string, string> = { PROVIDER_QUALIFICATION: "anyskill/provider-qualifications", PROVIDER_PORTFOLIO_IMAGE: "anyskill/provider-portfolios", JOB_COMPLETION_EVIDENCE: "anyskill/job-completion-evidence", ID_DOCUMENT: "anyskill/identity-verification", ID_DOCUMENT_FRONT: "anyskill/identity-verification", ID_DOCUMENT_BACK: "anyskill/identity-verification", ID_BOOK_PAGE_1: "anyskill/identity-verification", ID_BOOK_PAGE_2: "anyskill/identity-verification", ID_SELFIE: "anyskill/identity-verification" };
@@ -58,6 +59,7 @@ export class MediaService {
         api_key: this.apiKey,
         api_secret: this.apiSecret,
         secure: true,
+        hide_sensitive: true,
       });
       this.configured = true;
     } else if (cloudinaryUrl) {
@@ -211,7 +213,7 @@ export class MediaService {
     const expectedPublicId = asset.objectKey;
     let remote: any;
     try {
-      remote = await cloudinary.api.resource(expectedPublicId, { resource_type: "image", type: "authenticated" });
+      remote = await cloudinary.api.resource(expectedPublicId, { resource_type: "image", type: "authenticated", timeout: CLOUDINARY_API_TIMEOUT_MS });
     } catch {
       await this.prisma.mediaAsset.updateMany({
         where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
@@ -252,6 +254,7 @@ export class MediaService {
             resource_type: "image",
             type: "authenticated",
             invalidate: true,
+            timeout: CLOUDINARY_API_TIMEOUT_MS,
           });
         } catch {
           // The asset is unusable in the database even if remote cleanup is delayed.
@@ -280,7 +283,7 @@ export class MediaService {
     // Older reservations used asset_folder, keeping the folder out of public_id.
     // Resolve those existing assets while new uploads use the full folder-prefixed ID.
     try {
-      await cloudinary.api.resource(objectKey, { resource_type: "image", type: "authenticated" });
+      await cloudinary.api.resource(objectKey, { resource_type: "image", type: "authenticated", timeout: CLOUDINARY_API_TIMEOUT_MS });
       return objectKey;
     } catch {
       return objectKey.slice((folder + "/").length);
@@ -352,6 +355,7 @@ export class MediaService {
         resource_type: "image",
         type: "authenticated",
         invalidate: true,
+        timeout: CLOUDINARY_API_TIMEOUT_MS,
       });
       if (result.result !== "ok" && result.result !== "not found") {
         throw new ServiceUnavailableException("Uploaded files could not be securely removed. Please try again later.");
