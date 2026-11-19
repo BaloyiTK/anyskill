@@ -385,6 +385,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: { liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true },
       }),
     ]);
+    const seekerIds = [...new Set(requests.map((request) => request.seekerId))];
+    const seekerRatingGroups = seekerIds.length
+      ? await this.prisma.seekerReview.groupBy({
+          by: ["seekerId"],
+          where: { seekerId: { in: seekerIds } },
+          _avg: { rating: true },
+          _count: { _all: true },
+        })
+      : [];
     const hasMore = requests.length > 20;
     const now = Date.now();
     const hasFreshProviderLocation = providerProfile?.liveLatitude != null
@@ -422,6 +431,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           lastName,
           profilePhotoUrl: photo || null,
           identityVerified: seeker?.identityVerification === "VERIFIED",
+          rating: (() => {
+            const group = seekerRatingGroups.find((item) => item.seekerId === request.seekerId);
+            const count = group?._count._all ?? 0;
+            const average = group?._avg.rating ?? null;
+            return {
+              overall: average == null ? 5 : Number(average.toFixed(1)),
+              reviewCount: count,
+              isRated: count > 0,
+            };
+          })(),
         },
         providerLocation,
         distanceKm,
