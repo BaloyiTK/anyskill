@@ -6,6 +6,7 @@ on:
       - main
       - "foundation/**"
       - "feature/**"
+      - "hardening/**"
   pull_request:
 
 permissions:
