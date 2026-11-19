@@ -53,32 +53,73 @@ export class AuthService {
 
   async register(input: { email: string; mode?: "SEEKER" | "PROVIDER" }) {
     const email = input.email.trim().toLowerCase();
-    if (await this.prisma.user.findUnique({ where: { email } })) throw new ConflictException("An account with this email already exists.");
-    const previous = await this.prisma.pendingRegistration.findUnique({ where: { email } });
+    const genericResponse = {
+      otpSent: true,
+      expiresInSeconds: 600,
+      resendAfterSeconds: 60,
+      message: "If this email address can be registered, a verification code will be sent. If you already have an account, sign in instead.",
+    };
+
+    // Keep the response identical for existing accounts and new registrations.
+    const existingUser = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (existingUser) return genericResponse;
+
     const now = new Date();
-    if (previous?.verifiedAt) throw new ConflictException("Email verification is already complete. Continue registration.");
-    if (previous && previous.resendAvailableAt > now) throw new ConflictException("A code was sent recently. Please wait before requesting another.");
     const otp = randomInt(0, 1_000_000).toString().padStart(6, "0");
-    await this.prisma.pendingRegistration.upsert({
-      where: { email },
-      create: { email, mode: input.mode ?? "SEEKER", otpHash: this.registrationOtpHash(email, otp), expiresAt: new Date(now.getTime()+600000), resendAvailableAt: new Date(now.getTime()+60000) },
-      update: { mode: input.mode ?? "SEEKER", otpHash: this.registrationOtpHash(email, otp), attempts: 0, expiresAt: new Date(now.getTime()+600000), resendAvailableAt: new Date(now.getTime()+60000), verifiedAt: null, registrationTokenHash: null, registrationTokenExpiresAt: null },
-    });
-    await this.mail.sendRegistrationOtp(email, otp);
-    return { otpSent: true, expiresInSeconds: 600, resendAfterSeconds: 60, message: "A six-digit verification code has been sent to your email address." };
+    const otpHash = this.registrationOtpHash(email, otp);
+    const expiresAt = new Date(now.getTime() + 600000);
+    const resendAvailableAt = new Date(now.getTime() + 60000);
+    let pendingId: string;
+
+    try {
+      const created = await this.prisma.pendingRegistration.create({
+        data: { email, mode: input.mode ?? "SEEKER", otpHash, expiresAt, resendAvailableAt },
+        select: { id: true },
+      });
+      pendingId = created.id;
+    } catch (error) {
+      if (!(typeof error === "object" && error !== null && "code" in error && error.code === "P2002")) throw error;
+      const previous = await this.prisma.pendingRegistration.findUnique({ where: { email } });
+      if (!previous) return genericResponse;
+      if (previous.verifiedAt) throw new ConflictException("Email verification is already complete. Continue registration.");
+      if (previous.resendAvailableAt > now) throw new ConflictException("A code was sent recently. Please wait before requesting another.");
+      const updated = await this.prisma.pendingRegistration.updateMany({
+        where: { id: previous.id, verifiedAt: null, resendAvailableAt: { lte: now } },
+        data: {
+          mode: input.mode ?? "SEEKER", otpHash, attempts: 0, expiresAt, resendAvailableAt,
+          registrationTokenHash: null, registrationTokenExpiresAt: null,
+        },
+      });
+      if (updated.count !== 1) throw new ConflictException("A code was just requested. Please wait before trying again.");
+      pendingId = previous.id;
+    }
+
+    try {
+      await this.mail.sendRegistrationOtp(email, otp);
+    } catch (error) {
+      await this.prisma.pendingRegistration.updateMany({
+        where: { id: pendingId, otpHash, verifiedAt: null },
+        data: { resendAvailableAt: new Date() },
+      });
+      throw error;
+    }
+    return genericResponse;
   }
 
   async resendRegistrationOtp(emailInput: string) {
     const email = emailInput.trim().toLowerCase();
-    if (await this.prisma.user.findUnique({ where: { email } })) {
-      throw new ConflictException("An account with this email already exists.");
-    }
+    const genericResponse = {
+      otpSent: true,
+      expiresInSeconds: 600,
+      resendAfterSeconds: 60,
+      message: "If a registration is pending for this email address, a verification code will be sent. If you already have an account, sign in instead.",
+    };
+    const existingUser = await this.prisma.user.findUnique({ where: { email }, select: { id: true } });
+    if (existingUser) return genericResponse;
 
     const pending = await this.prisma.pendingRegistration.findUnique({ where: { email } });
     const now = new Date();
-    if (!pending || pending.verifiedAt) {
-      throw new ConflictException("There is no pending email verification for this address. Start registration again.");
-    }
+    if (!pending || pending.verifiedAt) return genericResponse;
     if (pending.resendAvailableAt > now) {
       const retryAfterSeconds = Math.ceil((pending.resendAvailableAt.getTime() - now.getTime()) / 1000);
       throw new ConflictException(`Please wait ${retryAfterSeconds} seconds before requesting another code.`);
