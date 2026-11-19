@@ -142,6 +142,7 @@ export class PaymentsService {
       || !/^[A-Z]{3}$/.test(p.currency)
       || !/^[0-9]{1,18}$/.test(p.amountMinor)
       || !/^[0-9]{1,20}$/.test(p.transactionId)
+      || input.providerEventId !== p.transactionId
       || (p.riskIndicator !== undefined && p.riskIndicator.length > 10)
       || (p.payMethod !== undefined && p.payMethod.length > 5)
       || (p.payMethodDetail !== undefined && p.payMethodDetail.length > 45)) {
@@ -164,7 +165,7 @@ export class PaymentsService {
     };
 
     return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.providerEventId}, 3))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${"PAYGATE_PAYWEB3"} || ':' || ${input.providerEventId}, 3))`;
       const existing = await tx.paymentWebhookEvent.findUnique({
         where: { provider_providerEventId: { provider: "PAYGATE_PAYWEB3", providerEventId: input.providerEventId } },
       });
