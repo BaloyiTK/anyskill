@@ -12,7 +12,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [x] Recover notifications stranded in `SENDING` after process termination; stale claims are recovered with bounded retries/backoff and terminal failure.
 - [x] Handle Expo push tickets and receipts separately. Persist ticket IDs, poll receipts, and invalidate `DeviceNotRegistered` tokens; ticket acceptance is not treated as handset delivery.
 - [x] Serialize provider offer creation, seeker selection, cancellation, and rescheduling using the same request-scoped PostgreSQL lock; conditional state updates protect the final transition. Integration tests are being added to CI.
-- [ ] Add idempotency keys for client-retried create/decision operations where a duplicate could create a second marketplace action.
+- [x] Add database-backed idempotency for service-request creation. `Idempotency-Key` is scoped to the authenticated seeker, payloads are SHA-256 bound, duplicate retries replay the original request, and reusing a key with a different payload returns HTTP 409. The key is optional during client rollout; clients must send and persist one UUID per logical submission.
 - [x] Complete PostgreSQL integration tests for competing provider selections, cancellation versus selection, and duplicate dispatch. The CI workflow executes them against PostgreSQL.
 
 ## P0 — Authentication and authorization
@@ -64,6 +64,18 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [x] Configure explicit Express trusted-proxy hops using `TRUST_PROXY_HOPS` (integer 0–10, default 0). Forwarded client IP headers are not trusted by default; production must set the exact proxy hop count for its deployment topology.
 - [x] Run marketplace deadlines, retries and Expo receipt polling in a separately deployed worker process. API replicas do not start the polling interval; a PostgreSQL transaction-scoped advisory lock prevents overlapping cycles.
 - [ ] Ensure worker ownership, health, restart behavior, queue age and failed-notification counts are observable and alerted.
+
+## Service request idempotency
+
+For every logical service-request submission, clients should generate a UUID once, persist it until the operation has a definitive result, and send it on every retry:
+
+```http
+POST /api/v1/marketplace/requests
+Idempotency-Key: 8d6d6d20-6c0d-4e37-9ac2-7b1db54a1f20
+Content-Type: application/json
+```
+
+The key is unique per authenticated seeker. The API stores a SHA-256 hash of the normalized request payload alongside the created request. A retry with the same key and same payload returns the existing request and does not create another marketplace request. Reusing the key with a different payload returns HTTP 409. The database unique index is the cross-replica concurrency boundary. During mobile-client rollout the header remains optional for backward compatibility; requests without it retain legacy non-idempotent behavior. Do not generate a new key for a network retry.
 
 ## Shared rate-limit deployment
 
