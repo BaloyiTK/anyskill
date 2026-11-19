@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { IdentityVerificationStatus, MarketplaceRoleStatus, ProviderApplicationStatus, RegistrationMode, StaffRole, VerificationCaseStatus } from "@prisma/client";
+import { IdentityVerificationStatus, MarketplaceRoleStatus, Prisma, ProviderApplicationStatus, RegistrationMode, StaffRole, VerificationCaseStatus } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
 import { MediaService } from "./media.service";
 
@@ -17,6 +17,50 @@ export type ProviderApplicationInput = {
 @Injectable()
 export class MarketplaceRolesService {
   constructor(private readonly prisma: PrismaService, private readonly media: MediaService) {}
+
+  private async deactivateProviderMarketplaceActivity(tx: Prisma.TransactionClient, userId: string) {
+    const [offers, matches] = await Promise.all([
+      tx.providerResponse.findMany({ where: { providerId: userId, status: "OFFERED" }, select: { requestId: true } }),
+      tx.requestMatch.findMany({ where: { providerId: userId, status: { in: ["NOTIFIED", "RESPONDED"] } }, select: { requestId: true } }),
+    ]);
+    const requestIds = [...new Set([...offers, ...matches].map((item) => item.requestId))];
+    if (requestIds.length === 0) return;
+
+    await tx.providerResponse.updateMany({
+      where: { providerId: userId, status: "OFFERED" },
+      data: { status: "WITHDRAWN", message: null },
+    });
+    await tx.requestMatch.updateMany({
+      where: { providerId: userId, status: { in: ["NOTIFIED", "RESPONDED"] } },
+      data: { status: "EXPIRED" },
+    });
+
+    const requests = await tx.serviceRequest.findMany({
+      where: { id: { in: requestIds }, status: "OPEN" },
+      select: { id: true, seekerId: true },
+    });
+    const notifications = requests.filter((request) => request.seekerId).map((request) => ({
+      userId: request.seekerId!,
+      title: "Provider unavailable",
+      body: "A matched Provider is no longer available. AnySkill will continue matching your request.",
+      data: { type: "PROVIDER_UNAVAILABLE", requestId: request.id },
+    }));
+    if (notifications.length) await tx.appNotification.createMany({ data: notifications });
+
+    for (const request of requests) {
+      const [pendingOffers, pendingMatches] = await Promise.all([
+        tx.providerResponse.count({ where: { requestId: request.id, status: "OFFERED" } }),
+        tx.requestMatch.count({ where: { requestId: request.id, status: "NOTIFIED" } }),
+      ]);
+      await tx.serviceRequest.updateMany({
+        where: { id: request.id, status: "OPEN" },
+        data: {
+          matchingNextAt: pendingOffers > 0 ? null : new Date(Date.now() + (pendingMatches > 0 ? 300_000 : 0)),
+          matchingExhaustedAt: null,
+        },
+      });
+    }
+  }
 
   async getRoles(userId: string) {
     const [user, application] = await Promise.all([
@@ -352,6 +396,7 @@ export class MarketplaceRolesService {
             liveLocationUpdatedAt: null,
           },
         });
+        await this.deactivateProviderMarketplaceActivity(tx, currentCase.userId);
       }
       await tx.user.update({ where: { id: currentCase.userId }, data: {
         identityVerification: identityStatus, identityVerifiedAt: decision === "APPROVED" ? now : null,
@@ -499,6 +544,7 @@ export class MarketplaceRolesService {
             liveLocationUpdatedAt: null,
           },
         });
+        await this.deactivateProviderMarketplaceActivity(tx, currentSkill.userId);
       }
       await tx.user.update({
         where: { id: currentSkill.userId },
