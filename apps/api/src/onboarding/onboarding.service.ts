@@ -140,37 +140,8 @@ export class OnboardingService {
       update: data,
     });
 
-    if (input.skills !== undefined) {
-      const account = await this.prisma.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { initialMode: true },
-      });
-      const savedDraft = await this.prisma.onboardingDraft.findUnique({
-        where: { userId },
-        select: { profile: true },
-      });
-      const savedProfile = savedDraft?.profile && typeof savedDraft.profile === "object" && !Array.isArray(savedDraft.profile)
-        ? savedDraft.profile as Record<string, unknown> : {};
-      const requestedRoles = Array.isArray(savedProfile.marketplaceRoles)
-        ? savedProfile.marketplaceRoles
-        : typeof savedProfile.marketplaceRole === "string" ? [savedProfile.marketplaceRole] : [];
-      if (account.initialMode === RegistrationMode.PROVIDER || requestedRoles.includes("PROVIDER")) {
-        const skillRows = input.skills.flatMap((item) => {
-          const skill = item as Record<string, unknown>;
-          const category = typeof skill.category === "string" ? skill.category.trim().toLocaleLowerCase("en-ZA") : "";
-          return category ? [{ userId, category, details: skill as Prisma.InputJsonValue }] : [];
-        });
-        if (skillRows.length) {
-          await this.prisma.providerSkill.createMany({ data: skillRows, skipDuplicates: true });
-          for (const row of skillRows) {
-            await this.prisma.providerSkill.updateMany({
-              where: { userId, category: row.category, status: "PENDING" },
-              data: { details: row.details },
-            });
-          }
-        }
-      }
-    }
+    // Saving a draft must not create review-queue records. ProviderSkill
+    // rows are created or re-submitted only after the user explicitly submits.
     return this.get(userId);
   }
 
@@ -255,19 +226,45 @@ export class OnboardingService {
       }
 
       if (wantsProvider) {
-        // Persist each submitted skill independently. Existing decisions are
-        // preserved; only genuinely new skills enter the review queue.
-        await tx.providerSkill.createMany({
-          data: skillDetails.flatMap((skill) => {
-            const category = typeof skill.category === "string" ? skill.category.trim() : "";
-            return category ? [{
-              userId,
-              category: category.toLocaleLowerCase("en-ZA"),
-              details: skill as Prisma.InputJsonValue,
-            }] : [];
-          }),
-          skipDuplicates: true,
-        });
+        // Persist each skill independently. Draft saves never enter the
+        // review queue; explicit submission creates new reviews and a changed
+        // or rejected skill is returned to PENDING without disturbing other
+        // approved skills.
+        for (const skill of skillDetails) {
+          const category = typeof skill.category === "string"
+            ? skill.category.trim().toLocaleLowerCase("en-ZA")
+            : "";
+          if (!category) continue;
+          const existingSkill = await tx.providerSkill.findUnique({
+            where: { userId_category: { userId, category } },
+            select: { status: true, details: true },
+          });
+          if (!existingSkill) {
+            await tx.providerSkill.create({
+              data: { userId, category, details: skill as Prisma.InputJsonValue },
+            });
+            continue;
+          }
+          const detailsChanged = JSON.stringify(existingSkill.details) !== JSON.stringify(skill);
+          if (existingSkill.status === "REJECTED" || (existingSkill.status === "APPROVED" && detailsChanged)) {
+            await tx.providerSkill.update({
+              where: { userId_category: { userId, category } },
+              data: {
+                status: "PENDING",
+                details: skill as Prisma.InputJsonValue,
+                decisionReason: null,
+                reviewerId: null,
+                reviewedAt: null,
+                submittedAt,
+              },
+            });
+          } else if (existingSkill.status === "PENDING") {
+            await tx.providerSkill.update({
+              where: { userId_category: { userId, category } },
+              data: { details: skill as Prisma.InputJsonValue, submittedAt },
+            });
+          }
+        }
 
         if (!publicName || skills.length === 0) {
           throw new BadRequestException("Provider applications require a public name and at least one skill.");
