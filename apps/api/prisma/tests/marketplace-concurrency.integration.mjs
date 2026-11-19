@@ -719,7 +719,7 @@ test("notification queue selects distinct recipients before applying its page li
     },
   });
 
-  const selected = await prisma.$queryRaw<Array<{ userId: string }>>`
+  const selected = await prisma.$queryRaw`
     SELECT DISTINCT ON (user_id) user_id AS "userId"
     FROM app_notifications
     WHERE delivery_status = 'PENDING'
@@ -824,7 +824,7 @@ test("Expo receipt polling schedule advances retries so missing receipts cannot 
     prisma.pushNotificationReceipt.create({
       data: {
         notificationId: notification.id, pushDeviceId: device.id,
-        expoTicketId: `receipt-${randomUUID()}`, createdAt: new Date(now.getTime() - 20 * 60_000),
+        expoTicketId: `receipt-${randomUUID()}`, createdAt: new Date(now.getTime() - 20 * 60_000), nextCheckAt: new Date(now.getTime() - 1_000),
       },
       select: { id: true, nextCheckAt: true, checkAttempts: true },
     }),
