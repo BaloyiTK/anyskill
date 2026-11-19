@@ -91,7 +91,7 @@ test("declining the final outstanding offer schedules the next matching wave", a
   const fixture = await createFixture(3);
   for (const response of fixture.responses) {
     await prisma.requestMatch.create({
-      data: { requestId: fixture.requestId, providerId: response.providerId, status: "RESPONDED", wave: 1 },
+      data: { requestId: fixture.requestId, providerId: response.providerId, status: "RESPONDED", wave: 1, score: 0 },
     });
   }
   const decline = (responseId, providerId) => prisma.$transaction(async (tx) => {
@@ -158,7 +158,7 @@ test("Provider withdrawals only advance matching after the final outstanding off
   const fixture = await createFixture(2);
   for (const response of fixture.responses) {
     await prisma.requestMatch.create({
-      data: { requestId: fixture.requestId, providerId: response.providerId, status: "RESPONDED", wave: 1 },
+      data: { requestId: fixture.requestId, providerId: response.providerId, status: "RESPONDED", wave: 1, score: 0 },
     });
   }
   const withdraw = (response) => prisma.$transaction(async (tx) => {
@@ -198,7 +198,7 @@ test("seeker cancellation notifies every matched Provider and closes their outst
   const fixture = await createFixture(3);
   for (const response of fixture.responses) {
     await prisma.requestMatch.create({
-      data: { requestId: fixture.requestId, providerId: response.providerId, status: "NOTIFIED", wave: 1 },
+      data: { requestId: fixture.requestId, providerId: response.providerId, status: "NOTIFIED", wave: 1, score: 0 },
     });
   }
   await prisma.$transaction(async (tx) => {
