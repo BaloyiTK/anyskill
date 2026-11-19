@@ -23,7 +23,7 @@ const ERROR_LOG_FILE = join(LOG_DIRECTORY, "error.log");
 function validateProductionConfiguration(): void {
   if (process.env.NODE_ENV !== "production") return;
 
-  const required = ["DATABASE_URL", "JWT_ACCESS_SECRET", "SMTP_HOST", "MAIL_FROM", "GOOGLE_PLACES_API_KEY"];
+  const required = ["DATABASE_URL", "JWT_ACCESS_SECRET", "SMTP_HOST", "MAIL_FROM", "GOOGLE_PLACES_API_KEY", "TRUST_PROXY_HOPS", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"];
   const missing = required.filter((key) => !process.env[key]?.trim());
   const cloudinaryUrl = process.env.CLOUDINARY_URL?.trim();
   const cloudinaryPartsPresent = Boolean(
@@ -60,6 +60,14 @@ function validateProductionConfiguration(): void {
   const smtpSecure = process.env.SMTP_SECURE?.trim().toLowerCase();
   if (smtpSecure && smtpSecure !== "true" && smtpSecure !== "false") {
     throw new Error("SMTP_SECURE must be either true or false.");
+  }
+  const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS);
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 10) {
+    throw new Error("TRUST_PROXY_HOPS must be explicitly configured as an integer between 0 and 10 in production.");
+  }
+  const port = Number(process.env.PORT?.trim() || 3000);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("PORT must be a valid TCP port in production.");
   }
   if (missing.length > 0) {
     throw new Error(`Missing required production configuration: ${missing.join(", ")}`);
