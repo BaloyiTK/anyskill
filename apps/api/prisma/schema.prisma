@@ -159,6 +159,7 @@ model User {
   providerSkills           ProviderSkill[]
   pushDevices              PushDevice[]
   notifications            AppNotification[]
+  serviceChatMessages      ServiceChatMessage[]
   mediaAssets              MediaAsset[]
   onboardingDraft           OnboardingDraft?
   providerRoleApplication   ProviderRoleApplication?   @relation("ProviderApplicationApplicant")
@@ -276,6 +277,7 @@ model ServiceRequest {
   providerResponses ProviderResponse[]
   matches           RequestMatch[]
   jobEngagement     JobEngagement?
+  chatMessages      ServiceChatMessage[]
 
   @@index([status, createdAt])
   @@index([seekerId, createdAt])
@@ -595,4 +597,19 @@ model ProviderReview {
   @@index([providerId, skillCategory, createdAt])
   @@index([providerId, createdAt])
   @@map("provider_reviews")
+}
+
+
+model ServiceChatMessage {
+  id        String         @id @default(uuid()) @db.Uuid
+  requestId String         @db.Uuid @map("request_id")
+  senderId  String         @db.Uuid @map("sender_id")
+  body      String         @db.VarChar(2000)
+  createdAt DateTime       @default(now()) @map("created_at")
+  request   ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  sender    User           @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@index([senderId, createdAt])
+  @@map("service_chat_messages")
 }
