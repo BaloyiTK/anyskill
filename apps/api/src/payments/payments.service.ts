@@ -23,6 +23,24 @@ export interface CreatePaymentOperationInput {
 }
 
 
+export interface RecordChecksumVerifiedPayGateNotifyInput {
+  providerEventId: string;
+  rawPayload: string;
+  payload: {
+    payRequestId: string;
+    reference: string;
+    transactionStatus: number;
+    resultCode: number;
+    authCode: string;
+    currency: string;
+    amountMinor: string;
+    transactionId: string;
+    riskIndicator?: string;
+    payMethod?: string;
+    payMethodDetail?: string;
+  };
+}
+
 export interface RecordPaymentOperationResultInput {
   operationId: string;
   outcome: Exclude<PaymentOperationStatus, "PENDING">;
@@ -101,6 +119,72 @@ export class PaymentsService {
         await tx.payment.update({ where: { id: payment.id }, data: { status: PaymentStatus.REFUND_PENDING } });
       }
       return operation;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+  }
+
+  /**
+   * Persists a PayWeb3 notification only after the caller has validated the
+   * PayGate CHECKSUM. The normalized allowlist intentionally excludes VAULT_ID
+   * and other token material. This method is not an HTTP endpoint.
+   */
+  async recordChecksumVerifiedPayGateNotify(input: RecordChecksumVerifiedPayGateNotifyInput) {
+    if (!/^[A-Za-z0-9._:-]{1,255}$/.test(input.providerEventId)
+      || !input.rawPayload
+      || Buffer.byteLength(input.rawPayload, "utf8") > 65_536) {
+      throw new UnprocessableEntityException("PayGate notification identity or payload size is invalid.");
+    }
+    const p = input.payload;
+    if (!/^[A-Za-z0-9-]{1,36}$/.test(p.payRequestId)
+      || !/^[A-Za-z0-9._:-]{1,110}$/.test(p.reference)
+      || !Number.isInteger(p.transactionStatus)
+      || !Number.isInteger(p.resultCode)
+      || !/^[A-Za-z0-9]{1,10}$/.test(p.authCode)
+      || !/^[A-Z]{3}$/.test(p.currency)
+      || !/^[0-9]{1,18}$/.test(p.amountMinor)
+      || !/^[0-9]{1,20}$/.test(p.transactionId)
+      || (p.riskIndicator !== undefined && p.riskIndicator.length > 10)
+      || (p.payMethod !== undefined && p.payMethod.length > 5)
+      || (p.payMethodDetail !== undefined && p.payMethodDetail.length > 45)) {
+      throw new UnprocessableEntityException("PayGate notification fields are invalid.");
+    }
+
+    const payloadHash = createHash("sha256").update(input.rawPayload, "utf8").digest("hex");
+    const normalizedPayload: Prisma.InputJsonObject = {
+      payRequestId: p.payRequestId,
+      reference: p.reference,
+      transactionStatus: p.transactionStatus,
+      resultCode: p.resultCode,
+      authCode: p.authCode,
+      currency: p.currency,
+      amountMinor: p.amountMinor,
+      transactionId: p.transactionId,
+      ...(p.riskIndicator !== undefined ? { riskIndicator: p.riskIndicator } : {}),
+      ...(p.payMethod !== undefined ? { payMethod: p.payMethod } : {}),
+      ...(p.payMethodDetail !== undefined ? { payMethodDetail: p.payMethodDetail } : {}),
+    };
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.providerEventId}, 3))`;
+      const existing = await tx.paymentWebhookEvent.findUnique({
+        where: { provider_providerEventId: { provider: "PAYGATE_PAYWEB3", providerEventId: input.providerEventId } },
+      });
+      if (existing) {
+        if (existing.payloadHash !== payloadHash || !existing.signatureVerified) {
+          throw new ConflictException("PayGate event ID was already received with different or unverified content.");
+        }
+        return existing;
+      }
+
+      return tx.paymentWebhookEvent.create({
+        data: {
+          provider: "PAYGATE_PAYWEB3",
+          providerEventId: input.providerEventId,
+          payloadHash,
+          normalizedPayload,
+          signatureVerified: true,
+          status: "RECEIVED",
+        },
+      });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
