@@ -179,6 +179,36 @@ test("database enforces one pending adjustment and completion per engagement", a
   );
 });
 
+test("service request idempotency key is unique per seeker and binds the original payload", async () => {
+  const fixture = await createFixture(0);
+  const key = randomUUID();
+  const payloadHash = "a".repeat(64);
+  await prisma.serviceRequest.update({
+    where: { id: fixture.requestId },
+    data: { idempotencyKey: key, idempotencyPayloadHash: payloadHash },
+  });
+  await assert.rejects(
+    prisma.serviceRequest.create({
+      data: {
+        seekerId: fixture.seekerId,
+        idempotencyKey: key,
+        idempotencyPayloadHash: payloadHash,
+        title: "Retry duplicate request",
+        skillCategory: "Plumbing",
+        description: "Same client retry should not create another service request.",
+        deliveryMode: "REMOTE",
+      },
+    }),
+    (error) => error?.code === "P2002",
+  );
+  const persisted = await prisma.serviceRequest.findFirst({
+    where: { seekerId: fixture.seekerId, idempotencyKey: key },
+    select: { id: true, idempotencyPayloadHash: true },
+  });
+  assert.equal(persisted?.id, fixture.requestId);
+  assert.equal(persisted?.idempotencyPayloadHash, payloadHash);
+});
+
 test("concurrent provider selections produce exactly one selected offer", async () => {
   const fixture = await createFixture();
   const select = (responseId) => prisma.$transaction(async (tx) => {
