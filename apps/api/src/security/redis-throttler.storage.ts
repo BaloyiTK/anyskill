@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ServiceUnavailableException } from "@nestjs/common";
-import type { ThrottlerStorage, ThrottlerStorageRecord } from "@nestjs/throttler";
+import type { ThrottlerStorage } from "@nestjs/throttler";
 
 const INCREMENT_SCRIPT = `
 local hitsKey = KEYS[1]
@@ -76,7 +76,7 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     limit: number,
     blockDuration: number,
     throttlerName: string,
-  ): Promise<ThrottlerStorageRecord> {
+  ): ReturnType<ThrottlerStorage["increment"]> {
     const identity = createHash("sha256").update(`${throttlerName}: ${key}`).digest("hex");
     const prefix = `anyskill:throttle:{${identity}}`;
     const args = [
