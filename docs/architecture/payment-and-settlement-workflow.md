@@ -127,8 +127,10 @@ The hardening branch now contains persistence primitives and an internal account
 - Financial ledger entries are append-only at the database level; corrections require compensating entries.
 - An internal PaymentsService creates idempotent AUTHORIZE/CAPTURE/VOID/REFUND operation intents under PostgreSQL advisory locks and rejects key reuse with a different request hash.
 - The same service validates journal groups for per-currency debit/credit equality and writes all lines atomically with line-level idempotency keys. Replayed groups are checked against their original entries.
+- Operation results can be recorded only through an internal method documented for verified gateway notifications or server-to-server queries. It serializes by payment, makes terminal outcomes idempotent, transitions payment status for authorization/capture/void/refund, and moves ambiguous outcomes to reconciliation-required.
+- CI integration tests exercise concurrent idempotent operation creation, authorization/capture/refund state transitions, conflicting result replays, and balanced-ledger replay/imbalance rejection.
 
-These controls are not a completed payment integration. No gateway request, public payment endpoint, verified webhook processor, operation-result processor, or payout executor is enabled. The service deliberately does not claim that a payment succeeded or that funds moved. The payment schema/migration passed CI on 19 November 2026; the new service changes require their own CI run before use.
+These controls are not a completed payment integration. No gateway request, public payment endpoint, verified webhook processor, or payout executor is enabled. The result-recording method is not exposed over HTTP and must only be called by a future verified gateway adapter/reconciliation worker. The service deliberately does not claim that a payment succeeded or that funds moved without an authoritative result. The payment schema/migration passed CI on 19 November 2026; the current operation-result service and integration-test changes are awaiting CI.
 
 ## Current PayGate integration evidence
 
