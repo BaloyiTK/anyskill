@@ -805,6 +805,42 @@ test("stale notification claims become UNKNOWN instead of being blindly resent",
   assert.equal(persisted.deliveryStatus, "UNKNOWN");
   assert.equal(persisted.sendingStartedAt, null);
   assert.equal(persisted.attempts, 1);
+
+  const device = await prisma.pushDevice.create({
+    data: { userId: providerId, expoPushToken: `ExponentPushToken[${randomUUID()}]`, platform: "ANDROID" },
+    select: { id: true },
+  });
+  const partial = await prisma.appNotification.create({
+    data: {
+      userId: providerId,
+      title: "Partially ticketed notification",
+      body: "A later Expo batch may not have been sent",
+      deliveryStatus: "SENDING",
+      attempts: 1,
+      sendingStartedAt: new Date(Date.now() - 3 * 60_000),
+    },
+    select: { id: true },
+  });
+  await prisma.pushNotificationReceipt.create({
+    data: {
+      notificationId: partial.id,
+      pushDeviceId: device.id,
+      expoTicketId: `stale-ticket-${randomUUID()}`,
+    },
+  });
+  await prisma.$executeRaw`
+    UPDATE app_notifications AS notification
+    SET delivery_status = 'UNKNOWN'::"NotificationDeliveryStatus",
+        sending_started_at = NULL
+    WHERE notification.id = ${partial.id}::uuid
+      AND notification.delivery_status = 'SENDING'::"NotificationDeliveryStatus"
+      AND notification.sending_started_at < ${new Date(Date.now() - 2 * 60_000)}
+  `;
+  const partialState = await prisma.appNotification.findUniqueOrThrow({
+    where: { id: partial.id }, select: { deliveryStatus: true },
+  });
+  assert.equal(partialState.deliveryStatus, "UNKNOWN");
+  assert.equal(await prisma.pushNotificationReceipt.count({ where: { notificationId: partial.id } }), 1);
 });
 
 
