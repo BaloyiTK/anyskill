@@ -610,7 +610,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     finally { setBusy(false); }
   };
 
-  const submittedIdentityStatuses = ["PENDING", "PENDING_REVIEW", "SUBMITTED", "IN_REVIEW", "UNDER_REVIEW", "APPROVED", "VERIFIED", "COMPLETE", "COMPLETED"];
+  const submittedIdentityStatuses = ["PENDING", "PENDING_REVIEW", "SUBMITTED", "IN_REVIEW", "UNDER_REVIEW", "NEEDS_INFORMATION", "REQUIRES_INFORMATION", "APPROVED", "VERIFIED", "COMPLETE", "COMPLETED"];
   const identitySubmitted = submittedIdentityStatuses.includes(identityStatus.toUpperCase());
   const identityRequirementsComplete = idType === "SMART_ID_CARD"
     ? idFrontReady && idBackReady && selfieReady
