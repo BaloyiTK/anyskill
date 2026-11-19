@@ -913,7 +913,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         <Text style={st.heading}>Review and submit</Text><Text style={st.help}>Submitting saves the information currently available. It does not make your profile mandatory or grant identity-verified permissions. You can edit drafts later.</Text>
         <View style={st.card}>
           <Text style={st.status}>Profile: {status("profile")}</Text>
-          <Text style={st.status}>Identity: {identityApproved ? "Verified" : verificationPending ? "Pending review" : identityStatus.replace(/_/g, " ")}</Text>
+          <Text style={st.status}>Identity: {identityApproved ? "Verified" : verificationPending || identitySubmitted ? "Pending verification" : identityStatus.replace(/_/g, " ")}</Text>
           {isProvider ? <Text style={st.status}>Skill reviews: {allSkillsApproved ? "At least one skill approved" : skillsPending ? "Awaiting approval of at least one skill" : data.skillReviewStatuses?.some((skill) => skill.status === "REJECTED") ? "Changes requested on one or more skills" : status("skills")}</Text> : null}
         </View>
 
