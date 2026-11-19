@@ -743,15 +743,25 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      const pendingOffers = await tx.providerResponse.count({
-        where: { requestId, status: "OFFERED" },
-      });
-      if (pendingOffers === 0 && offer.status !== "DECLINED") {
+      const pendingOffers = await tx.providerResponse.count({ where: { requestId, status: "OFFERED" } });
+      const pendingMatches = await tx.requestMatch.count({ where: { requestId, status: "NOTIFIED" } });
+      if (pendingOffers === 0 && pendingMatches === 0 && offer.status !== "DECLINED") {
         await tx.serviceRequest.updateMany({
           where: { id: requestId, seekerId, status: "OPEN" },
           data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
         });
         return { declined: true, dispatchNextWave: true, nextWave: request.matchingWave + 1 };
+      }
+      if (pendingOffers === 0 && pendingMatches > 0 && offer.status !== "DECLINED") {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, seekerId, status: "OPEN" },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+      } else if (pendingOffers > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, seekerId, status: "OPEN" },
+          data: { matchingNextAt: null },
+        });
       }
       return { declined: true, dispatchNextWave: false, nextWave: request.matchingWave + 1 };
     });
@@ -811,15 +821,25 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      const pendingOffers = await tx.providerResponse.count({
-        where: { requestId, status: "OFFERED" },
-      });
-      if (pendingOffers === 0) {
+      const pendingOffers = await tx.providerResponse.count({ where: { requestId, status: "OFFERED" } });
+      const pendingMatches = await tx.requestMatch.count({ where: { requestId, status: "NOTIFIED" } });
+      if (pendingOffers === 0 && pendingMatches === 0) {
         await tx.serviceRequest.updateMany({
           where: { id: requestId, status: "OPEN" },
           data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
         });
         return { withdrawn: true, dispatchNextWave: true, nextWave: request.matchingWave + 1 };
+      }
+      if (pendingOffers === 0 && pendingMatches > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+      } else if (pendingOffers > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: null },
+        });
       }
       return { withdrawn: true, dispatchNextWave: false, nextWave: request.matchingWave + 1 };
     });
