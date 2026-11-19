@@ -718,6 +718,68 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async withdrawProviderOffer(providerId: string, requestId: string, responseId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findUnique({
+        where: { id: requestId },
+        select: { id: true, seekerId: true, status: true, matchingWave: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider decisions.");
+
+      const offer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, providerId },
+        select: { id: true, status: true },
+      });
+      if (!offer) throw new NotFoundException("Your Provider offer could not be found.");
+      if (offer.status === "WITHDRAWN") {
+        return { withdrawn: true, dispatchNextWave: false, nextWave: request.matchingWave + 1 };
+      }
+      if (offer.status !== "OFFERED") {
+        throw new ConflictException("Only an outstanding Provider offer can be withdrawn.");
+      }
+
+      const changed = await tx.providerResponse.updateMany({
+        where: { id: offer.id, requestId, providerId, status: "OFFERED" },
+        data: { status: "WITHDRAWN" },
+      });
+      if (changed.count !== 1) throw new ConflictException("This Provider offer has already changed. Refresh and try again.");
+
+      await tx.requestMatch.updateMany({
+        where: { requestId, providerId, status: "RESPONDED" },
+        data: { status: "EXPIRED" },
+      });
+      if (request.seekerId) {
+        await tx.appNotification.create({
+          data: {
+            userId: request.seekerId,
+            title: "Provider withdrew an offer",
+            body: "A Provider has withdrawn their offer. AnySkill will continue matching if no other offers remain.",
+            data: { type: "PROVIDER_OFFER_WITHDRAWN", requestId, responseId: offer.id },
+          },
+        });
+      }
+
+      const pendingOffers = await tx.providerResponse.count({
+        where: { requestId, status: "OFFERED" },
+      });
+      if (pendingOffers === 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+        });
+        return { withdrawn: true, dispatchNextWave: true, nextWave: request.matchingWave + 1 };
+      }
+      return { withdrawn: true, dispatchNextWave: false, nextWave: request.matchingWave + 1 };
+    });
+
+    const matching = result.dispatchNextWave
+      ? await this.dispatchNextWave(requestId, result.nextWave)
+      : null;
+    return { success: true, requestId, responseId, status: "WITHDRAWN", matching };
+  }
+
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
