@@ -70,6 +70,27 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     this.token = token;
   }
 
+  async verifyConnection(): Promise<void> {
+    try {
+      const response = await fetch(this.endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(["PING"]),
+        signal: AbortSignal.timeout(1_500),
+      });
+      if (!response.ok) throw new Error(`Redis REST returned HTTP ${response.status}`);
+      const payload: unknown = await response.json();
+      if (!payload || typeof payload !== "object" || !("result" in payload) || payload.result !== "PONG") {
+        throw new Error("Redis REST ping returned an invalid response");
+      }
+    } catch {
+      throw new Error("Shared rate-limit Redis is unavailable; refusing to start the API.");
+    }
+  }
+
   async increment(
     key: string,
     ttl: number,
