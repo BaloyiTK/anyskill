@@ -117,8 +117,8 @@ export class MarketplaceRolesController {
   @Get("admin/identity-reviews")
   @UseGuards(StaffAccessGuard)
   @RequireStaffRole(StaffRole.IDENTITY_REVIEWER)
-  listIdentityReviews() {
-    return this.roles.listIdentityReviews();
+  listIdentityReviews(@CurrentUser() user: AuthenticatedUser) {
+    return this.roles.listIdentityReviews(user.id);
   }
 
   @Post("admin/identity-reviews/:caseId/decision")
@@ -135,8 +135,8 @@ export class MarketplaceRolesController {
   @Get("admin/skill-reviews")
   @UseGuards(StaffAccessGuard)
   @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
-  listSkillReviews() {
-    return this.roles.listSkillReviews();
+  listSkillReviews(@CurrentUser() user: AuthenticatedUser) {
+    return this.roles.listSkillReviews(user.id);
   }
 
   @Post("admin/skill-reviews/:skillId/decision")
