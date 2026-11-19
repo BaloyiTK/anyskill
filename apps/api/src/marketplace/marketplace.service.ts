@@ -1229,19 +1229,52 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async runWorkerCycle() {
     if (this.workerRunning) return;
     this.workerRunning = true;
+    const startedAt = Date.now();
     try {
       // Transaction-scoped advisory lock coordinates all API replicas.
-      await this.prisma.$transaction(async (tx) => {
+      const cycle = await this.prisma.$transaction(async (tx) => {
         const acquired = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(741928364::bigint) AS locked`;
-        if (!acquired[0]?.locked) return;
+        if (!acquired[0]?.locked) return { acquired: false as const };
+
         await this.recoverStaleNotificationClaims();
         await this.expandExpiredWaves();
         await this.retryExhaustedRequests();
         await this.dispatchPendingNotifications();
         await this.checkExpoPushReceipts();
+
+        const queueGroups = await tx.appNotification.groupBy({
+          by: ["deliveryStatus"],
+          _count: { _all: true },
+        });
+        const oldestPending = await tx.appNotification.findFirst({
+          where: { deliveryStatus: "PENDING" },
+          orderBy: { createdAt: "asc" },
+          select: { createdAt: true },
+        });
+        return {
+          acquired: true as const,
+          queueCounts: Object.fromEntries(queueGroups.map((group) => [group.deliveryStatus, group._count._all])),
+          oldestPendingAgeMs: oldestPending ? Math.max(0, Date.now() - oldestPending.createdAt.getTime()) : 0,
+        };
       }, { maxWait: 10_000, timeout: 120_000 });
+
+      if (cycle.acquired) {
+        this.logger.log(JSON.stringify({
+          event: "anyskill_marketplace_worker_cycle",
+          durationMs: Date.now() - startedAt,
+          queueCounts: cycle.queueCounts,
+          oldestPendingAgeMs: cycle.oldestPendingAgeMs,
+        }));
+      }
     } catch (error) {
-      this.logger.error("Marketplace worker cycle failed.", error);
+      const errorCode = error && typeof error === "object" && "code" in error && typeof error.code === "string"
+        ? error.code.slice(0, 64)
+        : "unknown";
+      this.logger.error(JSON.stringify({
+        event: "anyskill_marketplace_worker_cycle_failed",
+        durationMs: Date.now() - startedAt,
+        errorCode,
+      }));
     } finally {
       this.workerRunning = false;
     }
