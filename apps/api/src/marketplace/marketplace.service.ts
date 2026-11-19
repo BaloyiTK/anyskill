@@ -673,6 +673,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         await tx.appNotification.createMany({
           data: providerIds.map((providerId) => ({
             userId: providerId,
+            eventKey: `request:${requestId}:cancelled:${providerId}`,
             title: "Service request cancelled",
             body: "The Skill Seeker has cancelled this service request. No further action is required.",
             data: { type: "REQUEST_CANCELLED", requestId },
@@ -800,6 +801,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         await tx.appNotification.create({
           data: {
             userId: offer.providerId,
+            eventKey: `offer:${offer.id}:declined`,
             title: "Your offer was declined",
             body: "The Skill Seeker has declined your offer. You may receive another request through AnySkill.",
             data: { type: "PROVIDER_OFFER_DECLINED", requestId, responseId: offer.id },
@@ -879,6 +881,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         await tx.appNotification.create({
           data: {
             userId: request.seekerId,
+            eventKey: `offer:${offer.id}:withdrawn`,
             title: "Provider withdrew an offer",
             body: "A Provider has withdrawn their offer. AnySkill will continue matching if no other offers remain.",
             data: { type: "PROVIDER_OFFER_WITHDRAWN", requestId, responseId: offer.id },
@@ -968,6 +971,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       await tx.appNotification.create({
         data: {
           userId: offer.providerId,
+          eventKey: `offer:${offer.id}:selected`,
           title: "Your offer was selected",
           body: `The Skill Seeker selected your offer for: ${request.title}`,
           data: { type: "PROVIDER_SELECTED", requestId, responseId: offer.id },
@@ -976,7 +980,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       await tx.jobEngagement.create({
         data: { requestId, responseId: offer.id, seekerId, providerId: offer.providerId, hourlyRate: (await tx.providerResponse.findUniqueOrThrow({ where: { id: offer.id }, select: { hourlyRateAtOffer: true } })).hourlyRateAtOffer!, assessmentFee: (await tx.providerResponse.findUniqueOrThrow({ where: { id: offer.id }, select: { assessmentFeeAtOffer: true } })).assessmentFeeAtOffer ?? 0 },
       });
-      await tx.appNotification.create({ data: { userId: offer.providerId, title: "Assessment required", body: `Your offer was selected for: ${request.title}. Complete the assessment and submit an estimate before starting work.`, data: { type: "ASSESSMENT_REQUIRED", requestId } } });
+      await tx.appNotification.create({ data: { userId: offer.providerId, eventKey: `offer:${offer.id}:assessment-required`, title: "Assessment required", body: `Your offer was selected for: ${request.title}. Complete the assessment and submit an estimate before starting work.`, data: { type: "ASSESSMENT_REQUIRED", requestId } } });
       return { success: true, requestId, selectedResponseId: offer.id, selectedProviderId: offer.providerId, status: "ASSESSMENT_PENDING" };
     });
   }
@@ -1066,7 +1070,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
       if (job.seekerId) await tx.appNotification.create({
-        data: { userId: job.seekerId, title: "Job completion submitted", body: "Your Provider submitted completion notes and photo evidence. Review the work in AnySkill.", data: { type: "JOB_COMPLETION_SUBMITTED", requestId, submissionId: submission.id } },
+        data: { userId: job.seekerId, eventKey: `completion:${submission.id}:submitted`, title: "Job completion submitted", body: "Your Provider submitted completion notes and photo evidence. Review the work in AnySkill.", data: { type: "JOB_COMPLETION_SUBMITTED", requestId, submissionId: submission.id } },
       });
       return submissionWithEvidence;
     });
@@ -1101,6 +1105,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (job.providerId) await tx.appNotification.create({
         data: {
           userId: job.providerId,
+          eventKey: `completion:${submissionId}:${input.approved ? "approved" : "rejected"}`,
           title: input.approved ? "Job completion approved" : "Corrections requested",
           body: input.approved ? "The Skill Seeker approved the completed job." : `The Skill Seeker requested corrections: ${input.note}`,
           data: { type: input.approved ? "JOB_COMPLETION_APPROVED" : "JOB_COMPLETION_REJECTED", requestId, submissionId },
@@ -1180,7 +1185,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const hours = new Prisma.Decimal(input.estimatedHours);
       const total = hours.mul(job.hourlyRate).toDecimalPlaces(2);
       const updated = await tx.jobEngagement.update({ where: { id: job.id }, data: { estimatedHours: hours, estimatedTotal: total, estimateNotes: input.notes.trim(), estimateSubmittedAt: new Date(), estimateDecisionNote: null, status: "ESTIMATE_SUBMITTED" } });
-      if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, title: "Job estimate ready", body: `Your Provider submitted an estimate of R ${total.toFixed(2)} for ${hours.toString()} hours. Review and approve before work starts.`, data: { type: "ESTIMATE_SUBMITTED", requestId } } });
+      if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, eventKey: `estimate:${job.id}:${updated.estimateSubmittedAt?.toISOString() ?? updated.updatedAt.toISOString()}:submitted`, title: "Job estimate ready", body: `Your Provider submitted an estimate of R ${total.toFixed(2)} for ${hours.toString()} hours. Review and approve before work starts.`, data: { type: "ESTIMATE_SUBMITTED", requestId } } });
       return updated;
     });
   }
@@ -1195,7 +1200,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (job.status !== "ESTIMATE_SUBMITTED") throw new ConflictException("There is no estimate awaiting your decision.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the estimate.");
       const updated = await tx.jobEngagement.update({ where: { id: job.id }, data: { status: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", estimateDecisionNote: input.note?.trim() || null, estimateDecidedAt: new Date() } });
-      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Estimate approved" : "Estimate needs revision", body: input.approved ? "The Seeker approved your estimate. You may now start the agreed work." : `The Seeker rejected the estimate: ${input.note}`, data: { type: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", requestId } } });
+      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, eventKey: `estimate:${job.id}:${job.estimateSubmittedAt?.toISOString() ?? updated.updatedAt.toISOString()}:${input.approved ? "approved" : "rejected"}`, title: input.approved ? "Estimate approved" : "Estimate needs revision", body: input.approved ? "The Seeker approved your estimate. You may now start the agreed work." : `The Seeker rejected the estimate: ${input.note}`, data: { type: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", requestId } } });
       return updated;
     });
   }
@@ -1217,6 +1222,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (job.seekerId) await tx.appNotification.create({
         data: {
           userId: job.seekerId,
+          eventKey: `work:${job.id}:started:${now.toISOString()}`,
           title: "Work has started",
           body: "Your selected Provider has started work on your job.",
           data: { type: "JOB_WORK_STARTED", requestId },
@@ -1286,7 +1292,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const hours = new Prisma.Decimal(input.additionalHours);
       const amount = hours.mul(job.hourlyRate).toDecimalPlaces(2);
       const adjustment = await tx.jobCostAdjustment.create({ data: { engagementId: job.id, requestedHours: hours, hourlyRate: job.hourlyRate, requestedAmount: amount, reason: input.reason.trim() } });
-      if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, title: "Additional hours approval needed", body: `Your Provider requested ${hours.toString()} extra hours costing R ${amount.toFixed(2)}. Approval is required before this extra work.`, data: { type: "ADDITIONAL_HOURS_PENDING", requestId, adjustmentId: adjustment.id } } });
+      if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, eventKey: `adjustment:${adjustment.id}:pending`, title: "Additional hours approval needed", body: `Your Provider requested ${hours.toString()} extra hours costing R ${amount.toFixed(2)}. Approval is required before this extra work.`, data: { type: "ADDITIONAL_HOURS_PENDING", requestId, adjustmentId: adjustment.id } } });
       return adjustment;
     });
   }
@@ -1302,7 +1308,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!adjustment) throw new NotFoundException("Pending additional-hours request not found.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the additional hours.");
       const updated = await tx.jobCostAdjustment.update({ where: { id: adjustment.id }, data: { status: input.approved ? "APPROVED" : "REJECTED", decisionNote: input.note?.trim() || null, decidedAt: new Date() } });
-      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Additional hours approved" : "Additional hours rejected", body: input.approved ? "The Seeker approved the additional hours. You may proceed with the extra work." : `The Seeker rejected the additional hours: ${input.note}`, data: { type: input.approved ? "ADDITIONAL_HOURS_APPROVED" : "ADDITIONAL_HOURS_REJECTED", requestId, adjustmentId } } });
+      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, eventKey: `adjustment:${adjustment.id}:${input.approved ? "approved" : "rejected"}`, title: input.approved ? "Additional hours approved" : "Additional hours rejected", body: input.approved ? "The Seeker approved the additional hours. You may proceed with the extra work." : `The Seeker rejected the additional hours: ${input.note}`, data: { type: input.approved ? "ADDITIONAL_HOURS_APPROVED" : "ADDITIONAL_HOURS_REJECTED", requestId, adjustmentId } } });
       return updated;
     });
   }
@@ -1374,6 +1380,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         await tx.appNotification.create({
           data: {
             userId: request.seekerId,
+            eventKey: `offer:${response.id}:provider-response`,
             title: "A Provider has responded",
             body: "A matched Skill Provider has sent you an offer. Review the response in AnySkill.",
             data: { type: "PROVIDER_RESPONSE", requestId, responseId: response.id },
@@ -1681,6 +1688,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         await tx.appNotification.createMany({
           data: insertedProviderIds.map((providerId) => ({
             userId: providerId,
+            eventKey: `request:${requestId}:wave:${wave}:provider:${providerId}`,
             title: "Incoming AnySkill service request",
             body: "A new " + request.skillCategory + " request is available. Tap to view the Seeker and job details.",
             data: { type: "MATCHED_REQUEST", requestId, wave },
