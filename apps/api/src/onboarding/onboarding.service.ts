@@ -35,7 +35,7 @@ export class OnboardingService {
         if (typeof value !== "string" || value.length > 1000 || value.trim() !== value) throw new BadRequestException(`Invalid profile field: ${key}`);
         if (["firstName", "lastName", "businessName", "businessType", "contactFirstName", "contactLastName", "contactJobTitle"].includes(key) && value.length > 120) throw new BadRequestException(`Invalid profile field: ${key}`);
         if (["phone", "phoneDialCode", "businessPhone", "contactPhone"].includes(key) && value && !/^[+0-9 ()-]{3,30}$/.test(value)) throw new BadRequestException(`Invalid phone number: ${key}`);
-        if (["businessEmail", "contactEmail"].includes(key) && value && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value)) throw new BadRequestException(`Invalid email address: ${key}`);
+        if (["businessEmail", "contactEmail"].includes(key) && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new BadRequestException(`Invalid email address: ${key}`);
         if (key === "profilePhotoUrl" && value) this.assertHttpsUrl(value, "Profile photo");
         if (key === "accountType" && !["INDIVIDUAL","BUSINESS"].includes(value)) {
           throw new BadRequestException("Account type must be INDIVIDUAL or BUSINESS.");
@@ -55,7 +55,10 @@ export class OnboardingService {
       if (Object.keys(item).some((key) => !skillFields.has(key))) throw new BadRequestException("Each skill contains an unsupported field.");
       if (typeof item.category !== "string" || item.category.trim().length < 2 || item.category.length > 100 || item.category.trim() !== item.category) throw new BadRequestException("Each skill needs a valid category.");
       if (item.description !== undefined && (typeof item.description !== "string" || item.description.length > 2000)) throw new BadRequestException("Skill descriptions must be 2,000 characters or fewer.");
-      if (item.yearsOfExperience !== undefined && !(typeof item.yearsOfExperience === "string" || (typeof item.yearsOfExperience === "number" && Number.isFinite(item.yearsOfExperience)))) throw new BadRequestException("Years of experience must be text or a number.");
+      if (item.yearsOfExperience !== undefined && !(
+        (typeof item.yearsOfExperience === "string" && item.yearsOfExperience.length <= 80) ||
+        (typeof item.yearsOfExperience === "number" && Number.isFinite(item.yearsOfExperience) && item.yearsOfExperience >= 0 && item.yearsOfExperience <= 80)
+      )) throw new BadRequestException("Years of experience must be a valid value between 0 and 80.");
       if (item.licencesQualifications !== undefined && (!Array.isArray(item.licencesQualifications) || item.licencesQualifications.length > 20)) throw new BadRequestException("Each skill can have up to 20 licences or qualifications.");
       for (const qualification of (item.licencesQualifications as unknown[] | undefined) ?? []) {
         const q = qualification as Record<string, unknown>;
@@ -85,6 +88,12 @@ export class OnboardingService {
       const work = item as Record<string, unknown>;
       if (Object.keys(work).some((key) => !["title", "description", "linkTitle", "linkUrl", "links", "imageUrls"].includes(key)) || typeof work.title !== "string" || !work.title.trim() || work.title.length > 200) throw new BadRequestException("Each portfolio item needs a valid title.");
       if (work.description !== undefined && (typeof work.description !== "string" || work.description.length > 2000)) throw new BadRequestException("Portfolio descriptions must be 2,000 characters or fewer.");
+      if (work.linkUrl !== undefined && (typeof work.linkUrl !== "string" || work.linkUrl.length > 2000)) throw new BadRequestException("Portfolio links must be valid URLs.");
+      if (typeof work.linkUrl === "string" && work.linkUrl) this.assertHttpsUrl(work.linkUrl, "Portfolio link");
+      for (const key of ["links", "imageUrls"]) {
+        if (work[key] !== undefined && (!Array.isArray(work[key]) || (work[key] as unknown[]).length > 20 || (work[key] as unknown[]).some((url) => typeof url !== "string" || url.length > 2000))) throw new BadRequestException(`Portfolio ${key} must be a list of valid references.`);
+        for (const url of (work[key] as string[] | undefined) ?? []) this.assertHttpsUrl(url, `Portfolio ${key}`);
+      }
     }
   }
 
@@ -92,7 +101,7 @@ export class OnboardingService {
     let parsed: URL;
     try { parsed = new URL(value); } catch { throw new BadRequestException(`${label} must be a valid HTTPS URL.`); }
     const host = parsed.hostname.toLowerCase();
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password || !host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || /^127\\./.test(host) || host === "::1" || /^10\\./.test(host) || /^192\\.168\\./.test(host) || /^169\\.254\\./.test(host)) {
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || !host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || /^127\./.test(host) || host === "::1" || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) {
       throw new BadRequestException(`${label} must use a public HTTPS address.`);
     }
   }
