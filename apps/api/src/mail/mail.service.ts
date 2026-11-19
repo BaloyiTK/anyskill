@@ -8,13 +8,14 @@ export class MailService implements OnModuleInit {
 
   // SMTP health checks are observational: a temporary provider outage must not
   // prevent the API from starting. Individual send operations still fail safely.
-  async onModuleInit(): Promise<void> {
-    try {
-      await this.getTransporter().verify();
-      this.logger.log("SMTP transport verification succeeded.");
-    } catch (error) {
-      this.logger.error(`SMTP transport verification failed (code=${this.errorCode(error)}). Email delivery may be unavailable.`);
-    }
+  onModuleInit(): void {
+    // Do not delay API startup while waiting for an external SMTP service.
+    void Promise.resolve()
+      .then(() => this.getTransporter().verify())
+      .then(() => this.logger.log("SMTP transport verification succeeded."))
+      .catch((error: unknown) => {
+        this.logger.error(`SMTP transport verification failed (code=${this.errorCode(error)}). Email delivery may be unavailable.`);
+      });
   }
 
   private errorCode(error: unknown): string {
