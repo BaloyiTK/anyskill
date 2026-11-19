@@ -20,6 +20,13 @@ type Payload = {
   percentage: number;
   sections: { profile: boolean; skills: boolean; portfolio: boolean };
   providerApplicationStatus?: string | null;
+  skillReviewStatuses?: Array<{
+    category: string;
+    status: "PENDING" | "APPROVED" | "REJECTED";
+    decisionReason?: string | null;
+    submittedAt?: string | null;
+    reviewedAt?: string | null;
+  }>;
   submittedAt?: string | null;
 };
 
@@ -546,10 +553,11 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const verificationComplete = identityApproved && identityRequirementsComplete;
   const verificationPending = identitySubmitted && !identityApproved;
   const providerApplicationStatus = (data.providerApplicationStatus ?? "").toUpperCase();
-  const skillsApproved = providerApplicationStatus === "APPROVED";
-  const skillsPending = ["PENDING", "UNDER_REVIEW", "NEEDS_INFORMATION"].includes(providerApplicationStatus);
+  const skillsApproved = Boolean(data.skillReviewStatuses?.some((skill) => skill.status === "APPROVED"));
+  const skillsPending = Boolean(data.skillReviewStatuses?.some((skill) => skill.status === "PENDING"));
   const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, skillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
   const pendingStates = isProvider ? [false, verificationPending, skillsPending, false] : [false, verificationPending, false];
+  const reviewForSkill = (category: string) => data.skillReviewStatuses?.find((item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"));
   const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills)] : [])].filter(Boolean).length;
   const completionPercentage = Math.round((completedSectionCount / (isProvider ? 2 : 1)) * 100);
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Not complete";
@@ -681,7 +689,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       </>}
       {active === "Verification" && <>
         <Text style={st.heading}>Identity verification</Text>
-        <Text style={st.help}>Choose one South African ID type, upload the required images and take a live selfie. All three steps must be completed before you can continue.</Text>
+        <Text style={st.help}>Identity verification is a separate review from your profile and skills. Upload the required ID images and take a live selfie when ready. You can continue with profile setup while verification is pending, but protected marketplace actions remain restricted until approval.</Text>
         <View style={st.card}>
           <Text style={st.label}>Current identity status</Text>
           <Text style={st.statusValue}>{identityStatus.toLowerCase().includes("pending") || ["submitted", "in_review", "under_review"].includes(identityStatus.toLowerCase()) ? "Pending review" : identityStatus.replace(/_/g, " ")}</Text>
@@ -772,11 +780,17 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         </ScrollView>
         {skills[selectedSkillIndex] ? (() => {
           const skill = skills[selectedSkillIndex];
+          const skillReview = reviewForSkill(skill.category);
           const updateSkill = (patch: Partial<SkillEntry>) => setSkills((all) => all.map((item, index) => index === selectedSkillIndex ? { ...item, ...patch } : item));
           const experienceOptions = ["1–2 years", "3–5 years", "6–10 years", "10+ years"];
           return <>
             <View style={st.card}>
               <View style={st.inlineFields}><Text style={st.sectionHeading}>Your skills</Text>{skills.length > 1 ? <Pressable onPress={() => { setSkills((all) => all.filter((_, index) => index !== selectedSkillIndex)); setSelectedSkillIndex(Math.max(0, selectedSkillIndex - 1)); }}><Text style={st.error}>Remove skill</Text></Pressable> : null}</View>
+              {skillReview ? <View style={st.skillReviewCard}>
+                <Text style={st.skillReviewTitle}>Skill review: {skillReview.status === "APPROVED" ? "Approved" : skillReview.status === "REJECTED" ? "Changes required" : "Pending review"}</Text>
+                {skillReview.decisionReason ? <Text style={st.skillReviewReason}>{skillReview.decisionReason}</Text> : null}
+                {skillReview.reviewedAt ? <Text style={st.skillReviewMeta}>Reviewed {new Date(skillReview.reviewedAt).toLocaleDateString()}</Text> : null}
+              </View> : <Text style={st.status}>Not yet submitted for skill review.</Text>}
               <Text style={st.label}>Find a skill or add your own</Text>
               <View style={st.searchField}><Text style={st.searchGlyph}>⌕</Text><TextInput value={skill.category} onChangeText={(value) => { updateSkill({ category: value }); setSkillSearch(value); }} placeholder="Search skills, e.g. Electrical" placeholderTextColor="#93A099" style={st.searchFieldInput}/></View>
               {skillSearch.trim() ? <View style={st.optionPanel}>{SKILL_CATALOGUE.filter((name) => name.toLowerCase().includes(skillSearch.toLowerCase()) && !skills.some((item, index) => index !== selectedSkillIndex && item.category.trim().toLowerCase() === name.toLowerCase())).slice(0, 6).map((name) => <Pressable key={name} style={st.option} onPress={() => { updateSkill({ category: name }); setSkillSearch(""); }}><Text style={st.optionText}>{name}</Text></Pressable>)}<Text style={st.optionHint}>Not listed? Keep your own skill name.</Text></View> : null}
@@ -946,6 +960,10 @@ const st = StyleSheet.create({
   status: { color: colors.muted, fontSize: 12, marginVertical: 7 }, statusValue: { color: colors.ink, fontWeight: "800", marginTop: 7, textTransform: "capitalize" },
   skillTabs: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingRight: 12 }, skillTab: { maxWidth: 170, borderRadius: 24, borderWidth: 1, borderColor: "#DCE5EF", backgroundColor: "#FFFFFF", paddingHorizontal: 16, paddingVertical: 11 }, skillTabActive: { borderColor: colors.primary, backgroundColor: colors.soft }, skillTabText: { color: colors.muted, fontSize: 12, fontWeight: "800" }, skillTabTextActive: { color: colors.primary }, addSkillTab: { borderRadius: 24, borderWidth: 1, borderStyle: "dashed", borderColor: colors.primary, paddingHorizontal: 14, paddingVertical: 11 }, addSkillTabText: { color: colors.primary, fontSize: 12, fontWeight: "900" }, evidenceHeader: { marginTop: 10 }, evidenceCard: { borderWidth: 1, borderColor: "#E5EBF2", borderRadius: 15, padding: 12, marginVertical: 8, backgroundColor: "#FBFCFE" }, uploadTile: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderStyle: "dashed", borderColor: "#B8CDE3", backgroundColor: "#F7FAFE", borderRadius: 13, padding: 12, marginVertical: 8 }, uploadTileIcon: { color: colors.primary, fontSize: 22, fontWeight: "800" }, uploadTileCopy: { flex: 1 }, uploadTileTitle: { color: colors.ink, fontSize: 12, fontWeight: "900" }, uploadTileHint: { color: colors.muted, fontSize: 10, marginTop: 3 }, uploadTileAction: { color: colors.primary, fontSize: 11, fontWeight: "900" }, removeText: { color: "#A12D2D", fontSize: 11, fontWeight: "800", marginTop: 8 }, portfolioImages: { flexDirection: "row", flexWrap: "wrap", gap: 9 }, portfolioImageItem: { width: 84, gap: 4 }, portfolioImagePreview: { width: 84, height: 72, borderRadius: 9, backgroundColor: "#EAF0F6" }, portfolioImagePlaceholder: { width: 84, height: 72, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "#EAF0F6" }, uploadedFile: { flexDirection: "row", alignItems: "center", backgroundColor: "#EAF3FF", borderRadius: 9, paddingHorizontal: 9, paddingVertical: 7 }, uploadedFileIcon: { color: colors.primary, marginRight: 5 }, uploadedFileText: { color: colors.ink, fontSize: 10, fontWeight: "700" },
   card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: "#E4EAF1", borderRadius: 17, padding: 14, marginVertical: 11, shadowColor: "#0B2545", shadowOpacity: 0.025, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  skillReviewCard: { backgroundColor: "#F1F7FF", borderWidth: 1, borderColor: "#D6E8FC", borderRadius: 12, padding: 11, marginBottom: 12 },
+  skillReviewTitle: { color: colors.ink, fontSize: 12, fontWeight: "900" },
+  skillReviewReason: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 5 },
+  skillReviewMeta: { color: colors.muted, fontSize: 10, marginTop: 5 },
   imagePreview: { width: "100%", height: 190, backgroundColor: "#EEF2F6", borderRadius: 14, marginTop: 11 },
   identityImageFrame: { height: 190, borderRadius: 14, overflow: "hidden", backgroundColor: "#DCE6E9", position: "relative", justifyContent: "center", alignItems: "center", marginTop: 10 },
   identityImage: { width: "100%", height: "100%", backgroundColor: "#DCE6E9" },
