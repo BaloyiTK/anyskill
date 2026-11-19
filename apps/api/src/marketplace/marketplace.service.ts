@@ -343,7 +343,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography
         ) / 1000.0 AS "distanceKm"
       FROM provider_profiles p
+      INNER JOIN users u ON u.id = p.user_id
       WHERE p.is_available = TRUE
+        AND u.provider_role_status = 'ACTIVE'
+        AND u.identity_verification_status = 'VERIFIED'
+        AND u.deleted_at IS NULL
         AND p.live_latitude IS NOT NULL
         AND p.live_longitude IS NOT NULL
         AND p.live_location_updated_at >= ${cutoff}
