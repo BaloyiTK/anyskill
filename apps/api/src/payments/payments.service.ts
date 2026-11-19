@@ -116,6 +116,9 @@ export class PaymentsService {
     if (input.gatewayReference && input.gatewayReference.length > 255) {
       throw new UnprocessableEntityException("Gateway reference is too long.");
     }
+    if (input.outcome === PaymentOperationStatus.SUCCEEDED && !input.gatewayReference) {
+      throw new UnprocessableEntityException("A successful gateway result must include its transaction reference.");
+    }
     if (input.failureCode && !/^[A-Za-z0-9_.:-]{1,100}$/.test(input.failureCode)) {
       throw new UnprocessableEntityException("Gateway failure code is invalid.");
     }
@@ -207,6 +210,10 @@ export class PaymentsService {
             paymentUpdate.status = PaymentStatus.CANCELLED;
             break;
           case PaymentOperationType.REFUND: {
+            if (operation.payment.status !== PaymentStatus.REFUND_PENDING
+              && operation.payment.status !== PaymentStatus.RECONCILIATION_REQUIRED) {
+              throw new ConflictException("Payment is not in a state that can accept a refund result.");
+            }
             if (operation.payment.amountCapturedMinor === null) {
               throw new ConflictException("Captured amount is missing; refund result requires reconciliation.");
             }
