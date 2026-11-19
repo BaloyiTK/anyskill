@@ -488,6 +488,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         : null;
       return {
         ...request,
+        // Before a Provider is selected, expose only a coarse map pin and no
+        // free-form location label that might contain a street address.
+        location: null,
+        latitude: request.latitude == null ? null : Math.round(request.latitude * 1000) / 1000,
+        longitude: request.longitude == null ? null : Math.round(request.longitude * 1000) / 1000,
         seeker: {
           firstName,
           lastName,
