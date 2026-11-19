@@ -7,7 +7,7 @@ import { Platform } from "react-native";
 import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
-import { apiRequest } from "./api";
+import { apiRequest, clearIdempotencyKey, getOrCreateIdempotencyKey } from "./api";
 import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
 
 type Mode = "seeker" | "provider";
@@ -391,17 +391,22 @@ export function MarketplaceScreen(p: Props) {
     if (deliveryMode !== "REMOTE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the exact job location on the map, use your saved Home Location, or use current GPS. Select Remote if the work does not need a physical location."); return; }
     setBusy(true);
     try {
+      const requestPayload = {
+        title: title.trim(), skillCategory: category.trim(), description: description.trim(), ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
+        ...(location.trim() ? { location: location.trim() } : {}),
+        ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude, searchRadiusKm } : {}), deliveryMode,
+      };
+      const idempotencyKey = await getOrCreateIdempotencyKey("create-service-request", requestPayload);
       const published = await apiRequest<{
         id: string; title: string; skillCategory: string; location: string | null; createdAt: string; matchingStartedAt: string;
         matching?: { notified?: number; wave?: number; exhausted?: boolean };
+        idempotentReplay?: boolean;
       }>("/marketplace/requests", {
         method: "POST",
-        body: JSON.stringify({
-          title: title.trim(), skillCategory: category.trim(), description: description.trim(), ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
-          ...(location.trim() ? { location: location.trim() } : {}),
-          ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude, searchRadiusKm } : {}), deliveryMode,
-        }),
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(requestPayload),
       }, true);
+      await clearIdempotencyKey("create-service-request");
       setMatchingRequest({
         id: published.id, title: published.title, skillCategory: published.skillCategory,
         location: published.location, createdAt: published.matchingStartedAt, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
