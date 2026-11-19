@@ -106,7 +106,7 @@ test("concurrent identity submissions create only one pending case and notificat
   });
 
   const submit = () => prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('identity-verification-submit'), hashtext(${user.id}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${user.id}))`;
     const existing = await tx.identityVerificationCase.findFirst({
       where: { userId: user.id, status: { in: ["SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION"] } },
       select: { id: true },
