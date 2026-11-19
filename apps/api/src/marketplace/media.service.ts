@@ -246,12 +246,30 @@ export class MediaService {
           type: "authenticated",
           timeout: CLOUDINARY_API_TIMEOUT_MS,
         });
-      } catch {
+      } catch (error) {
+        const httpCode = error && typeof error === "object" && "http_code" in error
+          ? Number((error as { http_code?: unknown }).http_code)
+          : undefined;
+        if (httpCode === 404) {
+          await tx.mediaAsset.updateMany({
+            where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
+            data: { status: "EXPIRED", verificationStartedAt: null },
+          });
+          return { ok: false as const, error: "not-uploaded" as const };
+        }
+
+        // A timeout, rate limit, authentication outage, or 5xx is not proof
+        // that the upload is absent. Release our verification lease so the
+        // caller can retry without forcing a new upload reservation.
         await tx.mediaAsset.updateMany({
           where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
-          data: { status: "EXPIRED", verificationStartedAt: null },
+          data: { status: "PENDING", verificationStartedAt: null },
         });
-        return { ok: false as const, error: "not-uploaded" as const };
+        this.logger.warn(
+          `[media-upload] Cloudinary verification temporarily unavailable purpose=${asset.purpose} ` +
+          `httpStatus=${httpCode ?? "unknown"}`,
+        );
+        return { ok: false as const, error: "verification-unavailable" as const };
       }
 
       const remoteMime = FORMAT_MIME[String(remote.format ?? "").toLowerCase()];
@@ -318,6 +336,7 @@ export class MediaService {
       case "verifying": throw new ConflictException("This upload is already being verified. Please retry shortly.");
       case "unsupported": throw new BadRequestException("Unsupported upload purpose.");
       case "not-uploaded": throw new BadRequestException("Cloudinary has not received this image. Upload it and try again.");
+      case "verification-unavailable": throw new ServiceUnavailableException("Image verification is temporarily unavailable. Retry confirmation shortly; you do not need to upload the image again.");
       case "invalid": throw new BadRequestException("Uploaded image failed Cloudinary asset, folder, format, size or access validation.");
       case "lease-expired": throw new ConflictException("Upload verification lease expired. Please confirm the upload again.");
     }
