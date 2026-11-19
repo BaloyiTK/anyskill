@@ -1071,7 +1071,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: {
           id: true, seekerId: true, skillCategory: true, location: true,
           latitude: true, longitude: true, searchRadiusKm: true, deliveryMode: true,
-          status: true, matchingStartedAt: true,
+          status: true, matchingStartedAt: true, matchingWave: true,
         },
       });
       if (!request || request.status !== "OPEN") return { notified: 0, wave };
