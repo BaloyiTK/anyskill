@@ -332,7 +332,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       liveLatitude: number;
       liveLongitude: number;
       distanceKm: number;
-    }>>\`
+    }>>`
       SELECT
         p.id,
         p.skill_categories AS "skillCategories",
@@ -355,7 +355,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         )
       ORDER BY "distanceKm" ASC
       LIMIT 200
-    \`;
+    `;
 
     return profiles.map((profile) => ({
       id: profile.id,
