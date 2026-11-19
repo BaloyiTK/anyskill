@@ -300,6 +300,18 @@ export class MarketplaceRolesService {
           });
         }
       }
+      if (!providerActive) {
+        await tx.providerProfile.updateMany({
+          where: { userId: currentCase.userId },
+          data: {
+            isAvailable: false,
+            liveLatitude: null,
+            liveLongitude: null,
+            liveAccuracyM: null,
+            liveLocationUpdatedAt: null,
+          },
+        });
+      }
       await tx.user.update({ where: { id: currentCase.userId }, data: {
         identityVerification: identityStatus, identityVerifiedAt: decision === "APPROVED" ? now : null,
         providerRoleStatus: user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
@@ -399,6 +411,18 @@ export class MarketplaceRolesService {
             update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category) },
           });
         }
+      }
+      if (!providerActive) {
+        await tx.providerProfile.updateMany({
+          where: { userId: skill.userId },
+          data: {
+            isAvailable: false,
+            liveLatitude: null,
+            liveLongitude: null,
+            liveAccuracyM: null,
+            liveLocationUpdatedAt: null,
+          },
+        });
       }
       await tx.user.update({ where: { id: skill.userId }, data: {
         providerRoleStatus: skill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
