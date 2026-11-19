@@ -209,6 +209,66 @@ test("service request idempotency key is unique per seeker and binds the origina
   assert.equal(persisted?.idempotencyPayloadHash, payloadHash);
 });
 
+test("only one API replica can claim a media upload for verification", async () => {
+  const fixture = await createFixture(1);
+  const providerId = fixture.responses[0].providerId;
+  const asset = await prisma.mediaAsset.create({
+    data: {
+      userId: providerId,
+      objectKey: `anyskill/job-completion-evidence/${providerId}/${randomUUID()}`,
+      originalName: "evidence.jpg",
+      contentType: "image/jpeg",
+      sizeBytes: 1024,
+      purpose: "JOB_COMPLETION_EVIDENCE",
+      expiresAt: new Date(Date.now() + 30 * 60_000),
+    },
+    select: { id: true },
+  });
+  const claim = () => prisma.mediaAsset.updateMany({
+    where: { id: asset.id, userId: providerId, status: "PENDING" },
+    data: { status: "VERIFYING", verificationStartedAt: new Date() },
+  });
+  const results = await Promise.all([claim(), claim()]);
+  assert.equal(results.reduce((total, result) => total + result.count, 0), 1);
+  const finalAsset = await prisma.mediaAsset.findUnique({ where: { id: asset.id } });
+  assert.equal(finalAsset?.status, "VERIFYING");
+  assert.ok(finalAsset?.verificationStartedAt);
+});
+
+test("a completion evidence asset can be claimed by only one submission", async () => {
+  const fixture = await createEngagementFixture("COMPLETION_PENDING");
+  const asset = await prisma.mediaAsset.create({
+    data: {
+      userId: fixture.providerId,
+      objectKey: `anyskill/job-completion-evidence/${fixture.providerId}/${randomUUID()}`,
+      originalName: "evidence.jpg",
+      contentType: "image/jpeg",
+      sizeBytes: 1024,
+      purpose: "JOB_COMPLETION_EVIDENCE",
+      status: "READY",
+      uploadedAt: new Date(),
+      expiresAt: new Date(Date.now() + 30 * 60_000),
+    },
+    select: { id: true },
+  });
+  const first = await prisma.jobCompletionSubmission.create({
+    data: { engagementId: fixture.jobId, providerId: fixture.providerId, notes: "First claim", status: "APPROVED" },
+    select: { id: true },
+  });
+  const second = await prisma.jobCompletionSubmission.create({
+    data: { engagementId: fixture.jobId, providerId: fixture.providerId, notes: "Second claim", status: "REJECTED" },
+    select: { id: true },
+  });
+  const claim = (submissionId) => prisma.mediaAsset.updateMany({
+    where: { id: asset.id, userId: fixture.providerId, status: "READY", completionSubmissionId: null },
+    data: { completionSubmissionId: submissionId },
+  });
+  const results = await Promise.all([claim(first.id), claim(second.id)]);
+  assert.equal(results.reduce((total, result) => total + result.count, 0), 1);
+  const persisted = await prisma.mediaAsset.findUnique({ where: { id: asset.id }, select: { completionSubmissionId: true } });
+  assert.ok([first.id, second.id].includes(persisted?.completionSubmissionId));
+});
+
 test("concurrent provider selections produce exactly one selected offer", async () => {
   const fixture = await createFixture();
   const select = (responseId) => prisma.$transaction(async (tx) => {
