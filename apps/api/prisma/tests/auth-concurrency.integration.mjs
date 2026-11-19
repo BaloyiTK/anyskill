@@ -52,3 +52,45 @@ test("only one concurrent registration insert can create a user for the same ema
   assert.equal(rejected.reason?.code, "P2002");
   assert.equal(await prisma.user.count({ where: { email: registrationEmail } }), 1);
 });
+
+test("refresh-token rotation is single-use and family revocation invalidates descendants", async () => {
+  const user = await prisma.user.create({
+    data: {
+      email: `refresh-family-${suffix}@example.invalid`,
+      passwordHash: "integration-test-only-not-a-real-password-hash",
+      emailVerifiedAt: new Date(),
+    },
+    select: { id: true },
+  });
+  const familyId = randomUUID();
+  const oldSession = await prisma.refreshSession.create({
+    data: {
+      userId: user.id, tokenHash: `old-${suffix}`, tokenFamilyId: familyId,
+      expiresAt: new Date(Date.now() + 60000),
+    },
+  });
+  const childSession = await prisma.refreshSession.create({
+    data: {
+      userId: user.id, tokenHash: `child-${suffix}`, tokenFamilyId: familyId,
+      expiresAt: new Date(Date.now() + 60000),
+    },
+  });
+
+  const rotate = () => prisma.refreshSession.updateMany({
+    where: { id: oldSession.id, revokedAt: null, expiresAt: { gt: new Date() } },
+    data: { revokedAt: new Date() },
+  });
+  const rotations = await Promise.all([rotate(), rotate()]);
+  assert.deepEqual(rotations.map((result) => result.count).sort(), [0, 1]);
+
+  const revokeFamily = await prisma.refreshSession.updateMany({
+    where: { tokenFamilyId: familyId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  assert.equal(revokeFamily.count, 1);
+  const child = await prisma.refreshSession.findUnique({ where: { id: childSession.id } });
+  assert.ok(child?.revokedAt);
+
+  await prisma.refreshSession.deleteMany({ where: { tokenFamilyId: familyId } });
+  await prisma.user.delete({ where: { id: user.id } });
+});

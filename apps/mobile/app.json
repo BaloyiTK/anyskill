@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "AnySkill",
+    "slug": "anyskill",
+    "owner": "kaziara",
+    "scheme": [
+      "anyskill",
+      "com.anyskill.mobile"
+    ],
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-secure-store",
+      "expo-camera",
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "incoming_requests"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "AnySkill uses your location to match you with nearby service requests while you are online.",
+          "locationAlwaysAndWhenInUsePermission": "When you choose to go online, AnySkill uses background location to keep your live provider position updated while you use other apps or lock your screen.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AnySkill needs photo-library access so Providers can submit job-completion evidence."
+        }
+      ],
+      [
+        "expo-dev-client",
+        {
+          "launchMode": "launcher",
+          "addGeneratedScheme": true
+        }
+      ],
+      [
+        "expo-maps",
+        {}
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anyskill.mobile"
+    },
+    "android": {
+      "package": "com.anyskill.mobile"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e23992c5-708d-42fa-90c2-fcde9017e38e"
+      }
+    }
+  }
+}

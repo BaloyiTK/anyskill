@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as argon2 from "argon2";
-import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
@@ -490,10 +490,12 @@ export class AuthService {
     );
 
     const refreshToken = opaqueToken();
+    const tokenFamilyId = randomUUID();
     await this.prisma.refreshSession.create({
       data: {
         userId,
         tokenHash: tokenHash(refreshToken),
+        tokenFamilyId,
         expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
       },
     });
@@ -513,7 +515,20 @@ export class AuthService {
       include: { user: true },
     });
 
-    if (!session || session.revokedAt || session.expiresAt <= new Date() || session.user.deletedAt || !session.user.emailVerifiedAt) {
+    if (!session) throw new UnauthorizedException("Refresh session is invalid or expired");
+
+    const now = new Date();
+    if (session.revokedAt) {
+      // A previously rotated token being presented again is a reuse signal.
+      // Revoke every still-active descendant in the same token family.
+      await this.prisma.refreshSession.updateMany({
+        where: { tokenFamilyId: session.tokenFamilyId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      this.logger.warn(`Refresh-token reuse detected; revoked active sessions for userId=${session.userId}.`);
+      throw new UnauthorizedException("Refresh session reuse detected. Sign in again.");
+    }
+    if (session.expiresAt <= now || session.user.deletedAt || !session.user.emailVerifiedAt) {
       throw new UnauthorizedException("Refresh session is invalid or expired");
     }
 
@@ -532,6 +547,7 @@ export class AuthService {
         data: {
           userId: session.userId,
           tokenHash: tokenHash(nextRefreshToken),
+          tokenFamilyId: session.tokenFamilyId,
           expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
         },
       });

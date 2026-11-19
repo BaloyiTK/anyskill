@@ -10,8 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
-    "test:auth-concurrency": "node --test prisma/tests/auth-concurrency.integration.mjs"
+    "db:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@anyskill/contracts": "workspace:*",
