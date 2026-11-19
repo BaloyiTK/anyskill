@@ -1206,7 +1206,7 @@ export default function App() {
               <Text style={s.subtitle}>You can complete your profile and check your application status, but going online is only enabled after both identity verification and Provider approval.</Text>
               <View style={s.statusCard}>
                 <Text style={s.statusLabel}>IDENTITY VERIFICATION</Text>
-                <Text style={s.statusValue}>{verified ? "Verified" : formatStatus(identityStatus)}</Text>
+                <Text style={s.statusValue}>{verified ? "Verified" : identityAwaitingReview ? "Pending verification" : formatStatus(identityStatus)}</Text>
                 <View style={s.divider} />
                 <Text style={s.statusLabel}>PROVIDER APPROVAL</Text>
                 <Text style={s.statusValue}>{formatStatus(roleSummary?.providerStatus ?? "pending")}</Text>
