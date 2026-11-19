@@ -410,6 +410,7 @@ model ProviderProfile {
   hourlyRate      Decimal? @map("hourly_rate") @db.Decimal(10, 2)
   assessmentFee   Decimal  @default(0) @map("assessment_fee") @db.Decimal(10, 2)
   skillCategories String[] @default([]) @map("skill_categories")
+  normalizedSkillKeys String[] @default([]) @map("normalized_skill_keys")
   serviceAreas    String[] @default([]) @map("service_areas")
   deliveryModes   String[] @default(["ONSITE"]) @map("delivery_modes")
   isAvailable     Boolean  @default(false) @map("is_available")
@@ -421,6 +422,7 @@ model ProviderProfile {
   updatedAt       DateTime @updatedAt @map("updated_at")
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([normalizedSkillKeys], type: Gin)
   @@index([isAvailable])
   @@map("provider_profiles")
 }
