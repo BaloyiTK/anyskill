@@ -142,11 +142,13 @@ export class AuthController {
     return this.emailVerification.resend(dto.email);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("refresh")
   refresh(@Body() dto: RefreshDto) {
     return this.auth.refresh(dto.refreshToken);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("logout")
   logout(@Body() dto: RefreshDto) {
     return this.auth.logout(dto.refreshToken);
