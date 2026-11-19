@@ -58,13 +58,20 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [ ] Before launch, implement idempotent authorisation/capture/void/refund operations, verified webhook ingestion with replay protection, immutable financial ledger entries, and gateway reconciliation.
 - [ ] Confirm a compliant Provider payout rail; card acquiring settlement must not be represented as Provider payout.
 
+## P0 — Multi-instance runtime controls
+
+- [ ] Replace the default in-memory `@nestjs/throttler` storage with a shared Redis-backed store (or an equivalently atomic shared store) before running multiple API replicas. Current request limits are per process and can be bypassed by spreading requests across replicas.
+- [ ] Configure and verify trusted-proxy handling at the deployment boundary before relying on client IP-based throttling. Never trust arbitrary client-supplied forwarded headers.
+- [ ] Run marketplace deadlines, retries and Expo receipt polling in a separately deployed worker process. Do not start the polling interval in every API replica; keep a database lease/lock as a final concurrency guard.
+- [ ] Ensure worker ownership, health, restart behavior, queue age and failed-notification counts are observable and alerted.
+
 ## Current source-audit findings
 
 1. `MarketplaceService.onModuleInit` still starts a 15-second poller in each API process. A PostgreSQL advisory lock prevents concurrent worker cycles, but the worker is not yet a separately deployed process with a lease/heartbeat. This remains a production architecture blocker.
 2. Matching dispatch, cancellation, selection, provider offer creation, and rescheduling now share request-scoped PostgreSQL locking and conditional state transitions. The newly added PostgreSQL integration tests must pass before this is considered verified.
 3. Notification delivery now recovers stale `SENDING` claims, retries with bounded backoff, persists Expo tickets, polls receipts, and removes invalid device tokens. Operational metrics, alerts, and a durable outbox remain outstanding.
 4. The approved PayGate payment workflow is documented but not implemented. Merchant capabilities and sandbox credentials are unconfirmed. Do not accept live payments or describe payment/settlement as production-ready.
-5. Authentication still needs a shared production rate-limit store across replicas, a complete route-by-route authorization audit, and expanded replay/race tests.
+5. Authentication still uses the default per-process in-memory throttler. A shared production rate-limit store, trusted-proxy configuration, complete route-by-route authorization audit, and expanded replay/race tests remain outstanding.
 6. Load, soak, worker crash/restart, multi-replica, provider outage, backup/restore, and staging recovery tests have not been demonstrated.
 
 ## Exit criteria
