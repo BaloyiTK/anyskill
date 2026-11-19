@@ -342,6 +342,56 @@ export class MediaService {
     return { url, expiresAt: new Date(expiresAt * 1000).toISOString() };
   }
 
+  async cleanupExpiredReservations() {
+    const now = new Date();
+    const expired = await this.prisma.mediaAsset.findMany({
+      where: { status: "PENDING", expiresAt: { lte: now } },
+      orderBy: { expiresAt: "asc" },
+      take: 25,
+      select: { id: true, objectKey: true, purpose: true },
+    });
+    if (expired.length === 0) return 0;
+    this.ensureConfigured();
+
+    let cleaned = 0;
+    for (let offset = 0; offset < expired.length; offset += 5) {
+      const batch = expired.slice(offset, offset + 5);
+      const results = await Promise.allSettled(batch.map(async (asset) => {
+        const folder = FOLDERS[asset.purpose];
+        if (!folder) {
+          this.logger.error(`Expired media reservation ${asset.id} has an unsupported purpose; leaving it for manual cleanup.`);
+          return false;
+        }
+        const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
+        const destroyOptions = {
+          resource_type: "image" as const,
+          type: "authenticated" as const,
+          invalidate: true,
+          timeout: CLOUDINARY_API_TIMEOUT_MS,
+        };
+        const result = await cloudinary.uploader.destroy(publicId, destroyOptions as {
+          resource_type?: "image";
+          type?: "authenticated";
+          invalidate?: boolean;
+        });
+        if (result.result !== "ok" && result.result !== "not found") {
+          throw new Error("Cloudinary did not confirm expired asset deletion.");
+        }
+        const removed = await this.prisma.mediaAsset.deleteMany({
+          where: { id: asset.id, status: "PENDING", expiresAt: { lte: now } },
+        });
+        return removed.count === 1;
+      }));
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value) cleaned += 1;
+        if (result.status === "rejected") {
+          this.logger.warn("Expired media reservation cleanup failed; it will be retried.");
+        }
+      }
+    }
+    return cleaned;
+  }
+
   async deleteUserAssets(userId: string) {
     const assets = await this.prisma.mediaAsset.findMany({
       where: { userId },
