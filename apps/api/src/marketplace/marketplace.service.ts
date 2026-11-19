@@ -683,6 +683,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           data: { status: "DECLINED" },
         });
         if (changed.count !== 1) throw new ConflictException("This Provider offer has already changed. Refresh and try again.");
+        await tx.requestMatch.updateMany({
+          where: { requestId, providerId: offer.providerId, status: "RESPONDED" },
+          data: { status: "EXPIRED" },
+        });
         await tx.appNotification.create({
           data: {
             userId: offer.providerId,
