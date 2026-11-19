@@ -8,12 +8,12 @@ This checklist is an engineering gate, not a claim that the platform is producti
 ## P0 — Marketplace correctness and recoverability
 
 - [x] Make matching wave creation atomic under concurrent API/worker instances. Request-scoped PostgreSQL advisory locks serialize dispatch; notifications are created only for match rows actually inserted. PostgreSQL concurrency test is being added to CI.
-- [ ] Make worker ownership distributed and recoverable. Do not run an uncoordinated poller in every API replica. Use a dedicated worker entrypoint and a database-backed lease/claim strategy with expiry and heartbeat.
+- [x] Separate worker execution from API replicas. API processes no longer start the polling loop; `apps/api/src/worker.ts` starts a dedicated Nest application context, and PostgreSQL transaction-scoped advisory locking provides single-cycle ownership across worker replicas. Connection loss releases the lock automatically. A separate lease/heartbeat is not needed for this lock-based design.
 - [x] Recover notifications stranded in `SENDING` after process termination; stale claims are recovered with bounded retries/backoff and terminal failure.
 - [x] Handle Expo push tickets and receipts separately. Persist ticket IDs, poll receipts, and invalidate `DeviceNotRegistered` tokens; ticket acceptance is not treated as handset delivery.
 - [x] Serialize provider offer creation, seeker selection, cancellation, and rescheduling using the same request-scoped PostgreSQL lock; conditional state updates protect the final transition. Integration tests are being added to CI.
 - [ ] Add idempotency keys for client-retried create/decision operations where a duplicate could create a second marketplace action.
-- [ ] Complete PostgreSQL integration tests for competing provider selections, cancellation versus selection, and duplicate dispatch. Tests have been added and are awaiting CI execution.
+- [x] Complete PostgreSQL integration tests for competing provider selections, cancellation versus selection, and duplicate dispatch. The CI workflow executes them against PostgreSQL.
 
 ## P0 — Authentication and authorization
 
@@ -62,13 +62,35 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 - [ ] Replace the default in-memory `@nestjs/throttler` storage with a shared Redis-backed store (or an equivalently atomic shared store) before running multiple API replicas. Current request limits are per process and can be bypassed by spreading requests across replicas.
 - [ ] Configure and verify trusted-proxy handling at the deployment boundary before relying on client IP-based throttling. Never trust arbitrary client-supplied forwarded headers.
-- [ ] Run marketplace deadlines, retries and Expo receipt polling in a separately deployed worker process. Do not start the polling interval in every API replica; keep a database lease/lock as a final concurrency guard.
+- [x] Run marketplace deadlines, retries and Expo receipt polling in a separately deployed worker process. API replicas do not start the polling interval; a PostgreSQL transaction-scoped advisory lock prevents overlapping cycles.
 - [ ] Ensure worker ownership, health, restart behavior, queue age and failed-notification counts are observable and alerted.
+
+## Dedicated worker deployment
+
+Build the API package once, then run two separate processes/containers from the same release artifact:
+
+- API process: `pnpm --filter @anyskill/api start:prod` (leave `ANYSKILL_PROCESS_ROLE` unset or set it to `api`).
+- Worker process: set `ANYSKILL_PROCESS_ROLE=worker`, then run `pnpm --filter @anyskill/api start:worker`.
+
+PowerShell worker command:
+
+```powershell
+$env:ANYSKILL_PROCESS_ROLE = "worker"
+pnpm --filter @anyskill/api start:worker
+```
+
+Linux/container worker command:
+
+```sh
+ANYSKILL_PROCESS_ROLE=worker pnpm --filter @anyskill/api start:worker
+```
+
+Both processes must use the same production database and compatible environment configuration. Deploy the worker as a separately supervised service with restart-on-failure and graceful termination. Do not set the worker role on API replicas. The worker entrypoint refuses to start without the explicit worker role. The database advisory lock is a concurrency guard, not a substitute for process supervision, monitoring, or a worker health alert.
 
 ## Current source-audit findings
 
-1. `MarketplaceService.onModuleInit` still starts a 15-second poller in each API process. A PostgreSQL advisory lock prevents concurrent worker cycles, but the worker is not yet a separately deployed process with a lease/heartbeat. This remains a production architecture blocker.
-2. Matching dispatch, cancellation, selection, provider offer creation, and rescheduling now share request-scoped PostgreSQL locking and conditional state transitions. The newly added PostgreSQL integration tests must pass before this is considered verified.
+1. `MarketplaceService.onModuleInit` starts the 15-second poller only when `ANYSKILL_PROCESS_ROLE=worker`. `apps/api/src/worker.ts` boots a Nest application context without opening an HTTP listener. Run at least one dedicated worker deployment alongside API replicas; PostgreSQL advisory locking prevents overlapping cycles and is released on transaction/connection termination.
+2. Matching dispatch, cancellation, selection, provider offer creation, and rescheduling now share request-scoped PostgreSQL locking and conditional state transitions. PostgreSQL integration tests for selection races, cancellation races, and duplicate dispatch are included in CI and passed on commit `578e4cf`.
 3. Notification delivery now recovers stale `SENDING` claims, retries with bounded backoff, persists Expo tickets, polls receipts, and removes invalid device tokens. Operational metrics, alerts, and a durable outbox remain outstanding.
 4. The approved PayGate payment workflow is documented but not implemented. Merchant capabilities and sandbox credentials are unconfirmed. Do not accept live payments or describe payment/settlement as production-ready.
 5. Authentication still uses the default per-process in-memory throttler. A shared production rate-limit store, trusted-proxy configuration, complete route-by-route authorization audit, and expanded replay/race tests remain outstanding.
