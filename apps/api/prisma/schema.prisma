@@ -128,6 +128,7 @@ enum NotificationDeliveryStatus {
   SENT
   IN_APP_ONLY
   FAILED
+  UNKNOWN
 }
 
 enum PushReceiptStatus {
