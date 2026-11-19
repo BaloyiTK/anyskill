@@ -1618,8 +1618,33 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         return { notified: 0, wave, exhausted: true };
       }
 
+      // Serialize each selected Provider with identity review, availability
+      // updates and account deletion, then re-check eligibility before insert.
+      for (const candidate of [...next].sort((a, b) => a.userId.localeCompare(b.userId))) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${candidate.userId}))`;
+      }
+      const stillEligible = await tx.user.findMany({
+        where: {
+          id: { in: next.map((provider) => provider.userId) },
+          providerRoleStatus: "ACTIVE",
+          identityVerification: "VERIFIED",
+          deletedAt: null,
+          providerProfile: { is: { isAvailable: true } },
+        },
+        select: { id: true },
+      });
+      const eligibleIds = new Set(stillEligible.map((provider) => provider.id));
+      const waveProviders = next.filter((provider) => eligibleIds.has(provider.userId));
+      if (waveProviders.length === 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
+          data: { matchingNextAt: null, matchingExhaustedAt: new Date() },
+        });
+        return { notified: 0, wave, exhausted: true };
+      }
+
       const insertedMatches = await tx.requestMatch.createManyAndReturn({
-        data: next.map((provider) => ({
+        data: waveProviders.map((provider) => ({
           requestId, providerId: provider.userId, score: provider.score, wave,
           status: "NOTIFIED" as const,
         })),
