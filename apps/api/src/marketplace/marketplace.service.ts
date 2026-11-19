@@ -1401,6 +1401,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (this.workerRunning) return;
     this.workerRunning = true;
     const startedAt = Date.now();
+    await this.recordWorkerHeartbeat({ status: "RUNNING", heartbeatAt: new Date() });
     try {
       // Transaction-scoped advisory lock coordinates all API replicas.
       const cycle = await this.prisma.$transaction(async (tx) => {
@@ -1432,6 +1433,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }, { maxWait: 10_000, timeout: 120_000 });
 
       if (cycle.acquired) {
+        await this.recordWorkerHeartbeat({
+          status: "HEALTHY",
+          heartbeatAt: new Date(),
+          lastSuccessAt: new Date(),
+          consecutiveFailures: 0,
+          lastErrorCode: null,
+          lastCycleDurationMs: Date.now() - startedAt,
+        });
         this.logger.log(JSON.stringify({
           event: "anyskill_marketplace_worker_cycle",
           durationMs: Date.now() - startedAt,
@@ -1444,6 +1453,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const errorCode = error && typeof error === "object" && "code" in error && typeof error.code === "string"
         ? error.code.slice(0, 64)
         : "unknown";
+      await this.recordWorkerHeartbeat({
+        status: "DEGRADED",
+        heartbeatAt: new Date(),
+        consecutiveFailures: { increment: 1 },
+        lastErrorCode: errorCode,
+        lastCycleDurationMs: Date.now() - startedAt,
+      });
       this.logger.error(JSON.stringify({
         event: "anyskill_marketplace_worker_cycle_failed",
         durationMs: Date.now() - startedAt,
@@ -1452,6 +1468,36 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.workerRunning = false;
     }
+  }
+
+  private async recordWorkerHeartbeat(data: {
+    status: string;
+    heartbeatAt: Date;
+    lastSuccessAt?: Date;
+    consecutiveFailures?: number | { increment: number };
+    lastErrorCode?: string | null;
+    lastCycleDurationMs?: number;
+  }) {
+    await this.prisma.workerHeartbeat.upsert({
+      where: { name: "marketplace" },
+      create: {
+        name: "marketplace",
+        status: data.status,
+        heartbeatAt: data.heartbeatAt,
+        ...(data.lastSuccessAt ? { lastSuccessAt: data.lastSuccessAt } : {}),
+        ...(typeof data.consecutiveFailures === "number" ? { consecutiveFailures: data.consecutiveFailures } : {}),
+        ...(data.lastErrorCode !== undefined ? { lastErrorCode: data.lastErrorCode } : {}),
+        ...(data.lastCycleDurationMs !== undefined ? { lastCycleDurationMs: data.lastCycleDurationMs } : {}),
+      },
+      update: {
+        status: data.status,
+        heartbeatAt: data.heartbeatAt,
+        ...(data.lastSuccessAt ? { lastSuccessAt: data.lastSuccessAt } : {}),
+        ...(data.consecutiveFailures !== undefined ? { consecutiveFailures: data.consecutiveFailures } : {}),
+        ...(data.lastErrorCode !== undefined ? { lastErrorCode: data.lastErrorCode } : {}),
+        ...(data.lastCycleDurationMs !== undefined ? { lastCycleDurationMs: data.lastCycleDurationMs } : {}),
+      },
+    });
   }
 
   private async recoverStaleNotificationClaims() {
