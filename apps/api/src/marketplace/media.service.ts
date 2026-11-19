@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { v2 as cloudinary } from "cloudinary";
 import { PrismaService } from "../database/prisma.service";
 
@@ -69,7 +69,11 @@ export class MediaService {
     if (!this.configured) throw new ServiceUnavailableException("Photo uploads are not configured yet. Contact support.");
   }
 
-  async createUpload(userId: string, input: { fileName: string; contentType: string; sizeBytes: number; purpose?: "JOB_COMPLETION_EVIDENCE" | "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE" | "PROVIDER_QUALIFICATION" | "PROVIDER_PORTFOLIO_IMAGE" }) {
+  async createUpload(
+    userId: string,
+    input: { fileName: string; contentType: string; sizeBytes: number; purpose?: "JOB_COMPLETION_EVIDENCE" | "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE" | "PROVIDER_QUALIFICATION" | "PROVIDER_PORTFOLIO_IMAGE" },
+    idempotencyKey?: string,
+  ) {
     this.ensureConfigured();
     const purpose = input.purpose ?? "JOB_COMPLETION_EVIDENCE";
     const folder = FOLDERS[purpose];
@@ -78,13 +82,59 @@ export class MediaService {
     if (!Number.isInteger(input.sizeBytes) || input.sizeBytes < 1 || input.sizeBytes > MAX_BYTES) {
       throw new BadRequestException("Each image must be between 1 byte and 10 MB.");
     }
+    if (idempotencyKey != null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+      throw new BadRequestException("Idempotency-Key must be a valid UUID.");
+    }
 
-    const id = randomUUID();
-    const publicId = `${userId}/${id}`;
+    const payloadHash = createHash("sha256").update(JSON.stringify({
+      fileName: input.fileName.slice(0, 255), contentType: input.contentType, sizeBytes: input.sizeBytes, purpose,
+    })).digest("hex");
+    let asset = idempotencyKey
+      ? await this.prisma.mediaAsset.findFirst({ where: { userId, idempotencyKey } })
+      : null;
+
+    if (asset) {
+      if (asset.idempotencyPayloadHash !== payloadHash) {
+        throw new ConflictException("This Idempotency-Key was already used with a different upload.");
+      }
+      if (asset.status === "READY") return { assetId: asset.id, status: "READY" as const, alreadyUploaded: true };
+      if (asset.status === "VERIFYING") throw new ConflictException("This upload is already being verified. Please retry shortly.");
+      if (asset.status !== "PENDING" || asset.expiresAt <= new Date()) {
+        throw new ConflictException("This upload reservation has expired. Start a new upload.");
+      }
+    } else {
+      const id = randomUUID();
+      const publicId = `${userId}/${id}`;
+      try {
+        asset = await this.prisma.mediaAsset.create({
+          data: {
+            userId,
+            ...(idempotencyKey ? { idempotencyKey, idempotencyPayloadHash: payloadHash } : {}),
+            objectKey: `${folder}/${publicId}`,
+            originalName: input.fileName.slice(0, 255),
+            contentType: input.contentType,
+            sizeBytes: input.sizeBytes,
+            purpose,
+            expiresAt: new Date(Date.now() + 30 * 60_000),
+          },
+        });
+      } catch (error) {
+        const isUniqueConflict = Boolean(error && typeof error === "object" && "code" in error && error.code === "P2002");
+        if (!idempotencyKey || !isUniqueConflict) throw error;
+        asset = await this.prisma.mediaAsset.findFirst({ where: { userId, idempotencyKey } });
+        if (!asset) throw error;
+        if (asset.idempotencyPayloadHash !== payloadHash) {
+          throw new ConflictException("This Idempotency-Key was already used with a different upload.");
+        }
+        if (asset.status === "READY") return { assetId: asset.id, status: "READY" as const, alreadyUploaded: true };
+        if (asset.status !== "PENDING" || asset.expiresAt <= new Date()) {
+          throw new ConflictException("This upload reservation is not available for retry.");
+        }
+      }
+    }
+
+    const publicId = asset.objectKey.slice(folder.length + 1);
     const timestamp = Math.floor(Date.now() / 1000);
-    // Sign the exact parameters the native app sends to Cloudinary. The API
-    // secret never leaves the server; the signature is short-lived and scoped
-    // to this user's reserved private identity asset.
     const params = {
       timestamp,
       public_id: publicId,
@@ -95,18 +145,6 @@ export class MediaService {
       use_filename: false,
     };
     const signature = cloudinary.utils.api_sign_request(params, this.apiSecret);
-    const asset = await this.prisma.mediaAsset.create({
-      data: {
-        userId,
-        objectKey: `${folder}/${publicId}`,
-        originalName: input.fileName.slice(0, 255),
-        contentType: input.contentType,
-        sizeBytes: input.sizeBytes,
-        purpose,
-        expiresAt: new Date(Date.now() + 30 * 60_000),
-      },
-    });
-
     return {
       assetId: asset.id,
       cloudName: this.cloudName,
@@ -116,9 +154,9 @@ export class MediaService {
       publicId,
       assetFolder: folder,
       maxBytes: MAX_BYTES,
+      alreadyUploaded: false,
     };
   }
-
 
   async confirmUpload(userId: string, assetId: string) {
     this.ensureConfigured();
