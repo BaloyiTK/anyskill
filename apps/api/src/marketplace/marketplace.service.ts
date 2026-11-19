@@ -211,6 +211,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
     const skillCategories = [...new Set(input.skillCategories.map(normalise).filter(Boolean))];
+    const normalizedSkillKeys = [...new Set(skillCategories.map((skill) => normalise(skill).replace(/[^\\p{L}\\p{N}]+/gu, "")).filter(Boolean))];
     const serviceAreas = [...new Set(input.serviceAreas.map(normalise).filter(Boolean))];
     const deliveryModes = [...new Set(input.deliveryModes)];
     if (skillCategories.length === 0) {
@@ -270,6 +271,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           hourlyRate: input.hourlyRate,
           assessmentFee: input.assessmentFee,
           skillCategories,
+          normalizedSkillKeys,
           serviceAreas,
           deliveryModes,
           isAvailable: input.isAvailable,
@@ -281,6 +283,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           hourlyRate: input.hourlyRate,
           assessmentFee: input.assessmentFee,
           skillCategories,
+          normalizedSkillKeys,
           serviceAreas,
           deliveryModes,
           isAvailable: input.isAvailable,
