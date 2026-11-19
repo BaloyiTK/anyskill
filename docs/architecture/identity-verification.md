@@ -55,6 +55,25 @@ See [Dual marketplace roles and Provider approval](dual-marketplace-roles.md) fo
 7. Age and legal-capacity requirements.
 8. Business-account and representative verification.
 
-## Implementation boundary
+## Implemented document-handling controls
 
-The initial codebase contains shared verification-state contracts and a server-side policy function. It does not yet authenticate users, collect identity documents, call a verification provider, or authorize marketplace endpoints. Those features must be implemented with persistent records, authentication, audit logging and security review before marketplace launch.
+The current implementation uses authenticated Cloudinary delivery for identity images and verifies the uploaded resource's owner reservation, purpose, format, size and authenticated delivery type before marking it ready.
+
+The staff review queue returns document-availability flags only. It does not return Cloudinary URLs, storage keys or asset IDs. An Identity Reviewer must retrieve each image through a JWT-authenticated API route protected by the active staff-membership guard and the `IDENTITY_REVIEWER` permission. The API resolves the exact asset IDs recorded on the submitted verification case, verifies ownership, purpose and READY status, fetches the image server-side, checks its content type and byte length, and streams it with non-cacheable response headers. Individual document-view attempts are written to the staff audit log with the case and document purpose, never the document bytes or storage URL.
+
+Identity preview links issued to the account owner are short-lived (60 seconds). They remain bearer links and must not be logged, copied into analytics, or exposed to other users. Staff review must use the authenticated proxy endpoint instead.
+
+The admin portal requests reviewer images with the staff access token, holds them as in-memory browser object URLs, and revokes those URLs when the review modal closes or another review is opened.
+
+## Production launch conditions still requiring operational sign-off
+
+These are not safely provable by application code alone and must be completed before production identity-document collection:
+
+1. Confirm Cloudinary account-level encryption at rest, backup encryption, region/data residency, access controls, breach notification commitments, and a signed POPIA-compliant operator/data-processing agreement.
+2. Approve a documented retention schedule with South African privacy/legal advice. The schedule must cover approved, rejected, abandoned and appealed cases, backups, legal holds and deletion verification. Do not invent a retention period in code.
+3. Verify production Cloudinary settings prevent public delivery and restrict credentials to the minimum required API permissions. Rotate credentials and store them only in the production secret manager.
+4. Enforce MFA for every staff account with identity-review permissions and periodically review/revoke inactive reviewer memberships.
+5. Run staging security tests for cross-account access, non-reviewer access, expired/closed cases, invalid purposes, tampered asset IDs, concurrent review decisions, storage outage behaviour and audit-log failure.
+6. Complete an independent security review and POPIA impact assessment before collecting real identity documents.
+
+Identity verification remains manual. No external identity-validation provider or automated authenticity check is implied by the upload and review workflow.
