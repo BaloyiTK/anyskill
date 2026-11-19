@@ -573,6 +573,20 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { success: true, requestId, preferredStartAt, matching };
   }
 
+  async declineProviderOffer(seekerId: string, requestId: string, responseId: string) {
+    const request = await this.prisma.serviceRequest.findFirst({
+      where: { id: requestId, seekerId, status: "OPEN" },
+      select: { id: true },
+    });
+    if (!request) throw new NotFoundException("This open service request could not be found.");
+    const changed = await this.prisma.providerResponse.updateMany({
+      where: { id: responseId, requestId, status: "OFFERED" },
+      data: { status: "WITHDRAWN" },
+    });
+    if (changed.count !== 1) throw new ConflictException("This Provider offer is no longer available.");
+    return { success: true, requestId, responseId, status: "WITHDRAWN" };
+  }
+
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
     return this.prisma.$transaction(async (tx) => {
       const request = await tx.serviceRequest.findUnique({
