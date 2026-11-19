@@ -60,6 +60,9 @@ jobs:
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
+      - name: Audit production dependencies for high and critical vulnerabilities
+        run: pnpm check:security
+
       - name: Generate Prisma client
         run: pnpm db:generate
         env:
