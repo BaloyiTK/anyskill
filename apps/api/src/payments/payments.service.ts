@@ -235,7 +235,7 @@ export class PaymentsService {
         where: { id: operation.id },
         data: {
           status: input.outcome,
-          gatewayReference: input.gatewayReference ?? undefined,
+          ...(input.gatewayReference ? { gatewayReference: input.gatewayReference } : {}),
           failureCode: input.outcome === PaymentOperationStatus.FAILED
             ? input.failureCode ?? "GATEWAY_DECLINED"
             : null,
