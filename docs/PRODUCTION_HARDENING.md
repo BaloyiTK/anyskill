@@ -58,7 +58,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [x] Add append-only financial ledger storage. Database trigger rejects UPDATE and DELETE; corrections must be recorded as compensating entries.
 - [ ] Implement PayGate merchant adapter only after the actual PayGate product/PayHost configuration, sandbox credentials, tokenisation, stored-credential merchant-initiated transactions, authorisation/capture/void/refund, and callback/query rules are confirmed in writing.
 - [ ] Implement transaction-safe operation claiming, verified notification processing, out-of-order/replay handling, amount/currency/reference verification, and gateway reconciliation.
-- [ ] Add balanced double-entry posting service and integration tests proving every journal group balances per currency.
+- [x] Add balanced double-entry posting service and integration tests proving every journal group balances per currency. The service validates groups and the deferred PostgreSQL constraint trigger rejects unbalanced groups at commit.
 - [ ] Confirm a compliant Provider payout rail and operational reconciliation; PayGate acquiring settlement must not be represented as Provider payout.
 - [ ] Keep all real-money collection and Provider payouts disabled until merchant sandbox, refund, failure, duplicate-event, expiry, and settlement tests pass.
 
