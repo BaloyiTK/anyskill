@@ -965,6 +965,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         await this.expandExpiredWaves();
         await this.retryExhaustedRequests();
         await this.dispatchPendingNotifications();
+        await this.checkExpoPushReceipts();
       }, { maxWait: 10_000, timeout: 120_000 });
     } catch (error) {
       this.logger.error("Marketplace worker cycle failed.", error);
@@ -1238,14 +1239,20 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       select: { id: true, userId: true, title: true, body: true, data: true, attempts: true },
     });
     for (const notification of pending) {
+      const existingReceipts = await this.prisma.pushNotificationReceipt.findMany({
+        where: { notificationId: notification.id },
+        select: { pushDeviceId: true },
+      });
+      const alreadyTicketed = new Set(existingReceipts.map((receipt) => receipt.pushDeviceId));
       const devices = await this.prisma.pushDevice.findMany({
-        where: { userId: notification.userId },
-        select: { expoPushToken: true },
+        where: { userId: notification.userId, ...(alreadyTicketed.size ? { id: { notIn: [...alreadyTicketed] } } : {}) },
+        select: { id: true, expoPushToken: true },
       });
       if (devices.length === 0) {
+        const status = existingReceipts.length > 0 ? "SENT" : "IN_APP_ONLY";
         await this.prisma.appNotification.updateMany({
           where: { id: notification.id, deliveryStatus: "PENDING" },
-          data: { deliveryStatus: "IN_APP_ONLY", sendingStartedAt: null },
+          data: { deliveryStatus: status, sendingStartedAt: null, ...(status === "SENT" ? { sentAt: new Date() } : {}) },
         });
         continue;
       }
@@ -1272,14 +1279,51 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           }))),
         });
         if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
-        const payload = await response.json() as { data?: Array<{ status?: string; message?: string }> };
+        const payload = await response.json() as {
+          data?: Array<{ status?: string; id?: string; message?: string; details?: { error?: string } }>;
+        };
         const tickets = payload.data ?? [];
-        if (tickets.length === 0 || tickets.some((ticket) => ticket.status !== "ok")) {
-          throw new Error(tickets.find((ticket) => ticket.status !== "ok")?.message ?? "No push delivery tickets returned.");
+        if (tickets.length !== devices.length) {
+          throw new Error(`Expo returned ${tickets.length} ticket(s) for ${devices.length} device(s).`);
         }
-        await this.prisma.appNotification.update({
-          where: { id: notification.id },
-          data: { deliveryStatus: "SENT", sentAt: new Date(), sendingStartedAt: null },
+        const receiptRows: Array<{ notificationId: string; pushDeviceId: string; expoTicketId: string }> = [];
+        const invalidDeviceIds: string[] = [];
+        let transientTicketErrors = 0;
+        for (const [index, ticket] of tickets.entries()) {
+          if (ticket.status === "ok" && ticket.id) {
+            receiptRows.push({
+              notificationId: notification.id,
+              pushDeviceId: devices[index].id,
+              expoTicketId: ticket.id,
+            });
+          } else if (ticket.details?.error === "DeviceNotRegistered") {
+            invalidDeviceIds.push(devices[index].id);
+          } else {
+            transientTicketErrors += 1;
+            this.logger.warn(`Expo rejected push for device ${devices[index].id}: ${ticket.message ?? ticket.details?.error ?? "unknown ticket error"}`);
+          }
+        }
+        await this.prisma.$transaction(async (tx) => {
+          if (receiptRows.length) {
+            await tx.pushNotificationReceipt.createMany({ data: receiptRows, skipDuplicates: true });
+          }
+          if (invalidDeviceIds.length) {
+            await tx.pushDevice.deleteMany({ where: { id: { in: invalidDeviceIds } } });
+          }
+          const hasAcceptedTicket = receiptRows.length > 0 || existingReceipts.length > 0;
+          const attempts = notification.attempts + 1;
+          const retryDelayMs = Math.min(5 * 60_000, 5_000 * (2 ** Math.max(0, attempts - 1)));
+          await tx.appNotification.updateMany({
+            where: { id: notification.id, deliveryStatus: "SENDING" },
+            data: {
+              deliveryStatus: transientTicketErrors > 0 && !hasAcceptedTicket
+                ? (attempts >= 5 ? "FAILED" : "PENDING")
+                : "SENT",
+              sentAt: hasAcceptedTicket ? new Date() : null,
+              sendingStartedAt: null,
+              nextAttemptAt: new Date(Date.now() + retryDelayMs),
+            },
+          });
         });
       } catch (error) {
         const attempts = notification.attempts + 1;
@@ -1296,4 +1340,61 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }
     }
   }
-}
+
+  private async checkExpoPushReceipts() {
+    const receiptCutoff = new Date(Date.now() - 15 * 60_000);
+    const expiredCutoff = new Date(Date.now() - 24 * 60 * 60_000);
+    const expired = await this.prisma.pushNotificationReceipt.updateMany({
+      where: { status: "PENDING", createdAt: { lt: expiredCutoff } },
+      data: { status: "ERROR", errorCode: "ReceiptUnavailable", errorMessage: "Expo receipt was not available within 24 hours.", checkedAt: new Date() },
+    });
+    if (expired.count > 0) this.logger.warn(`Marked ${expired.count} Expo receipt(s) unavailable after 24 hours.`);
+
+    const receipts = await this.prisma.pushNotificationReceipt.findMany({
+      where: { status: "PENDING", createdAt: { lte: receiptCutoff } },
+      take: 300,
+      orderBy: { createdAt: "asc" },
+      select: { id: true, expoTicketId: true, pushDeviceId: true },
+    });
+    for (let offset = 0; offset < receipts.length; offset += 300) {
+      const batch = receipts.slice(offset, offset + 300);
+      try {
+        const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          signal: AbortSignal.timeout(15_000),
+          body: JSON.stringify({ ids: batch.map((receipt) => receipt.expoTicketId) }),
+        });
+        if (!response.ok) throw new Error(`Expo receipt service returned HTTP ${response.status}`);
+        const payload = await response.json() as {
+          data?: Record<string, { status?: string; message?: string; details?: { error?: string } }>;
+        };
+        const results = payload.data ?? {};
+        for (const receipt of batch) {
+          const result = results[receipt.expoTicketId];
+          if (!result) continue;
+          const status = result.status === "ok" ? "OK" : result.status === "error" ? "ERROR" : null;
+          if (!status) continue;
+          await this.prisma.$transaction(async (tx) => {
+            const changed = await tx.pushNotificationReceipt.updateMany({
+              where: { id: receipt.id, status: "PENDING" },
+              data: {
+                status,
+                errorCode: result.details?.error ?? null,
+                errorMessage: result.message?.slice(0, 500) ?? null,
+                checkedAt: new Date(),
+              },
+            });
+            if (changed.count > 0 && result.details?.error === "DeviceNotRegistered") {
+              await tx.pushDevice.deleteMany({ where: { id: receipt.pushDeviceId } });
+            }
+          });
+          if (status === "ERROR") {
+            this.logger.warn(`Expo delivery receipt ${receipt.expoTicketId} failed: ${result.details?.error ?? result.message ?? "unknown receipt error"}`);
+          }
+        }
+      } catch (error) {
+        this.logger.warn(`Expo receipt polling failed: ${String(error)}`);
+      }
+    }
+  }}
