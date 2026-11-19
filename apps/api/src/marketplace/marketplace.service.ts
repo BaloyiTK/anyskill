@@ -365,8 +365,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const [requests, providerProfile] = await Promise.all([
       this.prisma.serviceRequest.findMany({
         where: {
-          status: "OPEN",
-          matches: { some: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] } } },
+          OR: [
+            { status: "OPEN", matches: { some: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] } } } },
+            { providerResponses: { some: { providerId, status: "WITHDRAWN" } } },
+          ],
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 21,
@@ -563,22 +565,65 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cancelRequest(seekerId: string, requestId: string) {
-    const request = await this.prisma.serviceRequest.findFirst({
-      where: { id: requestId, seekerId },
-      select: { id: true, status: true },
+    return this.prisma.$transaction(async (tx) => {
+      const request = await tx.serviceRequest.findFirst({
+        where: { id: requestId, seekerId },
+        select: { id: true, status: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
+      const changed = await tx.serviceRequest.updateMany({
+        where: { id: requestId, seekerId, status: "OPEN" },
+        data: { status: "CANCELLED", matchingNextAt: null },
+      });
+      if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
+      await tx.requestMatch.updateMany({
+        where: { requestId, status: { in: ["NOTIFIED", "RESPONDED"] } },
+        data: { status: "EXPIRED" },
+      });
+      const pendingOffers = await tx.providerResponse.findMany({
+        where: { requestId, status: "OFFERED", providerId: { not: null } },
+        select: { id: true, providerId: true },
+      });
+      await tx.providerResponse.updateMany({
+        where: { requestId, status: "OFFERED" },
+        data: { status: "WITHDRAWN" },
+      });
+      if (pendingOffers.length) await tx.appNotification.createMany({
+        data: pendingOffers.flatMap((offer) => offer.providerId ? [{
+          userId: offer.providerId,
+          title: "Service request cancelled",
+          body: "The Skill Seeker cancelled this request. Your pending offer is now closed.",
+          data: { type: "REQUEST_CANCELLED", requestId, responseId: offer.id },
+        }] : []),
+      });
+      return { success: true, requestId, status: "CANCELLED" };
     });
-    if (!request) throw new NotFoundException("This service request could not be found.");
-    if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
-    const changed = await this.prisma.serviceRequest.updateMany({
-      where: { id: requestId, seekerId, status: "OPEN" },
-      data: { status: "CANCELLED", matchingNextAt: null },
+  }
+
+  async withdrawProviderOffer(providerId: string, requestId: string, responseId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const response = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, providerId, status: "OFFERED" },
+        select: { id: true, request: { select: { id: true, seekerId: true, status: true } } },
+      });
+      if (!response || !response.request.seekerId) throw new NotFoundException("This pending offer could not be found.");
+      if (response.request.status !== "OPEN") throw new ConflictException("The request is no longer open for offer withdrawal.");
+      const changed = await tx.providerResponse.updateMany({
+        where: { id: responseId, requestId, providerId, status: "OFFERED" },
+        data: { status: "WITHDRAWN" },
+      });
+      if (changed.count !== 1) throw new ConflictException("The Seeker has already made a decision on this offer.");
+      await tx.appNotification.create({
+        data: {
+          userId: response.request.seekerId,
+          title: "Provider withdrew an offer",
+          body: "A Skill Provider has withdrawn their offer. You can continue reviewing other offers.",
+          data: { type: "PROVIDER_OFFER_WITHDRAWN", requestId, responseId },
+        },
+      });
+      return { success: true, requestId, responseId, status: "WITHDRAWN" };
     });
-    if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
-    await this.prisma.requestMatch.updateMany({
-      where: { requestId, status: "NOTIFIED" },
-      data: { status: "EXPIRED" },
-    });
-    return { success: true, requestId, status: "CANCELLED" };
   }
 
   async scheduleRequest(seekerId: string, requestId: string, input: ScheduleServiceRequestDto) {
