@@ -181,93 +181,105 @@ export class MediaService {
 
   async confirmUpload(userId: string, assetId: string) {
     this.ensureConfigured();
-    const asset = await this.prisma.mediaAsset.findFirst({
-      where: { id: assetId, userId, purpose: { in: ["JOB_COMPLETION_EVIDENCE", "ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE", "PROVIDER_QUALIFICATION", "PROVIDER_PORTFOLIO_IMAGE"] } },
-    });
-    if (!asset) throw new NotFoundException("Upload reservation not found.");
-    if (asset.status === "READY") return { id: asset.id, status: asset.status };
-
-    const now = new Date();
-    if (asset.expiresAt <= now) {
-      await this.prisma.mediaAsset.updateMany({
-        where: { id: asset.id, userId, status: { in: ["PENDING", "VERIFYING"] }, expiresAt: { lte: now } },
-        data: { status: "EXPIRED", verificationStartedAt: null },
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      // Hold the same account lock used by deletion and upload reservation
+      // creation throughout remote verification, so a file cannot become READY
+      // after its owner has entered account deletion.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const account = await tx.user.findUnique({
+        where: { id: userId },
+        select: { deletedAt: true, seekerRoleStatus: true, providerRoleStatus: true },
       });
-      throw new ConflictException("Upload reservation expired. Please upload the image again.");
-    }
+      if (!account || account.deletedAt !== null ||
+          (account.seekerRoleStatus === "SUSPENDED" && account.providerRoleStatus === "SUSPENDED")) {
+        return { ok: false as const, error: "inactive" as const };
+      }
 
-    // A single replica claims verification. A stale claim can be recovered after
-    // five minutes if the previous API process crashed while checking Cloudinary.
-    const staleClaimBefore = new Date(now.getTime() - 5 * 60_000);
-    const claim = await this.prisma.mediaAsset.updateMany({
-      where: {
-        id: asset.id,
-        userId,
-        expiresAt: { gt: now },
-        OR: [
-          { status: "PENDING" },
-          { status: "VERIFYING", verificationStartedAt: { lt: staleClaimBefore } },
-        ],
-      },
-      data: { status: "VERIFYING", verificationStartedAt: now },
-    });
-    if (claim.count !== 1) {
-      const current = await this.prisma.mediaAsset.findFirst({
-        where: { id: asset.id, userId },
-        select: { status: true },
+      const asset = await tx.mediaAsset.findFirst({
+        where: { id: assetId, userId, purpose: { in: ["JOB_COMPLETION_EVIDENCE", "ID_DOCUMENT", "ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE", "PROVIDER_QUALIFICATION", "PROVIDER_PORTFOLIO_IMAGE"] } },
       });
-      if (current?.status === "READY") return { id: asset.id, status: "READY" };
-      throw new ConflictException("This upload is already being verified. Please retry shortly.");
-    }
+      if (!asset) return { ok: false as const, error: "not-found" as const };
+      if (asset.status === "READY") return { ok: true as const, id: asset.id, status: "READY" as const };
 
-    const folder = FOLDERS[asset.purpose];
-    if (!folder) {
-      await this.prisma.mediaAsset.updateMany({
-        where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
-        data: { status: "EXPIRED", verificationStartedAt: null },
-      });
-      throw new BadRequestException("Unsupported upload purpose.");
-    }
+      const now = new Date();
+      if (asset.expiresAt <= now) {
+        await tx.mediaAsset.updateMany({
+          where: { id: asset.id, userId, status: { in: ["PENDING", "VERIFYING"] }, expiresAt: { lte: now } },
+          data: { status: "EXPIRED", verificationStartedAt: null },
+        });
+        return { ok: false as const, error: "expired" as const };
+      }
 
-    const expectedPublicId = asset.objectKey;
-    let remote: any;
-    try {
-      remote = await cloudinary.api.resource(expectedPublicId, { resource_type: "image", type: "authenticated", timeout: CLOUDINARY_API_TIMEOUT_MS });
-    } catch {
-      await this.prisma.mediaAsset.updateMany({
-        where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
-        data: { status: "EXPIRED", verificationStartedAt: null },
+      const staleClaimBefore = new Date(now.getTime() - 5 * 60_000);
+      const claim = await tx.mediaAsset.updateMany({
+        where: {
+          id: asset.id,
+          userId,
+          expiresAt: { gt: now },
+          OR: [
+            { status: "PENDING" },
+            { status: "VERIFYING", verificationStartedAt: { lt: staleClaimBefore } },
+          ],
+        },
+        data: { status: "VERIFYING", verificationStartedAt: now },
       });
-      throw new BadRequestException("Cloudinary has not received this image. Upload it and try again.");
-    }
+      if (claim.count !== 1) {
+        const current = await tx.mediaAsset.findFirst({ where: { id: asset.id, userId }, select: { status: true } });
+        if (current?.status === "READY") return { ok: true as const, id: asset.id, status: "READY" as const };
+        return { ok: false as const, error: "verifying" as const };
+      }
 
-    const remoteMime = FORMAT_MIME[String(remote.format ?? "").toLowerCase()];
-    const checks = {
-      publicIdMatches: remote.public_id === expectedPublicId,
-      folderMatches: remote.asset_folder != null
-        ? remote.asset_folder === folder
-        : remote.folder === folder || remote.folder === asset.objectKey.slice(0, asset.objectKey.lastIndexOf("/")),
-      formatMatches: remoteMime === asset.contentType,
-      formatAllowed: Boolean(remoteMime && ALLOWED.has(remoteMime)),
-      sizeMatches: remote.bytes === asset.sizeBytes,
-      sizeWithinLimit: remote.bytes <= MAX_BYTES,
-      resourceTypeIsImage: remote.resource_type === "image",
-      deliveryTypeIsAuthenticated: remote.type === "authenticated",
-    };
-    if (!Object.values(checks).every(Boolean)) {
-      this.logger.error(
-        `[media-upload] Cloudinary confirmation validation failed purpose=${asset.purpose} ` +
-        `checks=${JSON.stringify(checks)} expectedFolder=${folder} ` +
-        `assetFolder=${String(remote.asset_folder ?? "missing")} legacyFolder=${String(remote.folder ?? "missing")} ` +
-        `format=${String(remote.format ?? "missing")} expectedMime=${asset.contentType} ` +
-        `bytes=${String(remote.bytes ?? "missing")} expectedBytes=${asset.sizeBytes} ` +
-        `resourceType=${String(remote.resource_type ?? "missing")} deliveryType=${String(remote.type ?? "missing")}`,
-      );
-      const expiredClaim = await this.prisma.mediaAsset.updateMany({
-        where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
-        data: { status: "EXPIRED", verificationStartedAt: null },
-      });
-      if (expiredClaim.count === 1) {
+      const folder = FOLDERS[asset.purpose];
+      if (!folder) {
+        await tx.mediaAsset.updateMany({
+          where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
+          data: { status: "EXPIRED", verificationStartedAt: null },
+        });
+        return { ok: false as const, error: "unsupported" as const };
+      }
+
+      const expectedPublicId = asset.objectKey;
+      let remote: any;
+      try {
+        remote = await cloudinary.api.resource(expectedPublicId, {
+          resource_type: "image",
+          type: "authenticated",
+          timeout: CLOUDINARY_API_TIMEOUT_MS,
+        });
+      } catch {
+        await tx.mediaAsset.updateMany({
+          where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
+          data: { status: "EXPIRED", verificationStartedAt: null },
+        });
+        return { ok: false as const, error: "not-uploaded" as const };
+      }
+
+      const remoteMime = FORMAT_MIME[String(remote.format ?? "").toLowerCase()];
+      const checks = {
+        publicIdMatches: remote.public_id === expectedPublicId,
+        folderMatches: remote.asset_folder != null
+          ? remote.asset_folder === folder
+          : remote.folder === folder || remote.folder === asset.objectKey.slice(0, asset.objectKey.lastIndexOf("/")),
+        formatMatches: remoteMime === asset.contentType,
+        formatAllowed: Boolean(remoteMime && ALLOWED.has(remoteMime)),
+        sizeMatches: remote.bytes === asset.sizeBytes,
+        sizeWithinLimit: remote.bytes <= MAX_BYTES,
+        resourceTypeIsImage: remote.resource_type === "image",
+        deliveryTypeIsAuthenticated: remote.type === "authenticated",
+      };
+      if (!Object.values(checks).every(Boolean)) {
+        this.logger.error(
+          `[media-upload] Cloudinary confirmation validation failed purpose=${asset.purpose} ` +
+          `checks=${JSON.stringify(checks)} expectedFolder=${folder} ` +
+          `assetFolder=${String(remote.asset_folder ?? "missing")} legacyFolder=${String(remote.folder ?? "missing")} ` +
+          `format=${String(remote.format ?? "missing")} expectedMime=${asset.contentType} ` +
+          `bytes=${String(remote.bytes ?? "missing")} expectedBytes=${asset.sizeBytes} ` +
+          `resourceType=${String(remote.resource_type ?? "missing")} deliveryType=${String(remote.type ?? "missing")}`,
+        );
+        await tx.mediaAsset.updateMany({
+          where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
+          data: { status: "EXPIRED", verificationStartedAt: null },
+        });
         try {
           const destroyOptions = {
             resource_type: "image" as const,
@@ -283,24 +295,32 @@ export class MediaService {
         } catch {
           // The asset is unusable in the database even if remote cleanup is delayed.
         }
+        return { ok: false as const, error: "invalid" as const };
       }
-      throw new BadRequestException("Uploaded image failed Cloudinary asset, folder, format, size or access validation.");
-    }
 
-    const updated = await this.prisma.mediaAsset.updateMany({
-      where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now, expiresAt: { gt: new Date() } },
-      data: { status: "READY", uploadedAt: new Date(), verificationStartedAt: null },
-    });
-    if (updated.count !== 1) {
-      const current = await this.prisma.mediaAsset.findFirst({
-        where: { id: asset.id, userId },
-        select: { status: true },
+      const updated = await tx.mediaAsset.updateMany({
+        where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now, expiresAt: { gt: new Date() } },
+        data: { status: "READY", uploadedAt: new Date(), verificationStartedAt: null },
       });
-      if (current?.status === "READY") return { id: asset.id, status: "READY" };
-      throw new ConflictException("Upload verification lease expired. Please confirm the upload again.");
-    }
+      if (updated.count !== 1) {
+        const current = await tx.mediaAsset.findFirst({ where: { id: asset.id, userId }, select: { status: true } });
+        if (current?.status === "READY") return { ok: true as const, id: asset.id, status: "READY" as const };
+        return { ok: false as const, error: "lease-expired" as const };
+      }
+      return { ok: true as const, id: asset.id, status: "READY" as const };
+    }, { maxWait: 10_000, timeout: 60_000 });
 
-    return { id: asset.id, status: "READY" };
+    if (outcome.ok) return { id: outcome.id, status: outcome.status };
+    switch (outcome.error) {
+      case "inactive": throw new ForbiddenException("This account is not active for upload confirmation.");
+      case "not-found": throw new NotFoundException("Upload reservation not found.");
+      case "expired": throw new ConflictException("Upload reservation expired. Please upload the image again.");
+      case "verifying": throw new ConflictException("This upload is already being verified. Please retry shortly.");
+      case "unsupported": throw new BadRequestException("Unsupported upload purpose.");
+      case "not-uploaded": throw new BadRequestException("Cloudinary has not received this image. Upload it and try again.");
+      case "invalid": throw new BadRequestException("Uploaded image failed Cloudinary asset, folder, format, size or access validation.");
+      case "lease-expired": throw new ConflictException("Upload verification lease expired. Please confirm the upload again.");
+    }
   }
 
   private async resolveStoredPublicId(objectKey: string, folder: string) {
