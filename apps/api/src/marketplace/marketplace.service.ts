@@ -918,11 +918,25 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (request.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker who created this request can select a Provider.");
       if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider selection.");
 
-      const offer = await tx.providerResponse.findFirst({
+      const candidateOffer = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId, status: "OFFERED" },
+        select: { providerId: true },
+      });
+      if (!candidateOffer?.providerId) throw new NotFoundException("This Provider offer is no longer available.");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${candidateOffer.providerId}))`;
+      const offer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, status: "OFFERED", providerId: candidateOffer.providerId },
         select: { id: true, providerId: true },
       });
-      if (!offer || !offer.providerId) throw new NotFoundException("This Provider offer is no longer available.");
+      if (!offer?.providerId) throw new ConflictException("This Provider offer is no longer available.");
+      const selectedProvider = await tx.user.findUnique({
+        where: { id: offer.providerId },
+        select: { providerRoleStatus: true, identityVerification: true, deletedAt: true },
+      });
+      if (!selectedProvider || selectedProvider.deletedAt !== null ||
+          selectedProvider.providerRoleStatus !== "ACTIVE" || selectedProvider.identityVerification !== "VERIFIED") {
+        throw new ConflictException("This Provider is no longer eligible. Choose another offer or continue matching.");
+      }
 
       // Conditional update is the final concurrency guard: only one selection can close an open request.
       const claimed = await tx.serviceRequest.updateMany({
