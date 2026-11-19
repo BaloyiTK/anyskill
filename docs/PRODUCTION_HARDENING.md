@@ -7,13 +7,13 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 ## P0 — Marketplace correctness and recoverability
 
-- [ ] Make matching wave creation atomic under concurrent API/worker instances. Lock or claim each request in PostgreSQL before ranking/dispatch; create notifications only for match rows actually inserted.
+- [x] Make matching wave creation atomic under concurrent API/worker instances. Request-scoped PostgreSQL advisory locks serialize dispatch; notifications are created only for match rows actually inserted. PostgreSQL concurrency test is being added to CI.
 - [ ] Make worker ownership distributed and recoverable. Do not run an uncoordinated poller in every API replica. Use a dedicated worker entrypoint and a database-backed lease/claim strategy with expiry and heartbeat.
-- [ ] Recover notifications stranded in `SENDING` after process termination; use bounded retries with backoff and a terminal failure/dead-letter path.
-- [ ] Handle Expo push tickets and receipts separately. A ticket accepted by Expo is not proof of handset delivery; persist ticket IDs, poll receipts, and invalidate `DeviceNotRegistered` tokens.
-- [ ] Make provider offer creation and seeker selection race-safe, including duplicate requests, simultaneous provider submissions, seeker cancellation, and selection. Verify state transitions and notifications are committed atomically.
+- [x] Recover notifications stranded in `SENDING` after process termination; stale claims are recovered with bounded retries/backoff and terminal failure.
+- [x] Handle Expo push tickets and receipts separately. Persist ticket IDs, poll receipts, and invalidate `DeviceNotRegistered` tokens; ticket acceptance is not treated as handset delivery.
+- [x] Serialize provider offer creation, seeker selection, cancellation, and rescheduling using the same request-scoped PostgreSQL lock; conditional state updates protect the final transition. Integration tests are being added to CI.
 - [ ] Add idempotency keys for client-retried create/decision operations where a duplicate could create a second marketplace action.
-- [ ] Add integration tests that run competing transactions against PostgreSQL, not mocked Prisma calls.
+- [ ] Complete PostgreSQL integration tests for competing provider selections, cancellation versus selection, and duplicate dispatch. Tests have been added and are awaiting CI execution.
 
 ## P0 — Authentication and authorization
 
@@ -52,14 +52,22 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [ ] Test worker crash/restart, database interruption, Expo outage, duplicate webhook/event delivery, and multi-replica execution.
 - [ ] Document incident response, support/admin recovery procedures, data retention, privacy, and POPIA controls.
 
+## P0 — Payments and financial integrity
+
+- [ ] Do not enable real-money collection until PayGate merchant product, sandbox credentials, stored-card tokenisation, pre-authorisation, delayed capture, signed notifications, void/refund, and reconciliation capabilities are confirmed in writing. The approved payment architecture explicitly says these are not yet implemented.
+- [ ] Before launch, implement idempotent authorisation/capture/void/refund operations, verified webhook ingestion with replay protection, immutable financial ledger entries, and gateway reconciliation.
+- [ ] Confirm a compliant Provider payout rail; card acquiring settlement must not be represented as Provider payout.
+
+## P1 — Notifications and background processing
+
 ## Current source-audit findings
 
-1. `MarketplaceService.onModuleInit` starts a 15-second poller inside the API module. Its `workerRunning` boolean is process-local; it cannot coordinate multiple API replicas.
-2. `dispatchNextWave` ranks and reads existing matches before its transaction. `createMany(skipDuplicates: true)` may insert fewer rows than candidates, while notification rows are still created for every candidate and the returned `notified` count is the candidate count.
-3. `dispatchPendingNotifications` claims rows as `SENDING` but there is no lease timestamp/recovery query for stale `SENDING` rows. It also treats successful Expo tickets as `SENT` without receipt polling.
-4. `selectProvider` has a conditional request close, but the full set of competing response/selection/cancellation races has no demonstrated integration coverage yet.
-5. Authentication has per-route throttles for several sensitive routes, but refresh/logout have no route-specific throttle. The global in-memory throttler configuration must be assessed for multi-instance production use.
-6. JWT strategy validates token type and expiry and uses a strong configured secret, but issuer, audience, and allowed algorithm are not explicitly constrained in the strategy.
+1. `MarketplaceService.onModuleInit` still starts a 15-second poller in each API process. A PostgreSQL advisory lock prevents concurrent worker cycles, but the worker is not yet a separately deployed process with a lease/heartbeat. This remains a production architecture blocker.
+2. Matching dispatch, cancellation, selection, provider offer creation, and rescheduling now share request-scoped PostgreSQL locking and conditional state transitions. The newly added PostgreSQL integration tests must pass before this is considered verified.
+3. Notification delivery now recovers stale `SENDING` claims, retries with bounded backoff, persists Expo tickets, polls receipts, and removes invalid device tokens. Operational metrics, alerts, and a durable outbox remain outstanding.
+4. The approved PayGate payment workflow is documented but not implemented. Merchant capabilities and sandbox credentials are unconfirmed. Do not accept live payments or describe payment/settlement as production-ready.
+5. Authentication still needs a shared production rate-limit store across replicas, a complete route-by-route authorization audit, and expanded replay/race tests.
+6. Load, soak, worker crash/restart, multi-replica, provider outage, backup/restore, and staging recovery tests have not been demonstrated.
 
 ## Exit criteria
 
