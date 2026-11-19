@@ -725,10 +725,76 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async listMyJobs(providerId: string) {
     const jobs = await this.prisma.jobEngagement.findMany({
       where: { providerId }, orderBy: { updatedAt: "desc" },
-      include: { seekerReview: true, request: { select: { id: true, title: true, description: true, location: true, latitude: true, longitude: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
+      include: {
+        seekerReview: true,
+        request: {
+          select: {
+            id: true, title: true, description: true, location: true, latitude: true, longitude: true,
+            instructions: true, preferredStartAt: true, deliveryMode: true,
+            seeker: { select: { phone: true, identityVerification: true, onboardingDraft: { select: { profile: true } } } },
+          },
+        },
+        adjustments: { orderBy: { createdAt: "desc" } },
+        completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } },
+      },
     });
     const serverNow = new Date().toISOString();
-    return jobs.map((job) => ({ ...job, serverNow }));
+    return jobs.map((job) => {
+      const profile = job.request.seeker?.onboardingDraft?.profile;
+      const seekerProfile = profile && typeof profile === "object" && !Array.isArray(profile)
+        ? profile as Record<string, unknown> : {};
+      const firstName = typeof seekerProfile.firstName === "string" ? seekerProfile.firstName.trim() : "";
+      const lastName = typeof seekerProfile.lastName === "string" ? seekerProfile.lastName.trim() : "";
+      const profilePhotoUrl = typeof seekerProfile.profilePhotoUrl === "string" ? seekerProfile.profilePhotoUrl.trim() : "";
+      return {
+        ...job,
+        request: { ...job.request, seeker: undefined },
+        seeker: {
+          firstName, lastName, profilePhotoUrl: profilePhotoUrl || null,
+          phone: job.request.seeker?.phone ?? null,
+          identityVerified: job.request.seeker?.identityVerification === "VERIFIED",
+        },
+        serverNow,
+      };
+    });
+  }
+
+  async listServiceChatMessages(userId: string, requestId: string) {
+    const job = await this.prisma.jobEngagement.findUnique({
+      where: { requestId }, select: { seekerId: true, providerId: true },
+    });
+    if (!job || (job.seekerId !== userId && job.providerId !== userId)) {
+      throw new ForbiddenException("Only the Seeker and selected Provider can access this service chat.");
+    }
+    return this.prisma.serviceChatMessage.findMany({
+      where: { requestId }, orderBy: { createdAt: "asc" }, take: 200,
+      select: { id: true, senderId: true, body: true, createdAt: true },
+    });
+  }
+
+  async sendServiceChatMessage(userId: string, requestId: string, body: string) {
+    const message = body.trim();
+    if (!message || message.length > 2000) throw new BadRequestException("Enter a message of 1 to 2000 characters.");
+    const job = await this.prisma.jobEngagement.findUnique({
+      where: { requestId }, select: { seekerId: true, providerId: true },
+    });
+    if (!job || (job.seekerId !== userId && job.providerId !== userId)) {
+      throw new ForbiddenException("Only the Seeker and selected Provider can send messages in this service chat.");
+    }
+    const saved = await this.prisma.serviceChatMessage.create({
+      data: { requestId, senderId: userId, body: message },
+      select: { id: true, senderId: true, body: true, createdAt: true },
+    });
+    const recipientId = job.seekerId === userId ? job.providerId : job.seekerId;
+    if (recipientId) await this.prisma.appNotification.create({
+      data: {
+        userId: recipientId,
+        title: "New service chat message",
+        body: message.length > 100 ? message.slice(0, 97) + "..." : message,
+        data: { type: "SERVICE_CHAT_MESSAGE", requestId, messageId: saved.id },
+      },
+    });
+    return saved;
   }
 
 
