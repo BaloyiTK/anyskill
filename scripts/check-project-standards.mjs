@@ -85,11 +85,11 @@ if (dependencies["expo-system-ui"] !== undefined) {
 
 const appConfig = readJson("apps/mobile/app.json").expo ?? {};
 if (appConfig.slug !== "anyskill") fail("Expo slug must remain anyskill.");
-if (appConfig.owner !== "baloyitk") fail("Expo owner must remain baloyitk.");
+if (appConfig.owner !== "kaziara") fail("Expo owner must remain kaziara.");
 if (appConfig.android?.package !== "com.anyskill.mobile") {
   fail("Android application ID must remain com.anyskill.mobile.");
 }
-if (appConfig.extra?.eas?.projectId !== "2927d4f0-8523-4d2c-9c19-7172f7d16d26") {
+if (appConfig.extra?.eas?.projectId !== "e23992c5-708d-42fa-90c2-fcde9017e38e") {
   fail("The existing EAS project ID is missing or has changed.");
 }
 
