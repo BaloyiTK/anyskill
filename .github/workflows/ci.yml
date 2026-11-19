@@ -93,5 +93,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
 
+      - name: Test payment operation and ledger concurrency
+        run: pnpm --filter @anyskill/api test:payments
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
+
       - name: Type-check all workspaces
         run: pnpm typecheck
