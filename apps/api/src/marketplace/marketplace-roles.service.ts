@@ -330,7 +330,7 @@ export class MarketplaceRolesService {
       select: { id: true, userId: true, status: true },
     });
     if (!verificationCase || verificationCase.userId === reviewerId ||
-        (verificationCase.status !== VerificationCaseStatus.SUBMITTED && verificationCase.status !== VerificationCaseStatus.UNDER_REVIEW)) {
+        ![VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW].some((status: VerificationCaseStatus) => status === verificationCase.status)) {
       throw new NotFoundException("Identity document not found.");
     }
     const result = await this.media.getIdentityImageBytes(verificationCase.userId, purpose as typeof allowedPurposes[number]);
