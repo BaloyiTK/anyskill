@@ -390,7 +390,7 @@ export class MediaService {
     const folder = FOLDERS[purpose];
     if (!format || !folder) throw new BadRequestException("Identity image has an unsupported format.");
     const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
-    const expiresAt = Math.floor(Date.now() / 1000) + 5 * 60;
+    const expiresAt = Math.floor(Date.now() / 1000) + 60;
     const url = cloudinary.utils.private_download_url(publicId, format, {
       resource_type: "image",
       type: "authenticated",
@@ -398,6 +398,30 @@ export class MediaService {
       attachment: false,
     });
     return { url, expiresAt: new Date(expiresAt * 1000).toISOString() };
+  }
+
+  async getIdentityImageBytes(userId: string, purpose: "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE"): Promise<{ bytes: Buffer; contentType: string }> {
+    this.ensureConfigured();
+    const asset = await this.prisma.mediaAsset.findFirst({
+      where: { userId, purpose, status: "READY" },
+      orderBy: { uploadedAt: "desc" },
+      select: { objectKey: true, contentType: true, sizeBytes: true },
+    });
+    if (!asset) throw new NotFoundException("Identity document not found.");
+    const formatByMime: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+    const format = formatByMime[asset.contentType];
+    if (!format || asset.sizeBytes < 1 || asset.sizeBytes > MAX_BYTES) throw new BadRequestException("Identity document has an unsupported format or size.");
+    const folder = FOLDERS[purpose];
+    const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
+    const expiresAt = Math.floor(Date.now() / 1000) + 30;
+    const url = cloudinary.utils.private_download_url(publicId, format, { resource_type: "image", type: "authenticated", expires_at: expiresAt, attachment: false });
+    const response = await fetch(url, { signal: AbortSignal.timeout(CLOUDINARY_API_TIMEOUT_MS), redirect: "error" });
+    if (!response.ok) throw new ServiceUnavailableException("Identity document storage is temporarily unavailable.");
+    const contentType = response.headers.get("content-type")?.split(";")[0]?.toLowerCase();
+    if (contentType !== asset.contentType) throw new ServiceUnavailableException("Identity document storage returned an unexpected file type.");
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length < 1 || bytes.length > MAX_BYTES || bytes.length !== asset.sizeBytes) throw new ServiceUnavailableException("Identity document failed integrity validation.");
+    return { bytes, contentType };
   }
 
   async cleanupExpiredReservations() {
