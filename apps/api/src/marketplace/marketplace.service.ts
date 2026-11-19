@@ -637,6 +637,68 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { success: true, requestId, preferredStartAt, matching };
   }
 
+  async declineProviderOffer(seekerId: string, requestId: string, responseId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findUnique({
+        where: { id: requestId },
+        select: { id: true, seekerId: true, status: true, matchingWave: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.seekerId !== seekerId) {
+        throw new ForbiddenException("Only the Skill Seeker who created this request can decline a Provider offer.");
+      }
+      if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider decisions.");
+
+      const offer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId },
+        select: { id: true, providerId: true, status: true },
+      });
+      if (!offer || !offer.providerId) throw new NotFoundException("This Provider offer could not be found.");
+      if (offer.status === "SELECTED" || offer.status === "WITHDRAWN") {
+        throw new ConflictException("This Provider offer is no longer available to decline.");
+      }
+      if (offer.status !== "DECLINED") {
+        const changed = await tx.providerResponse.updateMany({
+          where: { id: offer.id, requestId, status: "OFFERED" },
+          data: { status: "DECLINED" },
+        });
+        if (changed.count !== 1) throw new ConflictException("This Provider offer has already changed. Refresh and try again.");
+        await tx.appNotification.create({
+          data: {
+            userId: offer.providerId,
+            title: "Your offer was declined",
+            body: "The Skill Seeker has declined your offer. You may receive another request through AnySkill.",
+            data: { type: "PROVIDER_OFFER_DECLINED", requestId, responseId: offer.id },
+          },
+        });
+      }
+
+      const pendingOffers = await tx.providerResponse.count({
+        where: { requestId, status: "OFFERED" },
+      });
+      if (pendingOffers === 0 && offer.status !== "DECLINED") {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, seekerId, status: "OPEN" },
+          data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+        });
+        return { declined: true, dispatchNextWave: true, nextWave: request.matchingWave + 1 };
+      }
+      return { declined: true, dispatchNextWave: false, nextWave: request.matchingWave + 1 };
+    });
+
+    const matching = result.dispatchNextWave
+      ? await this.dispatchNextWave(requestId, result.nextWave)
+      : null;
+    return {
+      success: true,
+      requestId,
+      responseId,
+      status: "DECLINED",
+      matching,
+    };
+  }
+
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
