@@ -48,7 +48,12 @@ if (!IS_WEB && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
         return;
       }
       const { latitude, longitude, accuracy } = position.coords;
+      const capturedAt = new Date(position.timestamp);
+      const fixAgeMs = Date.now() - capturedAt.getTime();
       if (
+        !Number.isFinite(capturedAt.getTime()) ||
+        fixAgeMs < -5_000 ||
+        fixAgeMs > 30_000 ||
         !Number.isFinite(latitude) ||
         !Number.isFinite(longitude) ||
         accuracy == null ||
@@ -74,6 +79,7 @@ if (!IS_WEB && !TaskManager.isTaskDefined(PROVIDER_LOCATION_TASK)) {
             latitude: Number(latitude.toFixed(7)),
             longitude: Number(longitude.toFixed(7)),
             accuracyM: Number(accuracy.toFixed(1)),
+            capturedAt: capturedAt.toISOString(),
           }),
         }, true);
         console.info("[AnySkill location] Background location API request succeeded", result);
