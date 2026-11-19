@@ -1531,21 +1531,27 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async recoverStaleNotificationClaims() {
-    const staleBefore = new Date(Date.now() - 2 * 60_000);
-    const exhausted = await this.prisma.appNotification.updateMany({
-      where: { deliveryStatus: "SENDING", sendingStartedAt: { lt: staleBefore }, attempts: { gte: 5 } },
-      data: { deliveryStatus: "FAILED", sendingStartedAt: null },
-    });
-    const stale = await this.prisma.appNotification.updateMany({
-      where: { deliveryStatus: "SENDING", sendingStartedAt: { lt: staleBefore }, attempts: { lt: 5 } },
-      data: {
-        deliveryStatus: "PENDING",
-        sendingStartedAt: null,
-        nextAttemptAt: new Date(),
-      },
-    });
-    if (stale.count > 0 || exhausted.count > 0) {
-      this.logger.warn(`Recovered ${stale.count} notification(s) and marked ${exhausted.count} exhausted notification(s) failed after a worker interruption.`);
+    // A stale SENDING claim is an ambiguous external side effect: Expo may
+    // have accepted the push immediately before the worker crashed. Never
+    // automatically resend it, because that can deliver duplicate pushes.
+    // If at least one Expo ticket was durably recorded, preserve SENT; otherwise
+    // move to UNKNOWN for explicit reconciliation rather than blind retry.
+    const recovered = await this.prisma.$executeRaw`
+      UPDATE app_notifications AS notification
+      SET delivery_status = CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM push_notification_receipts AS receipt
+              WHERE receipt.notification_id = notification.id
+            ) THEN 'SENT'::"NotificationDeliveryStatus"
+            ELSE 'UNKNOWN'::"NotificationDeliveryStatus"
+          END,
+          sending_started_at = NULL
+      WHERE notification.delivery_status = 'SENDING'::"NotificationDeliveryStatus"
+        AND notification.sending_started_at < ${new Date(Date.now() - 2 * 60_000)}
+    `;
+    if (recovered > 0) {
+      this.logger.warn(`Moved ${recovered} stale notification claim(s) to SENT/UNKNOWN; UNKNOWN records require reconciliation and are not automatically resent.`);
     }
   }
 
