@@ -4,7 +4,7 @@ import { File, UploadType } from "expo-file-system";
 import { CameraView, useCameraPermissions } from "expo-camera";
 type CountryOption = { name: string; code: string; dialCode: string };
 type AddressSuggestion = { label: string; latitude: number; longitude: number };
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
 
 type Section = "Profile" | "Verification" | "Skills" | "Portfolio" | "Submit";
@@ -157,7 +157,21 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load your saved profile."); }
     finally { setBusy(false); }
   };
-  useEffect(() => { void load(); }, []);
+  // Refresh server-owned review states whenever the app returns to the foreground.
+  // This keeps identity and Provider skill decisions current without requiring
+  // the user to leave and reopen onboarding.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    void loadRef.current();
+    let previousState = AppState.currentState;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const returnedToForeground = previousState !== "active" && nextState === "active";
+      previousState = nextState;
+      if (returnedToForeground) void loadRef.current();
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
