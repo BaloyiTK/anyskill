@@ -106,6 +106,8 @@ Both processes must use the same production database and compatible environment 
 5. Production throttling now uses atomic Upstash Redis REST storage and explicit trusted-proxy hop configuration. The deployment must provide valid `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, and the correct `TRUST_PROXY_HOPS`; route-by-route authorization and expanded replay/race tests remain outstanding.
 6. Load, soak, worker crash/restart, multi-replica, provider outage, backup/restore, and staging recovery tests have not been demonstrated.
 
+7. Public Google Places autocomplete, place-details, reverse-geocoding, and provider-discovery endpoints now have explicit per-IP throttles. Google Places and Geocoding outbound requests have a five-second timeout and return bounded gateway errors. Other outbound integrations still require a complete timeout/retry audit.
+
 ## Exit criteria
 
 Production readiness is not declared until all P0 items are complete, the P1 items affecting the deployed architecture are complete, CI passes, PostgreSQL concurrency tests pass, and staging fault/load tests demonstrate recovery. A successful normal user journey alone is not sufficient.
