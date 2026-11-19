@@ -45,6 +45,12 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [ ] Add request correlation, metrics, tracing, and alert thresholds.
 - [ ] Verify backup/restore, migration rollback strategy, connection-pool sizing, and deployment rollback.
 
+## P1 — Mobile release configuration
+
+- [ ] Configure the Firebase Android client file as an EAS file environment variable named `GOOGLE_SERVICES_JSON` and a production Android Google Maps API key as `GOOGLE_MAPS_API_KEY`. The file remains gitignored and must not be committed.
+- [x] Production Android app configuration now fails the build if either Firebase `google-services.json` or the Android Maps key is missing; development builds retain warnings so local setup can continue.
+- [ ] Verify Android FCM token registration, notification receipt, foreground/background delivery, tap/deep-link routing, and token refresh on physical devices using the production Firebase project.
+
 ## P1 — Security and release verification
 
 - [ ] Run dependency and secret scanning, static analysis, and security-focused integration tests in CI.
