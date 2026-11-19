@@ -1150,7 +1150,7 @@ export function MarketplaceScreen(p: Props) {
                 <Text style={{ color: "#15251E", fontSize: 28, fontWeight: "900", marginTop: 8 }}>Review this offer</Text>
                 <View style={{ backgroundColor: "#FFFFFF", borderRadius: 22, borderWidth: 1, borderColor: "#DCE8E1", padding: 19, marginTop: 18 }}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#DDEFE8", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#176B55", fontSize: 21, fontWeight: "900" }}>{(profile?.publicName || "SP").split(/\\s+/).map((part) => part[0]).slice(0,2).join("").toUpperCase()}</Text></View>
+                    <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#DDEFE8", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#176B55", fontSize: 21, fontWeight: "900" }}>{(profile?.publicName || "SP").split(/\s+/).map((part) => part[0]).slice(0,2).join("").toUpperCase()}</Text></View>
                     <View style={{ flex: 1, marginLeft: 13 }}><Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900" }}>{profile?.publicName || "Skill Provider"}</Text><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", marginTop: 5 }}>✓ Identity verified</Text></View>
                   </View>
                   <Text style={{ color: "#15251E", fontWeight: "800", marginTop: 16 }}>★ {rating?.overallIsRated ? rating.overall.toFixed(1) : "New Provider"} · {rating?.overallReviewCount ?? 0} reviews</Text>
