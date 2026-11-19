@@ -531,7 +531,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async cancelRequest(seekerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
       // Share the request-level lock with provider responses, selections and matching.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
       const request = await tx.serviceRequest.findFirst({
         where: { id: requestId, seekerId },
         select: { id: true, status: true },
@@ -562,7 +562,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }
     await this.prisma.$transaction(async (tx) => {
       // Scheduling changes matching state, so serialize it with cancellation and offer decisions.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
       const request = await tx.serviceRequest.findFirst({
         where: { id: requestId, seekerId, status: "OPEN" },
         select: { id: true, matchingStartedAt: true },
@@ -581,7 +581,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
     return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
       const request = await tx.serviceRequest.findUnique({
         where: { id: requestId },
         select: { id: true, seekerId: true, status: true, title: true },
@@ -944,7 +944,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     try {
       return await this.prisma.$transaction(async (tx) => {
         // Serialize provider offer creation with seeker cancellation/selection.
-        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
         const request = await tx.serviceRequest.findUnique({
           where: { id: requestId },
           select: { id: true, seekerId: true, status: true },
@@ -1125,7 +1125,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async dispatchNextWave(requestId: string, wave: number, force = false) {
     return this.prisma.$transaction(async (tx) => {
       // Serialize all wave dispatches for a request across API replicas and workers.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
 
       const request = await tx.serviceRequest.findUnique({
         where: { id: requestId },
