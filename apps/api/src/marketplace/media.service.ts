@@ -250,11 +250,16 @@ export class MediaService {
       });
       if (expiredClaim.count === 1) {
         try {
-          await cloudinary.uploader.destroy(expectedPublicId, {
-            resource_type: "image",
-            type: "authenticated",
+          const destroyOptions = {
+            resource_type: "image" as const,
+            type: "authenticated" as const,
             invalidate: true,
             timeout: CLOUDINARY_API_TIMEOUT_MS,
+          };
+          await cloudinary.uploader.destroy(expectedPublicId, destroyOptions as {
+            resource_type?: "image";
+            type?: "authenticated";
+            invalidate?: boolean;
           });
         } catch {
           // The asset is unusable in the database even if remote cleanup is delayed.
@@ -351,11 +356,16 @@ export class MediaService {
         throw new ServiceUnavailableException("An uploaded file could not be securely removed. Please contact support.");
       }
       const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
-      const result = await cloudinary.uploader.destroy(publicId, {
-        resource_type: "image",
-        type: "authenticated",
+      const destroyOptions = {
+        resource_type: "image" as const,
+        type: "authenticated" as const,
         invalidate: true,
         timeout: CLOUDINARY_API_TIMEOUT_MS,
+      };
+      const result = await cloudinary.uploader.destroy(publicId, destroyOptions as {
+        resource_type?: "image";
+        type?: "authenticated";
+        invalidate?: boolean;
       });
       if (result.result !== "ok" && result.result !== "not found") {
         throw new ServiceUnavailableException("Uploaded files could not be securely removed. Please try again later.");
