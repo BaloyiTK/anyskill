@@ -49,9 +49,11 @@ export class MarketplaceController {
   @RequireMarketplaceRole("PROVIDER")
   updateProviderLiveLocation(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateLiveLocationDto) { return this.marketplace.updateProviderLiveLocation(user.id, dto); }
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("marketplace/media/uploads")
   createMediaUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateMediaUploadDto) { return this.media.createUpload(user.id, dto); }
 
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post("marketplace/media/uploads/confirm")
   confirmMediaUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: ConfirmMediaUploadDto) { return this.media.confirmUpload(user.id, dto.assetId); }
 
