@@ -385,7 +385,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: { liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true },
       }),
     ]);
-    const seekerIds = [...new Set(requests.map((request) => request.seekerId))];
+    const seekerIds = [...new Set(
+      requests.map((request) => request.seekerId).filter((id): id is string => Boolean(id)),
+    )];
     const seekerRatingGroups = seekerIds.length
       ? await this.prisma.seekerReview.groupBy({
           by: ["seekerId"],
@@ -433,8 +435,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           identityVerified: seeker?.identityVerification === "VERIFIED",
           rating: (() => {
             const group = seekerRatingGroups.find((item) => item.seekerId === request.seekerId);
-            const count = group?._count._all ?? 0;
-            const average = group?._avg.rating ?? null;
+            const count = group && typeof group._count === "object" ? group._count._all ?? 0 : 0;
+            const average = group && typeof group._avg === "object" ? group._avg.rating ?? null : null;
             return {
               overall: average == null ? 5 : Number(average.toFixed(1)),
               reviewCount: count,
