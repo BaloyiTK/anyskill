@@ -158,25 +158,48 @@ export class MarketplaceRolesService {
   }
 
   async updateStaffMember(actorId: string, targetUserId: string, input: StaffMemberUpdate) {
-    if (targetUserId === actorId && (input.isActive === false || (input.role && input.role !== StaffRole.SUPER_ADMIN))) {
-      throw new ForbiddenException("You cannot remove or change your own Super Administrator access.");
-    }
-    if (input.role === StaffRole.SUPER_ADMIN) {
-      throw new ForbiddenException("The Super Administrator role is reserved for the single bootstrap account.");
-    }
-    const existing = await this.prisma.staffMembership.findUnique({ where: { userId: targetUserId }, select: { id: true, role: true, isActive: true } });
-    if (!existing) throw new NotFoundException("Staff membership not found.");
-    if (existing.role === StaffRole.SUPER_ADMIN) throw new ForbiddenException("The Super Administrator membership cannot be changed here.");
     const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('staff-membership'), hashtext(${targetUserId}))`;
+      const existing = await tx.staffMembership.findUnique({
+        where: { userId: targetUserId },
+        select: { id: true, role: true, isActive: true },
+      });
+      if (!existing) throw new NotFoundException("Staff membership not found.");
+      if (existing.role === StaffRole.SUPER_ADMIN) {
+        throw new ForbiddenException("The Super Administrator membership cannot be changed here.");
+      }
+      if (targetUserId === actorId && (input.isActive === false || (input.role && input.role !== StaffRole.SUPER_ADMIN))) {
+        throw new ForbiddenException("You cannot remove or change your own Super Administrator access.");
+      }
+      if (input.role === StaffRole.SUPER_ADMIN) {
+        throw new ForbiddenException("The Super Administrator role is reserved for the single bootstrap account.");
+      }
+
       const membership = await tx.staffMembership.update({
         where: { userId: targetUserId },
-        data: { ...(input.role ? { role: input.role } : {}), ...(typeof input.isActive === "boolean" ? { isActive: input.isActive } : {}) },
+        data: {
+          ...(input.role ? { role: input.role } : {}),
+          ...(typeof input.isActive === "boolean" ? { isActive: input.isActive } : {}),
+        },
         select: { id: true, role: true, isActive: true, createdAt: true },
       });
-      await tx.staffAuditLog.create({ data: { actorId, targetUserId, action: "STAFF_MEMBER_UPDATED", metadata: { before: existing, after: { role: membership.role, isActive: membership.isActive } } } });
+      await tx.staffAuditLog.create({
+        data: {
+          actorId,
+          targetUserId,
+          action: "STAFF_MEMBER_UPDATED",
+          metadata: { before: existing, after: { role: membership.role, isActive: membership.isActive } },
+        },
+      });
       return membership;
     });
-    return { ...updated, user: await this.prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, email: true, createdAt: true } }) };
+    return {
+      ...updated,
+      user: await this.prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { id: true, email: true, createdAt: true },
+      }),
+    };
   }
 
   async listAdminAccounts() {
