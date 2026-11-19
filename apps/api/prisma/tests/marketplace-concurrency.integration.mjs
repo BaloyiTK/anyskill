@@ -226,6 +226,63 @@ test("seeker cancellation notifies every matched Provider and closes their outst
   assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "WITHDRAWN" } }), 3);
 });
 
+test("Provider GPS heartbeat cannot race an identity rejection and leave location online", async () => {
+  const fixture = await createFixture(1);
+  const providerId = fixture.responses[0].providerId;
+  await prisma.user.update({
+    where: { id: providerId },
+    data: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED", identityVerifiedAt: new Date() },
+  });
+  await prisma.providerProfile.create({
+    data: {
+      userId: providerId,
+      publicName: "Concurrency Provider",
+      isAvailable: true,
+      liveLatitude: -26.2041,
+      liveLongitude: 28.0473,
+      liveAccuracyM: 10,
+      liveLocationUpdatedAt: new Date(),
+    },
+  });
+
+  const heartbeat = () => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${providerId}))`;
+    const user = await tx.user.findUnique({
+      where: { id: providerId },
+      select: { providerRoleStatus: true, identityVerification: true },
+    });
+    if (user?.providerRoleStatus !== "ACTIVE" || user.identityVerification !== "VERIFIED") return false;
+    await tx.providerProfile.update({
+      where: { userId: providerId },
+      data: { liveLatitude: -26.205, liveLongitude: 28.048, liveAccuracyM: 8, liveLocationUpdatedAt: new Date() },
+    });
+    return true;
+  });
+  const rejectIdentity = () => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${providerId}))`;
+    await tx.user.update({
+      where: { id: providerId },
+      data: { identityVerification: "FAILED", identityVerifiedAt: null, providerRoleStatus: "PENDING" },
+    });
+    await tx.providerProfile.update({
+      where: { userId: providerId },
+      data: { isAvailable: false, liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null },
+    });
+  });
+
+  await Promise.all([heartbeat(), rejectIdentity()]);
+  const [user, profile] = await Promise.all([
+    prisma.user.findUnique({ where: { id: providerId }, select: { identityVerification: true, providerRoleStatus: true } }),
+    prisma.providerProfile.findUnique({ where: { userId: providerId }, select: { isAvailable: true, liveLatitude: true, liveLongitude: true, liveLocationUpdatedAt: true } }),
+  ]);
+  assert.equal(user?.identityVerification, "FAILED");
+  assert.equal(user?.providerRoleStatus, "PENDING");
+  assert.equal(profile?.isAvailable, false);
+  assert.equal(profile?.liveLatitude, null);
+  assert.equal(profile?.liveLongitude, null);
+  assert.equal(profile?.liveLocationUpdatedAt, null);
+});
+
 test("concurrent estimate submissions cannot overwrite one another", async () => {
   const fixture = await createEngagementFixture();
   const submit = (hours) => prisma.$transaction(async (tx) => {
