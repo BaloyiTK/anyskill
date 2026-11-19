@@ -90,7 +90,7 @@ async function createEngagementFixture(status = "ASSESSMENT_PENDING", workSegmen
 test("concurrent estimate submissions cannot overwrite one another", async () => {
   const fixture = await createEngagementFixture();
   const submit = (hours) => prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
     const job = await tx.jobEngagement.findUnique({ where: { requestId: fixture.requestId } });
     if (!job || !["ASSESSMENT_PENDING", "ESTIMATE_REJECTED"].includes(job.status)) return false;
     const total = Number(hours) * Number(job.hourlyRate);
@@ -111,7 +111,7 @@ test("concurrent additional-hours requests create only one pending adjustment", 
   const now = new Date();
   const fixture = await createEngagementFixture("IN_PROGRESS", now);
   const requestHours = (hours) => prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
     const job = await tx.jobEngagement.findUnique({ where: { requestId: fixture.requestId } });
     if (!job || job.status !== "IN_PROGRESS" || !job.workSegmentStartedAt || job.workPausedAt) return false;
     const pending = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
@@ -133,7 +133,7 @@ test("concurrent completion decisions cannot both change the submission", async 
     select: { id: true },
   });
   const decide = (approved) => prisma.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
     const job = await tx.jobEngagement.findUnique({ where: { requestId: fixture.requestId } });
     if (!job || job.status !== "COMPLETION_PENDING") return false;
     const claimed = await tx.jobCompletionSubmission.updateMany({
