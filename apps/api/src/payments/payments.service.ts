@@ -200,8 +200,8 @@ export class PaymentsService {
         where: { provider_providerEventId: { provider: "PAYGATE_PAYWEB3", providerEventId: input.providerEventId } },
       });
       if (existing) {
-        if (existing.payloadHash !== payloadHash || !existing.signatureVerified) {
-          throw new ConflictException("PayGate event ID was already received with different or unverified content.");
+        if (existing.payloadHash !== payloadHash) {
+          throw new ConflictException("PayGate event ID was already received with different content.");
         }
         return existing;
       }
