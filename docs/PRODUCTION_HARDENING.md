@@ -21,7 +21,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [x] Apply endpoint-specific throttling to refresh/logout and sensitive authentication endpoints. Production uses the shared atomic Redis rate-limit store and refuses to start when it is unavailable.
 - [ ] Audit every seeker/provider/staff route for role, ownership, suspension, deleted-account, and identity-verification enforcement.
 - [ ] Test refresh rotation races, token replay, password-reset replay, OTP brute force/resend races, account deletion, and session revocation.
-- [ ] Complete production secret and cookie/token configuration validation. `TRUST_PROXY_HOPS` is range-validated; production now refuses to start without explicit exact HTTPS `CORS_ALLOWED_ORIGINS`.
+- [ ] Complete production secret and cookie/token configuration validation. `TRUST_PROXY_HOPS` is range-validated; production now refuses to start without exact HTTPS `CORS_ALLOWED_ORIGINS`, database/JWT configuration, SMTP, Cloudinary, and Google Places credentials. PayGate remains intentionally disabled until merchant verification is complete.
 
 ## P1 — Notifications and background processing
 
