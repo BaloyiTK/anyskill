@@ -204,6 +204,10 @@ export class OnboardingService {
     const submittedAt = new Date();
     const wantsProvider = requestedRoles.has("PROVIDER");
     await this.prisma.$transaction(async (tx) => {
+      // Serialize onboarding submission with Provider applications and identity
+      // review decisions. This prevents duplicate review notifications and stale
+      // role state from winning when two lifecycle actions race across replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
       await tx.onboardingDraft.update({
         where: { userId },
         data: { submittedAt },
