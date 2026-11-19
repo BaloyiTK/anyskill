@@ -637,9 +637,9 @@ export class AuthService {
     await this.prisma.$transaction(async (tx) => {
       // Coordinate with push delivery so no queued private notification can be
       // sent after this account-deletion transaction commits.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('notification-delivery:' || ${userId}, 0))`;
-      // Serialize account deletion with staff identity, skill and Provider-role decisions.
+      // Keep the same lock order as the deletion-reservation transaction.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('notification-delivery:' || ${userId}, 0))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('staff-membership'), hashtext(${userId}))`;
       // Audit records contain account identifiers and are not marketplace history.
       await tx.staffAuditLog.deleteMany({
