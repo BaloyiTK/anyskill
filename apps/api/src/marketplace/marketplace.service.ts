@@ -179,46 +179,37 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async updateProviderLiveLocation(userId: string, input: UpdateLiveLocationDto) {
     if (input.accuracyM > MAX_LIVE_LOCATION_ACCURACY_M) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix (50 m or better).");
     const updatedAt = new Date();
-    // Any online Provider shares a live map location, regardless of skill or
-    // delivery mode. Going offline clears the location and stops this heartbeat.
-    const result = await this.prisma.providerProfile.updateMany({
-      where: { userId, isAvailable: true },
-      data: {
-        liveLatitude: input.latitude,
-        liveLongitude: input.longitude,
-        liveAccuracyM: input.accuracyM,
-        liveLocationUpdatedAt: updatedAt,
-      },
-    });
-    if (result.count !== 1) {
-      const profile = await this.prisma.providerProfile.findUnique({ where: { userId }, select: { userId: true } });
-      if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
-      throw new ConflictException("Set your Provider status to Available before sharing your live location.");
-    }
-    this.liveProviderMap.notifyChanged();
-    return { isAvailable: true, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
-  }
-
-  async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
-    if (input.isAvailable) {
-      const user = await this.prisma.user.findUnique({
+    await this.prisma.$transaction(async (tx) => {
+      // Prevent a location heartbeat from racing an identity/skill suspension.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const user = await tx.user.findUnique({
         where: { id: userId },
         select: { providerRoleStatus: true, identityVerification: true },
       });
-      if (!user || user.providerRoleStatus !== "ACTIVE") {
-        throw new ForbiddenException({
-          code: "PROVIDER_APPROVAL_REQUIRED",
-          message: "Provider availability is only available after your Provider application is approved.",
-        });
+      if (!user || user.providerRoleStatus !== "ACTIVE" || user.identityVerification !== "VERIFIED") {
+        throw new ForbiddenException("Only an approved and identity-verified Provider can share live location.");
       }
-      if (user.identityVerification !== "VERIFIED") {
-        throw new ForbiddenException({
-          code: "IDENTITY_VERIFICATION_REQUIRED",
-          action: "PROVIDER_GO_ONLINE",
-          message: "Complete identity verification before going online.",
-        });
-      }
-    }
+      const profile = await tx.providerProfile.findUnique({
+        where: { userId },
+        select: { isAvailable: true },
+      });
+      if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
+      if (!profile.isAvailable) throw new ConflictException("Set your Provider status to Available before sharing your live location.");
+      await tx.providerProfile.update({
+        where: { userId },
+        data: {
+          liveLatitude: input.latitude,
+          liveLongitude: input.longitude,
+          liveAccuracyM: input.accuracyM,
+          liveLocationUpdatedAt: updatedAt,
+        },
+      });
+    });
+    this.liveProviderMap.notifyChanged();
+    return { isAvailable: true, liveLocationUpdatedAt: updatedAt, liveLocationAccuracyM: input.accuracyM };
+  }
+
+  async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
     const skillCategories = [...new Set(input.skillCategories.map(normalise).filter(Boolean))];
     const serviceAreas = [...new Set(input.serviceAreas.map(normalise).filter(Boolean))];
     const deliveryModes = [...new Set(input.deliveryModes)];
@@ -248,32 +239,61 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           liveLocationUpdatedAt: onlineAt!,
         }
       : { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null };
-    const updated = await this.prisma.providerProfile.upsert({
-      where: { userId },
-      create: {
-        userId,
-        publicName: input.publicName.trim(),
-        hourlyRate: input.hourlyRate,
-        assessmentFee: input.assessmentFee,
-        skillCategories,
-        serviceAreas,
-        deliveryModes,
-        isAvailable: input.isAvailable,
-        ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
-        ...liveLocationData,
-      },
-      update: {
-        publicName: input.publicName.trim(),
-        hourlyRate: input.hourlyRate,
-        assessmentFee: input.assessmentFee,
-        skillCategories,
-        serviceAreas,
-        deliveryModes,
-        isAvailable: input.isAvailable,
-        ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
-        ...liveLocationData,
-      },
-      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Going online shares the same eligibility lock as staff identity and skill decisions.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      if (input.isAvailable) {
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          select: { providerRoleStatus: true, identityVerification: true },
+        });
+        if (!user || user.providerRoleStatus !== "ACTIVE") {
+          throw new ForbiddenException({
+            code: "PROVIDER_APPROVAL_REQUIRED",
+            message: "Provider availability is only available after your Provider application is approved.",
+          });
+        }
+        if (user.identityVerification !== "VERIFIED") {
+          throw new ForbiddenException({
+            code: "IDENTITY_VERIFICATION_REQUIRED",
+            action: "PROVIDER_GO_ONLINE",
+            message: "Complete identity verification before going online.",
+          });
+        }
+      }
+      return tx.providerProfile.upsert({
+        where: { userId },
+        create: {
+          userId,
+          publicName: input.publicName.trim(),
+          hourlyRate: input.hourlyRate,
+          assessmentFee: input.assessmentFee,
+          skillCategories,
+          serviceAreas,
+          deliveryModes,
+          isAvailable: input.isAvailable,
+          ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
+          ...liveLocationData,
+        },
+        update: {
+          publicName: input.publicName.trim(),
+          hourlyRate: input.hourlyRate,
+          assessmentFee: input.assessmentFee,
+          skillCategories,
+          serviceAreas,
+          deliveryModes,
+          isAvailable: input.isAvailable,
+          ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
+          ...liveLocationData,
+        },
+        select: {
+          publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true,
+          serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true,
+          liveLatitude: true, liveLongitude: true, liveAccuracyM: true,
+          liveLocationUpdatedAt: true, updatedAt: true,
+        },
+      });
     });
     this.liveProviderMap.notifyChanged();
     return updated;
