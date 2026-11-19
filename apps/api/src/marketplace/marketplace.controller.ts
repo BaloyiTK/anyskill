@@ -118,6 +118,16 @@ export class MarketplaceController {
     return this.marketplace.scheduleRequest(user.id, requestId, dto);
   }
 
+  @Post("marketplace/requests/:requestId/offers/:responseId/decline")
+  @RequireMarketplaceRole("SEEKER")
+  declineProviderOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Param("responseId", new ParseUUIDPipe()) responseId: string,
+  ) {
+    return this.marketplace.declineProviderOffer(user.id, requestId, responseId);
+  }
+
   @Post("marketplace/requests/:requestId/select-provider")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("SEEKER_SELECT_PROVIDER")
