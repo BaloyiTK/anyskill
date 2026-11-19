@@ -228,6 +228,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return updated;
   }
 
+  async getProviderAvailability(userId: string) {
+    const profile = await this.prisma.providerProfile.findUnique({
+      where: { userId },
+      select: { isAvailable: true },
+    });
+    return { isAvailable: profile?.isAvailable === true };
+  }
+
   async getProviderProfile(userId: string) {
     const profile = await this.prisma.providerProfile.findUnique({
       where: { userId },
