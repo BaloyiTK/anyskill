@@ -412,6 +412,7 @@ export class MediaService {
     const format = formatByMime[asset.contentType];
     if (!format || asset.sizeBytes < 1 || asset.sizeBytes > MAX_BYTES) throw new BadRequestException("Identity document has an unsupported format or size.");
     const folder = FOLDERS[purpose];
+    if (!folder) throw new BadRequestException("Identity document purpose is not supported.");
     const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
     const expiresAt = Math.floor(Date.now() / 1000) + 30;
     const url = cloudinary.utils.private_download_url(publicId, format, { resource_type: "image", type: "authenticated", expires_at: expiresAt, attachment: false });
