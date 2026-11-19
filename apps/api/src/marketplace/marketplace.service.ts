@@ -512,12 +512,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async listMyRequests(seekerId: string) {
     const requests = await this.prisma.serviceRequest.findMany({
       where: { seekerId },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      // Bound response and nested relation fan-out until cursor pagination is
+      // introduced without breaking the current mobile response contract.
+      take: 100,
       include: {
         jobEngagement: { include: { review: true, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } } },
         _count: { select: { matches: true } },
         providerResponses: {
           orderBy: { createdAt: "asc" },
+          take: 50,
           select: {
             id: true, providerId: true, status: true, message: true, createdAt: true,
             hourlyRateAtOffer: true, assessmentFeeAtOffer: true,
@@ -688,7 +692,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async listMyJobs(providerId: string) {
     const jobs = await this.prisma.jobEngagement.findMany({
-      where: { providerId }, orderBy: { updatedAt: "desc" },
+      where: { providerId }, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: 100,
       include: { seekerReview: true, request: { select: { id: true, title: true, description: true, location: true, latitude: true, longitude: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
     });
     const serverNow = new Date().toISOString();
