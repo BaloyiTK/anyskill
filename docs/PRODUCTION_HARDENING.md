@@ -39,7 +39,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 ## P1 — API and infrastructure
 
-- [ ] Validate request DTO limits and coordinate/range checks; cap pagination and expensive discovery queries.
+- [ ] Complete request DTO limits and pagination caps across all endpoints. Coordinate/range checks are enforced; public provider discovery now uses the existing PostGIS geography index and caps responses at 200 results instead of loading every online profile into API memory.
 - [ ] Complete production health/readiness checks and graceful shutdown. `/api/v1/health` is a liveness probe; `/api/v1/health/ready` now verifies PostgreSQL connectivity. Migration compatibility and dedicated-worker health are still deployment gates and are not claimed by the HTTP readiness probe.
 - [ ] Replace local-only error-file logging with structured centralized logs; redact credentials, tokens, PII, and location data.
 - [ ] Add request correlation, metrics, tracing, and alert thresholds.
