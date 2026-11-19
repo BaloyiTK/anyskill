@@ -75,7 +75,7 @@ Idempotency-Key: 8d6d6d20-6c0d-4e37-9ac2-7b1db54a1f20
 Content-Type: application/json
 ```
 
-The key is unique per authenticated seeker. The API stores a SHA-256 hash of the normalized request payload alongside the created request. A retry with the same key and same payload returns the existing request and does not create another marketplace request. Reusing the key with a different payload returns HTTP 409. The database unique index is the cross-replica concurrency boundary. During mobile-client rollout the header remains optional for backward compatibility; requests without it retain legacy non-idempotent behavior. Do not generate a new key for a network retry.
+The key is unique per authenticated seeker. The API stores a SHA-256 hash of the normalized request payload alongside the created request. A retry with the same key and same payload returns the existing request and does not create another marketplace request. Reusing the key with a different payload returns HTTP 409. The database unique index is the cross-replica concurrency boundary. The mobile request form now persists its UUID and payload fingerprint in platform secure storage (or browser local storage) and reuses the key on retries; changing the payload generates a new key. The API header remains optional for older clients during rollout. Do not generate a new key for a network retry.
 
 ## Shared rate-limit deployment
 
