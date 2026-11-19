@@ -35,6 +35,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MarketplaceService.name);
   private worker: ReturnType<typeof setInterval> | undefined;
   private workerRunning = false;
+  private workerCyclePromise: Promise<void> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -48,12 +49,21 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (process.env.ANYSKILL_PROCESS_ROLE !== "worker") return;
 
     this.logger.log("Marketplace background worker started; polling persisted jobs every 15 seconds.");
-    void this.runWorkerCycle();
-    this.worker = setInterval(() => { void this.runWorkerCycle(); }, 15_000);
+    this.startWorkerCycle();
+    this.worker = setInterval(() => this.startWorkerCycle(), 15_000);
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy() {
     if (this.worker) clearInterval(this.worker);
+    // Let in-flight database and provider calls finish before Prisma disconnects.
+    await this.workerCyclePromise;
+  }
+
+  private startWorkerCycle() {
+    if (this.workerCyclePromise) return;
+    this.workerCyclePromise = this.runWorkerCycle().finally(() => {
+      this.workerCyclePromise = null;
+    });
   }
 
   async listSkills(query: string) {
