@@ -1438,91 +1438,111 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { deliveryStatus: "PENDING", attempts: { lt: 5 }, nextAttemptAt: { lte: new Date() } },
       take: 50,
       orderBy: { createdAt: "asc" },
-      select: { id: true, userId: true, title: true, body: true, data: true, attempts: true },
+      select: { id: true },
     });
-    for (const notification of pending) {
-      const existingReceipts = await this.prisma.pushNotificationReceipt.findMany({
-        where: { notificationId: notification.id },
-        select: { pushDeviceId: true },
-      });
-      const alreadyTicketed = new Set(existingReceipts.map((receipt) => receipt.pushDeviceId));
-      const devices = await this.prisma.pushDevice.findMany({
-        where: { userId: notification.userId, ...(alreadyTicketed.size ? { id: { notIn: [...alreadyTicketed] } } : {}) },
-        select: { id: true, expoPushToken: true },
-      });
-      if (devices.length === 0) {
-        const status = existingReceipts.length > 0 ? "SENT" : "IN_APP_ONLY";
-        await this.prisma.appNotification.updateMany({
-          where: { id: notification.id, deliveryStatus: "PENDING" },
-          data: { deliveryStatus: status, sendingStartedAt: null, ...(status === "SENT" ? { sentAt: new Date() } : {}) },
+
+    for (const item of pending) {
+      await this.prisma.$transaction(async (tx) => {
+        const candidate = await tx.appNotification.findUnique({
+          where: { id: item.id },
+          select: { id: true, userId: true, deliveryStatus: true },
         });
-        continue;
-      }
-      const claim = await this.prisma.appNotification.updateMany({
-        where: { id: notification.id, deliveryStatus: "PENDING" },
-        data: { deliveryStatus: "SENDING", sendingStartedAt: new Date(), attempts: { increment: 1 } },
-      });
-      if (claim.count === 0) continue;
-      try {
-        const response = await fetch("https://exp.host/--/api/v2/push/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          signal: AbortSignal.timeout(15_000),
-          body: JSON.stringify(devices.map((device) => ({
-            to: device.expoPushToken,
-            title: notification.title,
-            body: notification.body,
-            data: notification.data ?? {},
-            sound: "default",
-            priority: "high",
-            channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
-              ? "incoming_requests"
-              : "default",
-          }))),
+        if (!candidate || candidate.deliveryStatus !== "PENDING") return;
+
+        // Account deletion takes the same per-user lock. It therefore either
+        // removes the notification before this read, or waits until an already
+        // claimed delivery has finished; no push can be sent after deletion commits.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('notification-delivery:' || ${candidate.userId}, 0))`;
+        const notification = await tx.appNotification.findUnique({
+          where: { id: item.id },
+          select: { id: true, userId: true, title: true, body: true, data: true, attempts: true, deliveryStatus: true },
         });
-        if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
-        const payload = await response.json() as {
-          data?: Array<{ status?: string; id?: string; message?: string; details?: { error?: string } }>;
-        };
-        const tickets = payload.data ?? [];
-        if (tickets.length !== devices.length) {
-          throw new Error(`Expo returned ${tickets.length} ticket(s) for ${devices.length} device(s).`);
+        if (!notification || notification.deliveryStatus !== "PENDING" || notification.attempts >= 5) return;
+
+        const existingReceipts = await tx.pushNotificationReceipt.findMany({
+          where: { notificationId: notification.id },
+          select: { pushDeviceId: true },
+        });
+        const alreadyTicketed = new Set(existingReceipts.map((receipt) => receipt.pushDeviceId));
+        const devices = await tx.pushDevice.findMany({
+          where: {
+            userId: notification.userId,
+            ...(alreadyTicketed.size ? { id: { notIn: [...alreadyTicketed] } } : {}),
+          },
+          select: { id: true, expoPushToken: true },
+        });
+        if (devices.length === 0) {
+          const status = existingReceipts.length > 0 ? "SENT" : "IN_APP_ONLY";
+          await tx.appNotification.updateMany({
+            where: { id: notification.id, userId: notification.userId, deliveryStatus: "PENDING" },
+            data: { deliveryStatus: status, sendingStartedAt: null, ...(status === "SENT" ? { sentAt: new Date() } : {}) },
+          });
+          return;
         }
-        const receiptRows: Array<{ notificationId: string; pushDeviceId: string; expoTicketId: string }> = [];
-        const invalidDeviceIds: string[] = [];
-        let transientTicketErrors = 0;
-        for (const [index, ticket] of tickets.entries()) {
-          const device = devices[index];
-          if (!device) {
-            transientTicketErrors += 1;
-            this.logger.error(`Expo returned an unmatched ticket at index ${index} for notification ${notification.id}.`);
-            continue;
+
+        const claim = await tx.appNotification.updateMany({
+          where: { id: notification.id, userId: notification.userId, deliveryStatus: "PENDING" },
+          data: { deliveryStatus: "SENDING", sendingStartedAt: new Date(), attempts: { increment: 1 } },
+        });
+        if (claim.count !== 1) return;
+
+        const attempts = notification.attempts + 1;
+        const retryDelayMs = Math.min(5 * 60_000, 5_000 * (2 ** Math.max(0, attempts - 1)));
+        try {
+          const response = await fetch("https://exp.host/--/api/v2/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            signal: AbortSignal.timeout(15_000),
+            body: JSON.stringify(devices.map((device) => ({
+              to: device.expoPushToken,
+              title: notification.title,
+              body: notification.body,
+              data: notification.data ?? {},
+              sound: "default",
+              priority: "high",
+              channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
+                ? "incoming_requests"
+                : "default",
+            }))),
+          });
+          if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
+          const payload = await response.json() as {
+            data?: Array<{ status?: string; id?: string; message?: string; details?: { error?: string } }>;
+          };
+          const tickets = payload.data ?? [];
+          if (tickets.length !== devices.length) {
+            throw new Error(`Expo returned ${tickets.length} ticket(s) for ${devices.length} device(s).`);
           }
-          if (ticket.status === "ok" && ticket.id) {
-            receiptRows.push({
-              notificationId: notification.id,
-              pushDeviceId: device.id,
-              expoTicketId: ticket.id,
-            });
-          } else if (ticket.details?.error === "DeviceNotRegistered") {
-            invalidDeviceIds.push(device.id);
-          } else {
-            transientTicketErrors += 1;
-            this.logger.warn(`Expo rejected push for device ${device.id}: ${ticket.message ?? ticket.details?.error ?? "unknown ticket error"}`);
+
+          const receiptRows: Array<{ notificationId: string; pushDeviceId: string; expoTicketId: string }> = [];
+          const invalidDeviceIds: string[] = [];
+          let transientTicketErrors = 0;
+          for (const [index, ticket] of tickets.entries()) {
+            const device = devices[index];
+            if (!device) {
+              transientTicketErrors += 1;
+              this.logger.error(`Expo returned an unmatched ticket at index ${index} for notification ${notification.id}.`);
+              continue;
+            }
+            if (ticket.status === "ok" && ticket.id) {
+              receiptRows.push({ notificationId: notification.id, pushDeviceId: device.id, expoTicketId: ticket.id });
+            } else if (ticket.details?.error === "DeviceNotRegistered") {
+              invalidDeviceIds.push(device.id);
+            } else {
+              transientTicketErrors += 1;
+              this.logger.warn(`Expo rejected push for device ${device.id}: ${ticket.message ?? ticket.details?.error ?? "unknown ticket error"}`);
+            }
           }
-        }
-        await this.prisma.$transaction(async (tx) => {
+
           if (receiptRows.length) {
             await tx.pushNotificationReceipt.createMany({ data: receiptRows, skipDuplicates: true });
           }
           if (invalidDeviceIds.length) {
-            await tx.pushDevice.deleteMany({ where: { id: { in: invalidDeviceIds } } });
+            await tx.pushDevice.deleteMany({ where: { id: { in: invalidDeviceIds }, userId: notification.userId } });
           }
           const hasAcceptedTicket = receiptRows.length > 0 || existingReceipts.length > 0;
-          const attempts = notification.attempts + 1;
-          const retryDelayMs = Math.min(5 * 60_000, 5_000 * (2 ** Math.max(0, attempts - 1)));
           await tx.appNotification.updateMany({
-            where: { id: notification.id, deliveryStatus: "SENDING" },
+            where: { id: notification.id, userId: notification.userId, deliveryStatus: "SENDING" },
             data: {
               deliveryStatus: transientTicketErrors > 0
                 ? (attempts >= 5 ? (hasAcceptedTicket ? "SENT" : "FAILED") : "PENDING")
@@ -1532,20 +1552,18 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               nextAttemptAt: new Date(Date.now() + retryDelayMs),
             },
           });
-        });
-      } catch (error) {
-        const attempts = notification.attempts + 1;
-        const retryDelayMs = Math.min(5 * 60_000, 5_000 * (2 ** Math.max(0, attempts - 1)));
-        await this.prisma.appNotification.updateMany({
-          where: { id: notification.id, deliveryStatus: "SENDING" },
-          data: {
-            deliveryStatus: attempts >= 5 ? "FAILED" : "PENDING",
-            sendingStartedAt: null,
-            nextAttemptAt: new Date(Date.now() + retryDelayMs),
-          },
-        });
-        this.logger.warn(`Push notification ${notification.id} failed (attempt ${attempts}/5): ${String(error)}`);
-      }
+        } catch (error) {
+          await tx.appNotification.updateMany({
+            where: { id: notification.id, userId: notification.userId, deliveryStatus: "SENDING" },
+            data: {
+              deliveryStatus: attempts >= 5 ? "FAILED" : "PENDING",
+              sendingStartedAt: null,
+              nextAttemptAt: new Date(Date.now() + retryDelayMs),
+            },
+          });
+          this.logger.warn(`Push notification ${notification.id} failed (attempt ${attempts}/5): ${String(error)}`);
+        }
+      }, { maxWait: 10_000, timeout: 25_000 });
     }
   }
 
