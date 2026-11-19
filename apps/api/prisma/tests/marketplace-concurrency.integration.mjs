@@ -806,3 +806,49 @@ test("stale notification claims become UNKNOWN instead of being blindly resent",
   assert.equal(persisted.sendingStartedAt, null);
   assert.equal(persisted.attempts, 1);
 });
+
+
+test("Expo receipt polling schedule advances retries so missing receipts cannot starve later rows", async () => {
+  const fixture = await createFixture(1);
+  const providerId = fixture.responses[0].providerId;
+  const device = await prisma.pushDevice.create({
+    data: { userId: providerId, expoPushToken: `ExponentPushToken[${randomUUID()}]`, platform: "ANDROID" },
+    select: { id: true },
+  });
+  const notification = await prisma.appNotification.create({
+    data: { userId: providerId, title: "Receipt schedule test", body: "Receipt retry schedule" },
+    select: { id: true },
+  });
+  const now = new Date();
+  const [first, second] = await Promise.all([
+    prisma.pushNotificationReceipt.create({
+      data: {
+        notificationId: notification.id, pushDeviceId: device.id,
+        expoTicketId: `receipt-${randomUUID()}`, createdAt: new Date(now.getTime() - 20 * 60_000),
+      },
+      select: { id: true, nextCheckAt: true, checkAttempts: true },
+    }),
+    prisma.pushNotificationReceipt.create({
+      data: {
+        notificationId: notification.id, pushDeviceId: device.id,
+        expoTicketId: `receipt-${randomUUID()}`, createdAt: new Date(now.getTime() - 20 * 60_000),
+      },
+      select: { id: true, nextCheckAt: true, checkAttempts: true },
+    }),
+  ]);
+  const firstClaim = await prisma.pushNotificationReceipt.updateMany({
+    where: { id: first.id, status: "PENDING", nextCheckAt: { lte: now } },
+    data: { checkAttempts: { increment: 1 }, nextCheckAt: new Date(now.getTime() + 30 * 60_000) },
+  });
+  assert.equal(firstClaim.count, 1);
+  const due = await prisma.pushNotificationReceipt.findMany({
+    where: { status: "PENDING", createdAt: { lte: new Date(now.getTime() - 15 * 60_000) }, nextCheckAt: { lte: now } },
+    select: { id: true },
+  });
+  assert.deepEqual(due.map((receipt) => receipt.id), [second.id]);
+  const updated = await prisma.pushNotificationReceipt.findUniqueOrThrow({
+    where: { id: first.id }, select: { checkAttempts: true, nextCheckAt: true },
+  });
+  assert.equal(updated.checkAttempts, 1);
+  assert.ok(updated.nextCheckAt.getTime() > now.getTime());
+});
