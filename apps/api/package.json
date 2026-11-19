@@ -12,7 +12,9 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "test:auth-concurrency": "node --test prisma/tests/auth-concurrency.integration.mjs",
-    "test:marketplace-concurrency": "node --test prisma/tests/marketplace-concurrency.integration.mjs"
+    "test:marketplace-concurrency": "node --test prisma/tests/marketplace-concurrency.integration.mjs",
+    "start:worker": "node dist/worker.js",
+    "start:worker:dev": "ANYSKILL_PROCESS_ROLE=worker nest start --watch --entryFile worker"
   },
   "dependencies": {
     "@anyskill/contracts": "workspace:*",
