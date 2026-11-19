@@ -73,6 +73,46 @@ async function createPaymentFixture() {
 
 const key = (prefix) => `${prefix}-${randomUUID()}`;
 
+test("checksum-verified PayGate notifications are durably deduplicated without storing vault tokens", async () => {
+  const eventId = key("paygate-event");
+  const input = {
+    providerEventId: eventId,
+    rawPayload: `PAYGATE_ID=TEST&TRANSACTION_ID=${eventId}&AMOUNT=7500`,
+    payload: {
+      payRequestId: randomUUID(),
+      reference: key("anyskill-payment"),
+      transactionStatus: 1,
+      resultCode: 990017,
+      authCode: "TEST123",
+      currency: "ZAR",
+      amountMinor: "7500",
+      transactionId: "78705178",
+      riskIndicator: "AX",
+      payMethod: "CC",
+      payMethodDetail: "Visa",
+    },
+  };
+
+  const [first, duplicate] = await Promise.all([
+    payments.recordChecksumVerifiedPayGateNotify(input),
+    payments.recordChecksumVerifiedPayGateNotify(input),
+  ]);
+  assert.equal(first.id, duplicate.id);
+  assert.equal(first.status, "RECEIVED");
+  assert.equal(first.signatureVerified, true);
+  assert.equal(first.payloadHash.length, 64);
+  assert.equal("vaultId" in first.normalizedPayload, false);
+  assert.equal("VAULT_ID" in first.normalizedPayload, false);
+
+  await assert.rejects(
+    payments.recordChecksumVerifiedPayGateNotify({
+      ...input,
+      rawPayload: input.rawPayload + "&TAMPERED=1",
+    }),
+    (error) => error?.getStatus?.() === 409,
+  );
+});
+
 test("payment operation intents are serialized and idempotent", async () => {
   const paymentId = await createPaymentFixture();
   const input = {
