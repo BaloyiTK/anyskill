@@ -5,7 +5,12 @@ import type { Duplex } from "node:stream";
 
 type Discovery = (latitude: number, longitude: number, radiusKm: number) => Promise<unknown>;
 const MAX_LIVE_MAP_CLIENTS = 200;
+const MAX_LIVE_MAP_CLIENTS_PER_IP = 20;
+const MAX_LIVE_MAP_CONNECTION_ATTEMPTS_PER_IP = 30;
+const LIVE_MAP_IP_WINDOW_MS = 60_000;
 const MAX_LIVE_MAP_FRAME_BYTES = 1_000_000;
+
+type IpConnectionWindow = { attempts: number; resetAt: number };
 
 type MapClient = {
   socket: Duplex;
@@ -20,6 +25,8 @@ type MapClient = {
 export class LiveProviderMapService {
   private readonly logger = new Logger(LiveProviderMapService.name);
   private readonly clients = new Set<MapClient>();
+  private readonly clientsByIp = new Map<string, number>();
+  private readonly connectionWindows = new Map<string, IpConnectionWindow>();
   private discover: Discovery | null = null;
   private expirySweep: ReturnType<typeof setInterval> | undefined;
 
@@ -77,9 +84,28 @@ export class LiveProviderMapService {
         socket.end("HTTP/1.1 400 Bad Request\\r\\nConnection: close\\r\\n\\r\\n");
         return;
       }
-      if (this.clients.size >= MAX_LIVE_MAP_CLIENTS) {
-        socket.end("HTTP/1.1 503 Service Unavailable\\r\\nConnection: close\\r\\nRetry-After: 10\\r\\n\\r\\n");
+      const clientIp = request.socket.remoteAddress ?? "unknown";
+      const now = Date.now();
+      const window = this.connectionWindows.get(clientIp);
+      if (!window || window.resetAt <= now) {
+        this.connectionWindows.set(clientIp, { attempts: 1, resetAt: now + LIVE_MAP_IP_WINDOW_MS });
+      } else {
+        window.attempts += 1;
+      }
+      const currentWindow = this.connectionWindows.get(clientIp)!;
+      if (
+        this.clients.size >= MAX_LIVE_MAP_CLIENTS ||
+        (this.clientsByIp.get(clientIp) ?? 0) >= MAX_LIVE_MAP_CLIENTS_PER_IP ||
+        currentWindow.attempts > MAX_LIVE_MAP_CONNECTION_ATTEMPTS_PER_IP
+      ) {
+        socket.end("HTTP/1.1 429 Too Many Requests\\r\\nConnection: close\\r\\nRetry-After: 60\\r\\n\\r\\n");
         return;
+      }
+      // Bound the limiter map even if an attacker rotates source addresses.
+      if (this.connectionWindows.size > 10_000) {
+        for (const [ip, entry] of this.connectionWindows) {
+          if (entry.resetAt <= now) this.connectionWindows.delete(ip);
+        }
       }
 
       const accept = createHash("sha1")
@@ -95,9 +121,19 @@ export class LiveProviderMapService {
 
       const client: MapClient = { socket, latitude, longitude, radiusKm, sending: false, dirty: false };
       this.clients.add(client);
-      socket.on("close", () => this.clients.delete(client));
-      socket.on("end", () => this.clients.delete(client));
-      socket.on("error", () => this.clients.delete(client));
+      this.clientsByIp.set(clientIp, (this.clientsByIp.get(clientIp) ?? 0) + 1);
+      let removed = false;
+      const removeClient = () => {
+        if (removed) return;
+        removed = true;
+        this.clients.delete(client);
+        const remaining = (this.clientsByIp.get(clientIp) ?? 1) - 1;
+        if (remaining <= 0) this.clientsByIp.delete(clientIp);
+        else this.clientsByIp.set(clientIp, remaining);
+      };
+      socket.on("close", removeClient);
+      socket.on("end", removeClient);
+      socket.on("error", removeClient);
       socket.on("data", (data: Buffer) => {
         // Browser control frames are masked. Handle close and ping without
         // accepting client application messages on this read-only stream.
