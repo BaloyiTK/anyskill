@@ -948,9 +948,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
         const match = await tx.requestMatch.findUnique({
           where: { requestId_providerId: { requestId, providerId } },
-          select: { id: true },
+          select: { id: true, status: true },
         });
         if (!match) throw new ForbiddenException("This request has not been matched to your Provider profile.");
+        if (match.status !== "NOTIFIED") {
+          throw new ConflictException("This incoming request is no longer awaiting your response.");
+        }
 
         const response = await tx.providerResponse.create({
           data: {
