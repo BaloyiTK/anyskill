@@ -178,6 +178,7 @@ export class AuthController {
     return this.auth.resetPassword(dto.token, dto.newPassword);
   }
 
+  @Throttle({ default: { limit: 2, ttl: 60_000 } })
   @Delete("account")
   @UseGuards(JwtAuthGuard)
   deleteAccount(@CurrentUser() user: AuthenticatedUser) {
