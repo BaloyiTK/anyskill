@@ -67,6 +67,94 @@ async function createFixture(providerCount = 2) {
   return { seekerId: seeker.id, requestId: request.id, responses };
 }
 
+
+async function createEngagementFixture(status = "ASSESSMENT_PENDING", workSegmentStartedAt = null) {
+  const fixture = await createFixture(1);
+  const response = fixture.responses[0];
+  const job = await prisma.jobEngagement.create({
+    data: {
+      requestId: fixture.requestId,
+      responseId: response.id,
+      seekerId: fixture.seekerId,
+      providerId: response.providerId,
+      status,
+      hourlyRate: "250.00",
+      workStartedAt: workSegmentStartedAt,
+      workSegmentStartedAt,
+    },
+    select: { id: true },
+  });
+  return { ...fixture, jobId: job.id, providerId: response.providerId };
+}
+
+test("concurrent estimate submissions cannot overwrite one another", async () => {
+  const fixture = await createEngagementFixture();
+  const submit = (hours) => prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
+    const job = await tx.jobEngagement.findUnique({ where: { requestId: fixture.requestId } });
+    if (!job || !["ASSESSMENT_PENDING", "ESTIMATE_REJECTED"].includes(job.status)) return false;
+    const total = Number(hours) * Number(job.hourlyRate);
+    const changed = await tx.jobEngagement.updateMany({
+      where: { id: job.id, status: job.status },
+      data: { estimatedHours: hours, estimatedTotal: total, status: "ESTIMATE_SUBMITTED", estimateSubmittedAt: new Date() },
+    });
+    return changed.count === 1;
+  });
+  const outcomes = await Promise.all([submit("2.00"), submit("4.00")]);
+  assert.equal(outcomes.filter(Boolean).length, 1);
+  const finalJob = await prisma.jobEngagement.findUnique({ where: { id: fixture.jobId } });
+  assert.equal(finalJob?.status, "ESTIMATE_SUBMITTED");
+  assert.ok(["2", "4"].includes(finalJob?.estimatedHours?.toString() ?? ""));
+});
+
+test("concurrent additional-hours requests create only one pending adjustment", async () => {
+  const now = new Date();
+  const fixture = await createEngagementFixture("IN_PROGRESS", now);
+  const requestHours = (hours) => prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
+    const job = await tx.jobEngagement.findUnique({ where: { requestId: fixture.requestId } });
+    if (!job || job.status !== "IN_PROGRESS" || !job.workSegmentStartedAt || job.workPausedAt) return false;
+    const pending = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
+    if (pending) return false;
+    await tx.jobCostAdjustment.create({
+      data: { engagementId: job.id, requestedHours: hours, hourlyRate: job.hourlyRate, requestedAmount: Number(hours) * Number(job.hourlyRate), reason: "Concurrency test" },
+    });
+    return true;
+  });
+  const outcomes = await Promise.all([requestHours("1.00"), requestHours("2.00")]);
+  assert.equal(outcomes.filter(Boolean).length, 1);
+  assert.equal(await prisma.jobCostAdjustment.count({ where: { engagementId: fixture.jobId, status: "PENDING" } }), 1);
+});
+
+test("concurrent completion decisions cannot both change the submission", async () => {
+  const fixture = await createEngagementFixture("COMPLETION_PENDING");
+  const submission = await prisma.jobCompletionSubmission.create({
+    data: { engagementId: fixture.jobId, providerId: fixture.providerId, notes: "Concurrency test completion" },
+    select: { id: true },
+  });
+  const decide = (approved) => prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 1))`;
+    const job = await tx.jobEngagement.findUnique({ where: { requestId: fixture.requestId } });
+    if (!job || job.status !== "COMPLETION_PENDING") return false;
+    const claimed = await tx.jobCompletionSubmission.updateMany({
+      where: { id: submission.id, engagementId: job.id, status: "PENDING" },
+      data: { status: approved ? "APPROVED" : "REJECTED", reviewedAt: new Date() },
+    });
+    if (claimed.count !== 1) return false;
+    const changed = await tx.jobEngagement.updateMany({
+      where: { id: job.id, status: "COMPLETION_PENDING" },
+      data: { status: approved ? "COMPLETED" : "IN_PROGRESS" },
+    });
+    return changed.count === 1;
+  });
+  const outcomes = await Promise.all([decide(true), decide(false)]);
+  assert.equal(outcomes.filter(Boolean).length, 1);
+  const finalSubmission = await prisma.jobCompletionSubmission.findUnique({ where: { id: submission.id } });
+  assert.ok(["APPROVED", "REJECTED"].includes(finalSubmission?.status ?? ""));
+  const finalJob = await prisma.jobEngagement.findUnique({ where: { id: fixture.jobId } });
+  assert.equal(finalJob?.status, finalSubmission?.status === "APPROVED" ? "COMPLETED" : "IN_PROGRESS");
+});
+
 test("concurrent provider selections produce exactly one selected offer", async () => {
   const fixture = await createFixture();
   const select = (responseId) => prisma.$transaction(async (tx) => {
