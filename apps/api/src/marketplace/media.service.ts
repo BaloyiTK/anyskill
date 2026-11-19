@@ -344,6 +344,15 @@ export class MediaService {
 
   async cleanupExpiredReservations() {
     const now = new Date();
+    const staleVerificationBefore = new Date(now.getTime() - 5 * 60_000);
+    await this.prisma.mediaAsset.updateMany({
+      where: {
+        status: "VERIFYING",
+        expiresAt: { lte: now },
+        verificationStartedAt: { lt: staleVerificationBefore },
+      },
+      data: { status: "PENDING", verificationStartedAt: null },
+    });
     const expired = await this.prisma.mediaAsset.findMany({
       where: { status: "PENDING", expiresAt: { lte: now } },
       orderBy: { expiresAt: "asc" },
