@@ -128,6 +128,21 @@ export default function App() {
   );
 
   useEffect(() => {
+    void Notifications.setNotificationCategoryAsync("incoming_request", [
+      {
+        identifier: "ACCEPT_REQUEST",
+        buttonTitle: "Accept",
+        options: { isAuthenticationRequired: true, opensAppToForeground: true },
+      },
+      {
+        identifier: "DECLINE_REQUEST",
+        buttonTitle: "Decline",
+        options: { isAuthenticationRequired: true, isDestructive: true, opensAppToForeground: true },
+      },
+    ]).catch((e) => console.warn("[AnySkill notifications] Could not configure request actions.", e));
+  }, []);
+
+  useEffect(() => {
     if (Platform.OS !== "android") return;
     void Notifications.setNotificationChannelAsync("incoming_requests", {
       name: "Incoming service requests",
@@ -405,7 +420,36 @@ export default function App() {
     const response = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as { type?: string; requestId?: string };
       if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
-        void openMatchedRequest(data.requestId);
+        const requestId = data.requestId;
+        if (response.actionIdentifier === "ACCEPT_REQUEST") {
+          void apiRequest("/marketplace/requests/" + requestId + "/accept", {
+            method: "POST",
+            body: JSON.stringify({}),
+          }, true).then(() => {
+            setActiveIncomingRequestId(null);
+            setPendingAcceptRequestId(requestId);
+            setActiveTab("home");
+            setMode("provider");
+            setScreen("marketplace");
+          }).catch((e) => {
+            setError(e instanceof Error ? e.message : "Could not accept this request.");
+            openMatchedRequest(requestId);
+          });
+          return;
+        }
+        if (response.actionIdentifier === "DECLINE_REQUEST") {
+          void apiRequest("/marketplace/requests/" + requestId + "/decline", {
+            method: "POST",
+          }, true).then(() => {
+            setActiveIncomingRequestId(null);
+            setMessage("Request declined.");
+          }).catch((e) => {
+            setError(e instanceof Error ? e.message : "Could not decline this request.");
+            openMatchedRequest(requestId);
+          });
+          return;
+        }
+        void openMatchedRequest(requestId);
         return;
       }
       setActiveTab("notifications");
