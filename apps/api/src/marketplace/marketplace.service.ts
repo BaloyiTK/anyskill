@@ -196,9 +196,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
       const user = await tx.user.findUnique({
         where: { id: userId },
-        select: { providerRoleStatus: true, identityVerification: true },
+        select: { providerRoleStatus: true, identityVerification: true, deletedAt: true },
       });
-      if (!user || user.providerRoleStatus !== "ACTIVE" || user.identityVerification !== "VERIFIED") {
+      if (!user || user.deletedAt !== null || user.providerRoleStatus !== "ACTIVE" || user.identityVerification !== "VERIFIED") {
         throw new ForbiddenException("Only an approved and identity-verified Provider can share live location.");
       }
       const profile = await tx.providerProfile.findUnique({
@@ -259,9 +259,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (input.isAvailable) {
         const user = await tx.user.findUnique({
           where: { id: userId },
-          select: { providerRoleStatus: true, identityVerification: true },
+          select: { providerRoleStatus: true, identityVerification: true, deletedAt: true },
         });
-        if (!user || user.providerRoleStatus !== "ACTIVE") {
+        if (!user || user.deletedAt !== null || user.providerRoleStatus !== "ACTIVE") {
           throw new ForbiddenException({
             code: "PROVIDER_APPROVAL_REQUIRED",
             message: "Provider availability is only available after your Provider application is approved.",
@@ -1302,10 +1302,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           select: {
             identityVerification: true,
             providerRoleStatus: true,
+            deletedAt: true,
             providerProfile: { select: { hourlyRate: true, assessmentFee: true } },
           },
         });
-        if (!provider || provider.providerRoleStatus !== "ACTIVE" || provider.identityVerification !== "VERIFIED") {
+        if (!provider || provider.deletedAt !== null || provider.providerRoleStatus !== "ACTIVE" || provider.identityVerification !== "VERIFIED") {
           throw new ForbiddenException({
             code: "IDENTITY_VERIFICATION_REQUIRED",
             action: "PROVIDER_ACCEPT_REQUEST",
