@@ -1059,9 +1059,17 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         }
       }
       if (job.status !== "IN_PROGRESS") throw new ConflictException("The job must be in progress before completion can be submitted.");
-      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Resume the work timer before submitting completion.");
+      const timerIsRunning = job.workSegmentStartedAt !== null && job.workPausedAt === null;
+      const timerIsPaused = job.workSegmentStartedAt === null && job.workPausedAt !== null;
+      if (!timerIsRunning && !timerIsPaused) {
+        throw new ConflictException("The work timer must have been started before submitting completion.");
+      }
       const completionTime = new Date();
-      const accumulatedWorkMs = job.workAccumulatedMs + Math.max(0, completionTime.getTime() - job.workSegmentStartedAt.getTime());
+      // A paused timer has already checkpointed its elapsed time. Do not force
+      // Providers to resume work merely to submit completion evidence.
+      const accumulatedWorkMs = job.workAccumulatedMs + (
+        timerIsRunning ? Math.max(0, completionTime.getTime() - job.workSegmentStartedAt!.getTime()) : 0
+      );
       const pendingAdjustments = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pendingAdjustments > 0) throw new ConflictException("Resolve pending additional-hours approvals before submitting completion.");
       const pendingSubmission = await tx.jobCompletionSubmission.count({ where: { engagementId: job.id, status: "PENDING" } });
@@ -1094,7 +1102,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } },
       });
       const claimed = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        where: {
+          id: job.id,
+          status: "IN_PROGRESS",
+          workSegmentStartedAt: job.workSegmentStartedAt,
+          workPausedAt: job.workPausedAt,
+        },
         data: {
           status: "COMPLETION_PENDING",
           workAccumulatedMs: accumulatedWorkMs,
@@ -1314,11 +1327,20 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("Extra hours can only be requested while work is in progress.");
-      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Additional hours can only be requested while the work timer is running.");
-      // Claim the active timer state before creating the request so a concurrent break cannot
-      // make an additional-hours request slip through after the timer has been paused.
+      const timerIsRunning = job.workSegmentStartedAt !== null && job.workPausedAt === null;
+      const timerIsPaused = job.workSegmentStartedAt === null && job.workPausedAt !== null;
+      if (!timerIsRunning && !timerIsPaused) {
+        throw new ConflictException("The work timer must have been started before requesting additional hours.");
+      }
+      // Claim the exact timer state before creating the adjustment. Requests are
+      // allowed during a break; the Provider can resume after the Seeker decides.
       const timerClaim = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        where: {
+          id: job.id,
+          status: "IN_PROGRESS",
+          workSegmentStartedAt: job.workSegmentStartedAt,
+          workPausedAt: job.workPausedAt,
+        },
         data: { workAccumulatedMs: job.workAccumulatedMs },
       });
       if (timerClaim.count !== 1) throw new ConflictException("The work timer changed. Refresh and try again.");
