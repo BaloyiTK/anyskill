@@ -1397,4 +1397,5 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`Expo receipt polling failed: ${String(error)}`);
       }
     }
-  }}
+  }
+}
