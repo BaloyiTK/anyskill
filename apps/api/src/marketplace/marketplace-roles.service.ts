@@ -301,35 +301,41 @@ export class MarketplaceRolesService {
         user: { select: { id: true, email: true, identityVerification: true } },
       },
     });
-    const results = await Promise.all(cases.map(async (item) => {
-      const previews = await Promise.all(
-        (["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] as const)
-          .map(async (purpose) => {
-            try {
-              const preview = await this.media.getIdentityPreviewUrl(item.user.id, purpose);
-              return [purpose, preview?.url ?? null] as const;
-            } catch {
-              return [purpose, null] as const;
-            }
-          }),
-      );
-      return { ...item, documents: Object.fromEntries(previews) };
+    return cases.map((item) => ({
+      ...item,
+      // No document URLs or storage identifiers are returned in the queue.
+      // Each image is retrieved through a separately authorised and audited API call.
+      documents: {
+        ID_DOCUMENT_FRONT: true,
+        ID_DOCUMENT_BACK: true,
+        ID_BOOK_PAGE_1: true,
+        ID_BOOK_PAGE_2: true,
+        ID_SELFIE: true,
+      },
     }));
-    const accessed = results.filter((item) => Object.values(item.documents).some(Boolean));
-    if (accessed.length) {
-      await this.prisma.staffAuditLog.createMany({
-        data: accessed.map((item) => ({
-          actorId: reviewerId,
-          targetUserId: item.user.id,
-          action: "IDENTITY_DOCUMENTS_ACCESSED",
-          metadata: {
-            caseId: item.id,
-            purposes: Object.entries(item.documents).filter(([, url]) => Boolean(url)).map(([purpose]) => purpose),
-          },
-        })),
-      });
+  }
+
+  async getIdentityDocumentForReviewer(reviewerId: string, caseId: string, purpose: string) {
+    const allowedPurposes = ["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] as const;
+    if (!allowedPurposes.includes(purpose as typeof allowedPurposes[number])) throw new NotFoundException("Identity document not found.");
+    const verificationCase = await this.prisma.identityVerificationCase.findUnique({
+      where: { id: caseId },
+      select: { id: true, userId: true, status: true },
+    });
+    if (!verificationCase || verificationCase.userId === reviewerId ||
+        ![VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW].includes(verificationCase.status)) {
+      throw new NotFoundException("Identity document not found.");
     }
-    return results;
+    const result = await this.media.getIdentityImageBytes(verificationCase.userId, purpose as typeof allowedPurposes[number]);
+    await this.prisma.staffAuditLog.create({
+      data: {
+        actorId: reviewerId,
+        targetUserId: verificationCase.userId,
+        action: "IDENTITY_DOCUMENT_VIEWED",
+        metadata: { caseId, purpose },
+      },
+    });
+    return result;
   }
 
   async decideIdentityVerification(reviewerId: string, caseId: string, decision: "APPROVED" | "REJECTED", reason: string) {
