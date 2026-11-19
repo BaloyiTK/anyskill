@@ -195,7 +195,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async updateProviderLiveLocation(userId: string, input: UpdateLiveLocationDto) {
     if (input.accuracyM > MAX_LIVE_LOCATION_ACCURACY_M) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix (50 m or better).");
-    const updatedAt = new Date();
+    const capturedAt = new Date(input.capturedAt);
+    const now = Date.now();
+    // A queued OS callback must never make an old GPS fix appear current.
+    // Allow a small clock-skew window, but reject stale or future-dated fixes.
+    if (!Number.isFinite(capturedAt.getTime()) || capturedAt.getTime() < now - LIVE_LOCATION_MAX_AGE_MS || capturedAt.getTime() > now + 5_000) {
+      throw new ConflictException("This GPS fix is stale or has an invalid timestamp. Wait for a new location fix and try again.");
+    }
+    const updatedAt = capturedAt;
     await this.prisma.$transaction(async (tx) => {
       // Prevent a location heartbeat from racing an identity/skill suspension.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
