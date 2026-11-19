@@ -583,23 +583,54 @@ export class AuthService {
       throw new UnauthorizedException("This account is no longer active.");
     }
 
-    const [activeEngagement, openRequests, outstandingOffers, incomingInvitations] = await Promise.all([
-      this.prisma.jobEngagement.findFirst({
-        where: { OR: [{ seekerId: userId }, { providerId: userId }], status: { not: "COMPLETED" } },
-        select: { id: true, status: true },
-      }),
-      this.prisma.serviceRequest.count({ where: { seekerId: userId, status: "OPEN" } }),
-      this.prisma.providerResponse.count({ where: { providerId: userId, status: "OFFERED" } }),
-      this.prisma.requestMatch.count({ where: { providerId: userId, status: "NOTIFIED" } }),
-    ]);
-    if (activeEngagement) {
-      throw new ConflictException("Complete or resolve your active service engagement before deleting your account.");
-    }
-    if (openRequests > 0 || outstandingOffers > 0 || incomingInvitations > 0) {
-      throw new ConflictException("Cancel your open service requests, withdraw outstanding offers, and decline incoming Provider invitations before deleting your account.");
-    }
+    // Reserve the account for deletion before touching external storage.
+    // The shared eligibility lock prevents new requests, offers and matching
+    // invitations from being created while private assets are being removed.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('notification-delivery:' || ${userId}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('staff-membership'), hashtext(${userId}))`;
 
-    // Remove private files first. If storage cleanup fails, keep the account
+      const current = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, deletedAt: true },
+      });
+      if (!current || current.deletedAt) throw new UnauthorizedException("This account is no longer active.");
+
+      const [activeEngagement, openRequests, outstandingOffers, incomingInvitations] = await Promise.all([
+        tx.jobEngagement.findFirst({
+          where: { OR: [{ seekerId: userId }, { providerId: userId }], status: { not: "COMPLETED" } },
+          select: { id: true, status: true },
+        }),
+        tx.serviceRequest.count({ where: { seekerId: userId, status: "OPEN" } }),
+        tx.providerResponse.count({ where: { providerId: userId, status: "OFFERED" } }),
+        tx.requestMatch.count({ where: { providerId: userId, status: "NOTIFIED" } }),
+      ]);
+      if (activeEngagement) {
+        throw new ConflictException("Complete or resolve your active service engagement before deleting your account.");
+      }
+      if (openRequests > 0 || outstandingOffers > 0 || incomingInvitations > 0) {
+        throw new ConflictException("Cancel your open service requests, withdraw outstanding offers, and decline incoming Provider invitations before deleting your account.");
+      }
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { seekerRoleStatus: "SUSPENDED", providerRoleStatus: "SUSPENDED" },
+      });
+      await tx.providerProfile.updateMany({
+        where: { userId },
+        data: {
+          isAvailable: false,
+          liveLatitude: null,
+          liveLongitude: null,
+          liveAccuracyM: null,
+          liveLocationUpdatedAt: null,
+        },
+      });
+    });
+
+    // Remove private files after marketplace actions have been blocked. If
+    // storage cleanup fails, the suspended account can retry deletion safely.
     // intact so deletion can be retried without leaving private files behind.
     await this.media.deleteUserAssets(userId);
 
