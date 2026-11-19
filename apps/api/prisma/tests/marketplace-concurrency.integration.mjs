@@ -269,6 +269,77 @@ test("a completion evidence asset can be claimed by only one submission", async 
   assert.ok([first.id, second.id].includes(persisted?.completionSubmissionId));
 });
 
+test("media upload idempotency keys cannot create duplicate reservations for one user", async () => {
+  const fixture = await createFixture(1);
+  const userId = fixture.responses[0].providerId;
+  const key = randomUUID();
+  const payloadHash = "b".repeat(64);
+  const asset = await prisma.mediaAsset.create({
+    data: {
+      userId,
+      idempotencyKey: key,
+      idempotencyPayloadHash: payloadHash,
+      objectKey: `anyskill/job-completion-evidence/${userId}/${randomUUID()}`,
+      originalName: "same-photo.jpg",
+      contentType: "image/jpeg",
+      sizeBytes: 2048,
+      purpose: "JOB_COMPLETION_EVIDENCE",
+      expiresAt: new Date(Date.now() + 30 * 60_000),
+    },
+  });
+  await assert.rejects(
+    prisma.mediaAsset.create({
+      data: {
+        userId,
+        idempotencyKey: key,
+        idempotencyPayloadHash: payloadHash,
+        objectKey: `anyskill/job-completion-evidence/${userId}/${randomUUID()}`,
+        originalName: "same-photo.jpg",
+        contentType: "image/jpeg",
+        sizeBytes: 2048,
+        purpose: "JOB_COMPLETION_EVIDENCE",
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+      },
+    }),
+    (error) => error?.code === "P2002",
+  );
+  const persisted = await prisma.mediaAsset.findFirst({ where: { userId, idempotencyKey: key } });
+  assert.equal(persisted?.id, asset.id);
+});
+
+test("completion submission idempotency keys are unique per engagement", async () => {
+  const fixture = await createEngagementFixture("COMPLETION_PENDING");
+  const key = randomUUID();
+  const payloadHash = "c".repeat(64);
+  const submission = await prisma.jobCompletionSubmission.create({
+    data: {
+      engagementId: fixture.jobId,
+      providerId: fixture.providerId,
+      notes: "Idempotent completion submission",
+      idempotencyKey: key,
+      idempotencyPayloadHash: payloadHash,
+      status: "APPROVED",
+    },
+  });
+  await assert.rejects(
+    prisma.jobCompletionSubmission.create({
+      data: {
+        engagementId: fixture.jobId,
+        providerId: fixture.providerId,
+        notes: "Idempotent completion submission",
+        idempotencyKey: key,
+        idempotencyPayloadHash: payloadHash,
+        status: "REJECTED",
+      },
+    }),
+    (error) => error?.code === "P2002",
+  );
+  const persisted = await prisma.jobCompletionSubmission.findFirst({
+    where: { engagementId: fixture.jobId, idempotencyKey: key },
+  });
+  assert.equal(persisted?.id, submission.id);
+});
+
 test("concurrent provider selections produce exactly one selected offer", async () => {
   const fixture = await createFixture();
   const select = (responseId) => prisma.$transaction(async (tx) => {
