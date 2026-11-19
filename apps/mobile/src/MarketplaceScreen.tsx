@@ -41,7 +41,7 @@ type SeekerRequest = {
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
     hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null;
-    provider: { providerProfile: { publicName: string; hourlyRate: string | number | null; assessmentFee: string | number; skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; ratings?: {overall:number;overallReviewCount:number;overallIsRated:boolean;requestedSkill:number;requestedSkillReviewCount:number;requestedSkillIsRated:boolean} } | null };
+    provider: { providerProfile: { publicName: string; hourlyRate: string | number | null; assessmentFee: string | number; skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable?: boolean; identityVerified?: boolean; experience?: string | null; distanceKm?: number | null; ratings?: {overall:number;overallReviewCount:number;overallIsRated:boolean;requestedSkill:number;requestedSkillReviewCount:number;requestedSkillIsRated:boolean} } | null };
   }>;
 };
 type Props = {
