@@ -25,7 +25,7 @@ type RequestItem = {
   instructions: string | null;
   status: string;
   createdAt: string;
-  seeker: { firstName: string; lastName: string; profilePhotoUrl: string | null; identityVerified: boolean };
+  seeker: { firstName: string; lastName: string; profilePhotoUrl: string | null; identityVerified: boolean; rating?: {overall:number;reviewCount:number;isRated:boolean} };
   providerLocation: { latitude: number; longitude: number } | null;
   distanceKm: number | null;
   alreadyResponded: boolean;
@@ -1111,6 +1111,7 @@ export function MarketplaceScreen(p: Props) {
               <View style={{ flex: 1 }}>
                 <Text style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>{seekerName}</Text>
                 <Text style={s.meta}>Skill Seeker · Requesting your help</Text>
+                <Text style={s.meta}>AnySkill rating: {(request.seeker.rating?.overall ?? 5).toFixed(1)} ★ {request.seeker.rating?.isRated ? "(" + request.seeker.rating.reviewCount + " reviews)" : "(new · not yet rated)"}</Text>
                 <Text style={{ color: request.seeker?.identityVerified ? "#1B5E20" : C.warningInk, fontSize: 11, fontWeight: "800", marginTop: 4 }}>
                   {request.seeker?.identityVerified ? "✓ Identity verified" : "Identity not verified"}
                 </Text>
