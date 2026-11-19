@@ -124,7 +124,7 @@ The hardening branch now contains persistence primitives and an internal account
 - Authorise/capture/void/refund operation records have globally unique idempotency keys and unique gateway references.
 - Webhook inbox records deduplicate by provider and provider event ID and retain a payload hash and signature-verification result.
 - Provider payout records are separate from card payment capture.
-- Financial ledger entries are append-only at the database level; corrections require compensating entries.
+- Financial ledger entries are append-only at the database level; corrections require compensating entries. A deferred PostgreSQL constraint trigger validates debit/credit equality per currency for every journal group at transaction commit, including writes that bypass the service.
 - An internal PaymentsService creates idempotent AUTHORIZE/CAPTURE/VOID/REFUND operation intents under PostgreSQL advisory locks and rejects key reuse with a different request hash.
 - The same service validates journal groups for per-currency debit/credit equality and writes all lines atomically with line-level idempotency keys. Replayed groups are checked against their original entries.
 - Operation results can be recorded only through an internal method documented for verified gateway notifications or server-to-server queries. It serializes by payment, makes terminal outcomes idempotent, transitions payment status for authorization/capture/void/refund, and moves ambiguous outcomes to reconciliation-required.
