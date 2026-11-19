@@ -47,7 +47,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     this.logger.log("Marketplace background worker started; polling persisted jobs every 15 seconds.");
     void this.runWorkerCycle();
     this.worker = setInterval(() => { void this.runWorkerCycle(); }, 15_000);
-    this.worker.unref?.();
   }
 
   onModuleDestroy() {
