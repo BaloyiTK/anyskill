@@ -388,7 +388,7 @@ export default function App() {
       if (checking || activeIncomingRequestId) return;
       checking = true;
       try {
-        const profile = await apiRequest<{ isAvailable: boolean } | null>("/marketplace/provider-profile", {}, true);
+        const profile = await apiRequest<{ isAvailable: boolean }>("/marketplace/provider-profile/availability", {}, true);
         if (!active || !profile?.isAvailable) return;
         const result = await apiRequest<{ items: Array<{ id: string; alreadyResponded: boolean }> }>("/marketplace/incoming-requests", {}, true);
         if (!active) return;
