@@ -196,9 +196,15 @@ test("Provider withdrawals only advance matching after the final outstanding off
 
 test("seeker cancellation notifies every matched Provider and closes their outstanding matches", async () => {
   const fixture = await createFixture(3);
-  for (const response of fixture.responses) {
+  for (const [index, response] of fixture.responses.entries()) {
     await prisma.requestMatch.create({
-      data: { requestId: fixture.requestId, providerId: response.providerId, status: "NOTIFIED", wave: 1, score: 0 },
+      data: {
+        requestId: fixture.requestId,
+        providerId: response.providerId,
+        status: index === 0 ? "NOTIFIED" : "RESPONDED",
+        wave: 1,
+        score: 0,
+      },
     });
   }
   await prisma.$transaction(async (tx) => {
@@ -208,7 +214,10 @@ test("seeker cancellation notifies every matched Provider and closes their outst
       select: { providerId: true },
     });
     await tx.serviceRequest.update({ where: { id: fixture.requestId }, data: { status: "CANCELLED", matchingNextAt: null } });
-    await tx.requestMatch.updateMany({ where: { requestId: fixture.requestId, status: "NOTIFIED" }, data: { status: "EXPIRED" } });
+    await tx.requestMatch.updateMany({
+      where: { requestId: fixture.requestId, status: { in: ["NOTIFIED", "RESPONDED"] } },
+      data: { status: "EXPIRED" },
+    });
     await tx.providerResponse.updateMany({ where: { requestId: fixture.requestId, status: "OFFERED" }, data: { status: "WITHDRAWN" } });
     await tx.appNotification.createMany({
       data: [...new Set(matches.map((match) => match.providerId).filter(Boolean))].map((providerId) => ({
@@ -223,6 +232,7 @@ test("seeker cancellation notifies every matched Provider and closes their outst
     where: { userId: { in: fixture.responses.map((response) => response.providerId) }, data: { path: ["type"], equals: "REQUEST_CANCELLED" } },
   }), 3);
   assert.equal(await prisma.requestMatch.count({ where: { requestId: fixture.requestId, status: "EXPIRED" } }), 3);
+  assert.equal(await prisma.requestMatch.count({ where: { requestId: fixture.requestId, status: { in: ["NOTIFIED", "RESPONDED"] } } }), 0);
   assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "WITHDRAWN" } }), 3);
 });
 
@@ -887,4 +897,59 @@ test("Expo receipt polling schedule advances retries so missing receipts cannot 
   });
   assert.equal(updated.checkAttempts, 1);
   assert.ok(updated.nextCheckAt.getTime() > now.getTime());
+});
+
+test("selecting one Provider expires every other notified or responded match", async () => {
+  const fixture = await createFixture(3);
+  const selected = fixture.responses[0];
+  for (const [index, response] of fixture.responses.entries()) {
+    await prisma.requestMatch.create({
+      data: {
+        requestId: fixture.requestId,
+        providerId: response.providerId,
+        status: index === 0 ? "RESPONDED" : index === 1 ? "NOTIFIED" : "RESPONDED",
+        wave: 1,
+        score: 0,
+      },
+    });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    const claimed = await tx.serviceRequest.updateMany({
+      where: { id: fixture.requestId, seekerId: fixture.seekerId, status: "OPEN" },
+      data: { status: "CLOSED", matchingNextAt: null },
+    });
+    assert.equal(claimed.count, 1);
+    await tx.providerResponse.update({ where: { id: selected.id }, data: { status: "SELECTED" } });
+    await tx.providerResponse.updateMany({
+      where: { requestId: fixture.requestId, id: { not: selected.id }, status: "OFFERED" },
+      data: { status: "WITHDRAWN" },
+    });
+    await tx.requestMatch.updateMany({
+      where: { requestId: fixture.requestId, providerId: selected.providerId },
+      data: { status: "RESPONDED" },
+    });
+    await tx.requestMatch.updateMany({
+      where: {
+        requestId: fixture.requestId,
+        providerId: { not: selected.providerId },
+        status: { in: ["NOTIFIED", "RESPONDED"] },
+      },
+      data: { status: "EXPIRED" },
+    });
+  });
+
+  const matches = await prisma.requestMatch.findMany({
+    where: { requestId: fixture.requestId },
+    select: { providerId: true, status: true },
+  });
+  assert.equal(matches.length, 3);
+  assert.equal(matches.find((match) => match.providerId === selected.providerId)?.status, "RESPONDED");
+  assert.equal(matches.filter((match) => match.status === "EXPIRED").length, 2);
+  assert.equal(await prisma.requestMatch.count({
+    where: { requestId: fixture.requestId, providerId: { not: selected.providerId }, status: { in: ["NOTIFIED", "RESPONDED"] } },
+  }), 0);
+  assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "SELECTED" } }), 1);
+  assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "WITHDRAWN" } }), 2);
 });
