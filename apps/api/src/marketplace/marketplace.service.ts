@@ -475,8 +475,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             hourlyRateAtOffer: true, assessmentFeeAtOffer: true,
             provider: {
               select: {
+                user: { select: { identityVerification: true, onboardingDraft: { select: { skills: true } } } },
                 providerProfile: {
-                  select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true },
+                  select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true },
                 },
               },
             },
@@ -518,7 +519,30 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           provider: {
             ...response.provider,
             providerProfile: {
-              ...profile,
+              publicName: profile.publicName,
+              hourlyRate: profile.hourlyRate,
+              assessmentFee: profile.assessmentFee,
+              skillCategories: profile.skillCategories,
+              serviceAreas: profile.serviceAreas,
+              deliveryModes: profile.deliveryModes,
+              isAvailable: profile.isAvailable,
+              identityVerified: response.provider.user?.identityVerification === "VERIFIED",
+              experience: (() => {
+                const skills = response.provider.user?.onboardingDraft?.skills;
+                if (!Array.isArray(skills)) return null;
+                const requested = normalise(request.skillCategory).replace(/[^\\p{L}\\p{N}]+/gu, "");
+                const entry = skills.find((item) => item && typeof item === "object" && !Array.isArray(item)
+                  && normalise(String((item as Record<string, unknown>).category ?? "")).replace(/[^\\p{L}\\p{N}]+/gu, "") === requested) as Record<string, unknown> | undefined;
+                return typeof entry?.yearsOfExperience === "string" ? entry.yearsOfExperience : entry?.yearsOfExperience == null ? null : String(entry.yearsOfExperience);
+              })(),
+              distanceKm: (() => {
+                if (request.latitude == null || request.longitude == null || profile.liveLatitude == null || profile.liveLongitude == null) return null;
+                const radians = (value: number) => value * Math.PI / 180;
+                const dLat = radians(profile.liveLatitude - request.latitude);
+                const dLon = radians(profile.liveLongitude - request.longitude);
+                const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(request.latitude)) * Math.cos(radians(profile.liveLatitude)) * Math.sin(dLon / 2) ** 2;
+                return Math.round(6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
+              })(),
               ratings: {
                 overall: overall == null ? 5 : Number(overall.toFixed(1)),
                 overallReviewCount: overallCount,
@@ -584,6 +608,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       data: { status: "WITHDRAWN" },
     });
     if (changed.count !== 1) throw new ConflictException("This Provider offer is no longer available.");
+    await this.prisma.serviceRequest.updateMany({
+      where: { id: requestId, seekerId, status: "OPEN" },
+      data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+    });
     return { success: true, requestId, responseId, status: "WITHDRAWN" };
   }
 
