@@ -486,7 +486,7 @@ export class AuthService {
 
     const accessToken = await this.jwt.signAsync(
       { sub: userId, email, typ: "access" },
-      { secret, expiresIn: ACCESS_TOKEN_TTL },
+      { secret, expiresIn: ACCESS_TOKEN_TTL, algorithm: "HS256", issuer: "anyskill-api", audience: "anyskill-client" },
     );
 
     const refreshToken = opaqueToken();
@@ -563,7 +563,7 @@ export class AuthService {
 
     const accessToken = await this.jwt.signAsync(
       { sub: session.userId, email: session.user.email, typ: "access" },
-      { secret, expiresIn: ACCESS_TOKEN_TTL },
+      { secret, expiresIn: ACCESS_TOKEN_TTL, algorithm: "HS256", issuer: "anyskill-api", audience: "anyskill-client" },
     );
 
     return {
