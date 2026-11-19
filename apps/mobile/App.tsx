@@ -442,6 +442,7 @@ export default function App() {
             method: "POST",
           }, true).then(() => {
             setActiveIncomingRequestId(null);
+            setPendingAcceptRequestId(null);
             setMessage("Request declined.");
           }).catch((e) => {
             setError(e instanceof Error ? e.message : "Could not decline this request.");
