@@ -475,7 +475,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             hourlyRateAtOffer: true, assessmentFeeAtOffer: true,
             provider: {
               select: {
-                user: { select: { identityVerification: true, onboardingDraft: { select: { skills: true } } } },
                 providerProfile: {
                   select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true },
                 },
@@ -501,6 +500,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           }),
         ])
       : [[], []];
+    const providerUsers = providerIds.length ? await this.prisma.user.findMany({
+      where: { id: { in: providerIds } },
+      select: { id: true, identityVerification: true, onboardingDraft: { select: { skills: true } } },
+    }) : [];
     return requests.map((request) => ({
       ...request,
       jobEngagement: request.jobEngagement ? { ...request.jobEngagement, serverNow } : null,
@@ -514,6 +517,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const skillCount = skillGroup?._count._all ?? 0;
         const overall = overallGroup?._avg.platformRating ?? null;
         const skill = skillGroup?._avg.skillRating ?? null;
+        const providerUser = providerUsers.find((item) => item.id === response.providerId);
         return {
           ...response,
           provider: {
@@ -526,9 +530,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               serviceAreas: profile.serviceAreas,
               deliveryModes: profile.deliveryModes,
               isAvailable: profile.isAvailable,
-              identityVerified: response.provider.user?.identityVerification === "VERIFIED",
+              identityVerified: providerUser?.identityVerification === "VERIFIED",
               experience: (() => {
-                const skills = response.provider.user?.onboardingDraft?.skills;
+                const skills = providerUser?.onboardingDraft?.skills;
                 if (!Array.isArray(skills)) return null;
                 const requested = normalise(request.skillCategory).replace(/[^\p{L}\p{N}]+/gu, "");
                 const entry = skills.find((item) => item && typeof item === "object" && !Array.isArray(item)
