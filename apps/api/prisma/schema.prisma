@@ -135,6 +135,55 @@ enum PushReceiptStatus {
   OK
   ERROR
 }
+enum PaymentMethodStatus {
+  SETUP_PENDING
+  ACTIVE
+  REQUIRES_UPDATE
+  REMOVED
+}
+enum PaymentStatus {
+  PENDING
+  AUTHORIZATION_PENDING
+  AUTHORIZED
+  CAPTURE_PENDING
+  CAPTURED
+  FAILED
+  CANCELLED
+  RECONCILIATION_REQUIRED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+enum PaymentOperationType {
+  AUTHORIZE
+  CAPTURE
+  VOID
+  REFUND
+}
+enum PaymentOperationStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  UNKNOWN
+}
+enum PaymentWebhookStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+enum ProviderPayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  REVERSED
+}
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
 
 model PushNotificationReceipt {
   id             String            @id @default(uuid()) @db.Uuid
@@ -192,6 +241,10 @@ model User {
   staffTargets              StaffAuditLog[]             @relation("StaffAuditTarget")
   providerReviewsReceived   ProviderReview[]             @relation("ProviderReviewsReceived")
   providerReviewsGiven      ProviderReview[]             @relation("ProviderReviewsGiven")
+  paymentMethods            PaymentMethod[]
+  seekerPayments            Payment[]                    @relation("PaymentSeeker")
+  providerPayments          Payment[]                    @relation("PaymentProvider")
+  providerPayouts            ProviderPayout[]
   seekerReviewsReceived     SeekerReview[]                @relation("SeekerReviewsReceived")
   seekerReviewsGiven        SeekerReview[]                @relation("SeekerReviewsGiven")
 
@@ -453,6 +506,7 @@ model JobEngagement {
   completionSubmissions JobCompletionSubmission[]
   review                ProviderReview?
   seekerReview          SeekerReview?
+  payment               Payment?
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@map("job_engagements")
@@ -633,4 +687,129 @@ model ProviderReview {
   @@index([providerId, skillCategory, createdAt])
   @@index([providerId, createdAt])
   @@map("provider_reviews")
+}
+
+
+// Financial records are retained independently of user account lifecycle.
+// All amounts are integer minor units (for ZAR, cents); never use float money.
+model PaymentMethod {
+  id                       String              @id @default(uuid()) @db.Uuid
+  userId                   String              @db.Uuid @map("user_id")
+  provider                 String              @default("PAYGATE") @db.VarChar(40)
+  gatewayMethodReference   String              @unique @map("gateway_method_reference") @db.VarChar(255)
+  gatewayCustomerReference String?             @map("gateway_customer_reference") @db.VarChar(255)
+  encryptedToken           String              @map("encrypted_token") @db.Text
+  encryptionKeyVersion     String              @map("encryption_key_version") @db.VarChar(80)
+  brand                    String?             @db.VarChar(40)
+  last4                    String?             @db.Char(4)
+  status                   PaymentMethodStatus @default(SETUP_PENDING)
+  consentAt                DateTime            @map("consent_at")
+  consentVersion           String              @map("consent_version") @db.VarChar(40)
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
+  user                     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments                 Payment[]
+  @@index([userId, status])
+  @@map("payment_methods")
+}
+
+model Payment {
+  id                          String        @id @default(uuid()) @db.Uuid
+  engagementId                String        @unique @db.Uuid @map("engagement_id")
+  seekerId                    String?       @db.Uuid @map("seeker_id")
+  providerId                  String?       @db.Uuid @map("provider_id")
+  paymentMethodId             String?       @db.Uuid @map("payment_method_id")
+  currency                    String        @default("ZAR") @db.Char(3)
+  estimateVersion             Int           @map("estimate_version")
+  amountAuthorizedMinor       BigInt?       @map("amount_authorized_minor")
+  amountCapturedMinor         BigInt?       @map("amount_captured_minor")
+  status                      PaymentStatus @default(PENDING)
+  gatewayTransactionReference String?       @unique @map("gateway_transaction_reference") @db.VarChar(255)
+  authorizedAt                DateTime?     @map("authorized_at")
+  capturedAt                  DateTime?     @map("captured_at")
+  createdAt                   DateTime      @default(now()) @map("created_at")
+  updatedAt                   DateTime      @updatedAt @map("updated_at")
+  engagement                  JobEngagement @relation(fields: [engagementId], references: [id], onDelete: Restrict)
+  seeker                      User?         @relation("PaymentSeeker", fields: [seekerId], references: [id], onDelete: SetNull)
+  provider                    User?         @relation("PaymentProvider", fields: [providerId], references: [id], onDelete: SetNull)
+  paymentMethod               PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  operations                  PaymentOperation[]
+  ledgerEntries               FinancialLedgerEntry[]
+  @@index([seekerId, status, createdAt])
+  @@index([providerId, status, createdAt])
+  @@index([status, updatedAt])
+  @@map("payments")
+}
+
+model PaymentOperation {
+  id               String                 @id @default(uuid()) @db.Uuid
+  paymentId        String                 @db.Uuid @map("payment_id")
+  type             PaymentOperationType
+  status           PaymentOperationStatus @default(PENDING)
+  idempotencyKey   String                 @unique @map("idempotency_key") @db.VarChar(120)
+  requestHash      String                 @map("request_hash") @db.Char(64)
+  amountMinor      BigInt                 @map("amount_minor")
+  currency         String                 @db.Char(3)
+  gatewayReference String?                @unique @map("gateway_reference") @db.VarChar(255)
+  failureCode      String?                @map("failure_code") @db.VarChar(100)
+  safeResponse     Json?                  @map("safe_response")
+  requestedAt      DateTime               @default(now()) @map("requested_at")
+  completedAt      DateTime?              @map("completed_at")
+  payment          Payment                @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  @@index([paymentId, type, status])
+  @@index([status, requestedAt])
+  @@map("payment_operations")
+}
+
+model PaymentWebhookEvent {
+  id                 String               @id @default(uuid()) @db.Uuid
+  provider           String               @db.VarChar(40)
+  providerEventId    String               @map("provider_event_id") @db.VarChar(255)
+  payloadHash        String               @map("payload_hash") @db.Char(64)
+  normalizedPayload Json                 @map("normalized_payload")
+  signatureVerified Boolean              @default(false) @map("signature_verified")
+  status             PaymentWebhookStatus @default(RECEIVED)
+  attempts           Int                  @default(0)
+  receivedAt         DateTime             @default(now()) @map("received_at")
+  processedAt        DateTime?            @map("processed_at")
+  lastError          String?              @map("last_error") @db.VarChar(500)
+  @@unique([provider, providerEventId])
+  @@index([status, receivedAt])
+  @@map("payment_webhook_events")
+}
+
+model ProviderPayout {
+  id                String               @id @default(uuid()) @db.Uuid
+  providerId        String?              @db.Uuid @map("provider_id")
+  amountMinor       BigInt               @map("amount_minor")
+  currency          String               @db.Char(3)
+  status            ProviderPayoutStatus @default(PENDING)
+  idempotencyKey    String               @unique @map("idempotency_key") @db.VarChar(120)
+  payoutRail        String               @map("payout_rail") @db.VarChar(60)
+  externalReference String?              @unique @map("external_reference") @db.VarChar(255)
+  failureCode       String?              @map("failure_code") @db.VarChar(100)
+  requestedAt       DateTime             @default(now()) @map("requested_at")
+  completedAt       DateTime?            @map("completed_at")
+  provider          User?                @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  @@index([providerId, status, requestedAt])
+  @@index([status, requestedAt])
+  @@map("provider_payouts")
+}
+
+model FinancialLedgerEntry {
+  id             String         @id @default(uuid()) @db.Uuid
+  entryGroupId   String         @map("entry_group_id") @db.Uuid
+  paymentId      String?        @db.Uuid @map("payment_id")
+  accountCode    String         @map("account_code") @db.VarChar(80)
+  direction      LedgerDirection
+  amountMinor    BigInt         @map("amount_minor")
+  currency       String         @db.Char(3)
+  idempotencyKey String         @unique @map("idempotency_key") @db.VarChar(160)
+  description    String         @db.VarChar(500)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  payment        Payment?       @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  @@index([entryGroupId])
+  @@index([paymentId, createdAt])
+  @@index([accountCode, currency, createdAt])
+  @@map("financial_ledger_entries")
 }
