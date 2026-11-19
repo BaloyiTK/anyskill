@@ -731,3 +731,37 @@ test("notification queue selects distinct recipients before applying its page li
   assert.ok(selected.some((row) => row.userId === otherRecipientId));
   assert.ok(selected.some((row) => row.userId === noisyProviderId));
 });
+
+test("business notification event keys are unique and notification failure rolls back the business transaction", async () => {
+  const fixture = await createFixture(1);
+  const providerId = fixture.responses[0].providerId;
+  const eventKey = `integration:${randomUUID()}:business-event`;
+  await prisma.appNotification.create({
+    data: { userId: providerId, eventKey, title: "Event key fixture", body: "Unique event key test" },
+  });
+  await assert.rejects(
+    prisma.appNotification.create({
+      data: { userId: providerId, eventKey, title: "Duplicate event key", body: "Must be rejected" },
+    }),
+    (error) => error?.code === "P2002",
+  );
+
+  const original = await prisma.serviceRequest.findUniqueOrThrow({
+    where: { id: fixture.requestId }, select: { title: true },
+  });
+  await assert.rejects(
+    prisma.$transaction(async (tx) => {
+      await tx.serviceRequest.update({
+        where: { id: fixture.requestId }, data: { title: "Must roll back" },
+      });
+      await tx.appNotification.create({
+        data: { userId: providerId, eventKey, title: "Duplicate", body: "Force transaction rollback" },
+      });
+    }),
+    (error) => error?.code === "P2002",
+  );
+  const persisted = await prisma.serviceRequest.findUniqueOrThrow({
+    where: { id: fixture.requestId }, select: { title: true },
+  });
+  assert.equal(persisted.title, original.title);
+});
