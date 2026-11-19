@@ -1075,7 +1075,7 @@ export function MarketplaceScreen(p: Props) {
         {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
         {requests.map((request) => {
           const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
-          const initials = seekerName.split(/\\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "S";
+          const initials = seekerName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "S";
           const mapLatitude = request.providerLocation?.latitude ?? request.latitude;
           const mapLongitude = request.providerLocation?.longitude ?? request.longitude;
           const hasJobPin = request.latitude != null && request.longitude != null;
@@ -1156,7 +1156,7 @@ export function MarketplaceScreen(p: Props) {
                   <Text style={{ color: "#15251E", fontWeight: "800", marginTop: 16 }}>★ {rating?.overallIsRated ? rating.overall.toFixed(1) : "New Provider"} · {rating?.overallReviewCount ?? 0} reviews</Text>
                   <View style={{ backgroundColor: "#F4F7F5", borderRadius: 14, padding: 14, marginTop: 15 }}><Text style={{ color: "#66756D", fontSize: 10, fontWeight: "900" }}>PROVIDER MESSAGE</Text><Text style={{ color: "#24352D", fontSize: 14, lineHeight: 21, marginTop: 8 }}>{activeOffer.message || "I am available to assist with your request."}</Text></View>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 12 }}>
-                    {[["SKILL", matchingRequest.skillCategory], ["EXPERIENCE", "Not provided"], ["DISTANCE", "Not available"], ["AVAILABILITY", "Available now"]].map(([label,value]) => <View key={label} style={{ width: "50%", paddingVertical: 10 }}><Text style={{ color: "#829087", fontSize: 9, fontWeight: "900" }}>{label}</Text><Text style={{ color: "#24352D", fontSize: 14, fontWeight: "800", marginTop: 5 }}>{value}</Text></View>)}
+                    {[["SKILL", matchingRequest.skillCategory], ["EXPERIENCE", profile?.experience || "Not provided"], ["DISTANCE", profile?.distanceKm == null ? "Not available" : `${profile.distanceKm.toFixed(1)} km away`], ["AVAILABILITY", profile?.isAvailable ? "Available now" : "Currently unavailable"]].map(([label,value]) => <View key={label} style={{ width: "50%", paddingVertical: 10 }}><Text style={{ color: "#829087", fontSize: 9, fontWeight: "900" }}>{label}</Text><Text style={{ color: "#24352D", fontSize: 14, fontWeight: "800", marginTop: 5 }}>{value}</Text></View>)}
                   </View>
                   <View style={{ backgroundColor: "#15251E", borderRadius: 16, padding: 16, marginTop: 8 }}><Text style={{ color: "#C8D9D0", fontSize: 10, fontWeight: "900" }}>PROVIDER'S HOURLY RATE</Text><Text style={{ color: "#FFFFFF", fontSize: 26, fontWeight: "900", marginTop: 5 }}>{activeOffer.hourlyRateAtOffer == null ? "To be confirmed" : `R ${Number(activeOffer.hourlyRateAtOffer).toFixed(2)}`}<Text style={{ color: "#D4E0D9", fontSize: 12 }}> / hr</Text></Text></View>
                   <Pressable onPress={() => setShowProviderProfile(true)} style={{ paddingVertical: 16, alignItems: "center" }}><Text style={{ color: "#176B55", fontWeight: "900" }}>View full Provider profile →</Text></Pressable>
