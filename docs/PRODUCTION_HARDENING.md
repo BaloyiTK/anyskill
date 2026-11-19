@@ -18,10 +18,10 @@ This checklist is an engineering gate, not a claim that the platform is producti
 ## P0 — Authentication and authorization
 
 - [x] Enforce JWT algorithm, issuer, audience, and token type; keep short access-token expiry and refresh rotation/reuse detection.
-- [ ] Apply stricter throttling to refresh/logout and sensitive authentication endpoints, with a production-safe shared rate-limit store across replicas.
+- [x] Apply endpoint-specific throttling to refresh/logout and sensitive authentication endpoints. Production uses the shared atomic Redis rate-limit store and refuses to start when it is unavailable.
 - [ ] Audit every seeker/provider/staff route for role, ownership, suspension, deleted-account, and identity-verification enforcement.
 - [ ] Test refresh rotation races, token replay, password-reset replay, OTP brute force/resend races, account deletion, and session revocation.
-- [ ] Ensure production secrets, CORS allow-list, proxy trust, and cookie/token handling are validated at startup.
+- [ ] Complete production secret and cookie/token configuration validation. `TRUST_PROXY_HOPS` is range-validated; production now refuses to start without explicit exact HTTPS `CORS_ALLOWED_ORIGINS`.
 
 ## P1 — Notifications and background processing
 
