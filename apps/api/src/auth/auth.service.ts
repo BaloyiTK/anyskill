@@ -634,6 +634,10 @@ export class AuthService {
           liveLocationUpdatedAt: null,
         },
       });
+      // The notification lock is held, so no queued private push can be
+      // delivered after the deletion reservation commits.
+      await tx.appNotification.deleteMany({ where: { userId } });
+      await tx.pushDevice.deleteMany({ where: { userId } });
     });
 
     // Remove private files after marketplace actions have been blocked. If
