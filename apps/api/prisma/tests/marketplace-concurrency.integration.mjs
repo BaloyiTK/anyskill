@@ -155,6 +155,30 @@ test("concurrent completion decisions cannot both change the submission", async 
   assert.equal(finalJob?.status, finalSubmission?.status === "APPROVED" ? "COMPLETED" : "IN_PROGRESS");
 });
 
+
+test("database enforces one pending adjustment and completion per engagement", async () => {
+  const fixture = await createEngagementFixture("IN_PROGRESS", new Date());
+  await prisma.jobCostAdjustment.create({
+    data: { engagementId: fixture.jobId, requestedHours: "1.00", hourlyRate: "250.00", requestedAmount: "250.00", reason: "First pending request" },
+  });
+  await assert.rejects(
+    prisma.jobCostAdjustment.create({
+      data: { engagementId: fixture.jobId, requestedHours: "2.00", hourlyRate: "250.00", requestedAmount: "500.00", reason: "Duplicate pending request" },
+    }),
+    (error) => error?.code === "P2002",
+  );
+
+  await prisma.jobCompletionSubmission.create({
+    data: { engagementId: fixture.jobId, providerId: fixture.providerId, notes: "First pending completion" },
+  });
+  await assert.rejects(
+    prisma.jobCompletionSubmission.create({
+      data: { engagementId: fixture.jobId, providerId: fixture.providerId, notes: "Duplicate pending completion" },
+    }),
+    (error) => error?.code === "P2002",
+  );
+});
+
 test("concurrent provider selections produce exactly one selected offer", async () => {
   const fixture = await createFixture();
   const select = (responseId) => prisma.$transaction(async (tx) => {
