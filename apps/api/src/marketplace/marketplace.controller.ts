@@ -132,6 +132,7 @@ export class MarketplaceController {
 
 
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("marketplace/requests/:requestId/completion")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("PROVIDER_SUBMIT_COMPLETION")
