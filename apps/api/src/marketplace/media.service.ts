@@ -217,7 +217,7 @@ export class MediaService {
     } catch {
       await this.prisma.mediaAsset.updateMany({
         where: { id: asset.id, userId, status: "VERIFYING", verificationStartedAt: now },
-        data: { status: "PENDING", verificationStartedAt: null },
+        data: { status: "EXPIRED", verificationStartedAt: null },
       });
       throw new BadRequestException("Cloudinary has not received this image. Upload it and try again.");
     }
@@ -354,10 +354,10 @@ export class MediaService {
       data: { status: "PENDING", verificationStartedAt: null },
     });
     const expired = await this.prisma.mediaAsset.findMany({
-      where: { status: "PENDING", expiresAt: { lte: now } },
+      where: { status: { in: ["PENDING", "EXPIRED"] }, expiresAt: { lte: now } },
       orderBy: { expiresAt: "asc" },
       take: 5,
-      select: { id: true, objectKey: true, purpose: true },
+      select: { id: true, objectKey: true, purpose: true, status: true },
     });
     if (expired.length === 0) return 0;
     this.ensureConfigured();
@@ -387,7 +387,7 @@ export class MediaService {
           throw new Error("Cloudinary did not confirm expired asset deletion.");
         }
         const removed = await this.prisma.mediaAsset.deleteMany({
-          where: { id: asset.id, status: "PENDING", expiresAt: { lte: now } },
+          where: { id: asset.id, status: asset.status, expiresAt: { lte: now } },
         });
         return removed.count === 1;
       }));
