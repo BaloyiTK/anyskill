@@ -503,17 +503,40 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const continueCurrent = async () => {
     if (active === "Profile") {
       if (!accountType) { setError("Choose Individual or Business before continuing."); return; }
-      if (await save("profile")) setActive("Verification");
+      if (!await save("profile")) return;
+      // Trust the API's canonical required-field validation, not the presence
+      // of a successful draft-save response.
+      const latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
+      setData(latest);
+      if (!latest.sections?.profile) {
+        setError(accountType === "BUSINESS"
+          ? "Complete all required business and authorised contact details before continuing."
+          : "Complete your first name, last name and valid contact number before continuing.");
+        return;
+      }
+      setActive("Verification");
       return;
     }
     if (active === "Verification") {
-      setMessage("Your identity documents will be submitted together with your onboarding at the final Submit stage.");
+      if (!identityRequirementsComplete) {
+        setError(idType === "SMART_ID_CARD"
+          ? "Upload the front and back of your Smart ID card and take your live selfie before continuing."
+          : "Upload the required ID book page and take your live selfie before continuing.");
+        return;
+      }
+      setMessage("Verification details are complete. They will be submitted for administrator review at the final Submit stage.");
       setActive(isProvider ? "Skills" : "Submit");
       return;
     }
     if (active === "Skills") {
-      if (!skills.some((v) => v.category.trim())) { setError("Add at least one skill before continuing."); return; }
-      if (await save("skills")) setActive("Submit");
+      if (!await save("skills")) return;
+      const latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
+      setData(latest);
+      if (!latest.sections?.skills) {
+        setError("Add at least one valid skill before continuing.");
+        return;
+      }
+      setActive("Submit");
       return;
     }
     if (isProvider && !skills.some((v) => v.category.trim())) {
@@ -556,6 +579,12 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         setActive("Verification");
         return;
       }
+      if (providerRequired && !latest.sections?.skills) {
+        setOnboardingSubmitted(false);
+        setError("Complete at least one valid skill before submitting your Provider profile.");
+        setActive("Skills");
+        return;
+      }
       if (!identityAlreadySubmitted) {
         const identitySent = await submitIdentityVerification();
         if (!identitySent) return;
@@ -576,12 +605,13 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     : bookPage1Ready && selfieReady;
   const identityApproved = ["VERIFIED", "APPROVED", "COMPLETE", "COMPLETED"].includes(identityStatus.toUpperCase());
   const verificationComplete = identityApproved && identityRequirementsComplete;
-  const verificationPending = identitySubmitted && !identityApproved;
-  const allSkillsApproved = Boolean(data.skillReviewStatuses?.length)
-    && data.skillReviewStatuses!.every((skill) => skill.status === "APPROVED");
-  // A Provider skill stage stays in review (orange) until every submitted
-  // skill has an explicit admin approval. Missing review rows are not approval.
-  const skillsPending = isProvider && !allSkillsApproved;
+  // Show the orange review marker once the required identity evidence is
+  // complete; approval alone turns the stage green.
+  const verificationPending = !identityApproved && identityRequirementsComplete;
+  // One approved skill is sufficient to complete the Skills review stage.
+  const anySkillApproved = Boolean(data.skillReviewStatuses?.some((skill) => skill.status === "APPROVED"));
+  const allSkillsApproved = anySkillApproved;
+  const skillsPending = isProvider && skills.some((skill) => skill.category.trim()) && !anySkillApproved;
   const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, allSkillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
   const pendingStates = isProvider ? [false, !verificationComplete, skillsPending, false] : [false, !verificationComplete, false];
   const reviewForSkill = (category: string) => data.skillReviewStatuses?.find((item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"));
