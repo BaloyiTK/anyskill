@@ -128,7 +128,7 @@ export default function App() {
   const feedback = () => { setMessage(""); setError(""); };
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
 
-  const refreshHomeEligibility = async (initialMode?: string) => {
+  const refreshHomeEligibility = async (initialMode?: string, hasExistingActiveRole = false) => {
     // Profile completion controls the first screen after login. Identity
     // verification is tracked separately and must not force onboarding.
     const [profileResult, identityResult] = await Promise.allSettled([
@@ -157,7 +157,7 @@ export default function App() {
     // A draft with all fields filled is still incomplete until the user
     // explicitly submits it. Identity verification is intentionally separate.
     const requiredSectionsComplete = Boolean(
-      onboarding?.submittedAt
+      (onboarding?.submittedAt || hasExistingActiveRole)
       && onboarding.sections?.profile === true
       && (!providerRequired || onboarding.sections?.skills === true),
     );
@@ -167,13 +167,13 @@ export default function App() {
     return requiredSectionsComplete;
   };
 
-  const routeAfterAuthentication = async (initialMode?: string) => {
+  const routeAfterAuthentication = async (initialMode?: string, hasExistingActiveRole = false) => {
     setScreen("profile-check");
     setError("");
     let profileIsComplete = false;
     let profileStatusAvailable = true;
     try {
-      profileIsComplete = await refreshHomeEligibility(initialMode);
+      profileIsComplete = await refreshHomeEligibility(initialMode, hasExistingActiveRole);
     } catch (e) {
       // Do not trap returning users in onboarding because a profile-status
       // request is temporarily unavailable. Protected actions remain gated
@@ -191,7 +191,10 @@ export default function App() {
     setActiveTab("home");
     setScreen("dashboard");
     try {
-      await refreshHomeEligibility(account?.initialMode);
+      await refreshHomeEligibility(
+        account?.initialMode,
+        account?.seekerRoleStatus === "ACTIVE" || account?.providerRoleStatus === "ACTIVE",
+      );
     } catch (e) {
       // Home remains available even if the profile-status endpoint is down.
       setProfileComplete(false);
@@ -231,7 +234,10 @@ export default function App() {
     setProfileComplete(false);
 
     // Returning users go directly to Home once their required profile sections are submitted.
-    await routeAfterAuthentication(me.initialMode);
+    await routeAfterAuthentication(
+      me.initialMode,
+      me.seekerRoleStatus === "ACTIVE" || me.providerRoleStatus === "ACTIVE",
+    );
   };
 
   const verifyEmailFromLink = async (url: string) => {
