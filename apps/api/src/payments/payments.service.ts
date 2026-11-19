@@ -11,7 +11,7 @@ import {
   PaymentStatus,
   Prisma,
 } from "@prisma/client";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../database/prisma.service";
 
 export interface CreatePaymentOperationInput {
@@ -84,7 +84,7 @@ export class PaymentsService {
           status: PaymentOperationStatus.PENDING,
         },
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   /**
@@ -129,7 +129,7 @@ export class PaymentsService {
         if (!payment) throw new NotFoundException("Payment record was not found.");
       }
 
-      const entryGroupId = crypto.randomUUID();
+      const entryGroupId = randomUUID();
       await tx.financialLedgerEntry.createMany({
         data: normalizedLines.map((line, index) => ({
           entryGroupId,
@@ -146,7 +146,7 @@ export class PaymentsService {
         where: { entryGroupId },
         orderBy: { id: "asc" },
       });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   private async assertOperationAllowed(
