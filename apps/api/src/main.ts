@@ -113,8 +113,13 @@ class ApiExceptionFilter implements ExceptionFilter {
     const statusCode = exception instanceof HttpException ? exception.getStatus() : 500;
     const errorName = exception instanceof Error ? exception.name : "UnknownError";
     const rawMessage = exception instanceof Error ? exception.message : String(exception);
-    const message = redactLogText(rawMessage);
-    const stack = exception instanceof Error && exception.stack
+    const production = process.env.NODE_ENV === "production";
+    // Production logs must not copy arbitrary exception text or stack traces:
+    // ORM/SDK errors can embed emails, user input, credentials or provider data.
+    const message = production
+      ? (statusCode >= 500 ? "Internal server error." : "Request rejected.")
+      : redactLogText(rawMessage);
+    const stack = !production && exception instanceof Error && exception.stack
       ? redactLogText(exception.stack)
       : undefined;
     const path = (request.originalUrl ?? request.url ?? "").split("?")[0];
