@@ -625,7 +625,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const allSkillsApproved = anySkillApproved;
   const skillsPending = isProvider && skills.some((skill) => skill.category.trim()) && !anySkillApproved;
   const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, allSkillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
-  const pendingStates = isProvider ? [false, !verificationComplete, skillsPending, false] : [false, !verificationComplete, false];
+  const pendingStates = isProvider ? [false, verificationPending, skillsPending, false] : [false, verificationPending, false];
   const reviewForSkill = (category: string) => data.skillReviewStatuses?.find((item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"));
   const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills)] : [])].filter(Boolean).length;
   const completionPercentage = Math.round((completedSectionCount / (isProvider ? 2 : 1)) * 100);
