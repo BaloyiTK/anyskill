@@ -248,6 +248,19 @@ export function MarketplaceScreen(p: Props) {
     } finally { setSelectingOfferId(null); }
   };
 
+  const withdrawProviderOffer = async (requestId: string, responseId: string) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/offers/${responseId}/withdraw`, { method: "POST" }, true);
+      setNotice("Your offer has been withdrawn. AnySkill will continue matching if no other offers remain.");
+      setIncomingRequestId(null);
+      await loadRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not withdraw your Provider offer.");
+      await loadRequests();
+    } finally { setJobActionBusy(false); }
+  };
+
   const submitEstimate = async (requestId: string) => {
     setJobActionBusy(true); setError(""); setNotice("");
     try {
@@ -1192,7 +1205,10 @@ export function MarketplaceScreen(p: Props) {
                 {request.distanceKm != null ? `${request.distanceKm.toFixed(1)} km straight-line distance to the job` : "Distance unavailable — enable fresh location sharing while Available"}
               </Text>
             </> : request.deliveryMode !== "REMOTE" ? <Text style={s.meta}>Job map and distance will appear when location coordinates are available.</Text> : <Text style={s.meta}>Remote request · no travel required.</Text>}
-            {request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
+            {request.alreadyResponded ? <>
+              <Text style={s.response}>You have already sent an offer to this Seeker.</Text>
+              {request.myResponse?.status === "OFFERED" ? <Secondary label={jobActionBusy ? "Withdrawing..." : "Withdraw my offer"} onPress={() => void withdrawProviderOffer(request.id, request.myResponse!.id)} disabled={jobActionBusy} /> : null}
+            </> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
           </View>;
         })}
         {!busy && requests.length === 0 && <Text style={s.helper}>No open requests are available right now. Pull to refresh or check again later.</Text>}
@@ -1267,9 +1283,13 @@ export function MarketplaceScreen(p: Props) {
             <Pressable onPress={() => setIncomingRequestId(null)} disabled={busy} style={{ flex: 1, minHeight: 52, borderRadius: 13, borderWidth: 1, borderColor: "#FFFFFF55", alignItems: "center", justifyContent: "center", opacity: busy ? 0.5 : 1 }}>
               <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "800" }}>Not now</Text>
             </Pressable>
-            <Pressable onPress={() => void acceptRequest(activeIncomingRequest)} disabled={busy || activeIncomingRequest.alreadyResponded} style={{ flex: 1.5, minHeight: 52, borderRadius: 13, backgroundColor: "#1677EE", alignItems: "center", justifyContent: "center", opacity: busy || activeIncomingRequest.alreadyResponded ? 0.5 : 1 }}>
-              {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "900" }}>✓  Accept request</Text>}
-            </Pressable>
+            {activeIncomingRequest.alreadyResponded && activeIncomingRequest.myResponse?.status === "OFFERED" ?
+              <Pressable onPress={() => void withdrawProviderOffer(activeIncomingRequest.id, activeIncomingRequest.myResponse!.id)} disabled={jobActionBusy} style={{ flex: 1.5, minHeight: 52, borderRadius: 13, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", opacity: jobActionBusy ? 0.5 : 1 }}>
+                <Text style={{ color: "#9B2C2C", fontSize: 13, fontWeight: "900" }}>{jobActionBusy ? "Withdrawing..." : "Withdraw my offer"}</Text>
+              </Pressable> :
+              <Pressable onPress={() => void acceptRequest(activeIncomingRequest)} disabled={busy || activeIncomingRequest.alreadyResponded} style={{ flex: 1.5, minHeight: 52, borderRadius: 13, backgroundColor: "#1677EE", alignItems: "center", justifyContent: "center", opacity: busy || activeIncomingRequest.alreadyResponded ? 0.5 : 1 }}>
+                {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "900" }}>✓  Accept request</Text>}
+              </Pressable>}
           </View>
           <Text style={{ color: "#AFC4DB", fontSize: 10, lineHeight: 15, textAlign: "center", marginTop: 11 }}>Your response goes to the Seeker. They choose their Provider. The full street address stays private at this stage.</Text>
         </ScrollView>
