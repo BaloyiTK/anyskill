@@ -678,7 +678,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
       await tx.requestMatch.updateMany({
-        where: { requestId, status: "NOTIFIED" },
+        // Both invitations and submitted offers become terminal on cancellation.
+        where: { requestId, status: { in: ["NOTIFIED", "RESPONDED"] } },
         data: { status: "EXPIRED" },
       });
       await tx.providerResponse.updateMany({
@@ -992,6 +993,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       await tx.requestMatch.updateMany({
         where: { requestId, providerId: offer.providerId },
         data: { status: "RESPONDED" },
+      });
+      // Close all other outstanding matches when this request is selected.
+      await tx.requestMatch.updateMany({
+        where: {
+          requestId,
+          providerId: { not: offer.providerId },
+          status: { in: ["NOTIFIED", "RESPONDED"] },
+        },
+        data: { status: "EXPIRED" },
       });
       await tx.appNotification.create({
         data: {
