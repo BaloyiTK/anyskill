@@ -17,6 +17,36 @@ export class HealthController {
     };
   }
 
+  // Worker readiness is separate from API readiness. Deployments should monitor
+  // this endpoint on the worker process; a missing or stale heartbeat is unhealthy.
+  @Get("worker")
+  async workerReadiness(): Promise<{
+    status: "healthy";
+    service: "anyskill-marketplace-worker";
+    lastSuccessAt: string | null;
+    consecutiveFailures: number;
+    timestamp: string;
+  }> {
+    const heartbeat = await this.prisma.workerHeartbeat.findUnique({ where: { name: "marketplace" } });
+    const stale = !heartbeat || Date.now() - heartbeat.heartbeatAt.getTime() > 60_000;
+    if (!heartbeat || stale || heartbeat.status === "DEGRADED") {
+      throw new ServiceUnavailableException({
+        status: "not_ready",
+        service: "anyskill-marketplace-worker",
+        lastHeartbeatAt: heartbeat?.heartbeatAt.toISOString() ?? null,
+        consecutiveFailures: heartbeat?.consecutiveFailures ?? null,
+        lastErrorCode: heartbeat?.lastErrorCode ?? null,
+      });
+    }
+    return {
+      status: "healthy",
+      service: "anyskill-marketplace-worker",
+      lastSuccessAt: heartbeat.lastSuccessAt?.toISOString() ?? null,
+      consecutiveFailures: heartbeat.consecutiveFailures,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
   // Readiness: only route traffic to this instance when its database
   // connection is usable. Migration compatibility is enforced by deployment
   // (db:deploy) and is not inferred from a successful SELECT 1.
