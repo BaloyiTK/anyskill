@@ -64,7 +64,7 @@ export class MarketplaceController {
   confirmMediaUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: ConfirmMediaUploadDto) { return this.media.confirmUpload(user.id, dto.assetId); }
 
   @Get("marketplace/media/:assetId/url")
-  getEvidenceUrl(@CurrentUser() user: AuthenticatedUser, @Param("assetId") assetId: string) { return this.media.getEvidenceUrl(user.id, assetId); }
+  getEvidenceUrl(@CurrentUser() user: AuthenticatedUser, @Param("assetId", new ParseUUIDPipe()) assetId: string) { return this.media.getEvidenceUrl(user.id, assetId); }
 
   @Get("marketplace/skills")
   listSkills(@Query("q") query?: string) { return this.marketplace.listSkills(query ?? ""); }
