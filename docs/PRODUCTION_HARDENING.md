@@ -33,8 +33,8 @@ This checklist is an engineering gate, not a claim that the platform is producti
 ## P1 — Data integrity and marketplace lifecycle
 
 - [x] Audit and serialize JobEngagement lifecycle transitions. Estimate submission/decision, work start/pause/resume, additional-hours request/decision, and completion submission/decision now acquire the same PostgreSQL transaction-scoped engagement lock before reading state and writing outcomes.
-- [ ] Add database constraints for impossible states and unique business invariants.
-- [x] Add PostgreSQL concurrency integration tests for competing estimate submissions, duplicate pending additional-hours requests, and competing completion decisions. Completion evidence ownership, timer pause/resume race coverage, and review uniqueness remain additional test cases.
+- [x] Add partial unique database indexes allowing at most one PENDING additional-hours adjustment and one PENDING completion submission per engagement. Migration `20261119173000_job_lifecycle_pending_uniqueness` enforces both invariants independently of application locks.
+- [x] Add PostgreSQL concurrency integration tests for competing estimate submissions, duplicate pending additional-hours requests, and competing completion decisions. The integration suite also verifies both partial unique indexes. Completion evidence ownership, timer pause/resume race coverage, and review uniqueness remain additional test cases.
 - [ ] Verify cancellation/withdrawal behavior does not leave active matches or engagements behind.
 
 ## P1 — API and infrastructure
