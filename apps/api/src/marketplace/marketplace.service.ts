@@ -1543,24 +1543,19 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     // A stale SENDING claim is an ambiguous external side effect: Expo may
     // have accepted the push immediately before the worker crashed. Never
     // automatically resend it, because that can deliver duplicate pushes.
-    // If at least one Expo ticket was durably recorded, preserve SENT; otherwise
-    // move to UNKNOWN for explicit reconciliation rather than blind retry.
+    // A notification can target more than one 100-device Expo batch. Even
+    // when some tickets were persisted, a crash may have interrupted later
+    // batches. Keep the notification UNKNOWN and preserve receipts for
+    // reconciliation; never infer whole-notification success from partial tickets.
     const recovered = await this.prisma.$executeRaw`
       UPDATE app_notifications AS notification
-      SET delivery_status = CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM push_notification_receipts AS receipt
-              WHERE receipt.notification_id = notification.id
-            ) THEN 'SENT'::"NotificationDeliveryStatus"
-            ELSE 'UNKNOWN'::"NotificationDeliveryStatus"
-          END,
+      SET delivery_status = 'UNKNOWN'::"NotificationDeliveryStatus",
           sending_started_at = NULL
       WHERE notification.delivery_status = 'SENDING'::"NotificationDeliveryStatus"
         AND notification.sending_started_at < ${new Date(Date.now() - 2 * 60_000)}
     `;
     if (recovered > 0) {
-      this.logger.warn(`Moved ${recovered} stale notification claim(s) to SENT/UNKNOWN; UNKNOWN records require reconciliation and are not automatically resent.`);
+      this.logger.warn(`Moved ${recovered} stale notification claim(s) to UNKNOWN; existing Expo tickets are preserved for reconciliation and notifications are not automatically resent.`);
     }
   }
 
