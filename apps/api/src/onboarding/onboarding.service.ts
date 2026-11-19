@@ -236,8 +236,17 @@ export class OnboardingService {
   async submit(userId: string) {
     const [onboarding, user] = await Promise.all([
       this.get(userId),
-      this.prisma.user.findUnique({ where: { id: userId }, select: { initialMode: true } }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { initialMode: true, identityVerification: true },
+      }),
     ]);
+    // The mobile flow submits identity evidence immediately before this
+    // endpoint. Enforce the same rule server-side so callers cannot bypass
+    // the Verification stage and submit an onboarding profile directly.
+    if (!user || !["PENDING", "UNDER_REVIEW", "REQUIRES_INFORMATION", "VERIFIED"].includes(user.identityVerification)) {
+      throw new BadRequestException("Complete and submit identity verification before submitting your onboarding profile.");
+    }
     await this.assertOwnedReadyAssets(userId, {
       profile: (onboarding.profile ?? {}) as Record<string, unknown>,
       skills: (Array.isArray(onboarding.skills) ? onboarding.skills : []) as unknown[],
