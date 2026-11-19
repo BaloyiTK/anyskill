@@ -716,6 +716,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (!request) throw new NotFoundException("This service request could not be found.");
       if (request.status !== "OPEN") throw new ConflictException("This service request is no longer available.");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${providerId}))`;
 
       const match = await tx.requestMatch.findUnique({
         where: { requestId_providerId: { requestId, providerId } },
@@ -772,11 +773,17 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }
       if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider decisions.");
 
-      const offer = await tx.providerResponse.findFirst({
+      const candidateOffer = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId },
+        select: { providerId: true },
+      });
+      if (!candidateOffer?.providerId) throw new NotFoundException("This Provider offer could not be found.");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${candidateOffer.providerId}))`;
+      const offer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, providerId: candidateOffer.providerId },
         select: { id: true, providerId: true, status: true },
       });
-      if (!offer || !offer.providerId) throw new NotFoundException("This Provider offer could not be found.");
+      if (!offer || !offer.providerId) throw new ConflictException("This Provider offer is no longer available.");
       if (offer.status === "SELECTED" || offer.status === "WITHDRAWN") {
         throw new ConflictException("This Provider offer is no longer available to decline.");
       }
@@ -844,6 +851,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (!request) throw new NotFoundException("This service request could not be found.");
       if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider decisions.");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${providerId}))`;
 
       const offer = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId, providerId },
