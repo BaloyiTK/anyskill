@@ -3,7 +3,7 @@ import * as Notifications from "expo-notifications";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { MapPinPicker } from "./MapPinPicker";
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
 import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
@@ -36,7 +36,7 @@ type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[];
 type JobEngagement = { id: string; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
-  deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null;
+  deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null; latitude: number | null; longitude: number | null;
   status: string; createdAt: string; matchingStartedAt: string; preferredStartAt: string | null; matchingWave: number; matchingNextAt: string | null; matchingExhaustedAt: string | null; _count?: { matches: number }; jobEngagement: JobEngagement | null;
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
@@ -77,6 +77,7 @@ export function MarketplaceScreen(p: Props) {
   const [activeOfferId, setActiveOfferId] = useState<string | null>(null);
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
+  const [journeyScreen, setJourneyScreen] = useState<{title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string}|null>(null);
   const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>([]);
   const [clockNow, setClockNow] = useState(Date.now());
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
@@ -223,7 +224,17 @@ export function MarketplaceScreen(p: Props) {
       await apiRequest(`/marketplace/requests/${requestId}/select-provider`, {
         method: "POST", body: JSON.stringify({ responseId }),
       }, true);
-      setNotice("Provider selected. The request is now closed to further offers.");
+      const selectedRequest = myRequests.find((item) => item.id === requestId);
+      const selectedOffer = selectedRequest?.providerResponses.find((offer) => offer.id === responseId);
+      setJourneyScreen({
+        title: selectedRequest?.title ?? matchingRequest?.title ?? "Your service",
+        location: selectedRequest?.location ?? matchingRequest?.location ?? null,
+        latitude: selectedRequest?.latitude ?? null,
+        longitude: selectedRequest?.longitude ?? null,
+        providerName: selectedOffer?.provider.providerProfile?.publicName ?? "Your selected Provider",
+      });
+      setNotice("Provider selected. Your request is now closed to further offers.");
+      setActiveOfferId(null);
       setMatchingRequest(null);
       await loadMyRequests();
     } catch (e) {
@@ -1189,6 +1200,40 @@ export function MarketplaceScreen(p: Props) {
           </>);
         })() : null}
       </View>
+    <Modal visible={journeyScreen !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setJourneyScreen(null)}>
+      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 22, paddingTop: 58, paddingBottom: 28 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={{ color: "#15251E", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
+          <Pressable onPress={() => setJourneyScreen(null)}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
+        </View>
+        <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, marginTop: 28 }}>PROVIDER SELECTED</Text>
+        <Text style={{ color: "#15251E", fontSize: 28, lineHeight: 34, fontWeight: "900", marginTop: 8 }}>Your journey starts here</Text>
+        <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20, marginTop: 7 }}>You selected {journeyScreen?.providerName}. Review the destination and open navigation when you are ready.</Text>
+        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#E1E8E3", padding: 16, marginTop: 22 }}>
+          <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE LOCATION</Text>
+          <Text style={{ color: "#15251E", fontSize: 17, fontWeight: "900", marginTop: 7 }}>{journeyScreen?.title}</Text>
+          <Text style={{ color: "#66756D", fontSize: 13, marginTop: 6 }}>{journeyScreen?.location || "Pinned service destination"}</Text>
+        </View>
+        {journeyScreen?.latitude != null && journeyScreen.longitude != null ? (
+          <>
+            <View style={{ marginTop: 18, borderRadius: 16, overflow: "hidden" }}>
+              <MapPinPicker latitude={journeyScreen.latitude} longitude={journeyScreen.longitude} selectedLatitude={journeyScreen.latitude} selectedLongitude={journeyScreen.longitude} onSelect={() => undefined} readOnly />
+            </View>
+            <Pressable onPress={() => { const url = `https://www.google.com/maps/dir/?api=1&destination=${journeyScreen.latitude},${journeyScreen.longitude}&travelmode=driving`; void Linking.openURL(url).catch(() => setError("Could not open your maps application.")); }} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", marginTop: 18 }}>
+              <Text style={{ color: "#FFFFFF", fontSize: 14, fontWeight: "900" }}>Start navigation</Text>
+            </Pressable>
+          </>
+        ) : (
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 16, marginTop: 18 }}>
+            <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20 }}>This request does not have a physical destination. No travel navigation is required.</Text>
+          </View>
+        )}
+        <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 14, marginTop: 18 }}>
+          <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>WHAT HAPPENS NEXT</Text>
+          <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>The Provider must complete the assessment and submit an estimate. Work starts only after the estimate is approved in AnySkill.</Text>
+        </View>
+      </View>
+    </Modal>
     </Modal>
   </View>;
 }
