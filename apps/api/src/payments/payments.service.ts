@@ -149,6 +149,31 @@ export class PaymentsService {
       throw new UnprocessableEntityException("PayGate notification fields are invalid.");
     }
 
+    const rawFields = new URLSearchParams(input.rawPayload);
+    const rawKeys = [...rawFields.keys()];
+    if (new Set(rawKeys).size !== rawKeys.length) {
+      throw new UnprocessableEntityException("PayGate notification contains duplicate form fields.");
+    }
+    const expectedFields: Record<string, string> = {
+      PAYGATE_ID: rawFields.get("PAYGATE_ID") ?? "",
+      PAY_REQUEST_ID: p.payRequestId,
+      REFERENCE: p.reference,
+      TRANSACTION_STATUS: String(p.transactionStatus),
+      RESULT_CODE: String(p.resultCode),
+      AUTH_CODE: p.authCode,
+      CURRENCY: p.currency,
+      AMOUNT: p.amountMinor,
+      TRANSACTION_ID: p.transactionId,
+      RISK_INDICATOR: p.riskIndicator ?? "",
+      PAY_METHOD: p.payMethod ?? "",
+      PAY_METHOD_DETAIL: p.payMethodDetail ?? "",
+    };
+    if (!/^[0-9]{1,20}$/.test(expectedFields.PAYGATE_ID)
+      || !/^[a-f0-9]{32}$/i.test(rawFields.get("CHECKSUM") ?? "")
+      || Object.entries(expectedFields).some(([field, value]) => rawFields.get(field) !== value)) {
+      throw new UnprocessableEntityException("Normalized PayGate fields do not match the received form body.");
+    }
+
     const payloadHash = createHash("sha256").update(input.rawPayload, "utf8").digest("hex");
     const normalizedPayload: Prisma.InputJsonObject = {
       payRequestId: p.payRequestId,
