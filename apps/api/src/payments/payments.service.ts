@@ -25,7 +25,7 @@ export interface CreatePaymentOperationInput {
 
 export interface RecordPaymentOperationResultInput {
   operationId: string;
-  outcome: PaymentOperationStatus.SUCCEEDED | PaymentOperationStatus.FAILED | PaymentOperationStatus.UNKNOWN;
+  outcome: Exclude<PaymentOperationStatus, "PENDING">;
   gatewayReference?: string;
   failureCode?: string;
 }
