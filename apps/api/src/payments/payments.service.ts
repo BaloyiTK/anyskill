@@ -170,7 +170,8 @@ export class PaymentsService {
       PAY_METHOD: p.payMethod ?? "",
       PAY_METHOD_DETAIL: p.payMethodDetail ?? "",
     };
-    if (!/^[0-9]{1,20}$/.test(expectedFields.PAYGATE_ID)
+    const paygateId = rawFields.get("PAYGATE_ID");
+    if (paygateId === null || !/^[0-9]{1,20}$/.test(paygateId)
       || !/^[a-f0-9]{32}$/i.test(rawFields.get("CHECKSUM") ?? "")
       || Object.entries(expectedFields).some(([field, value]) => rawFields.get(field) !== value)) {
       throw new UnprocessableEntityException("Normalized PayGate fields do not match the received form body.");
