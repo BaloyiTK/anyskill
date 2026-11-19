@@ -135,3 +135,11 @@ Both processes must use the same production database and compatible environment 
 ## Exit criteria
 
 Production readiness is not declared until all P0 items are complete, the P1 items affecting the deployed architecture are complete, CI passes, PostgreSQL concurrency tests pass, and staging fault/load tests demonstrate recovery. A successful normal user journey alone is not sufficient.
+
+### Push-device ownership authorization
+
+- Push-token registration is limited to 10 requests per minute per authenticated account/IP throttle tracker.
+- A token already associated with another user cannot be reassigned by a second authenticated account.
+- Token ownership checks and registration are serialized with a PostgreSQL transaction-scoped advisory lock, preventing concurrent first-claim races across API replicas.
+- Re-registering a token from its existing owner refreshes platform/last-seen metadata without changing ownership.
+- Remaining staging verification: exercise two-account token-claim races and confirm notifications continue to reach only the owning account.
