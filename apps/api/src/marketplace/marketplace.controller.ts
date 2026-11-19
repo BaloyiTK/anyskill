@@ -111,6 +111,16 @@ export class MarketplaceController {
     return this.marketplace.cancelRequest(user.id, requestId);
   }
 
+  @Post("marketplace/requests/:requestId/offers/:responseId/withdraw")
+  @RequireMarketplaceRole("PROVIDER")
+  withdrawProviderOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Param("responseId", new ParseUUIDPipe()) responseId: string,
+  ) {
+    return this.marketplace.withdrawProviderOffer(user.id, requestId, responseId);
+  }
+
   @Post("marketplace/requests/:requestId/schedule")
   @RequireMarketplaceRole("SEEKER")
   scheduleRequest(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: ScheduleServiceRequestDto) {
