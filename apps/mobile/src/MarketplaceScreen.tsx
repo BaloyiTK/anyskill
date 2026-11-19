@@ -34,6 +34,11 @@ type RequestItem = {
 type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
 type JobEngagement = { id: string; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
+type ProviderJob = JobEngagement & {
+  request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
+  seeker?: { firstName: string; lastName: string; profilePhotoUrl: string | null; phone: string | null; identityVerified: boolean };
+};
+type ServiceChatMessage = { id: string; senderId: string; body: string; createdAt: string };
 type SeekerRequest = {
   id: string; title: string; skillCategory: string; description: string;
   deliveryMode: "ONSITE" | "REMOTE" | "EITHER"; location: string | null; latitude: number | null; longitude: number | null;
@@ -80,7 +85,13 @@ export function MarketplaceScreen(p: Props) {
   const [journeyScreen, setJourneyScreen] = useState<{title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
   const [dismissedProviderOfferIds, setDismissedProviderOfferIds] = useState<string[]>([]);
-  const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>([]);
+  const [myJobs, setMyJobs] = useState<ProviderJob[]>([]);
+  const [activeProviderJobId, setActiveProviderJobId] = useState<string | null>(null);
+  const [dismissedActiveJobIds, setDismissedActiveJobIds] = useState<string[]>([]);
+  const [serviceChatMessages, setServiceChatMessages] = useState<ServiceChatMessage[]>([]);
+  const [serviceChatDraft, setServiceChatDraft] = useState("");
+  const [serviceChatBusy, setServiceChatBusy] = useState(false);
+  const [serviceChatLoading, setServiceChatLoading] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const [estimateHours, setEstimateHours] = useState("2");
@@ -199,7 +210,7 @@ export function MarketplaceScreen(p: Props) {
       try {
         if (p.mode === "provider") {
           const requestStartedAt = Date.now();
-          const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>("/marketplace/my-jobs", {}, true);
+          const result = await apiRequest<ProviderJob>("/marketplace/my-jobs", {}, true);
           const receivedAt = Date.now();
           const serverNow = result.find((item) => item.serverNow)?.serverNow;
           if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
@@ -245,6 +256,40 @@ export function MarketplaceScreen(p: Props) {
       setProviderOfferReview((current) => current?.requestId === selectedJob.request.id ? { ...current, status: "SELECTED" } : current);
     }
   }, [p.mode, myJobs, providerOfferReview]);
+
+  useEffect(() => {
+    if (p.mode !== "provider" || providerOfferReview?.status !== "SELECTED") return;
+    const selectedJob = myJobs.find((job) => job.status !== "COMPLETED" && !dismissedActiveJobIds.includes(job.request.id));
+    if (selectedJob) setActiveProviderJobId(selectedJob.request.id);
+  }, [p.mode, myJobs, providerOfferReview, dismissedActiveJobIds]);
+
+  const loadServiceChat = useCallback(async (requestId: string) => {
+    setServiceChatLoading(true);
+    try {
+      const messages = await apiRequest<ServiceChatMessage[]>("/marketplace/requests/" + requestId + "/chat", {}, true);
+      setServiceChatMessages(messages);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load service chat."); }
+    finally { setServiceChatLoading(false); }
+  }, []);
+
+  const sendServiceChatMessage = async (requestId: string) => {
+    const body = serviceChatDraft.trim();
+    if (!body || serviceChatBusy) return;
+    setServiceChatBusy(true); setError("");
+    try {
+      await apiRequest("/marketplace/requests/" + requestId + "/chat", { method: "POST", body: JSON.stringify({ body }) }, true);
+      setServiceChatDraft("");
+      await loadServiceChat(requestId);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not send your message."); }
+    finally { setServiceChatBusy(false); }
+  };
+
+  useEffect(() => {
+    if (!activeProviderJobId || p.mode !== "provider") return;
+    void loadServiceChat(activeProviderJobId);
+    const timer = setInterval(() => { void loadServiceChat(activeProviderJobId); }, 5000);
+    return () => clearInterval(timer);
+  }, [activeProviderJobId, p.mode, loadServiceChat]);
 
   const acceptRequest = async (request: RequestItem) => {
     if (!p.verified) { p.onIdentityRequired(request.id); return; }
@@ -551,7 +596,7 @@ export function MarketplaceScreen(p: Props) {
   const loadMyJobs = useCallback(async () => {
     try {
       const requestStartedAt = Date.now();
-      const result = await apiRequest<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>("/marketplace/my-jobs", {}, true);
+      const result = await apiRequest<ProviderJob>("/marketplace/my-jobs", {}, true);
       const receivedAt = Date.now();
       const serverNow = result.find((item) => item.serverNow)?.serverNow;
       if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
@@ -1280,7 +1325,7 @@ export function MarketplaceScreen(p: Props) {
             {providerOfferReview?.status === "SELECTED" ? "The Seeker selected you!" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "This offer is no longer active" : "The Seeker is reviewing your offer"}
           </Text>
           <Text style={{ color: "#66756D", fontSize: 14, lineHeight: 22, textAlign: "center", marginTop: 12 }}>
-            {providerOfferReview?.status === "SELECTED" ? "Congratulations. Your offer was accepted. Open your selected jobs to continue with the assessment and estimate." : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "The Seeker did not proceed with this offer. You can continue exploring other available requests." : "Your offer has been sent successfully to the Skill Seeker. Please wait while they compare the offers and make their decision. You do not need to accept again."}
+            {providerOfferReview?.status === "SELECTED" ? "Congratulations. Your offer was accepted. Your active service workspace is opening with the Seeker's details, route and chat." : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "The Seeker did not proceed with this offer. You can continue exploring other available requests." : "Your offer has been sent successfully to the Skill Seeker. Please wait while they compare the offers and make their decision. You do not need to accept again."}
           </Text>
         </View>
         <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#E1E8E3", padding: 18, marginTop: 30 }}>
@@ -1290,7 +1335,7 @@ export function MarketplaceScreen(p: Props) {
           <Text style={{ color: "#66756D", fontSize: 12, marginTop: 12 }}>Sent to {providerOfferReview?.seekerName}</Text>
           <View style={{ backgroundColor: "#F1F6F2", borderRadius: 11, padding: 12, marginTop: 15 }}>
             <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>{providerOfferReview?.status === "SELECTED" ? "SELECTED BY SEEKER" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "NOT SELECTED" : "PENDING SEEKER DECISION"}</Text>
-            <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{providerOfferReview?.status === "OFFERED" ? "AnySkill will update this screen when the Seeker makes a decision. Keep your app available for updates." : providerOfferReview?.status === "SELECTED" ? "You can now continue from Selected jobs and assessments." : "This offer has been closed. You can still respond to other matched requests."}</Text>
+            <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{providerOfferReview?.status === "OFFERED" ? "AnySkill will update this screen when the Seeker makes a decision. Keep your app available for updates." : providerOfferReview?.status === "SELECTED" ? "Your accepted service workspace is ready." : "This offer has been closed. You can still respond to other matched requests."}</Text>
           </View>
         </View>
         {providerOfferReview?.status === "OFFERED" ? <Pressable onPress={() => void withdrawProviderOffer()} disabled={jobActionBusy} style={{ borderWidth: 1, borderColor: "#E7B8B4", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 18, backgroundColor: "#FFF8F7", opacity: jobActionBusy ? 0.55 : 1 }}>
@@ -1300,6 +1345,57 @@ export function MarketplaceScreen(p: Props) {
           <Text style={{ color: "#176B55", fontWeight: "900" }}>Back to marketplace</Text>
         </Pressable>
       </View>
+    </Modal>
+    <Modal visible={p.mode === "provider" && activeProviderJobId !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (activeProviderJobId) setDismissedActiveJobIds((ids) => [...ids, activeProviderJobId]); setActiveProviderJobId(null); }}>
+      {(() => {
+        const job = myJobs.find((item) => item.request.id === activeProviderJobId);
+        if (!job) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F5F7F5" }}><ActivityIndicator color="#176B55" /><Text style={{ color: "#66756D", marginTop: 12 }}>Loading your accepted service...</Text></View>;
+        const seekerName = [job.seeker?.firstName, job.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
+        const destinationReady = job.request.latitude != null && job.request.longitude != null;
+        return <ScrollView style={{ flex: 1, backgroundColor: "#F5F7F5" }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 56, paddingBottom: 36 }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>ANYSKILL · ACTIVE SERVICE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>Service accepted</Text></View>
+            <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
+          </View>
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 18 }}>
+            <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE REQUEST</Text>
+            <Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900", marginTop: 6 }}>{job.request.title}</Text>
+            <Text style={{ color: "#176B55", fontWeight: "800", fontSize: 12, marginTop: 4 }}>{job.status.replaceAll("_", " ")}</Text>
+            <Text style={{ color: "#53645A", fontSize: 13, lineHeight: 20, marginTop: 10 }}>{job.request.description}</Text>
+            {job.request.instructions ? <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 9 }}>Instructions: {job.request.instructions}</Text> : null}
+            <Text style={{ color: "#66756D", fontSize: 12, marginTop: 12 }}>Agreed rate: R {Number(job.hourlyRate).toFixed(2)} / hour · Assessment fee: R {Number(job.assessmentFee).toFixed(2)}</Text>
+          </View>
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
+            <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SKILL SEEKER</Text>
+            <Text style={{ color: "#15251E", fontSize: 20, fontWeight: "900", marginTop: 7 }}>{seekerName}</Text>
+            <Text style={{ color: job.seeker?.identityVerified ? "#176B55" : "#8A6A27", fontSize: 12, fontWeight: "800", marginTop: 4 }}>{job.seeker?.identityVerified ? "✓ Identity verified" : "Identity not verified"}</Text>
+            {job.seeker?.phone ? <Pressable onPress={() => { void Linking.openURL("tel:" + job.seeker?.phone).catch(() => setError("Could not open the phone dialler.")); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900", textAlign: "center" }}>Call Seeker · {job.seeker.phone}</Text></Pressable> : <Text style={{ color: "#66756D", fontSize: 12, marginTop: 10 }}>No phone number is available for this Seeker.</Text>}
+          </View>
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
+            <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>ROUTE TO SERVICE LOCATION</Text>
+            <Text style={{ color: "#15251E", fontSize: 15, fontWeight: "800", marginTop: 7 }}>{job.request.location || "Pinned service destination"}</Text>
+            {destinationReady ? <>
+              <View style={{ marginTop: 12, borderRadius: 14, overflow: "hidden" }}>
+                <MapPinPicker latitude={job.request.latitude!} longitude={job.request.longitude!} selectedLatitude={job.request.latitude} selectedLongitude={job.request.longitude} onSelect={() => undefined} readOnly />
+              </View>
+              <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17 }}>The map marks the Seeker's service destination. Start navigation to get the live route and turn-by-turn directions from your current location.</Text>
+              <Pressable onPress={() => { const url = "https://www.google.com/maps/dir/?api=1&destination=" + job.request.latitude + "," + job.request.longitude + "&travelmode=driving"; void Linking.openURL(url).catch(() => setError("Could not open your navigation application.")); }} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Start navigation</Text></Pressable>
+            </> : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>This is a remote service or has no pinned physical destination. Navigation is not required.</Text>}
+          </View>
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}><Text style={{ color: "#15251E", fontSize: 17, fontWeight: "900" }}>Service chat</Text><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900" }}>ACTIVE</Text></View>
+            <Text style={{ color: "#66756D", fontSize: 11, marginTop: 4 }}>Messages are private to this Seeker and the selected Provider.</Text>
+            <View style={{ maxHeight: 260, marginTop: 12 }}>
+              {serviceChatLoading && serviceChatMessages.length === 0 ? <ActivityIndicator color="#176B55" /> : serviceChatMessages.length === 0 ? <Text style={{ color: "#66756D", fontSize: 12, paddingVertical: 14 }}>No messages yet. Send the Seeker a message to coordinate arrival and access.</Text> : serviceChatMessages.map((message) => <View key={message.id} style={{ alignSelf: message.senderId === job.providerId ? "flex-end" : "flex-start", maxWidth: "88%", backgroundColor: message.senderId === job.providerId ? "#E5F3EA" : "#F1F4F2", borderRadius: 13, padding: 10, marginBottom: 8 }}><Text style={{ color: "#24352C", fontSize: 12, lineHeight: 18 }}>{message.body}</Text><Text style={{ color: "#718078", fontSize: 9, marginTop: 4 }}>{new Date(message.createdAt).toLocaleString()}</Text></View>)}
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>
+              <TextInput value={serviceChatDraft} onChangeText={setServiceChatDraft} placeholder="Message the Seeker..." multiline style={{ flex: 1, minHeight: 46, maxHeight: 100, borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: "#15251E" }} />
+              <Pressable disabled={serviceChatBusy || !serviceChatDraft.trim()} onPress={() => void sendServiceChatMessage(job.request.id)} style={{ backgroundColor: "#176B55", opacity: serviceChatBusy || !serviceChatDraft.trim() ? 0.5 : 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 15 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{serviceChatBusy ? "..." : "Send"}</Text></Pressable>
+            </View>
+          </View>
+          <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Back to selected jobs</Text></Pressable>
+        </ScrollView>;
+      })()}
     </Modal>
     <Modal visible={journeyScreen !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setJourneyScreen(null)}>
       <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 22, paddingTop: 58, paddingBottom: 28 }}>
