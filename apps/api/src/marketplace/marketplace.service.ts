@@ -678,6 +678,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             body: "The Skill Seeker has cancelled this service request. No further action is required.",
             data: { type: "REQUEST_CANCELLED", requestId },
           })),
+          skipDuplicates: true,
         });
       }
       return { success: true, requestId, status: "CANCELLED" };
@@ -1693,6 +1694,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             body: "A new " + request.skillCategory + " request is available. Tap to view the Seeker and job details.",
             data: { type: "MATCHED_REQUEST", requestId, wave },
           })),
+          skipDuplicates: true,
         });
       }
 
