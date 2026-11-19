@@ -369,9 +369,29 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async registerPushDevice(userId: string, input: RegisterPushDeviceDto) {
-    if (!/^(Expo|Exponent)PushToken\[[^\]]+\]$/.test(input.expoPushToken)) {
+    if (!/^(Expo|Exponent)PushToken\\[[^\\]]+\\]$/.test(input.expoPushToken)) {
       throw new ConflictException("The device did not provide a valid Expo push token.");
     }
+
+    // A push token is a private delivery address. Never let another account
+    // claim it, and serialize first-time claims across API replicas.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.expoPushToken}, 2))`;
+      const existing = await tx.pushDevice.findUnique({
+        where: { expoPushToken: input.expoPushToken },
+        select: { id: true, userId: true },
+      });
+      if (existing && existing.userId !== userId) {
+        throw new ForbiddenException("This device token is already registered to another account.");
+      }
+      return tx.pushDevice.upsert({
+        where: { expoPushToken: input.expoPushToken },
+        create: { userId, expoPushToken: input.expoPushToken, platform: input.platform },
+        update: { platform: input.platform, lastSeenAt: new Date() },
+        select: { id: true, platform: true, lastSeenAt: true },
+      });
+    });
+  }
     return this.prisma.pushDevice.upsert({
       where: { expoPushToken: input.expoPushToken },
       create: { userId, expoPushToken: input.expoPushToken, platform: input.platform },
