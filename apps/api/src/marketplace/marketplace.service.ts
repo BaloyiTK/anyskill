@@ -644,6 +644,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async submitJobCompletion(providerId: string, requestId: string, input: SubmitJobCompletionDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit completion.");
@@ -689,6 +691,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async decideJobCompletion(seekerId: string, requestId: string, submissionId: string, input: DecideJobCompletionDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can review completion.");
@@ -784,6 +788,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async submitEstimate(providerId: string, requestId: string, input: SubmitEstimateDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit this estimate.");
@@ -798,6 +804,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async decideEstimate(seekerId: string, requestId: string, input: DecideEstimateDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Job estimate not found.");
       if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide this estimate.");
@@ -811,6 +819,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async startWork(providerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
@@ -835,6 +845,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async pauseWork(providerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can pause this job.");
@@ -853,6 +865,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async resumeWork(providerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can resume this job.");
@@ -870,6 +884,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async requestAdditionalHours(providerId: string, requestId: string, input: RequestAdditionalHoursDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
@@ -894,6 +910,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async decideAdditionalHours(seekerId: string, requestId: string, adjustmentId: string, input: DecideAdditionalHoursDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide additional hours.");
