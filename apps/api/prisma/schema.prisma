@@ -129,6 +129,29 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
+enum PushReceiptStatus {
+  PENDING
+  OK
+  ERROR
+}
+
+model PushNotificationReceipt {
+  id             String            @id @default(uuid()) @db.Uuid
+  notificationId String            @db.Uuid @map("notification_id")
+  pushDeviceId   String            @db.Uuid @map("push_device_id")
+  expoTicketId   String            @unique @map("expo_ticket_id") @db.VarChar(255)
+  status         PushReceiptStatus @default(PENDING)
+  errorCode      String?           @map("error_code") @db.VarChar(100)
+  errorMessage   String?           @map("error_message") @db.VarChar(500)
+  checkedAt      DateTime?          @map("checked_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  notification   AppNotification    @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  pushDevice     PushDevice         @relation(fields: [pushDeviceId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("push_notification_receipts")
+}
+
 model User {
   id                       String                      @id @default(uuid()) @db.Uuid
   email                    String                      @unique @db.VarChar(320)
@@ -370,6 +393,7 @@ model PushDevice {
   lastSeenAt   DateTime @default(now()) @map("last_seen_at")
   createdAt    DateTime @default(now()) @map("created_at")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushReceipts PushNotificationReceipt[]
 
   @@index([userId])
   @@map("push_devices")
