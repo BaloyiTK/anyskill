@@ -201,6 +201,13 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const save = async (section: "profile" | "skills" | "portfolio"): Promise<boolean> => {
     setBusy(true); setError(""); setMessage("");
     try {
+      // Validate both coordinates before persisting the profile section. The
+      // profile and home-location endpoints are separate writes, so invalid
+      // location input must not leave the user with a misleading partial save.
+      if (section === "profile" && (homeLatitude.trim() || homeLongitude.trim())) {
+        if (!homeLatitude.trim() || !homeLongitude.trim()) throw new Error("Choose both latitude and longitude for your Home Location.");
+        if (!Number.isFinite(Number(homeLatitude)) || !Number.isFinite(Number(homeLongitude)) || Number(homeLatitude) < -90 || Number(homeLatitude) > 90 || Number(homeLongitude) < -180 || Number(homeLongitude) > 180) throw new Error("Enter valid Home Location coordinates.");
+      }
       const body = section === "profile" ? { profile: {
         accountType, marketplaceRoles: p.initialMode === "PROVIDER"
           ? ["PROVIDER", ...(alsoSeeker ? ["SEEKER" as const] : [])]
@@ -213,9 +220,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         : { portfolio: [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
       setData(result);
-      if (section === "profile" && (homeLatitude.trim() || homeLongitude.trim())) {
-        if (!homeLatitude.trim() || !homeLongitude.trim()) throw new Error("Choose both latitude and longitude for your Home Location.");
-        if (!Number.isFinite(Number(homeLatitude)) || !Number.isFinite(Number(homeLongitude)) || Number(homeLatitude) < -90 || Number(homeLatitude) > 90 || Number(homeLongitude) < -180 || Number(homeLongitude) > 180) throw new Error("Enter valid Home Location coordinates.");
+      if (section === "profile" && homeLatitude.trim() && homeLongitude.trim()) {
         await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: [address, suburb, city, province, country].filter(Boolean).join(", ") || "Saved Home Location", latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
       }
       setMessage("Your changes have been saved as a draft.");
