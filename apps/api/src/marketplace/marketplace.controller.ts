@@ -119,6 +119,7 @@ export class MarketplaceController {
   }
 
   @Post("marketplace/requests/:requestId/offers/:responseId/withdraw")
+  @RequireMarketplaceRole("PROVIDER")
   withdrawProviderOffer(
     @CurrentUser() user: AuthenticatedUser,
     @Param("requestId", new ParseUUIDPipe()) requestId: string,
