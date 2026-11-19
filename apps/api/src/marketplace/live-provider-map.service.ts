@@ -44,9 +44,12 @@ export class LiveProviderMapService {
         return;
       }
 
-      const latitude = Number(requestUrl.searchParams.get("latitude"));
-      const longitude = Number(requestUrl.searchParams.get("longitude"));
-      const radiusKm = Number(requestUrl.searchParams.get("radiusKm"));
+      const latitudeValue = requestUrl.searchParams.get("latitude");
+      const longitudeValue = requestUrl.searchParams.get("longitude");
+      const radiusValue = requestUrl.searchParams.get("radiusKm");
+      const latitude = Number(latitudeValue);
+      const longitude = Number(longitudeValue);
+      const radiusKm = Number(radiusValue);
       const key = request.headers["sec-websocket-key"];
       const connectionHeader = String(request.headers.connection ?? "").toLowerCase().split(",").map((value) => value.trim());
       const origin = request.headers.origin;
@@ -63,6 +66,10 @@ export class LiveProviderMapService {
         request.headers["sec-websocket-version"] !== "13" ||
         !validKey ||
         !originAllowed ||
+        !latitudeValue || !longitudeValue || !radiusValue ||
+        requestUrl.searchParams.getAll("latitude").length !== 1 ||
+        requestUrl.searchParams.getAll("longitude").length !== 1 ||
+        requestUrl.searchParams.getAll("radiusKm").length !== 1 ||
         !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
         !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
         ![5, 10, 20, 50].includes(radiusKm)
