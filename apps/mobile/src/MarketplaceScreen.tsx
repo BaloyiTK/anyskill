@@ -1255,7 +1255,7 @@ export function MarketplaceScreen(p: Props) {
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10 }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: "#102A43", fontSize: 13, fontWeight: "900" }}>{incomingAreaLabel || "Service area shown on map"}</Text>
-                  <Text style={{ color: "#718096", fontSize: 10, marginTop: 3 }}>Actual job location · Street address hidden</Text>
+                  <Text style={{ color: "#718096", fontSize: 10, marginTop: 3 }}>Approximate job area · Exact street address hidden</Text>
                 </View>
                 <View style={{ backgroundColor: "#EAF3FF", borderRadius: 9, paddingHorizontal: 9, paddingVertical: 7 }}>
                   <Text style={{ color: "#176BCE", fontSize: 11, fontWeight: "900" }}>{activeIncomingRequest.distanceKm != null ? `${activeIncomingRequest.distanceKm.toFixed(1)} km` : "—"}</Text>
