@@ -195,6 +195,15 @@ async function bootstrap(): Promise<void> {
     request.requestId = requestId;
 
     response.setHeader("x-request-id", requestId);
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("X-Frame-Options", "DENY");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Pragma", "no-cache");
+    if (process.env.NODE_ENV === "production") {
+      // Production traffic must terminate TLS at the trusted edge.
+      response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    }
     response.once("finish", () => {
       const durationMs = Date.now() - startedAt;
       const message = `${method} ${path} ${response.statusCode} ${durationMs}ms requestId=${requestId}`;
