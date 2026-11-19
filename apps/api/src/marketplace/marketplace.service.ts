@@ -68,7 +68,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async listSkills(query: string) {
     const profiles = await this.prisma.providerProfile.findMany({
-      where: { skillCategories: { isEmpty: false }, user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } } }, select: { skillCategories: true }, take: 2000,
+      where: { skillCategories: { isEmpty: false }, user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED", deletedAt: null } } }, select: { skillCategories: true }, take: 2000,
     });
     const counts = new Map<string, number>();
     for (const profile of profiles) for (const skill of profile.skillCategories) {
