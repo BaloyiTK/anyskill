@@ -201,7 +201,7 @@ async function loadAdminAccounts(){
  try{const rows=await request("/admin/accounts");state.accounts=Array.isArray(rows)?rows:[];renderAdminAccounts();}
  catch(e){$("#accounts-list").innerHTML="";$("#accounts-error").textContent=e.message;show($("#accounts-error"));}
 }
-function openSeparateReview(type,id){
+async function openSeparateReview(type,id){
  const item=(type==="identity"?state.identityCases:state.skillReviews).find(x=>x.id===id);if(!item)return;
  $("#decision-form").dataset.type=type;$("#decision-form").dataset.id=id;$("#decision-reason").value="";hide($("#decision-error"));
  if(type==="identity"){
