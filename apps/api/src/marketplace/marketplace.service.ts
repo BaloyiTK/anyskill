@@ -1139,7 +1139,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: next.map((provider) => ({
           userId: provider.userId,
           title: "Incoming AnySkill service request",
-          body: "A new " + request.skillCategory + " request is available. Tap to view the Seeker and job details.",
+          body: "A new " + request.skillCategory + " request is available. Open AnySkill to review details or choose Accept / Decline.",
           data: { type: "MATCHED_REQUEST", requestId, wave },
         })),
       }),
