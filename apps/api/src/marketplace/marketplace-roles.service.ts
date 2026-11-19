@@ -74,20 +74,6 @@ export class MarketplaceRolesService {
   }
 
   async submitProviderApplication(userId: string, input: ProviderApplicationInput) {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { providerRoleStatus: true },
-    });
-    if (user.providerRoleStatus === MarketplaceRoleStatus.ACTIVE) {
-      throw new ConflictException("Your Provider role is already active.");
-    }
-    if (user.providerRoleStatus === MarketplaceRoleStatus.PENDING) {
-      throw new ConflictException("Your Provider application is already awaiting review.");
-    }
-    if (user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED) {
-      throw new ForbiddenException("Provider access is suspended. Contact AnySkill support.");
-    }
-
     const applicationData = {
       publicName: input.publicName.trim(),
       skills: [...new Set(input.skills.map((value) => value.trim().toLocaleLowerCase("en-ZA")).filter(Boolean))],
@@ -99,6 +85,21 @@ export class MarketplaceRolesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-application-submit'), hashtext(${userId}))`;
+      const user = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { providerRoleStatus: true },
+      });
+      if (user.providerRoleStatus === MarketplaceRoleStatus.ACTIVE) {
+        throw new ConflictException("Your Provider role is already active.");
+      }
+      if (user.providerRoleStatus === MarketplaceRoleStatus.PENDING) {
+        throw new ConflictException("Your Provider application is already awaiting review.");
+      }
+      if (user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED) {
+        throw new ForbiddenException("Provider access is suspended. Contact AnySkill support.");
+      }
+
       await tx.providerRoleApplication.upsert({
         where: { userId },
         create: { userId, status: ProviderApplicationStatus.PENDING, applicationData },
