@@ -99,6 +99,9 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
 
+      - name: Verify production API and worker configuration gates
+        run: node scripts/check-production-config.mjs
+
       - name: Test payment operation and ledger concurrency
         run: pnpm --filter @anyskill/api test:payments
         env:
