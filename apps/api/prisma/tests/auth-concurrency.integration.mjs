@@ -95,6 +95,41 @@ test("refresh-token rotation is single-use and family revocation invalidates des
   await prisma.user.delete({ where: { id: user.id } });
 });
 
+test("concurrent identity submissions create only one pending case and notification", async () => {
+  const user = await prisma.user.create({
+    data: {
+      email: `identity-submit-race-${suffix}@example.invalid`,
+      passwordHash: "integration-test-only-not-a-real-password-hash",
+      emailVerifiedAt: new Date(),
+    },
+    select: { id: true },
+  });
+
+  const submit = () => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('identity-verification-submit'), hashtext(${user.id}))`;
+    const existing = await tx.identityVerificationCase.findFirst({
+      where: { userId: user.id, status: { in: ["SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION"] } },
+      select: { id: true },
+    });
+    if (existing) return false;
+    const created = await tx.identityVerificationCase.create({
+      data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW" },
+      select: { id: true },
+    });
+    await tx.user.update({ where: { id: user.id }, data: { identityVerification: "PENDING" } });
+    await tx.appNotification.create({
+      data: { userId: user.id, title: "Profile submitted", body: "Identity review submitted." },
+    });
+    return Boolean(created.id);
+  });
+
+  const results = await Promise.all([submit(), submit(), submit(), submit()]);
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal(await prisma.identityVerificationCase.count({ where: { userId: user.id } }), 1);
+  assert.equal(await prisma.appNotification.count({ where: { userId: user.id, title: "Profile submitted" } }), 1);
+  await prisma.user.delete({ where: { id: user.id } });
+});
+
 test("account cleanup removes registered push tokens and queued private notifications", async () => {
   const user = await prisma.user.create({
     data: {
