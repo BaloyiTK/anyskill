@@ -49,7 +49,8 @@ export async function getOrCreateIdempotencyKey(storageKey: string, payload: unk
     Crypto.CryptoDigestAlgorithm.SHA256,
     JSON.stringify(payload),
   );
-  const storageId = IDEMPOTENCY_STORAGE_PREFIX + storageKey;
+  const storageKeyHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, storageKey);
+  const storageId = IDEMPOTENCY_STORAGE_PREFIX + storageKeyHash;
   const stored = await getStoredItem(storageId);
   if (stored) {
     try {
