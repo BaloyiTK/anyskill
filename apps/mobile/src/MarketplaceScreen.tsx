@@ -307,18 +307,30 @@ export function MarketplaceScreen(p: Props) {
         if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) throw new Error("Only JPEG, PNG and WebP photos are supported.");
         const size = file.fileSize ?? 0;
         if (!size || size > 10 * 1024 * 1024) throw new Error("Each photo must be no larger than 10 MB.");
-        const reservation = await apiRequest<{assetId:string;cloudName:string;apiKey:string;timestamp:number;signature:string;publicId:string;assetFolder:string}>("/marketplace/media/uploads", {
-          method: "POST", body: JSON.stringify({ fileName: file.fileName ?? "completion-photo", contentType: mime, sizeBytes: size }),
+        const fileName = file.fileName ?? "completion-photo";
+        const uploadPayload = { fileName, contentType: mime, sizeBytes: size };
+        const idempotencyStorageKey = "completion-evidence:" + file.uri;
+        const idempotencyKey = await getOrCreateIdempotencyKey(idempotencyStorageKey, uploadPayload);
+        const reservation = await apiRequest<{
+          assetId: string; cloudName?: string; apiKey?: string; timestamp?: number; signature?: string;
+          publicId?: string; assetFolder?: string; alreadyUploaded?: boolean;
+        }>("/marketplace/media/uploads", {
+          method: "POST",
+          headers: { "Idempotency-Key": idempotencyKey },
+          body: JSON.stringify(uploadPayload),
         }, true);
-        const body = new FormData();
-        body.append("file", { uri: file.uri, name: file.fileName ?? "completion-photo", type: mime } as unknown as Blob);
-        body.append("api_key", reservation.apiKey); body.append("timestamp", String(reservation.timestamp)); body.append("signature", reservation.signature);
-        body.append("public_id", reservation.publicId); body.append("asset_folder", reservation.assetFolder);
-        body.append("overwrite", "false"); body.append("unique_filename", "false"); body.append("use_filename", "false");
-        const uploaded = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated", { method: "POST", body });
-        if (!uploaded.ok) { const detail = await uploaded.json().catch(() => ({})); throw new Error(detail.error?.message ?? "Cloudinary upload failed."); }
+        if (!reservation.alreadyUploaded) {
+          const body = new FormData();
+          body.append("file", { uri: file.uri, name: fileName, type: mime } as unknown as Blob);
+          body.append("api_key", reservation.apiKey!); body.append("timestamp", String(reservation.timestamp)); body.append("signature", reservation.signature!);
+          body.append("public_id", reservation.publicId!); body.append("asset_folder", reservation.assetFolder!);
+          body.append("overwrite", "false"); body.append("unique_filename", "false"); body.append("use_filename", "false");
+          const uploaded = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated", { method: "POST", body });
+          if (!uploaded.ok) { const detail = await uploaded.json().catch(() => ({})); throw new Error(detail.error?.message ?? "Cloudinary upload failed."); }
+        }
         await apiRequest("/marketplace/media/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
-        setCompletionEvidenceAssets((current) => [...current, { id: reservation.assetId, name: file.fileName ?? "Completion photo", uri: file.uri, contentType: mime, sizeBytes: size }]);
+        await clearIdempotencyKey(idempotencyStorageKey);
+        setCompletionEvidenceAssets((current) => [...current, { id: reservation.assetId, name: fileName, uri: file.uri, contentType: mime, sizeBytes: size }]);
       }
       setNotice("Photo upload complete. Images are securely stored in Cloudinary.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not upload evidence photos."); }
