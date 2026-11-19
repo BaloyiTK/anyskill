@@ -261,6 +261,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const updated = await this.prisma.$transaction(async (tx) => {
       // Going online shares the same eligibility lock as staff identity and skill decisions.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const account = await tx.user.findUnique({
+        where: { id: userId },
+        select: { seekerRoleStatus: true, providerRoleStatus: true, deletedAt: true },
+      });
+      if (!account || account.deletedAt !== null ||
+          (account.seekerRoleStatus === "SUSPENDED" && account.providerRoleStatus === "SUSPENDED")) {
+        throw new ForbiddenException("This account is being closed and cannot update Provider settings.");
+      }
       if (input.isAvailable) {
         const user = await tx.user.findUnique({
           where: { id: userId },
