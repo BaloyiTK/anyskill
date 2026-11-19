@@ -74,6 +74,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
 
+      - name: Test concurrent marketplace state transitions
+        run: pnpm --filter @anyskill/api test:marketplace-concurrency
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
+
       - name: Verify PostGIS and geographic index
         run: |
           psql "postgresql://postgres:postgres@localhost:5432/anyskill" -v ON_ERROR_STOP=1 -c "SELECT postgis_version();"
