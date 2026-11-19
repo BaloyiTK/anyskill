@@ -171,19 +171,19 @@ export default function App() {
     setScreen("profile-check");
     setError("");
     let profileIsComplete = false;
+    let profileStatusAvailable = true;
     try {
       profileIsComplete = await refreshHomeEligibility(initialMode);
     } catch (e) {
       // Do not trap returning users in onboarding because a profile-status
       // request is temporarily unavailable. Protected actions remain gated
       // by the latest server-side role and identity status.
+      profileStatusAvailable = false;
       setProfileComplete(false);
       console.warn("[AnySkill profile] Could not refresh completion status.", e);
-      setScreen("dashboard");
     }
     setActiveTab("home");
-    if (profileIsComplete) setScreen("dashboard");
-    else if (!profileIsComplete && screen !== "dashboard") setScreen("onboarding");
+    setScreen(profileIsComplete || !profileStatusAvailable ? "dashboard" : "onboarding");
   };
 
   const navigateHome = async () => {
