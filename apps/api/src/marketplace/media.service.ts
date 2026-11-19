@@ -356,7 +356,7 @@ export class MediaService {
     const expired = await this.prisma.mediaAsset.findMany({
       where: { status: "PENDING", expiresAt: { lte: now } },
       orderBy: { expiresAt: "asc" },
-      take: 25,
+      take: 5,
       select: { id: true, objectKey: true, purpose: true },
     });
     if (expired.length === 0) return 0;
