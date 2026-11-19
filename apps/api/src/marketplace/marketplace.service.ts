@@ -1237,6 +1237,20 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const seekerId = request.seekerId;
       if (!seekerId) return { notified: 0, wave };
 
+      // Never open another matching wave while any provider offer from an
+      // earlier wave is still awaiting the seeker's decision. This check is
+      // inside the same request lock as provider responses and selections.
+      const pendingOffers = await tx.providerResponse.count({
+        where: { requestId, status: "OFFERED" },
+      });
+      if (pendingOffers > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: null },
+        });
+        return { notified: 0, wave, awaitingProviderDecision: true };
+      }
+
       const ranked = await this.rankedProviders({ ...request, seekerId }, tx);
       const alreadyMatched = await tx.requestMatch.findMany({
         where: { requestId },
