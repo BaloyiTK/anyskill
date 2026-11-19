@@ -21,6 +21,10 @@ class CreateIdentityUploadDto {
   @IsString() purpose!: "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE" | "PROVIDER_QUALIFICATION" | "PROVIDER_PORTFOLIO_IMAGE";
 }
 class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
+class SubmitIdentityVerificationDto {
+  @IsIn(["SMART_ID_CARD", "GREEN_ID_BOOK"])
+  idType!: "SMART_ID_CARD" | "GREEN_ID_BOOK";
+}
 class IdentityUploadFailureDto {
   @IsString() @IsIn(["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"]) purpose!: string;
   @IsString() @IsIn(["read_file", "reserve", "cloudinary_upload", "confirm"]) stage!: string;
@@ -105,7 +109,7 @@ export class IdentityController {
   }
 
   @Post("submit")
-  async submit(@CurrentUser() user: AuthenticatedUser, @Body() body: { idType?: string }) {
+  async submit(@CurrentUser() user: AuthenticatedUser, @Body() body: SubmitIdentityVerificationDto) {
     const account = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       select: { identityVerification: true },
