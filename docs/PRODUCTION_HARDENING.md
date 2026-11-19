@@ -60,10 +60,20 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 ## P0 — Multi-instance runtime controls
 
-- [ ] Replace the default in-memory `@nestjs/throttler` storage with a shared Redis-backed store (or an equivalently atomic shared store) before running multiple API replicas. Current request limits are per process and can be bypassed by spreading requests across replicas.
-- [ ] Configure and verify trusted-proxy handling at the deployment boundary before relying on client IP-based throttling. Never trust arbitrary client-supplied forwarded headers.
+- [x] Replace the default in-memory `@nestjs/throttler` storage with an atomic shared Redis-backed store for production. The custom Upstash Redis REST storage uses a Lua script for atomic sliding-window counters and block state; it fails closed with HTTP 503 if the shared store is unavailable. Local development retains the built-in in-memory store when Redis credentials are absent.
+- [x] Configure explicit Express trusted-proxy hops using `TRUST_PROXY_HOPS` (integer 0–10, default 0). Forwarded client IP headers are not trusted by default; production must set the exact proxy hop count for its deployment topology.
 - [x] Run marketplace deadlines, retries and Expo receipt polling in a separately deployed worker process. API replicas do not start the polling interval; a PostgreSQL transaction-scoped advisory lock prevents overlapping cycles.
 - [ ] Ensure worker ownership, health, restart behavior, queue age and failed-notification counts are observable and alerted.
+
+## Shared rate-limit deployment
+
+Production API and worker environments must include the same shared Redis REST configuration:
+
+- `UPSTASH_REDIS_REST_URL`: HTTPS REST endpoint for the production Redis database.
+- `UPSTASH_REDIS_REST_TOKEN`: write-capable token restricted to the rate-limit database/namespace.
+- `TRUST_PROXY_HOPS`: exact number of trusted reverse-proxy hops between the public client and the API (integer 0–10). Use `0` when the API is directly exposed; never use a blanket trust-all setting.
+
+The API refuses to start in production if the Redis endpoint/token are missing or the endpoint is not HTTPS. Rate-limit increments are atomic in Redis; if Redis is unavailable, the API rejects the request with HTTP 503 rather than silently disabling abuse protection. Local development without Redis continues to use Nest's in-memory store and is not representative of multi-replica production behavior.
 
 ## Dedicated worker deployment
 
@@ -93,7 +103,7 @@ Both processes must use the same production database and compatible environment 
 2. Matching dispatch, cancellation, selection, provider offer creation, and rescheduling now share request-scoped PostgreSQL locking and conditional state transitions. PostgreSQL integration tests for selection races, cancellation races, and duplicate dispatch are included in CI and passed on commit `578e4cf`.
 3. Notification delivery now recovers stale `SENDING` claims, retries with bounded backoff, persists Expo tickets, polls receipts, and removes invalid device tokens. Operational metrics, alerts, and a durable outbox remain outstanding.
 4. The approved PayGate payment workflow is documented but not implemented. Merchant capabilities and sandbox credentials are unconfirmed. Do not accept live payments or describe payment/settlement as production-ready.
-5. Authentication still uses the default per-process in-memory throttler. A shared production rate-limit store, trusted-proxy configuration, complete route-by-route authorization audit, and expanded replay/race tests remain outstanding.
+5. Production throttling now uses atomic Upstash Redis REST storage and explicit trusted-proxy hop configuration. The deployment must provide valid `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, and the correct `TRUST_PROXY_HOPS`; route-by-route authorization and expanded replay/race tests remain outstanding.
 6. Load, soak, worker crash/restart, multi-replica, provider outage, backup/restore, and staging recovery tests have not been demonstrated.
 
 ## Exit criteria
