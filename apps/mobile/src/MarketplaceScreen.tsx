@@ -218,6 +218,22 @@ export function MarketplaceScreen(p: Props) {
     return () => clearInterval(refresh);
   }, [p.mode]);
 
+  const acceptRequest = async (request: RequestItem) => {
+    if (!p.verified) { p.onIdentityRequired(request.id); return; }
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${request.id}/accept`, {
+        method: "POST",
+        body: JSON.stringify({ message: responseMessage.trim() || undefined }),
+      }, true);
+      setResponseMessage("");
+      setNotice("Your offer has been sent to the Skill Seeker.");
+      await loadRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not send your offer.");
+    } finally { setBusy(false); }
+  };
+
   const selectProvider = async (requestId: string, responseId: string) => {
     setSelectingOfferId(responseId); setError(""); setNotice("");
     try {
