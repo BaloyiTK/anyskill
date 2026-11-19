@@ -587,6 +587,7 @@ model MediaAsset {
   user                    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
   completionSubmission    JobCompletionSubmission?     @relation(fields: [completionSubmissionId], references: [id], onDelete: SetNull)
   @@index([userId, status, expiresAt])
+  @@index([status, expiresAt])
   @@unique([userId, idempotencyKey])
   @@index([completionSubmissionId])
   @@map("media_assets")
