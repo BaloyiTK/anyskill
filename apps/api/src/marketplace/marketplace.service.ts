@@ -1714,15 +1714,20 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async dispatchPendingNotifications() {
-    const pending = await this.prisma.appNotification.findMany({
-      where: { deliveryStatus: "PENDING", attempts: { lt: 5 }, nextAttemptAt: { lte: new Date() } },
-      take: 10,
-      orderBy: { createdAt: "asc" },
-      select: { id: true, userId: true },
-    });
-    // Process at most one notification per account in a cycle so one noisy
-    // account cannot monopolize the worker's per-user deletion lock.
-    const uniquePending = [...new Map(pending.map((item) => [item.userId, item])).values()];
+    // Select one oldest due notification per account in PostgreSQL. Limiting
+    // before de-duplicating in application code lets a single noisy account
+    // fill the whole candidate page and starve every other account.
+    const pending = await this.prisma.$queryRaw<Array<{ id: string; userId: string; createdAt: Date }>>`
+      SELECT DISTINCT ON (user_id)
+        id, user_id AS "userId", created_at AS "createdAt"
+      FROM app_notifications
+      WHERE delivery_status = 'PENDING'
+        AND attempts < 5
+        AND next_attempt_at <= NOW()
+      ORDER BY user_id, created_at ASC, id ASC
+      LIMIT 10
+    `;
+    const uniquePending = pending.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
     // Bounded concurrency keeps notification throughput useful without
     // allowing a slow Expo response to hold the worker cycle indefinitely.
