@@ -587,6 +587,8 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       const result = await apiRequest<{ message: string }>("/profile/onboarding/submit", { method: "POST", body: "{}" }, true);
       setOnboardingSubmitted(true);
       setMessage(result.message);
+      // Keep the successful Submit check visible before leaving onboarding.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       await p.onComplete();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your profile."); }
     finally { setBusy(false); }
