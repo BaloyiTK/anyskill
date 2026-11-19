@@ -952,7 +952,7 @@ export default function App() {
   // The latest verification case is authoritative when the account-level
   // summary has not yet caught up with an administrator's decision.
   const verified = identityStatus.toLowerCase() === "verified" || identityCaseStatus === "verified" || identityCaseStatus === "approved";
-  const identityAwaitingReview = ["pending", "pending_review", "submitted", "in_review", "under_review"].includes(identityCaseStatus);
+  const identityAwaitingReview = ["pending", "pending_review", "submitted", "in_review", "under_review", "needs_information", "requires_information"].includes(identityCaseStatus);
   const canRequestSkill = profileComplete && verified && roleSummary?.seekerStatus === "ACTIVE";
 
   return (
