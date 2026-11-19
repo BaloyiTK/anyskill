@@ -75,23 +75,37 @@ const key = (prefix) => `${prefix}-${randomUUID()}`;
 
 test("checksum-verified PayGate notifications are durably deduplicated without storing vault tokens", async () => {
   const eventId = BigInt(`0x${randomUUID().replaceAll("-", "").slice(0, 16)}`).toString();
-  const input = {
-    providerEventId: eventId,
-    rawPayload: `PAYGATE_ID=TEST&TRANSACTION_ID=${eventId}&AMOUNT=7500`,
-    payload: {
-      payRequestId: randomUUID(),
-      reference: key("anyskill-payment"),
-      transactionStatus: 1,
-      resultCode: 990017,
-      authCode: "TEST123",
-      currency: "ZAR",
-      amountMinor: "7500",
-      transactionId: "78705178",
-      riskIndicator: "AX",
-      payMethod: "CC",
-      payMethodDetail: "Visa",
-    },
+  const payRequestId = randomUUID();
+  const reference = key("anyskill-payment");
+  const payload = {
+    payRequestId,
+    reference,
+    transactionStatus: 1,
+    resultCode: 990017,
+    authCode: "TEST123",
+    currency: "ZAR",
+    amountMinor: "7500",
+    transactionId: eventId,
+    riskIndicator: "AX",
+    payMethod: "CC",
+    payMethodDetail: "Visa",
   };
+  const rawPayload = new URLSearchParams({
+    PAYGATE_ID: "10011072130",
+    PAY_REQUEST_ID: payRequestId,
+    REFERENCE: reference,
+    TRANSACTION_STATUS: String(payload.transactionStatus),
+    RESULT_CODE: String(payload.resultCode),
+    AUTH_CODE: payload.authCode,
+    CURRENCY: payload.currency,
+    AMOUNT: payload.amountMinor,
+    TRANSACTION_ID: eventId,
+    RISK_INDICATOR: payload.riskIndicator,
+    PAY_METHOD: payload.payMethod,
+    PAY_METHOD_DETAIL: payload.payMethodDetail,
+    CHECKSUM: "a".repeat(32),
+  }).toString();
+  const input = { providerEventId: eventId, rawPayload, payload };
 
   const [first, duplicate] = await Promise.all([
     payments.recordChecksumVerifiedPayGateNotify(input),
