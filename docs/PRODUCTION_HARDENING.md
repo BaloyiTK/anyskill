@@ -40,7 +40,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 ## P1 — API and infrastructure
 
 - [ ] Validate request DTO limits and coordinate/range checks; cap pagination and expensive discovery queries.
-- [ ] Add production health/readiness checks (database connectivity, migration compatibility, worker health) and graceful shutdown.
+- [ ] Complete production health/readiness checks and graceful shutdown. `/api/v1/health` is a liveness probe; `/api/v1/health/ready` now verifies PostgreSQL connectivity. Migration compatibility and dedicated-worker health are still deployment gates and are not claimed by the HTTP readiness probe.
 - [ ] Replace local-only error-file logging with structured centralized logs; redact credentials, tokens, PII, and location data.
 - [ ] Add request correlation, metrics, tracing, and alert thresholds.
 - [ ] Verify backup/restore, migration rollback strategy, connection-pool sizing, and deployment rollback.
