@@ -818,3 +818,17 @@ model FinancialLedgerEntry {
   @@index([accountCode, currency, createdAt])
   @@map("financial_ledger_entries")
 }
+
+
+model WorkerHeartbeat {
+  name                String   @id @db.VarChar(80)
+  status              String   @db.VarChar(20)
+  heartbeatAt         DateTime @default(now()) @map("heartbeat_at")
+  lastSuccessAt       DateTime? @map("last_success_at")
+  consecutiveFailures Int      @default(0) @map("consecutive_failures")
+  lastErrorCode       String?  @map("last_error_code") @db.VarChar(64)
+  lastCycleDurationMs Int?     @map("last_cycle_duration_ms")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("worker_heartbeats")
+}
