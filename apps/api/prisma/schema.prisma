@@ -512,6 +512,8 @@ model JobCompletionSubmission {
 model MediaAsset {
   id                     String                       @id @default(uuid()) @db.Uuid
   userId                 String                       @db.Uuid @map("user_id")
+  idempotencyKey         String?                      @db.VarChar(100) @map("idempotency_key")
+  idempotencyPayloadHash String?                      @db.Char(64) @map("idempotency_payload_hash")
   objectKey              String                       @unique @map("object_key") @db.VarChar(512)
   originalName            String                       @map("original_name") @db.VarChar(255)
   contentType             String                       @map("content_type") @db.VarChar(100)
@@ -526,6 +528,7 @@ model MediaAsset {
   user                    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
   completionSubmission    JobCompletionSubmission?     @relation(fields: [completionSubmissionId], references: [id], onDelete: SetNull)
   @@index([userId, status, expiresAt])
+  @@unique([userId, idempotencyKey])
   @@index([completionSubmissionId])
   @@map("media_assets")
 }
