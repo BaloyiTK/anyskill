@@ -29,6 +29,8 @@ async function createFixture(providerCount = 2) {
     },
     select: { id: true },
   });
+  const fixture = { requestId: null, userIds: [seeker.id] };
+  fixtures.push(fixture);
   const providers = await Promise.all(Array.from({ length: providerCount }, (_, index) =>
     prisma.user.create({
       data: {
@@ -39,13 +41,14 @@ async function createFixture(providerCount = 2) {
       select: { id: true },
     }),
   ));
+  fixture.userIds.push(...providers.map((provider) => provider.id));
   const request = await prisma.serviceRequest.create({
     data: {
       seekerId: seeker.id,
       title: "Concurrency integration request",
       skillCategory: "Plumbing",
       description: "Database concurrency test fixture",
-      deliveryMode: "ONSITE",
+      deliveryMode: "REMOTE",
     },
     select: { id: true },
   });
@@ -60,7 +63,7 @@ async function createFixture(providerCount = 2) {
       select: { id: true, providerId: true },
     }),
   ));
-  fixtures.push({ requestId: request.id, userIds: [seeker.id, ...providers.map((provider) => provider.id)] });
+  fixture.requestId = request.id;
   return { seekerId: seeker.id, requestId: request.id, responses };
 }
 
