@@ -3,6 +3,8 @@ import { IdentityVerificationStatus, MarketplaceRoleStatus, ProviderApplicationS
 import { PrismaService } from "../database/prisma.service";
 import { MediaService } from "./media.service";
 
+const normalizeSkillKey = (value: string) => value.trim().toLocaleLowerCase("en-ZA").replace(/[^\p{L}\p{N}]+/gu, "");
+
 export type StaffMemberUpdate = { role?: StaffRole; isActive?: boolean };
 
 export type ProviderApplicationInput = {
@@ -336,8 +338,8 @@ export class MarketplaceRolesService {
         if (publicName) {
           await tx.providerProfile.upsert({
             where: { userId: currentCase.userId },
-            create: { userId: currentCase.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalise(item.category).replace(/[^\p{L}\p{N}]+/gu, "")).filter(Boolean))], isAvailable: false },
-            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalise(item.category).replace(/[^\p{L}\p{N}]+/gu, "")).filter(Boolean))] },
+            create: { userId: currentCase.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalizeSkillKey(item.category)).filter(Boolean))], isAvailable: false },
+            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalizeSkillKey(item.category)).filter(Boolean))] },
           });
         }
       }
@@ -483,8 +485,8 @@ export class MarketplaceRolesService {
         if (publicName) {
           await tx.providerProfile.upsert({
             where: { userId: currentSkill.userId },
-            create: { userId: currentSkill.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalise(item.category).replace(/[^\p{L}\p{N}]+/gu, "")).filter(Boolean))], isAvailable: false },
-            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalise(item.category).replace(/[^\p{L}\p{N}]+/gu, "")).filter(Boolean))] },
+            create: { userId: currentSkill.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalizeSkillKey(item.category)).filter(Boolean))], isAvailable: false },
+            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalizeSkillKey(item.category)).filter(Boolean))] },
           });
         }
       }
