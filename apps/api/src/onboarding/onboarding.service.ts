@@ -71,9 +71,9 @@ export class OnboardingService {
     const roles = Array.isArray(p.marketplaceRoles) ? p.marketplaceRoles : p.marketplaceRole ? [p.marketplaceRole] : [];
     const hasRole = roles.some((role: unknown) => role === "SEEKER" || role === "PROVIDER");
     const value = (item: unknown) => typeof item === "string" ? item.trim() : "";
-    const validEmail = (item: unknown) => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(value(item));
+    const validEmail = (item: unknown) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value(item));
     const validPhone = (...parts: unknown[]) => {
-      const digits = parts.map(value).join("").replace(/\\D/g, "");
+      const digits = parts.map(value).join("").replace(/\D/g, "");
       return digits.length >= 7 && digits.length <= 15;
     };
     const individualComplete = Boolean(
