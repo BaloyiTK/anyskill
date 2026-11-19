@@ -1478,9 +1478,9 @@ export default function App() {
       <IncomingRequestScreen
         requestId={activeIncomingRequestId}
         onClose={() => { setActiveIncomingRequestId(null); setPendingAcceptRequestId(null); }}
-        onAccepted={() => {
+        onAccepted={(requestId) => {
           setActiveIncomingRequestId(null);
-          setPendingAcceptRequestId(null);
+          setPendingAcceptRequestId(requestId);
           setMessage("Request accepted. Continue to your Provider workspace.");
           setActiveTab("home");
           setMode("provider");
