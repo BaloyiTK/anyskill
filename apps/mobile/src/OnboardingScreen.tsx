@@ -490,9 +490,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     if (active === "Skills") return save("skills");
     if (active === "Portfolio") return save("skills");
     if (active === "Verification") {
-      setMessage(identitySubmitted
-        ? "Your identity documents have already been submitted and are awaiting review. You do not need to submit them again."
-        : "Your ID images and live selfie are saved securely as you upload them. Tap Save & Continue when all required items are ready to submit them for review.");
+      setMessage("Your identity documents and live selfie will be submitted for review at the final Submit stage.");
       return true;
     }
     if (!await save("profile")) return false;
@@ -507,16 +505,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       return;
     }
     if (active === "Verification") {
-      // Attempt submission when the documents are ready, but a verification
-      // service error must never trap the user in onboarding.
-      let identitySent = identitySubmitted;
-      if (identityRequirementsComplete && !identitySubmitted) {
-        identitySent = await submitIdentityVerification();
-      }
-      setError("");
-      setMessage(identitySent
-        ? "Identity verification is submitted and may remain pending while you continue."
-        : "Identity verification can be completed separately. Continue with your profile setup.");
+      setMessage("Your identity documents will be submitted together with your onboarding at the final Submit stage.");
       setActive(isProvider ? "Skills" : "Submit");
       return;
     }
@@ -546,13 +535,28 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       const missingSections = [
         ...(!latest.sections?.profile ? ["Profile"] : []),
         ...(providerRequired && !latest.sections?.skills ? ["Skills"] : []),
-
       ];
       if (missingSections.length > 0) {
         setOnboardingSubmitted(false);
         setMessage("Profile not complete yet.");
         setError(`Complete the following section${missingSections.length > 1 ? "s" : ""} before submitting: ${missingSections.join(", ")}.`);
         return;
+      }
+
+      // The final Submit action is the single submission gate for onboarding.
+      // Identity review is submitted here; Provider skills are submitted by the
+      // onboarding API in the same final action.
+      const currentIdentityStatus = identityStatus.toUpperCase();
+      const identityAlreadySubmitted = submittedIdentityStatuses.includes(currentIdentityStatus);
+      if (!identityAlreadySubmitted && !identityRequirementsComplete) {
+        setOnboardingSubmitted(false);
+        setError("Complete the required ID images and live selfie before submitting your onboarding.");
+        setActive("Verification");
+        return;
+      }
+      if (!identityAlreadySubmitted) {
+        const identitySent = await submitIdentityVerification();
+        if (!identitySent) return;
       }
 
       const result = await apiRequest<{ message: string }>("/profile/onboarding/submit", { method: "POST", body: "{}" }, true);
@@ -573,9 +577,11 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const verificationPending = identitySubmitted && !identityApproved;
   const allSkillsApproved = Boolean(data.skillReviewStatuses?.length)
     && data.skillReviewStatuses!.every((skill) => skill.status === "APPROVED");
-  const skillsPending = Boolean(data.skillReviewStatuses?.some((skill) => skill.status === "PENDING"));
+  // A Provider skill stage stays in review (orange) until every submitted
+  // skill has an explicit admin approval. Missing review rows are not approval.
+  const skillsPending = isProvider && skills.length > 0 && !allSkillsApproved;
   const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, allSkillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
-  const pendingStates = isProvider ? [false, verificationPending, skillsPending, false] : [false, verificationPending, false];
+  const pendingStates = isProvider ? [false, !verificationComplete, skillsPending, false] : [false, !verificationComplete, false];
   const reviewForSkill = (category: string) => data.skillReviewStatuses?.find((item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"));
   const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills)] : [])].filter(Boolean).length;
   const completionPercentage = Math.round((completedSectionCount / (isProvider ? 2 : 1)) * 100);
