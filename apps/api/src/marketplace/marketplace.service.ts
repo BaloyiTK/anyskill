@@ -970,8 +970,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async rankedProviders(request: {
     id: string; seekerId: string; skillCategory: string; location: string | null;
     latitude?: number | null; longitude?: number | null; deliveryMode: string; searchRadiusKm: number;
-  }): Promise<RankedProvider[]> {
-    const profiles = await this.prisma.providerProfile.findMany({
+  }, db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<RankedProvider[]> {
+    const profiles = await db.providerProfile.findMany({
       where: {
         isAvailable: true,
         user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } },
@@ -989,7 +989,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (!matchingProfiles.length) return [];
     const providerIds = matchingProfiles.map((profile) => profile.userId);
     const [completedCounts, skillRatingGroups, overallRatingGroups] = await Promise.all([
-      this.prisma.jobEngagement.groupBy({
+      db.jobEngagement.groupBy({
         by: ["providerId"],
         where: {
           providerId: { in: providerIds }, status: "COMPLETED",
@@ -997,11 +997,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         },
         _count: { _all: true },
       }),
-      this.prisma.providerReview.groupBy({
+      db.providerReview.groupBy({
         by: ["providerId", "skillCategory"], where: { providerId: { in: providerIds } },
         _avg: { skillRating: true }, _count: { _all: true },
       }),
-      this.prisma.providerReview.groupBy({
+      db.providerReview.groupBy({
         by: ["providerId"], where: { providerId: { in: providerIds } },
         _avg: { platformRating: true }, _count: { _all: true },
       }),
@@ -1062,59 +1062,87 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async dispatchNextWave(requestId: string, wave: number, force = false) {
-    const request = await this.prisma.serviceRequest.findUnique({
-      where: { id: requestId },
-      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, searchRadiusKm: true, deliveryMode: true, status: true, matchingStartedAt: true },
-    });
-    if (!request || request.status !== "OPEN") return { notified: 0, wave };
-    if (!force && Date.now() - request.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
-      await this.prisma.serviceRequest.updateMany({ where: { id: requestId, status: "OPEN" }, data: { matchingNextAt: null } });
-      return { notified: 0, wave, timedOut: true };
-    }
-    const seekerId = request.seekerId;
-    if (!seekerId) return { notified: 0, wave };
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize all wave dispatches for a request across API replicas and workers.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
 
-    const ranked = await this.rankedProviders({ ...request, seekerId });
-    const alreadyMatched = await this.prisma.requestMatch.findMany({
-      where: { requestId },
-      select: { providerId: true },
-    });
-    const seen = new Set(alreadyMatched.map((match) => match.providerId));
-    const next = ranked.filter((provider) => !seen.has(provider.userId)).slice(0, WAVE_SIZE);
-    if (next.length === 0) {
-      await this.prisma.serviceRequest.update({
+      const request = await tx.serviceRequest.findUnique({
         where: { id: requestId },
-        data: { matchingNextAt: null, matchingExhaustedAt: new Date() },
+        select: {
+          id: true, seekerId: true, skillCategory: true, location: true,
+          latitude: true, longitude: true, searchRadiusKm: true, deliveryMode: true,
+          status: true, matchingStartedAt: true,
+        },
       });
-      return { notified: 0, wave, exhausted: true };
-    }
+      if (!request || request.status !== "OPEN") return { notified: 0, wave };
+      if (!force && Date.now() - request.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
+          data: { matchingNextAt: null },
+        });
+        return { notified: 0, wave, timedOut: true };
+      }
+      const seekerId = request.seekerId;
+      if (!seekerId) return { notified: 0, wave };
 
-    const now = new Date();
-    await this.prisma.$transaction([
-      this.prisma.requestMatch.createMany({
+      const ranked = await this.rankedProviders({ ...request, seekerId }, tx);
+      const alreadyMatched = await tx.requestMatch.findMany({
+        where: { requestId },
+        select: { providerId: true },
+      });
+      const seen = new Set(alreadyMatched.map((match) => match.providerId));
+      const next = ranked.filter((provider) => !seen.has(provider.userId)).slice(0, WAVE_SIZE);
+      if (next.length === 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
+          data: { matchingNextAt: null, matchingExhaustedAt: new Date() },
+        });
+        return { notified: 0, wave, exhausted: true };
+      }
+
+      const insertedMatches = await tx.requestMatch.createManyAndReturn({
         data: next.map((provider) => ({
-          requestId, providerId: provider.userId, score: provider.score, wave, status: "NOTIFIED" as const,
+          requestId, providerId: provider.userId, score: provider.score, wave,
+          status: "NOTIFIED" as const,
         })),
         skipDuplicates: true,
-      }),
-      this.prisma.appNotification.createMany({
-        data: next.map((provider) => ({
-          userId: provider.userId,
-          title: "Incoming AnySkill service request",
-          body: "A new " + request.skillCategory + " request is available. Tap to view the Seeker and job details.",
-          data: { type: "MATCHED_REQUEST", requestId, wave },
-        })),
-      }),
-      this.prisma.serviceRequest.update({
-        where: { id: requestId },
+        select: { providerId: true },
+      });
+      const insertedProviderIds = insertedMatches
+        .map((match) => match.providerId)
+        .filter((providerId): providerId is string => providerId !== null);
+
+      if (insertedProviderIds.length > 0) {
+        await tx.appNotification.createMany({
+          data: insertedProviderIds.map((providerId) => ({
+            userId: providerId,
+            title: "Incoming AnySkill service request",
+            body: "A new " + request.skillCategory + " request is available. Tap to view the Seeker and job details.",
+            data: { type: "MATCHED_REQUEST", requestId, wave },
+          })),
+        });
+      }
+
+      const updated = await tx.serviceRequest.updateMany({
+        where: { id: requestId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
         data: {
-          matchingWave: wave,
-          matchingNextAt: new Date(now.getTime() + RESPONSE_WINDOW_MS),
+          matchingWave: Math.max(request.matchingWave ?? 0, wave),
+          matchingNextAt: insertedProviderIds.length > 0
+            ? new Date(Date.now() + RESPONSE_WINDOW_MS)
+            : new Date(Date.now() + 1_000),
           matchingExhaustedAt: null,
         },
-      }),
-    ]);
-    return { notified: next.length, wave, responseWindowSeconds: RESPONSE_WINDOW_MS / 1000 };
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException("The service request changed while matching. The dispatch was rolled back.");
+      }
+
+      return {
+        notified: insertedProviderIds.length,
+        wave,
+        responseWindowSeconds: RESPONSE_WINDOW_MS / 1000,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   private async expandExpiredWaves() {
