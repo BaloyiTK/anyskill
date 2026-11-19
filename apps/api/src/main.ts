@@ -52,6 +52,13 @@ function redactLogText(value: string): string {
 }
 
 function writeErrorLog(entry: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === "production") {
+    // Container platforms collect stdout/stderr. Never rely on ephemeral
+    // filesystem logs in production; emit one redacted JSON record per line.
+    process.stderr.write(`${JSON.stringify(entry)}\\n`);
+    return;
+  }
+
   const logDirectory = LOG_DIRECTORY;
   const logFile = ERROR_LOG_FILE;
   try {
@@ -131,8 +138,10 @@ async function bootstrap(): Promise<void> {
   // environment variable is accidentally inherited by the API deployment.
   process.env.ANYSKILL_PROCESS_ROLE = "api";
   const logger = new Logger("HTTP");
-  mkdirSync(LOG_DIRECTORY, { recursive: true });
-  appendFileSync(ERROR_LOG_FILE, "", { encoding: "utf8", mode: 0o600 });
+  if (process.env.NODE_ENV !== "production") {
+    mkdirSync(LOG_DIRECTORY, { recursive: true });
+    appendFileSync(ERROR_LOG_FILE, "", { encoding: "utf8", mode: 0o600 });
+  }
   const app = await NestFactory.create(AppModule);
 
   // Express only trusts forwarded client IP headers from the configured number
@@ -253,7 +262,7 @@ async function bootstrap(): Promise<void> {
   const staleLocationSweep = setInterval(() => app.get(LiveProviderMapService).notifyChanged(), 10_000);
   staleLocationSweep.unref();
   logger.log(`API listening on http://0.0.0.0:${port}/api/v1`);
-  logger.log(`API error log file: ${ERROR_LOG_FILE}`);
+  if (process.env.NODE_ENV !== "production") logger.log(`API error log file: ${ERROR_LOG_FILE}`);
   logger.log(
     allowedOrigins.length > 0
       ? `CORS allowed origins: ${allowedOrigins.join(", ")}`
