@@ -708,10 +708,22 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more evidence files are unavailable, expired, or do not belong to you. Upload them again.");
       const submission = await tx.jobCompletionSubmission.create({
-        data: {
-          engagementId: job.id, providerId, notes: input.notes.trim(), evidenceUrls: [],
-          evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) },
+        data: { engagementId: job.id, providerId, notes: input.notes.trim(), evidenceUrls: [] },
+      });
+      // Claim each evidence asset with a conditional update. This prevents the
+      // same READY upload being attached to two jobs submitted concurrently.
+      const claimedAssets = await tx.mediaAsset.updateMany({
+        where: {
+          id: { in: evidenceIds }, userId: providerId, status: "READY",
+          purpose: "JOB_COMPLETION_EVIDENCE", completionSubmissionId: null, expiresAt: { gt: new Date() },
         },
+        data: { completionSubmissionId: submission.id },
+      });
+      if (claimedAssets.count !== evidenceIds.length) {
+        throw new ConflictException("One or more evidence files have already been used. Upload the evidence again.");
+      }
+      const submissionWithEvidence = await tx.jobCompletionSubmission.findUniqueOrThrow({
+        where: { id: submission.id },
         include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } },
       });
       const claimed = await tx.jobEngagement.updateMany({
@@ -728,7 +740,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (job.seekerId) await tx.appNotification.create({
         data: { userId: job.seekerId, title: "Job completion submitted", body: "Your Provider submitted completion notes and photo evidence. Review the work in AnySkill.", data: { type: "JOB_COMPLETION_SUBMITTED", requestId, submissionId: submission.id } },
       });
-      return submission;
+      return submissionWithEvidence;
     });
   }
 
