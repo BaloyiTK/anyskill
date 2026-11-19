@@ -123,6 +123,7 @@ export default function App() {
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [pendingIncomingPushId, setPendingIncomingPushId] = useState<string | null>(null);
   const [activeIncomingRequestId, setActiveIncomingRequestId] = useState<string | null>(null);
+  const dismissedIncomingRequestIds = useRef<Set<string>>(new Set());
   const handledNotificationResponses = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   // AuthSession is global: prevent sign-in and account-link flows from overlapping.
@@ -364,6 +365,7 @@ export default function App() {
 
   const openMatchedRequest = (requestId: string) => {
     if (!requestId) return;
+    dismissedIncomingRequestIds.current.delete(requestId);
     setActiveIncomingRequestId(requestId);
     setPendingAcceptRequestId(requestId);
     setPendingIncomingPushId(requestId);
@@ -453,7 +455,9 @@ export default function App() {
         if (!active || !profile?.isAvailable) return;
         const result = await apiRequest<{ items: Array<{ id: string; alreadyResponded: boolean }> }>("/marketplace/incoming-requests", {}, true);
         if (!active) return;
-        const next = result.items.find((item) => !item.alreadyResponded);
+        const next = result.items.find((item) =>
+          !item.alreadyResponded && !dismissedIncomingRequestIds.current.has(item.id),
+        );
         if (next) setActiveIncomingRequestId(next.id);
       } catch {
         // Keep Home visible; the next reconciliation retries transient failures.
@@ -1491,7 +1495,11 @@ export default function App() {
       </View>}
       <IncomingRequestScreen
         requestId={activeIncomingRequestId}
-        onClose={() => { setActiveIncomingRequestId(null); setPendingAcceptRequestId(null); }}
+        onClose={() => {
+          if (activeIncomingRequestId) dismissedIncomingRequestIds.current.add(activeIncomingRequestId);
+          setActiveIncomingRequestId(null);
+          setPendingAcceptRequestId(null);
+        }}
         onAccepted={(requestId) => {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(requestId);
