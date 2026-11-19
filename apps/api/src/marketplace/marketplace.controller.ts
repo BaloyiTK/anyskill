@@ -18,15 +18,15 @@ import {
 import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
-import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsIn, IsInt, IsString, IsUUID, Max, MaxLength, Min, MinLength } from "class-validator";
 
 class CreateMediaUploadDto {
-  @IsString() @MaxLength(255) fileName!: string;
+  @IsString() @MinLength(1) @MaxLength(255) fileName!: string;
   @IsString() @MaxLength(100) contentType!: string;
-  @IsOptional() @IsString() purpose?: "JOB_COMPLETION_EVIDENCE";
+  @IsOptional() @IsIn(["JOB_COMPLETION_EVIDENCE"]) purpose?: "JOB_COMPLETION_EVIDENCE";
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
 }
-class ConfirmMediaUploadDto { @IsString() @MaxLength(64) assetId!: string; }
+class ConfirmMediaUploadDto { @IsUUID() assetId!: string; }
 
 class CursorQuery {
   @IsOptional()
