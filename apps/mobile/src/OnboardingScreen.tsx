@@ -524,30 +524,12 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       return;
     }
     if (active === "Verification") {
-      if (!identityApproved && !identityRequirementsComplete) {
-        setError(idType === "SMART_ID_CARD"
-          ? "Upload the front and back of your Smart ID card and take your live selfie before continuing."
-          : "Upload the required ID book page and take your live selfie before continuing.");
-        return;
-      }
-      setMessage("Verification details are complete. They will be submitted for administrator review at the final Submit stage.");
+      setMessage("");
       setActive(isProvider ? "Skills" : "Submit");
       return;
     }
     if (active === "Skills") {
       if (!await save("skills")) return;
-      let latest: Payload;
-      try {
-        latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not confirm your saved skills.");
-        return;
-      }
-      setData(latest);
-      if (!latest.sections?.skills) {
-        setError("Add at least one valid skill before continuing.");
-        return;
-      }
       setActive("Submit");
       return;
     }
