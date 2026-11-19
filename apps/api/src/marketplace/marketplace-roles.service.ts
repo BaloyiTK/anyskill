@@ -244,9 +244,12 @@ export class MarketplaceRolesService {
     });
   }
 
-  async listIdentityReviews() {
+  async listIdentityReviews(reviewerId: string) {
     const cases = await this.prisma.identityVerificationCase.findMany({
-      where: { status: { in: [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW] } },
+      where: {
+        status: { in: [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW] },
+        userId: { not: reviewerId },
+      },
       orderBy: { submittedAt: "asc" },
       take: 200,
       select: {
@@ -254,7 +257,7 @@ export class MarketplaceRolesService {
         user: { select: { id: true, email: true, identityVerification: true } },
       },
     });
-    return Promise.all(cases.map(async (item) => {
+    const results = await Promise.all(cases.map(async (item) => {
       const previews = await Promise.all(
         (["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] as const)
           .map(async (purpose) => {
@@ -268,6 +271,21 @@ export class MarketplaceRolesService {
       );
       return { ...item, documents: Object.fromEntries(previews) };
     }));
+    const accessed = results.filter((item) => Object.values(item.documents).some(Boolean));
+    if (accessed.length) {
+      await this.prisma.staffAuditLog.createMany({
+        data: accessed.map((item) => ({
+          actorId: reviewerId,
+          targetUserId: item.user.id,
+          action: "IDENTITY_DOCUMENTS_ACCESSED",
+          metadata: {
+            caseId: item.id,
+            purposes: Object.entries(item.documents).filter(([, url]) => Boolean(url)).map(([purpose]) => purpose),
+          },
+        })),
+      });
+    }
+    return results;
   }
 
   async decideIdentityVerification(reviewerId: string, caseId: string, decision: "APPROVED" | "REJECTED", reason: string) {
@@ -355,16 +373,16 @@ export class MarketplaceRolesService {
     return { caseId, status: decision === "APPROVED" ? "VERIFIED" : "REJECTED", reason: trimmedReason || null };
   }
 
-  async listSkillReviews() {
+  async listSkillReviews(reviewerId: string) {
     const skills = await this.prisma.providerSkill.findMany({
-      where: { status: "PENDING" },
+      where: { status: "PENDING", userId: { not: reviewerId } },
       orderBy: { submittedAt: "asc" },
       take: 300,
       select: { id: true, category: true, details: true, status: true, submittedAt: true,
         user: { select: { id: true, email: true, identityVerification: true } } },
     });
 
-    return Promise.all(skills.map(async (skill) => {
+    const results = await Promise.all(skills.map(async (skill) => {
       const details = skill.details && typeof skill.details === "object" && !Array.isArray(skill.details)
         ? skill.details as Record<string, unknown>
         : {};
@@ -392,6 +410,21 @@ export class MarketplaceRolesService {
       })));
       return { ...skill, providerEvidence };
     }));
+    const accessed = results.filter((skill) => Object.values(skill.providerEvidence).some(Boolean));
+    if (accessed.length) {
+      await this.prisma.staffAuditLog.createMany({
+        data: accessed.map((skill) => ({
+          actorId: reviewerId,
+          targetUserId: skill.user.id,
+          action: "PROVIDER_QUALIFICATION_EVIDENCE_ACCESSED",
+          metadata: {
+            skillId: skill.id,
+            assetIds: Object.entries(skill.providerEvidence).filter(([, url]) => Boolean(url)).map(([assetId]) => assetId),
+          },
+        })),
+      });
+    }
+    return results;
   }
 
   async decideSkill(reviewerId: string, skillId: string, decision: "APPROVED" | "REJECTED", reason: string) {
