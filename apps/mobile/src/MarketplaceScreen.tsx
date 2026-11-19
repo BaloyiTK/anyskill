@@ -234,6 +234,20 @@ export function MarketplaceScreen(p: Props) {
     } finally { setSelectingOfferId(null); }
   };
 
+  const declineProviderOffer = async (requestId: string, responseId: string) => {
+    setSelectingOfferId(responseId); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/offers/${responseId}/decline`, {
+        method: "POST",
+      }, true);
+      setNotice("Offer declined. AnySkill is moving to the next eligible Provider.");
+      await loadMyRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not decline this Provider offer.");
+      await loadMyRequests();
+    } finally { setSelectingOfferId(null); }
+  };
+
   const submitEstimate = async (requestId: string) => {
     setJobActionBusy(true); setError(""); setNotice("");
     try {
@@ -948,7 +962,7 @@ export function MarketplaceScreen(p: Props) {
               : "Your request was saved. Provider matching is being prepared."}</Text>
         </View>}
         <Text style={s.section}>Your service requests and Provider offers</Text>
-        <Text style={s.helper}>Compare the offers you receive. Selecting a Provider closes the request to further offers. You can only select one offer.</Text>
+        <Text style={s.helper}>Compare each offer. Select a Provider to proceed, decline an offer to move matching forward, or cancel the request to stop the search.</Text>
         <Secondary label="Refresh my requests" onPress={() => void loadMyRequests()} />
         {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
         {myRequests.map((request) => {
@@ -1037,7 +1051,10 @@ export function MarketplaceScreen(p: Props) {
               {offer.provider.providerProfile?.deliveryModes?.length ? <Text style={s.meta}>Work modes: {offer.provider.providerProfile.deliveryModes.join(", ")}</Text> : null}
               <Text style={s.body}>{offer.message?.trim() || "The Provider did not add a message."}</Text>
               {offer.status === "SELECTED" ? <Text style={s.response}>Selected</Text> : request.status === "OPEN" ?
-                <Primary label={selectingOfferId === offer.id ? "Selecting..." : "Select this Provider"} onPress={() => void selectProvider(request.id, offer.id)} disabled={!!selectingOfferId || busy} /> :
+                <View style={s.choiceRow}>
+                  <Primary label={selectingOfferId === offer.id ? "Please wait..." : "Accept Provider"} onPress={() => void selectProvider(request.id, offer.id)} disabled={!!selectingOfferId || busy} />
+                  <Secondary label={selectingOfferId === offer.id ? "Please wait..." : "Decline offer"} onPress={() => void declineProviderOffer(request.id, offer.id)} disabled={!!selectingOfferId || busy} />
+                </View> :
                 <Text style={s.meta}>This request is closed; this offer cannot be selected.</Text>}
             </View>)}
             {offers.length === 0 ? <Text style={s.helper}>No offers yet. Matched Providers can still respond while this request is open.</Text> : null}
@@ -1288,7 +1305,10 @@ export function MarketplaceScreen(p: Props) {
               <Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>{offer.message || "This Provider is available for your request."}</Text>
               <Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>Hourly rate: {offer.hourlyRateAtOffer == null ? "To be confirmed" : `R ${Number(offer.hourlyRateAtOffer).toFixed(2)}`}</Text>
               <Pressable onPress={() => void selectProvider(matchingRequest.id, offer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#0066CC", borderRadius: 10, padding: 12, alignItems: "center", marginTop: 10 }}>
-                <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{selectingOfferId === offer.id ? "Selecting..." : "Select this Provider"}</Text>
+                <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{selectingOfferId === offer.id ? "Please wait..." : "Accept Provider"}</Text>
+              </Pressable>
+              <Pressable onPress={() => void declineProviderOffer(matchingRequest.id, offer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#FFFFFF", borderColor: "#D6E0EA", borderWidth: 1, borderRadius: 10, padding: 12, alignItems: "center", marginTop: 8 }}>
+                <Text style={{ color: "#425466", fontWeight: "800" }}>{selectingOfferId === offer.id ? "Please wait..." : "Decline offer"}</Text>
               </Pressable>
             </View>)}
             {timedOut ? <>
