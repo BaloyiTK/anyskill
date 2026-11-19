@@ -16,6 +16,7 @@ local blockTtl = redis.call("PTTL", blockKey)
 if blockTtl > 0 then
   local count = redis.call("ZCARD", hitsKey)
   local hitsTtl = redis.call("PTTL", hitsKey)
+  if hitsTtl <= 0 then hitsTtl = ttl end
   return { count, math.max(0, math.ceil(hitsTtl / 1000)), 1, math.ceil(blockTtl / 1000) }
 end
 
@@ -35,7 +36,9 @@ if blockDuration <= 0 then
     if oldest[2] then
       waitMs = math.max(0, tonumber(oldest[2]) + ttl - now)
     end
-    return { count + 1, math.max(0, math.ceil(redis.call("PTTL", hitsKey) / 1000)), 1, math.ceil(waitMs / 1000) }
+    local hitsTtl = redis.call("PTTL", hitsKey)
+    if hitsTtl <= 0 then hitsTtl = ttl end
+    return { count + 1, math.max(0, math.ceil(hitsTtl / 1000)), 1, math.ceil(waitMs / 1000) }
   end
 end
 
