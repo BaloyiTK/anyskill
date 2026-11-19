@@ -20,6 +20,31 @@ const MAX_ERROR_LOG_BYTES = 5 * 1024 * 1024;
 const LOG_DIRECTORY = join(__dirname, "..", "logs");
 const ERROR_LOG_FILE = join(LOG_DIRECTORY, "error.log");
 
+function validateProductionConfiguration(): void {
+  if (process.env.NODE_ENV !== "production") return;
+
+  const required = ["DATABASE_URL", "JWT_ACCESS_SECRET", "SMTP_HOST", "MAIL_FROM", "GOOGLE_PLACES_API_KEY"];
+  const missing = required.filter((key) => !process.env[key]?.trim());
+  const cloudinaryUrl = process.env.CLOUDINARY_URL?.trim();
+  const cloudinaryPartsPresent = Boolean(
+    process.env.CLOUDINARY_CLOUD_NAME?.trim() &&
+    process.env.CLOUDINARY_API_KEY?.trim() &&
+    process.env.CLOUDINARY_API_SECRET?.trim(),
+  );
+  if (!cloudinaryUrl && !cloudinaryPartsPresent) missing.push("CLOUDINARY_URL (or all CLOUDINARY_* split credentials)");
+  if (process.env.JWT_ACCESS_SECRET && process.env.JWT_ACCESS_SECRET.length < 32) {
+    throw new Error("JWT_ACCESS_SECRET must contain at least 32 characters in production.");
+  }
+  const smtpUser = Boolean(process.env.SMTP_USER?.trim());
+  const smtpPassword = Boolean(process.env.SMTP_PASSWORD?.trim());
+  if (smtpUser !== smtpPassword) {
+    throw new Error("SMTP_USER and SMTP_PASSWORD must either both be configured or both be empty.");
+  }
+  if (missing.length > 0) {
+    throw new Error(`Missing required production configuration: ${missing.join(", ")}`);
+  }
+}
+
 function redactLogText(value: string): string {
   return value
     .replace(/(api[_-]?secret|authorization|password|access[_-]?token|refresh[_-]?token|signature)(\s*[:=]\s*)[^\s,;]+/gi, "$1$2[REDACTED]")
@@ -101,6 +126,7 @@ class ApiExceptionFilter implements ExceptionFilter {
 }
 
 async function bootstrap(): Promise<void> {
+  validateProductionConfiguration();
   // The HTTP entrypoint must never run marketplace polling, even if a worker
   // environment variable is accidentally inherited by the API deployment.
   process.env.ANYSKILL_PROCESS_ROLE = "api";
