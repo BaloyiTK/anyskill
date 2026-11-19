@@ -350,24 +350,33 @@ export class MediaService {
     if (assets.length === 0) return;
     this.ensureConfigured();
 
-    for (const asset of assets) {
-      const folder = FOLDERS[asset.purpose];
-      if (!folder) {
-        throw new ServiceUnavailableException("An uploaded file could not be securely removed. Please contact support.");
-      }
-      const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
-      const destroyOptions = {
-        resource_type: "image" as const,
-        type: "authenticated" as const,
-        invalidate: true,
-        timeout: CLOUDINARY_API_TIMEOUT_MS,
-      };
-      const result = await cloudinary.uploader.destroy(publicId, destroyOptions as {
-        resource_type?: "image";
-        type?: "authenticated";
-        invalidate?: boolean;
-      });
-      if (result.result !== "ok" && result.result !== "not found") {
+    // Bound concurrency to avoid both a long serial deletion and an
+    // unbounded burst against Cloudinary. Failed batches abort account deletion;
+    // already-deleted assets are safe to retry because "not found" is accepted.
+    for (let offset = 0; offset < assets.length; offset += 5) {
+      const batch = assets.slice(offset, offset + 5);
+      const results = await Promise.allSettled(batch.map(async (asset) => {
+        const folder = FOLDERS[asset.purpose];
+        if (!folder) {
+          throw new ServiceUnavailableException("An uploaded file could not be securely removed. Please contact support.");
+        }
+        const publicId = await this.resolveStoredPublicId(asset.objectKey, folder);
+        const destroyOptions = {
+          resource_type: "image" as const,
+          type: "authenticated" as const,
+          invalidate: true,
+          timeout: CLOUDINARY_API_TIMEOUT_MS,
+        };
+        const result = await cloudinary.uploader.destroy(publicId, destroyOptions as {
+          resource_type?: "image";
+          type?: "authenticated";
+          invalidate?: boolean;
+        });
+        if (result.result !== "ok" && result.result !== "not found") {
+          throw new ServiceUnavailableException("Uploaded files could not be securely removed. Please try again later.");
+        }
+      }));
+      if (results.some((result) => result.status === "rejected")) {
         throw new ServiceUnavailableException("Uploaded files could not be securely removed. Please try again later.");
       }
     }
