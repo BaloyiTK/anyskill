@@ -476,6 +476,7 @@ model AppNotification {
 
   @@index([userId, readAt, createdAt])
   @@index([deliveryStatus, nextAttemptAt, createdAt])
+  @@index([deliveryStatus, nextAttemptAt, userId, createdAt], map: "app_notifications_fair_queue_idx")
   @@map("app_notifications")
 }
 
