@@ -26,6 +26,7 @@ class CreateMediaUploadDto {
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
 }
 class ConfirmMediaUploadDto { @IsString() @MaxLength(64) assetId!: string; }
+class SendServiceChatMessageDto { @IsString() @MaxLength(2000) body!: string; }
 
 class CursorQuery {
   @IsOptional()
@@ -165,6 +166,16 @@ export class MarketplaceController {
   @RequireMarketplaceRole("SEEKER")
   decideJobCompletion(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Param("submissionId", new ParseUUIDPipe()) submissionId: string, @Body() dto: DecideJobCompletionDto) {
     return this.marketplace.decideJobCompletion(user.id, requestId, submissionId, dto);
+  }
+
+  @Get("marketplace/requests/:requestId/chat")
+  getServiceChat(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.listServiceChatMessages(user.id, requestId);
+  }
+
+  @Post("marketplace/requests/:requestId/chat")
+  sendServiceChat(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: SendServiceChatMessageDto) {
+    return this.marketplace.sendServiceChatMessage(user.id, requestId, dto.body);
   }
 
   @Get("marketplace/my-jobs")
