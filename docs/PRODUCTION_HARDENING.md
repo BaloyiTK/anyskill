@@ -69,7 +69,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 Build the API package once, then run two separate processes/containers from the same release artifact:
 
-- API process: `pnpm --filter @anyskill/api start:prod` (leave `ANYSKILL_PROCESS_ROLE` unset or set it to `api`).
+- API process: `pnpm --filter @anyskill/api start:prod` (the HTTP entrypoint forces the role to `api`, even if a worker variable is accidentally inherited).
 - Worker process: set `ANYSKILL_PROCESS_ROLE=worker`, then run `pnpm --filter @anyskill/api start:worker`.
 
 PowerShell worker command:
