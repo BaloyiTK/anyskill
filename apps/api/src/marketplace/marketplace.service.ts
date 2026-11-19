@@ -892,18 +892,29 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async declineIncomingRequest(providerId: string, requestId: string) {
-    const changed = await this.prisma.requestMatch.updateMany({
-      where: {
-        requestId,
-        providerId,
-        status: "NOTIFIED",
-        request: { status: "OPEN" },
-      },
-      data: { status: "EXPIRED" },
+    await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.requestMatch.updateMany({
+        where: {
+          requestId,
+          providerId,
+          status: "NOTIFIED",
+          request: { status: "OPEN" },
+        },
+        data: { status: "EXPIRED" },
+      });
+      if (changed.count !== 1) {
+        throw new ConflictException("This incoming request is no longer awaiting your response.");
+      }
+
+      await tx.providerResponse.create({
+        data: {
+          requestId,
+          providerId,
+          status: "DECLINED",
+        },
+      });
     });
-    if (changed.count !== 1) {
-      throw new ConflictException("This incoming request is no longer awaiting your response.");
-    }
+
     return { success: true, requestId, status: "DECLINED" };
   }
 
