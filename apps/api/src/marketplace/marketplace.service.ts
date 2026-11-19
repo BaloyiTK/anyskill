@@ -685,13 +685,33 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
 
-  async submitJobCompletion(providerId: string, requestId: string, input: SubmitJobCompletionDto) {
+  async submitJobCompletion(providerId: string, requestId: string, input: SubmitJobCompletionDto, idempotencyKey?: string) {
     return this.prisma.$transaction(async (tx) => {
       // Serialize every state transition for this engagement across API replicas.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit completion.");
+      if (idempotencyKey != null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+        throw new BadRequestException("Idempotency-Key must be a valid UUID.");
+      }
+      const evidenceIds = [...new Set(input.evidenceAssetIds)];
+      if (evidenceIds.length !== input.evidenceAssetIds.length) throw new ConflictException("Duplicate evidence files are not allowed.");
+      const payloadHash = idempotencyKey
+        ? createHash("sha256").update(JSON.stringify({ notes: input.notes.trim(), evidenceAssetIds: [...evidenceIds].sort() })).digest("hex")
+        : null;
+      if (idempotencyKey) {
+        const existing = await tx.jobCompletionSubmission.findFirst({
+          where: { engagementId: job.id, idempotencyKey },
+          include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } },
+        });
+        if (existing) {
+          if (existing.idempotencyPayloadHash !== payloadHash) {
+            throw new ConflictException("This Idempotency-Key was already used with a different completion submission.");
+          }
+          return existing;
+        }
+      }
       if (job.status !== "IN_PROGRESS") throw new ConflictException("The job must be in progress before completion can be submitted.");
       if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Resume the work timer before submitting completion.");
       const completionTime = new Date();
@@ -700,15 +720,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (pendingAdjustments > 0) throw new ConflictException("Resolve pending additional-hours approvals before submitting completion.");
       const pendingSubmission = await tx.jobCompletionSubmission.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pendingSubmission > 0) throw new ConflictException("A completion submission is already awaiting the Seeker's review.");
-      const evidenceIds = [...new Set(input.evidenceAssetIds)];
-      if (evidenceIds.length !== input.evidenceAssetIds.length) throw new ConflictException("Duplicate evidence files are not allowed.");
       const assets = await tx.mediaAsset.findMany({
         where: { id: { in: evidenceIds }, userId: providerId, status: "READY", purpose: "JOB_COMPLETION_EVIDENCE", completionSubmissionId: null, expiresAt: { gt: new Date() } },
         select: { id: true },
       });
       if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more evidence files are unavailable, expired, or do not belong to you. Upload them again.");
       const submission = await tx.jobCompletionSubmission.create({
-        data: { engagementId: job.id, providerId, notes: input.notes.trim(), evidenceUrls: [] },
+        data: {
+          engagementId: job.id, providerId, notes: input.notes.trim(), evidenceUrls: [],
+          ...(idempotencyKey ? { idempotencyKey, idempotencyPayloadHash: payloadHash } : {}),
+        },
       });
       // Claim each evidence asset with a conditional update. This prevents the
       // same READY upload being attached to two jobs submitted concurrently.
