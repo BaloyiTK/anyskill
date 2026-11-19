@@ -74,6 +74,9 @@ export function MarketplaceScreen(p: Props) {
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [myRequests, setMyRequests] = useState<SeekerRequest[]>([]);
   const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
+  const [activeOfferId, setActiveOfferId] = useState<string | null>(null);
+  const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
+  const [showProviderProfile, setShowProviderProfile] = useState(false);
   const [myJobs, setMyJobs] = useState<Array<JobEngagement & { request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null } }>>([]);
   const [clockNow, setClockNow] = useState(Date.now());
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
@@ -1100,9 +1103,45 @@ export function MarketplaceScreen(p: Props) {
           const elapsedMs = Math.max(0, clockNow - Date.parse(matchingRequest.createdAt));
           const timedOut = elapsedMs >= 30 * 60 * 1000;
           const remainingMs = Math.max(0, 30 * 60 * 1000 - elapsedMs);
-          const offers = myRequests.find((item) => item.id === matchingRequest.id)?.providerResponses.filter((offer) => offer.status === "OFFERED") ?? [];
-          return <>
-            <View style={{ alignItems: "center", marginTop: 35 }}>
+          const offers = myRequests.find((item) => item.id === matchingRequest.id)?.providerResponses.filter((offer) => offer.status === "OFFERED" && !dismissedOfferIds.includes(offer.id)) ?? [];
+          const activeOffer = offers.find((offer) => offer.id === activeOfferId) ?? null;
+          const profile = activeOffer?.provider.providerProfile;
+          const rating = profile?.ratings;
+          return activeOffer ? (
+            <ScrollView style={{ flex: 1, marginTop: 18 }} contentContainerStyle={{ paddingBottom: 28 }}>
+              <Pressable onPress={() => { setActiveOfferId(null); setShowProviderProfile(false); }} style={{ paddingVertical: 10 }}><Text style={{ color: "#176B55", fontWeight: "800" }}>‹ Back to matching</Text></Pressable>
+              {showProviderProfile ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 22, padding: 20, marginTop: 16 }}>
+                <Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900" }}>Provider profile</Text>
+                <Text style={{ color: "#15251E", fontSize: 21, fontWeight: "900", marginTop: 14 }}>{profile?.publicName || "Skill Provider"}</Text>
+                <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "800", marginTop: 6 }}>✓ Identity verified</Text>
+                <Text style={{ color: "#15251E", marginTop: 12 }}>★ {rating?.overallIsRated ? rating.overall.toFixed(1) : "New"} · {rating?.overallReviewCount ?? 0} reviews</Text>
+                <Text style={{ color: "#66756D", marginTop: 15 }}>Skills: {profile?.skillCategories?.join(", ") || "Not provided"}</Text>
+                <Text style={{ color: "#66756D", marginTop: 8 }}>Service areas: {profile?.serviceAreas?.join(", ") || "Not provided"}</Text>
+                <Text style={{ color: "#66756D", marginTop: 8 }}>Delivery: {profile?.deliveryModes?.join(", ") || "Not provided"}</Text>
+                <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 18, marginTop: 18 }}>Identity verification confirms identity only. It does not certify qualifications, experience or work quality.</Text>
+              </View> : <>
+                <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, marginTop: 8 }}>NEW PROVIDER OFFER</Text>
+                <Text style={{ color: "#15251E", fontSize: 28, fontWeight: "900", marginTop: 8 }}>Review this offer</Text>
+                <View style={{ backgroundColor: "#FFFFFF", borderRadius: 22, borderWidth: 1, borderColor: "#DCE8E1", padding: 19, marginTop: 18 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: "#DDEFE8", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#176B55", fontSize: 21, fontWeight: "900" }}>{(profile?.publicName || "SP").split(/\\s+/).map((part) => part[0]).slice(0,2).join("").toUpperCase()}</Text></View>
+                    <View style={{ flex: 1, marginLeft: 13 }}><Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900" }}>{profile?.publicName || "Skill Provider"}</Text><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", marginTop: 5 }}>✓ Identity verified</Text></View>
+                  </View>
+                  <Text style={{ color: "#15251E", fontWeight: "800", marginTop: 16 }}>★ {rating?.overallIsRated ? rating.overall.toFixed(1) : "New Provider"} · {rating?.overallReviewCount ?? 0} reviews</Text>
+                  <View style={{ backgroundColor: "#F4F7F5", borderRadius: 14, padding: 14, marginTop: 15 }}><Text style={{ color: "#66756D", fontSize: 10, fontWeight: "900" }}>PROVIDER MESSAGE</Text><Text style={{ color: "#24352D", fontSize: 14, lineHeight: 21, marginTop: 8 }}>{activeOffer.message || "I am available to assist with your request."}</Text></View>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 12 }}>
+                    {[["SKILL", matchingRequest.skillCategory], ["EXPERIENCE", "Not provided"], ["DISTANCE", "Not available"], ["AVAILABILITY", "Available now"]].map(([label,value]) => <View key={label} style={{ width: "50%", paddingVertical: 10 }}><Text style={{ color: "#829087", fontSize: 9, fontWeight: "900" }}>{label}</Text><Text style={{ color: "#24352D", fontSize: 14, fontWeight: "800", marginTop: 5 }}>{value}</Text></View>)}
+                  </View>
+                  <View style={{ backgroundColor: "#15251E", borderRadius: 16, padding: 16, marginTop: 8 }}><Text style={{ color: "#C8D9D0", fontSize: 10, fontWeight: "900" }}>PROVIDER'S HOURLY RATE</Text><Text style={{ color: "#FFFFFF", fontSize: 26, fontWeight: "900", marginTop: 5 }}>{activeOffer.hourlyRateAtOffer == null ? "To be confirmed" : `R ${Number(activeOffer.hourlyRateAtOffer).toFixed(2)}`}<Text style={{ color: "#D4E0D9", fontSize: 12 }}> / hr</Text></Text></View>
+                  <Pressable onPress={() => setShowProviderProfile(true)} style={{ paddingVertical: 16, alignItems: "center" }}><Text style={{ color: "#176B55", fontWeight: "900" }}>View full Provider profile →</Text></Pressable>
+                  <Text style={{ color: "#829087", fontSize: 10, textAlign: "center" }}>Identity verification confirms identity only.</Text>
+                </View>
+                <Pressable onPress={() => { setDismissedOfferIds((ids) => [...ids, activeOffer.id]); setActiveOfferId(null); }} disabled={!!selectingOfferId || jobActionBusy} style={{ borderWidth: 1, borderColor: "#D7E0DA", borderRadius: 15, padding: 15, alignItems: "center", marginTop: 15, backgroundColor: "#FFFFFF" }}><Text style={{ color: "#53645A", fontWeight: "900" }}>Decline offer</Text></Pressable>
+                <Pressable onPress={() => void selectProvider(matchingRequest.id, activeOffer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", marginTop: 10 }}>{selectingOfferId === activeOffer.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Accept offer</Text>}</Pressable>
+              </>}
+            </ScrollView>
+          ) : (
+          <>            <View style={{ alignItems: "center", marginTop: 35 }}>
               {timedOut ? <Text style={{ color: "#9A5B00", fontSize: 12, fontWeight: "900" }}>LIVE SEARCH TIME LIMIT REACHED</Text> : <ActivityIndicator size="large" color="#0066CC" />}
               <Text style={{ color: "#0B2545", fontSize: 26, lineHeight: 32, fontWeight: "900", textAlign: "center", marginTop: 20 }}>{timedOut ? "Let's schedule your request." : "Finding the best Provider for you."}</Text>
               <Text style={{ color: "#66756D", fontSize: 14, lineHeight: 21, textAlign: "center", marginTop: 10 }}>{timedOut ? "The 30-minute live search has ended. Your request details are saved. Choose when you need the work done and AnySkill will restart Provider matching." : "This screen stays open while AnySkill matches your request. You can cancel at any time."}</Text>
@@ -1115,14 +1154,12 @@ export function MarketplaceScreen(p: Props) {
               {matchingRequest.location ? <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }}>📍 {matchingRequest.location}</Text> : null}
               <Text style={{ color: "#66756D", fontSize: 12, marginTop: 8 }}>Matching wave {matchingRequest.wave} · {matchingRequest.notified} Provider(s) notified · {offers.length} offer(s) received</Text>
             </View>
-            {offers.map((offer) => <View key={offer.id} style={{ backgroundColor: "#FFFFFF", borderRadius: 13, borderWidth: 1, borderColor: "#B8D7F5", padding: 13, marginTop: 12 }}>
-              <Text style={{ color: "#0B2545", fontWeight: "900" }}>{offer.provider.providerProfile?.publicName || "Skill Provider"}</Text>
-              <Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>{offer.message || "This Provider is available for your request."}</Text>
-              <Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>Hourly rate: {offer.hourlyRateAtOffer == null ? "To be confirmed" : `R ${Number(offer.hourlyRateAtOffer).toFixed(2)}`}</Text>
-              <Pressable onPress={() => void selectProvider(matchingRequest.id, offer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#0066CC", borderRadius: 10, padding: 12, alignItems: "center", marginTop: 10 }}>
-                <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{selectingOfferId === offer.id ? "Selecting..." : "Select this Provider"}</Text>
-              </Pressable>
-            </View>)}
+            {offers.map((offer) => <Pressable key={offer.id} onPress={() => { setActiveOfferId(offer.id); setShowProviderProfile(false); }} style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#C8DCD1", padding: 15, marginTop: 12 }}>
+              <Text style={{ color: "#15251E", fontWeight: "900", fontSize: 15 }}>{offer.provider.providerProfile?.publicName || "Skill Provider"}</Text>
+              <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "800", marginTop: 4 }}>✓ Identity verified · ★ {offer.provider.providerProfile?.ratings?.overallIsRated ? offer.provider.providerProfile.ratings.overall.toFixed(1) : "New Provider"}</Text>
+              <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }} numberOfLines={2}>{offer.message || "This Provider is available for your request."}</Text>
+              <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900", marginTop: 10 }}>Review offer →</Text>
+            </Pressable>)}
             {timedOut ? <>
               <Text style={{ color: "#0B2545", fontSize: 13, fontWeight: "900", marginTop: 20 }}>When do you need the work?</Text>
               <TextInput value={scheduleDateTime} onChangeText={setScheduleDateTime} placeholder="YYYY-MM-DDTHH:mm (local time)" style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D6E0EA", borderRadius: 11, minHeight: 50, paddingHorizontal: 12, marginTop: 8, color: "#0B2545" }} />
@@ -1134,7 +1171,7 @@ export function MarketplaceScreen(p: Props) {
             <Pressable onPress={() => void cancelLiveRequest()} disabled={jobActionBusy} style={{ borderWidth: 1, borderColor: "#D14A4A", borderRadius: 13, padding: 14, alignItems: "center", marginTop: 14, opacity: jobActionBusy ? 0.5 : 1 }}>
               <Text style={{ color: "#B42318", fontWeight: "900" }}>{jobActionBusy ? "Please wait..." : "Cancel service request"}</Text>
             </Pressable>
-          </>;
+          </>);
         })() : null}
       </View>
     </Modal>
