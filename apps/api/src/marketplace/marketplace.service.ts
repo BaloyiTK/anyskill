@@ -116,21 +116,25 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         throw new BadRequestException("Choose a preferred start time at least 15 minutes from now.");
       }
     }
-    const seeker = await this.prisma.user.findUnique({
-      where: { id: seekerId },
-      select: { identityVerification: true },
-    });
-    if (!seeker || seeker.identityVerification !== "VERIFIED") {
-      throw new ForbiddenException({
-        code: "IDENTITY_VERIFICATION_REQUIRED",
-        action: "SEEKER_SUBMIT_REQUEST",
-        message: "Complete identity verification before submitting your service request.",
-      });
-    }
-
     let request;
     try {
-      request = await this.prisma.serviceRequest.create({
+      request = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${seekerId}))`;
+        const seeker = await tx.user.findUnique({
+          where: { id: seekerId },
+          select: { identityVerification: true, seekerRoleStatus: true, deletedAt: true },
+        });
+        if (!seeker || seeker.deletedAt !== null || seeker.seekerRoleStatus !== "ACTIVE") {
+          throw new ForbiddenException("An active Seeker account is required to publish a service request.");
+        }
+        if (seeker.identityVerification !== "VERIFIED") {
+          throw new ForbiddenException({
+            code: "IDENTITY_VERIFICATION_REQUIRED",
+            action: "SEEKER_SUBMIT_REQUEST",
+            message: "Complete identity verification before submitting your service request.",
+          });
+        }
+        return tx.serviceRequest.create({
       data: {
         seekerId,
         ...(idempotencyKey ? { idempotencyKey, idempotencyPayloadHash: payloadHash } : {}),
@@ -153,7 +157,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         imageUrls: true, location: true, deliveryMode: true, matchingStartedAt: true,
         preferredStartAt: true, instructions: true, status: true, createdAt: true,
       },
-    });
+        });
+      });
     } catch (error) {
       if (!idempotencyKey || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
         throw error;
