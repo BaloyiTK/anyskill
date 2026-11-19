@@ -132,8 +132,6 @@ export default function App() {
     const [profileResult, identityResult] = await Promise.allSettled([
       apiRequest<{
         profile?: { marketplaceRoles?: string[]; marketplaceRole?: string };
-        skills?: Array<{ category?: string }>;
-        skillReviewStatuses?: Array<{ category: string; status: string }>;
         portfolio?: unknown[];
         sections?: { profile?: boolean; skills?: boolean; portfolio?: boolean };
         submittedAt?: string | null;
@@ -171,17 +169,10 @@ export default function App() {
     if (providerRequired) {
       try {
         const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
-        const submittedCategories = [...new Set(
-          (onboarding.skills ?? []).map((skill) => skill.category?.trim().toLocaleLowerCase("en-ZA")).filter(Boolean),
-        )];
-        const reviewStatuses = onboarding.skillReviewStatuses ?? [];
-        const allSkillsApproved = submittedCategories.length > 0 && submittedCategories.every((category) =>
-          reviewStatuses.some((review) =>
-            review.category.trim().toLocaleLowerCase("en-ZA") === category
-            && review.status.toUpperCase() === "APPROVED",
-          ),
-        );
-        providerApproved = roles.providerStatus === "ACTIVE" && allSkillsApproved;
+        // Provider onboarding is complete when the provider application
+        // itself is approved and active. Individual skill reviews do not
+        // determine the app's initial login destination.
+        providerApproved = roles.providerStatus === "ACTIVE";
       } catch {
         providerApproved = false;
       }
