@@ -54,9 +54,13 @@ This checklist is an engineering gate, not a claim that the platform is producti
 
 ## P0 — Payments and financial integrity
 
-- [ ] Do not enable real-money collection until PayGate merchant product, sandbox credentials, stored-card tokenisation, pre-authorisation, delayed capture, signed notifications, void/refund, and reconciliation capabilities are confirmed in writing. The approved payment architecture explicitly says these are not yet implemented.
-- [ ] Before launch, implement idempotent authorisation/capture/void/refund operations, verified webhook ingestion with replay protection, immutable financial ledger entries, and gateway reconciliation.
-- [ ] Confirm a compliant Provider payout rail; card acquiring settlement must not be represented as Provider payout.
+- [x] Add durable payment-domain persistence: one payment aggregate per engagement, integer minor-unit amounts, versioned estimate linkage, saved-method token references, idempotent operation keys, unique gateway references, webhook-event deduplication, and Provider payout state.
+- [x] Add append-only financial ledger storage. Database trigger rejects UPDATE and DELETE; corrections must be recorded as compensating entries.
+- [ ] Implement PayGate merchant adapter only after the actual PayGate product/PayHost configuration, sandbox credentials, tokenisation, stored-credential merchant-initiated transactions, authorisation/capture/void/refund, and callback/query rules are confirmed in writing.
+- [ ] Implement transaction-safe operation claiming, verified notification processing, out-of-order/replay handling, amount/currency/reference verification, and gateway reconciliation.
+- [ ] Add balanced double-entry posting service and integration tests proving every journal group balances per currency.
+- [ ] Confirm a compliant Provider payout rail and operational reconciliation; PayGate acquiring settlement must not be represented as Provider payout.
+- [ ] Keep all real-money collection and Provider payouts disabled until merchant sandbox, refund, failure, duplicate-event, expiry, and settlement tests pass.
 
 ## P0 — Multi-instance runtime controls
 
