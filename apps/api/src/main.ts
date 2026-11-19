@@ -31,14 +31,35 @@ function validateProductionConfiguration(): void {
     process.env.CLOUDINARY_API_KEY?.trim() &&
     process.env.CLOUDINARY_API_SECRET?.trim(),
   );
-  if (!cloudinaryUrl && !cloudinaryPartsPresent) missing.push("CLOUDINARY_URL (or all CLOUDINARY_* split credentials)");
-  if (process.env.JWT_ACCESS_SECRET && process.env.JWT_ACCESS_SECRET.length < 32) {
-    throw new Error("JWT_ACCESS_SECRET must contain at least 32 characters in production.");
+  let cloudinaryUrlValid = false;
+  if (cloudinaryUrl) {
+    try {
+      const parsed = new URL(cloudinaryUrl);
+      cloudinaryUrlValid = parsed.protocol === "cloudinary:" &&
+        Boolean(parsed.hostname && parsed.username && parsed.password);
+    } catch {
+      cloudinaryUrlValid = false;
+    }
+  }
+  if (!cloudinaryUrlValid && !cloudinaryPartsPresent) {
+    missing.push("valid CLOUDINARY_URL (or all CLOUDINARY_* split credentials)");
+  }
+  const jwtSecret = process.env.JWT_ACCESS_SECRET?.trim() ?? "";
+  if (jwtSecret && (jwtSecret.length < 32 || /replace|example|changeme|your[_ -]?secret/i.test(jwtSecret))) {
+    throw new Error("JWT_ACCESS_SECRET must be a unique random secret of at least 32 characters in production.");
   }
   const smtpUser = Boolean(process.env.SMTP_USER?.trim());
   const smtpPassword = Boolean(process.env.SMTP_PASSWORD?.trim());
   if (smtpUser !== smtpPassword) {
     throw new Error("SMTP_USER and SMTP_PASSWORD must either both be configured or both be empty.");
+  }
+  const smtpPort = Number(process.env.SMTP_PORT?.trim() || 587);
+  if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+    throw new Error("SMTP_PORT must be a valid TCP port in production.");
+  }
+  const smtpSecure = process.env.SMTP_SECURE?.trim().toLowerCase();
+  if (smtpSecure && smtpSecure !== "true" && smtpSecure !== "false") {
+    throw new Error("SMTP_SECURE must be either true or false.");
   }
   if (missing.length > 0) {
     throw new Error(`Missing required production configuration: ${missing.join(", ")}`);
