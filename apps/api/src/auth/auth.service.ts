@@ -533,7 +533,6 @@ export class AuthService {
     }
 
     const nextRefreshToken = opaqueToken();
-    const now = new Date();
 
     const rotated = await this.prisma.$transaction(async (tx) => {
       const revoke = await tx.refreshSession.updateMany({
