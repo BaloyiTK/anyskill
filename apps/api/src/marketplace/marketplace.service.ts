@@ -702,6 +702,58 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { success: true, requestId, preferredStartAt, matching };
   }
 
+  async declineIncomingRequest(providerId: string, requestId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findUnique({
+        where: { id: requestId },
+        select: { id: true, status: true, matchingWave: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.status !== "OPEN") throw new ConflictException("This service request is no longer available.");
+
+      const match = await tx.requestMatch.findUnique({
+        where: { requestId_providerId: { requestId, providerId } },
+        select: { id: true, status: true },
+      });
+      if (!match || match.status !== "NOTIFIED") {
+        throw new ConflictException("This matching invitation is no longer available to decline.");
+      }
+      const changed = await tx.requestMatch.updateMany({
+        where: { id: match.id, requestId, providerId, status: "NOTIFIED" },
+        data: { status: "EXPIRED" },
+      });
+      if (changed.count !== 1) throw new ConflictException("This matching invitation has already changed.");
+
+      const pendingOffers = await tx.providerResponse.count({ where: { requestId, status: "OFFERED" } });
+      const pendingMatches = await tx.requestMatch.count({ where: { requestId, status: "NOTIFIED" } });
+      if (pendingOffers === 0 && pendingMatches === 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+        });
+        return { dispatchNextWave: true, nextWave: request.matchingWave + 1 };
+      }
+      if (pendingOffers === 0 && pendingMatches > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+      } else if (pendingOffers > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: null },
+        });
+      }
+      return { dispatchNextWave: false, nextWave: request.matchingWave + 1 };
+    });
+
+    const matching = result.dispatchNextWave
+      ? await this.dispatchNextWave(requestId, result.nextWave)
+      : null;
+    return { success: true, requestId, status: "DECLINED", matching };
+  }
+
   async declineProviderOffer(seekerId: string, requestId: string, responseId: string) {
     const result = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
