@@ -98,6 +98,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
     if ((input.latitude == null) !== (input.longitude == null)) throw new BadRequestException("Provide both latitude and longitude for the job location.");
     if (input.deliveryMode !== "REMOTE" && (input.latitude == null || input.longitude == null)) throw new BadRequestException("Choose the job location on the map before publishing an on-site or either-mode request.");
+    if (input.preferredStartAt) {
+      const preferredStartAt = new Date(input.preferredStartAt);
+      if (!Number.isFinite(preferredStartAt.getTime()) || preferredStartAt.getTime() < Date.now() + 15 * 60 * 1000) {
+        throw new BadRequestException("Choose a preferred start time at least 15 minutes from now.");
+      }
+    }
     const seeker = await this.prisma.user.findUnique({
       where: { id: seekerId },
       select: { identityVerification: true },
