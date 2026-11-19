@@ -27,6 +27,9 @@ jobs:
       - name: Verify protected project standards and configuration
         run: node scripts/check-project-standards.mjs
 
+      - name: Verify production Android Firebase and Maps configuration gates
+        run: node scripts/check-mobile-production-config.mjs
+
   validate:
     runs-on: ubuntu-latest
     services:
