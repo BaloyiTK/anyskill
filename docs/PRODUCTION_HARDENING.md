@@ -42,7 +42,7 @@ This checklist is an engineering gate, not a claim that the platform is producti
 - [ ] Complete request DTO limits and pagination caps across all endpoints. Coordinate/range checks are enforced; public provider discovery now uses the existing PostGIS geography index and caps responses at 200 results instead of loading every online profile into API memory.
 - [ ] Complete production health/readiness checks and graceful shutdown. `/api/v1/health` is a liveness probe; `/api/v1/health/ready` now verifies PostgreSQL connectivity. Migration compatibility and dedicated-worker health are still deployment gates and are not claimed by the HTTP readiness probe.
 - [ ] Complete centralized log collection and alerting. Production API now emits structured JSON log records to stderr for container collection instead of relying on ephemeral local files; request IDs are included and common credential/token patterns are redacted.
-- [ ] Add request correlation, metrics, tracing, and alert thresholds.
+- [ ] Add metrics, tracing, and alert thresholds. Request IDs are returned and logged; API responses now set nosniff, frame-denial, no-referrer, no-store, and production HSTS headers.
 - [ ] Verify backup/restore, migration rollback strategy, connection-pool sizing, and deployment rollback.
 
 ## P1 — Mobile release configuration
