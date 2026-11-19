@@ -283,6 +283,60 @@ test("Provider GPS heartbeat cannot race an identity rejection and leave locatio
   assert.equal(profile?.liveLocationUpdatedAt, null);
 });
 
+test("Provider declines expire only their own invitation and advance after the final unanswered match", async () => {
+  const fixture = await createFixture(2);
+  const matches = [];
+  for (const response of fixture.responses) {
+    matches.push(await prisma.requestMatch.create({
+      data: { requestId: fixture.requestId, providerId: response.providerId, status: "NOTIFIED", wave: 1, score: 0 },
+      select: { id: true, providerId: true },
+    }));
+  }
+  const decline = (match) => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    const changed = await tx.requestMatch.updateMany({
+      where: { id: match.id, requestId: fixture.requestId, providerId: match.providerId, status: "NOTIFIED" },
+      data: { status: "EXPIRED" },
+    });
+    if (changed.count !== 1) return false;
+    const pendingOffers = await tx.providerResponse.count({ where: { requestId: fixture.requestId, status: "OFFERED" } });
+    const pendingMatches = await tx.requestMatch.count({ where: { requestId: fixture.requestId, status: "NOTIFIED" } });
+    if (pendingOffers === 0 && pendingMatches === 0) {
+      await tx.serviceRequest.update({ where: { id: fixture.requestId }, data: { matchingNextAt: new Date(), matchingExhaustedAt: null } });
+      return true;
+    }
+    if (pendingOffers === 0 && pendingMatches > 0) {
+      await tx.serviceRequest.update({ where: { id: fixture.requestId }, data: { matchingNextAt: new Date(Date.now() + 300_000) } });
+    }
+    return false;
+  });
+  assert.equal(await decline(matches[0]), false);
+  const afterFirst = await prisma.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { matchingNextAt: true } });
+  assert.ok(afterFirst?.matchingNextAt && afterFirst.matchingNextAt > new Date());
+  assert.equal(await decline(matches[1]), true);
+  const afterSecond = await prisma.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { matchingNextAt: true } });
+  assert.ok(afterSecond?.matchingNextAt && afterSecond.matchingNextAt <= new Date());
+  assert.equal(await prisma.requestMatch.count({ where: { requestId: fixture.requestId, status: "EXPIRED" } }), 2);
+});
+
+test("a Provider cannot accept an invitation after it has been declined or expired", async () => {
+  const fixture = await createFixture(1);
+  const response = fixture.responses[0];
+  await prisma.requestMatch.create({
+    data: { requestId: fixture.requestId, providerId: response.providerId, status: "EXPIRED", wave: 1, score: 0 },
+  });
+  const accepted = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    const match = await tx.requestMatch.findUnique({
+      where: { requestId_providerId: { requestId: fixture.requestId, providerId: response.providerId } },
+      select: { status: true },
+    });
+    return match?.status === "NOTIFIED";
+  });
+  assert.equal(accepted, false);
+  assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, providerId: response.providerId } }), 0);
+});
+
 test("concurrent estimate submissions cannot overwrite one another", async () => {
   const fixture = await createEngagementFixture();
   const submit = (hours) => prisma.$transaction(async (tx) => {
