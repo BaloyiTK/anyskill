@@ -464,6 +464,7 @@ model AppNotification {
   title          String                    @db.VarChar(120)
   body           String                    @db.VarChar(500)
   data           Json?
+  eventKey       String?                   @unique @map("event_key") @db.VarChar(255)
   deliveryStatus NotificationDeliveryStatus @default(PENDING) @map("delivery_status")
   attempts       Int                       @default(0)
   readAt         DateTime?                 @map("read_at")
