@@ -202,7 +202,7 @@ async function bootstrap(): Promise<void> {
     response.setHeader("Pragma", "no-cache");
     if (process.env.NODE_ENV === "production") {
       // Production traffic must terminate TLS at the trusted edge.
-      response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+      response.setHeader("Strict-Transport-Security", "max-age=31536000");
     }
     response.once("finish", () => {
       const durationMs = Date.now() - startedAt;
