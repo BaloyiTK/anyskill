@@ -22,6 +22,14 @@ export interface CreatePaymentOperationInput {
   idempotencyKey: string;
 }
 
+
+export interface RecordPaymentOperationResultInput {
+  operationId: string;
+  outcome: PaymentOperationStatus.SUCCEEDED | PaymentOperationStatus.FAILED | PaymentOperationStatus.UNKNOWN;
+  gatewayReference?: string;
+  failureCode?: string;
+}
+
 export interface LedgerLineInput {
   accountCode: string;
   direction: LedgerDirection;
@@ -84,6 +92,141 @@ export class PaymentsService {
           status: PaymentOperationStatus.PENDING,
         },
       });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
+  }
+
+  /**
+   * Records an authoritative result received only after a verified gateway
+   * notification or a server-to-server gateway query. Never call this from a
+   * browser redirect or client-supplied payment status.
+   */
+  async recordVerifiedOperationResult(input: RecordPaymentOperationResultInput) {
+    if (!input.operationId || input.operationId.length > 36) {
+      throw new UnprocessableEntityException("A valid payment operation ID is required.");
+    }
+    if (input.gatewayReference && input.gatewayReference.length > 255) {
+      throw new UnprocessableEntityException("Gateway reference is too long.");
+    }
+    if (input.failureCode && !/^[A-Za-z0-9_.:-]{1,100}$/.test(input.failureCode)) {
+      throw new UnprocessableEntityException("Gateway failure code is invalid.");
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const initial = await tx.paymentOperation.findUnique({
+        where: { id: input.operationId },
+        include: { payment: true },
+      });
+      if (!initial) throw new NotFoundException("Payment operation was not found.");
+
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${initial.paymentId}, 1))`;
+      const operation = await tx.paymentOperation.findUnique({
+        where: { id: input.operationId },
+        include: { payment: true },
+      });
+      if (!operation) throw new NotFoundException("Payment operation was not found.");
+
+      if (operation.status !== PaymentOperationStatus.PENDING
+        && operation.status !== PaymentOperationStatus.UNKNOWN) {
+        const sameResult = operation.status === input.outcome
+          && operation.gatewayReference === (input.gatewayReference ?? null)
+          && operation.failureCode === (input.failureCode ?? null);
+        if (!sameResult) {
+          throw new ConflictException("Payment operation already has a different terminal result.");
+        }
+        return operation;
+      }
+
+      if (operation.payment.status === PaymentStatus.RECONCILIATION_REQUIRED
+        && input.outcome !== PaymentOperationStatus.UNKNOWN) {
+        // A verified, authoritative result resolves an earlier ambiguous outcome.
+      } else if (operation.payment.status === PaymentStatus.RECONCILIATION_REQUIRED
+        && input.outcome === PaymentOperationStatus.UNKNOWN) {
+        return operation;
+      }
+
+      const now = new Date();
+      const paymentUpdate: Prisma.PaymentUpdateInput = {};
+      if (input.outcome === PaymentOperationStatus.UNKNOWN) {
+        paymentUpdate.status = PaymentStatus.RECONCILIATION_REQUIRED;
+      } else if (input.outcome === PaymentOperationStatus.FAILED) {
+        paymentUpdate.status = operation.type === PaymentOperationType.AUTHORIZE
+          ? PaymentStatus.FAILED
+          : operation.type === PaymentOperationType.CAPTURE
+            || operation.type === PaymentOperationType.VOID
+            ? PaymentStatus.AUTHORIZED
+            : operation.payment.amountCapturedMinor === operation.amountMinor
+              ? PaymentStatus.CAPTURED
+              : PaymentStatus.PARTIALLY_REFUNDED;
+      } else {
+        switch (operation.type) {
+          case PaymentOperationType.AUTHORIZE:
+            if (operation.payment.status !== PaymentStatus.PENDING
+              && operation.payment.status !== PaymentStatus.AUTHORIZATION_PENDING
+              && operation.payment.status !== PaymentStatus.RECONCILIATION_REQUIRED) {
+              throw new ConflictException("Payment is not in a state that can accept an authorization result.");
+            }
+            paymentUpdate.status = PaymentStatus.AUTHORIZED;
+            paymentUpdate.amountAuthorizedMinor = operation.amountMinor;
+            paymentUpdate.authorizedAt = now;
+            break;
+          case PaymentOperationType.CAPTURE:
+            if (operation.payment.status !== PaymentStatus.AUTHORIZED
+              && operation.payment.status !== PaymentStatus.CAPTURE_PENDING
+              && operation.payment.status !== PaymentStatus.RECONCILIATION_REQUIRED) {
+              throw new ConflictException("Payment is not in a state that can accept a capture result.");
+            }
+            paymentUpdate.status = PaymentStatus.CAPTURED;
+            paymentUpdate.amountCapturedMinor = operation.amountMinor;
+            paymentUpdate.capturedAt = now;
+            break;
+          case PaymentOperationType.VOID:
+            if (operation.payment.status !== PaymentStatus.AUTHORIZED
+              && operation.payment.status !== PaymentStatus.RECONCILIATION_REQUIRED) {
+              throw new ConflictException("Payment is not in a state that can accept a void result.");
+            }
+            paymentUpdate.status = PaymentStatus.CANCELLED;
+            break;
+          case PaymentOperationType.REFUND: {
+            if (operation.payment.amountCapturedMinor === null) {
+              throw new ConflictException("Captured amount is missing; refund result requires reconciliation.");
+            }
+            const priorRefunds = await tx.paymentOperation.aggregate({
+              where: {
+                paymentId: operation.paymentId,
+                type: PaymentOperationType.REFUND,
+                status: PaymentOperationStatus.SUCCEEDED,
+                id: { not: operation.id },
+              },
+              _sum: { amountMinor: true },
+            });
+            const totalRefunded = (priorRefunds._sum.amountMinor ?? 0n) + operation.amountMinor;
+            if (totalRefunded > operation.payment.amountCapturedMinor) {
+              throw new ConflictException("Confirmed refunds exceed the captured amount; manual reconciliation is required.");
+            }
+            paymentUpdate.status = totalRefunded === operation.payment.amountCapturedMinor
+              ? PaymentStatus.REFUNDED
+              : PaymentStatus.PARTIALLY_REFUNDED;
+            break;
+          }
+        }
+      }
+
+      const updatedOperation = await tx.paymentOperation.update({
+        where: { id: operation.id },
+        data: {
+          status: input.outcome,
+          gatewayReference: input.gatewayReference ?? undefined,
+          failureCode: input.outcome === PaymentOperationStatus.FAILED
+            ? input.failureCode ?? "GATEWAY_DECLINED"
+            : null,
+          completedAt: input.outcome === PaymentOperationStatus.UNKNOWN ? null : now,
+        },
+      });
+      await tx.payment.update({
+        where: { id: operation.paymentId },
+        data: paymentUpdate,
+      });
+      return updatedOperation;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
