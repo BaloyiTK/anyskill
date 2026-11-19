@@ -144,6 +144,78 @@ test("provider offer selection and seeker decline cannot both win", async () => 
   assert.equal(request?.status, offer?.status === "SELECTED" ? "CLOSED" : "OPEN");
 });
 
+test("Provider withdrawals only advance matching after the final outstanding offer is withdrawn", async () => {
+  const fixture = await createFixture(2);
+  for (const response of fixture.responses) {
+    await prisma.requestMatch.create({
+      data: { requestId: fixture.requestId, providerId: response.providerId, status: "RESPONDED", wave: 1 },
+    });
+  }
+  const withdraw = (response) => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    const changed = await tx.providerResponse.updateMany({
+      where: { id: response.id, requestId: fixture.requestId, providerId: response.providerId, status: "OFFERED" },
+      data: { status: "WITHDRAWN" },
+    });
+    if (changed.count !== 1) return false;
+    await tx.requestMatch.updateMany({
+      where: { requestId: fixture.requestId, providerId: response.providerId, status: "RESPONDED" },
+      data: { status: "EXPIRED" },
+    });
+    const pending = await tx.providerResponse.count({ where: { requestId: fixture.requestId, status: "OFFERED" } });
+    if (pending === 0) {
+      await tx.serviceRequest.update({
+        where: { id: fixture.requestId },
+        data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+      });
+    }
+    return pending === 0;
+  });
+  const first = await withdraw(fixture.responses[0]);
+  assert.equal(first, false);
+  const afterFirst = await prisma.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { matchingNextAt: true } });
+  assert.equal(afterFirst?.matchingNextAt, null);
+  const second = await withdraw(fixture.responses[1]);
+  assert.equal(second, true);
+  const afterSecond = await prisma.serviceRequest.findUnique({ where: { id: fixture.requestId }, select: { status: true, matchingNextAt: true } });
+  assert.equal(afterSecond?.status, "OPEN");
+  assert.ok(afterSecond?.matchingNextAt && afterSecond.matchingNextAt <= new Date());
+  assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "WITHDRAWN" } }), 2);
+  assert.equal(await prisma.requestMatch.count({ where: { requestId: fixture.requestId, status: "EXPIRED" } }), 2);
+});
+
+test("seeker cancellation notifies every matched Provider and closes their outstanding matches", async () => {
+  const fixture = await createFixture(3);
+  for (const response of fixture.responses) {
+    await prisma.requestMatch.create({
+      data: { requestId: fixture.requestId, providerId: response.providerId, status: "NOTIFIED", wave: 1 },
+    });
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${fixture.requestId}, 0))`;
+    const matches = await tx.requestMatch.findMany({
+      where: { requestId: fixture.requestId, status: { in: ["NOTIFIED", "RESPONDED"] }, providerId: { not: null } },
+      select: { providerId: true },
+    });
+    await tx.serviceRequest.update({ where: { id: fixture.requestId }, data: { status: "CANCELLED", matchingNextAt: null } });
+    await tx.requestMatch.updateMany({ where: { requestId: fixture.requestId, status: "NOTIFIED" }, data: { status: "EXPIRED" } });
+    await tx.providerResponse.updateMany({ where: { requestId: fixture.requestId, status: "OFFERED" }, data: { status: "WITHDRAWN" } });
+    await tx.appNotification.createMany({
+      data: [...new Set(matches.map((match) => match.providerId).filter(Boolean))].map((providerId) => ({
+        userId: providerId,
+        title: "Service request cancelled",
+        body: "The Skill Seeker has cancelled this service request.",
+        data: { type: "REQUEST_CANCELLED", requestId: fixture.requestId },
+      })),
+    });
+  });
+  assert.equal(await prisma.appNotification.count({
+    where: { userId: { in: fixture.responses.map((response) => response.providerId) }, data: { path: ["type"], equals: "REQUEST_CANCELLED" } },
+  }), 3);
+  assert.equal(await prisma.requestMatch.count({ where: { requestId: fixture.requestId, status: "EXPIRED" } }), 3);
+  assert.equal(await prisma.providerResponse.count({ where: { requestId: fixture.requestId, status: "WITHDRAWN" } }), 3);
+});
+
 test("concurrent estimate submissions cannot overwrite one another", async () => {
   const fixture = await createEngagementFixture();
   const submit = (hours) => prisma.$transaction(async (tx) => {
