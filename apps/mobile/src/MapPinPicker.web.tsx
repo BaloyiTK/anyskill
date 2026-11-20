@@ -12,8 +12,6 @@ type Props = {
   showCenterMarker?: boolean;
 };
 
-const GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-
 export function MapPinPicker(p: Props) {
   const mapElement = useRef<HTMLDivElement | null>(null);
   const mapInstance = useRef<any>(null);
@@ -27,10 +25,6 @@ export function MapPinPicker(p: Props) {
 
   useEffect(() => {
     let active = true;
-    if (!GOOGLE_MAPS_KEY) {
-      setMapError("Google Maps browser key is missing. Configure EXPO_PUBLIC_GOOGLE_MAPS_API_KEY.");
-      return () => { active = false; };
-    }
     loadGoogleMaps().then((google) => {
       if (!active || !mapElement.current || mapInstance.current) return;
       mapInstance.current = new google.maps.Map(mapElement.current, {
