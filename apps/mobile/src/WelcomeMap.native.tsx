@@ -47,9 +47,7 @@ export default function WelcomeMap({
       strokeWidth={2}
     />
     {seekerLocation ? (
-      <Marker coordinate={seekerLocation} title="Your location" description="Your current position" anchor={{ x: 0.5, y: 0.5 }}>
-        <></>
-      </Marker>
+      <Marker coordinate={seekerLocation} title="Your location" description="Your current position" pinColor="#0066CC" />
     ) : null}
     {markers.map((marker) => (
       <Marker
