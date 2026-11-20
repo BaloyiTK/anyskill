@@ -4,6 +4,14 @@ import type { Server } from "node:http";
 import type { Duplex } from "node:stream";
 
 type Discovery = (latitude: number, longitude: number, radiusKm: number) => Promise<unknown>;
+const MAX_LIVE_MAP_CLIENTS = 200;
+const MAX_LIVE_MAP_CLIENTS_PER_IP = 20;
+const MAX_LIVE_MAP_CONNECTION_ATTEMPTS_PER_IP = 30;
+const LIVE_MAP_IP_WINDOW_MS = 60_000;
+const MAX_LIVE_MAP_FRAME_BYTES = 1_000_000;
+
+type IpConnectionWindow = { attempts: number; resetAt: number };
+
 type MapClient = {
   socket: Duplex;
   latitude: number;
@@ -17,6 +25,8 @@ type MapClient = {
 export class LiveProviderMapService {
   private readonly logger = new Logger(LiveProviderMapService.name);
   private readonly clients = new Set<MapClient>();
+  private readonly clientsByIp = new Map<string, number>();
+  private readonly connectionWindows = new Map<string, IpConnectionWindow>();
   private discover: Discovery | null = null;
   private expirySweep: ReturnType<typeof setInterval> | undefined;
 
@@ -29,21 +39,73 @@ export class LiveProviderMapService {
       this.expirySweep.unref?.();
     }
     server.on("upgrade", (request, socket) => {
-      const requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-      if (requestUrl.pathname !== "/api/v1/marketplace/discover/providers/live") return;
+      let requestUrl: URL;
+      try {
+        requestUrl = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+      } catch {
+        socket.end("HTTP/1.1 400 Bad Request\\r\\nConnection: close\\r\\n\\r\\n");
+        return;
+      }
+      if (requestUrl.pathname !== "/api/v1/marketplace/discover/providers/live") {
+        socket.end("HTTP/1.1 404 Not Found\\r\\nConnection: close\\r\\n\\r\\n");
+        return;
+      }
 
-      const latitude = Number(requestUrl.searchParams.get("latitude"));
-      const longitude = Number(requestUrl.searchParams.get("longitude"));
-      const radiusKm = Number(requestUrl.searchParams.get("radiusKm"));
+      const latitudeValue = requestUrl.searchParams.get("latitude");
+      const longitudeValue = requestUrl.searchParams.get("longitude");
+      const radiusValue = requestUrl.searchParams.get("radiusKm");
+      const latitude = Number(latitudeValue);
+      const longitude = Number(longitudeValue);
+      const radiusKm = Number(radiusValue);
       const key = request.headers["sec-websocket-key"];
+      const connectionHeader = String(request.headers.connection ?? "").toLowerCase().split(",").map((value) => value.trim());
+      const origin = request.headers.origin;
+      const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+        .split(",").map((value) => value.trim()).filter(Boolean);
+      const allowedOrigins = process.env.NODE_ENV === "production"
+        ? configuredOrigins
+        : [...configuredOrigins, "http://localhost:4173", "http://127.0.0.1:4173"];
+      const originAllowed = typeof origin !== "string" || allowedOrigins.includes(origin);
+      const validKey = typeof key === "string" && Buffer.from(key, "base64").length === 16;
       if (
-        typeof key !== "string" ||
+        request.headers.upgrade?.toLowerCase() !== "websocket" ||
+        !connectionHeader.includes("upgrade") ||
+        request.headers["sec-websocket-version"] !== "13" ||
+        !validKey ||
+        !originAllowed ||
+        !latitudeValue || !longitudeValue || !radiusValue ||
+        requestUrl.searchParams.getAll("latitude").length !== 1 ||
+        requestUrl.searchParams.getAll("longitude").length !== 1 ||
+        requestUrl.searchParams.getAll("radiusKm").length !== 1 ||
         !Number.isFinite(latitude) || latitude < -90 || latitude > 90 ||
         !Number.isFinite(longitude) || longitude < -180 || longitude > 180 ||
         ![5, 10, 20, 50].includes(radiusKm)
       ) {
-        socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+        socket.end("HTTP/1.1 400 Bad Request\\r\\nConnection: close\\r\\n\\r\\n");
         return;
+      }
+      const clientIp = request.socket.remoteAddress ?? "unknown";
+      const now = Date.now();
+      const window = this.connectionWindows.get(clientIp);
+      if (!window || window.resetAt <= now) {
+        this.connectionWindows.set(clientIp, { attempts: 1, resetAt: now + LIVE_MAP_IP_WINDOW_MS });
+      } else {
+        window.attempts += 1;
+      }
+      const currentWindow = this.connectionWindows.get(clientIp)!;
+      if (
+        this.clients.size >= MAX_LIVE_MAP_CLIENTS ||
+        (this.clientsByIp.get(clientIp) ?? 0) >= MAX_LIVE_MAP_CLIENTS_PER_IP ||
+        currentWindow.attempts > MAX_LIVE_MAP_CONNECTION_ATTEMPTS_PER_IP
+      ) {
+        socket.end("HTTP/1.1 429 Too Many Requests\\r\\nConnection: close\\r\\nRetry-After: 60\\r\\n\\r\\n");
+        return;
+      }
+      // Bound the limiter map even if an attacker rotates source addresses.
+      if (this.connectionWindows.size > 10_000) {
+        for (const [ip, entry] of this.connectionWindows) {
+          if (entry.resetAt <= now) this.connectionWindows.delete(ip);
+        }
       }
 
       const accept = createHash("sha1")
@@ -59,13 +121,36 @@ export class LiveProviderMapService {
 
       const client: MapClient = { socket, latitude, longitude, radiusKm, sending: false, dirty: false };
       this.clients.add(client);
-      socket.on("close", () => this.clients.delete(client));
-      socket.on("end", () => this.clients.delete(client));
-      socket.on("error", () => this.clients.delete(client));
+      this.clientsByIp.set(clientIp, (this.clientsByIp.get(clientIp) ?? 0) + 1);
+      let removed = false;
+      const removeClient = () => {
+        if (removed) return;
+        removed = true;
+        this.clients.delete(client);
+        const remaining = (this.clientsByIp.get(clientIp) ?? 1) - 1;
+        if (remaining <= 0) this.clientsByIp.delete(clientIp);
+        else this.clientsByIp.set(clientIp, remaining);
+      };
+      socket.on("close", removeClient);
+      socket.on("end", removeClient);
+      socket.on("error", removeClient);
       socket.on("data", (data: Buffer) => {
-        // The map stream is server-to-client. Honour a browser close frame.
-        const firstByte = data[0];
-        if (firstByte !== undefined && (firstByte & 0x0f) === 0x08) socket.end();
+        // Browser control frames are masked. Handle close and ping without
+        // accepting client application messages on this read-only stream.
+        if (data.length < 2) return;
+        const opcode = data[0]! & 0x0f;
+        const masked = (data[1]! & 0x80) !== 0;
+        const length = data[1]! & 0x7f;
+        if (opcode === 0x08) {
+          socket.end();
+          return;
+        }
+        if (opcode === 0x09 && masked && length <= 125 && data.length >= 6 + length) {
+          const mask = data.subarray(2, 6);
+          const payload = Buffer.from(data.subarray(6, 6 + length));
+          for (let index = 0; index < payload.length; index += 1) payload[index] = payload[index]! ^ mask[index % 4]!;
+          socket.write(Buffer.concat([Buffer.from([0x8a, payload.length]), payload]));
+        }
       });
       void this.sendSnapshot(client);
     });
@@ -98,6 +183,10 @@ export class LiveProviderMapService {
 
   private sendFrame(socket: Duplex, message: string): void {
     const payload = Buffer.from(message);
+    if (payload.length > MAX_LIVE_MAP_FRAME_BYTES) {
+      socket.destroy();
+      return;
+    }
     let header: Buffer;
     if (payload.length < 126) {
       header = Buffer.from([0x81, payload.length]);
@@ -112,6 +201,7 @@ export class LiveProviderMapService {
       header[1] = 127;
       header.writeBigUInt64BE(BigInt(payload.length), 2);
     }
-    socket.write(Buffer.concat([header, payload]));
+    // Disconnect slow consumers rather than buffering unbounded map snapshots.
+    if (!socket.write(Buffer.concat([header, payload]))) socket.destroy();
   }
 }

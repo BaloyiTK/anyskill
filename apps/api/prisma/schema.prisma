@@ -117,6 +117,7 @@ enum JobCompletionSubmissionStatus {
 
 enum MediaAssetStatus {
   PENDING
+  VERIFYING
   READY
   EXPIRED
 }
@@ -127,6 +128,81 @@ enum NotificationDeliveryStatus {
   SENT
   IN_APP_ONLY
   FAILED
+  UNKNOWN
+}
+
+enum PushReceiptStatus {
+  PENDING
+  OK
+  ERROR
+}
+enum PaymentMethodStatus {
+  SETUP_PENDING
+  ACTIVE
+  REQUIRES_UPDATE
+  REMOVED
+}
+enum PaymentStatus {
+  PENDING
+  AUTHORIZATION_PENDING
+  AUTHORIZED
+  CAPTURE_PENDING
+  CAPTURED
+  FAILED
+  CANCELLED
+  RECONCILIATION_REQUIRED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+enum PaymentOperationType {
+  AUTHORIZE
+  CAPTURE
+  VOID
+  REFUND
+}
+enum PaymentOperationStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  UNKNOWN
+}
+enum PaymentWebhookStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+}
+enum ProviderPayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  REVERSED
+}
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+
+model PushNotificationReceipt {
+  id             String            @id @default(uuid()) @db.Uuid
+  notificationId String            @db.Uuid @map("notification_id")
+  pushDeviceId   String            @db.Uuid @map("push_device_id")
+  expoTicketId   String            @unique @map("expo_ticket_id") @db.VarChar(255)
+  status         PushReceiptStatus @default(PENDING)
+  errorCode      String?           @map("error_code") @db.VarChar(100)
+  errorMessage   String?           @map("error_message") @db.VarChar(500)
+  checkedAt      DateTime?          @map("checked_at")
+  checkAttempts  Int               @default(0) @map("check_attempts")
+  nextCheckAt    DateTime          @default(now()) @map("next_check_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  notification   AppNotification    @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  pushDevice     PushDevice         @relation(fields: [pushDeviceId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextCheckAt, createdAt])
+  @@map("push_notification_receipts")
 }
 
 model User {
@@ -168,6 +244,10 @@ model User {
   staffTargets              StaffAuditLog[]             @relation("StaffAuditTarget")
   providerReviewsReceived   ProviderReview[]             @relation("ProviderReviewsReceived")
   providerReviewsGiven      ProviderReview[]             @relation("ProviderReviewsGiven")
+  paymentMethods            PaymentMethod[]
+  seekerPayments            Payment[]                    @relation("PaymentSeeker")
+  providerPayments          Payment[]                    @relation("PaymentProvider")
+  providerPayouts            ProviderPayout[]
   seekerReviewsReceived     SeekerReview[]                @relation("SeekerReviewsReceived")
   seekerReviewsGiven        SeekerReview[]                @relation("SeekerReviewsGiven")
 
@@ -254,6 +334,8 @@ model IdentityVerificationCase {
 model ServiceRequest {
   id                 String                @id @default(uuid()) @db.Uuid
   seekerId           String?               @db.Uuid @map("seeker_id")
+  idempotencyKey     String?               @db.VarChar(100) @map("idempotency_key")
+  idempotencyPayloadHash String?           @db.Char(64) @map("idempotency_payload_hash")
   title              String                @db.VarChar(120)
   skillCategory      String                @map("skill_category") @db.VarChar(100)
   description        String                @db.VarChar(5000)
@@ -279,6 +361,7 @@ model ServiceRequest {
 
   @@index([status, createdAt])
   @@index([seekerId, createdAt])
+  @@unique([seekerId, idempotencyKey])
   @@map("service_requests")
 }
 
@@ -330,6 +413,7 @@ model ProviderProfile {
   hourlyRate      Decimal? @map("hourly_rate") @db.Decimal(10, 2)
   assessmentFee   Decimal  @default(0) @map("assessment_fee") @db.Decimal(10, 2)
   skillCategories String[] @default([]) @map("skill_categories")
+  normalizedSkillKeys String[] @default([]) @map("normalized_skill_keys")
   serviceAreas    String[] @default([]) @map("service_areas")
   deliveryModes   String[] @default(["ONSITE"]) @map("delivery_modes")
   isAvailable     Boolean  @default(false) @map("is_available")
@@ -341,6 +425,7 @@ model ProviderProfile {
   updatedAt       DateTime @updatedAt @map("updated_at")
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([normalizedSkillKeys], type: Gin)
   @@index([isAvailable])
   @@map("provider_profiles")
 }
@@ -370,6 +455,7 @@ model PushDevice {
   lastSeenAt   DateTime @default(now()) @map("last_seen_at")
   createdAt    DateTime @default(now()) @map("created_at")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushReceipts PushNotificationReceipt[]
 
   @@index([userId])
   @@map("push_devices")
@@ -381,15 +467,20 @@ model AppNotification {
   title          String                    @db.VarChar(120)
   body           String                    @db.VarChar(500)
   data           Json?
+  eventKey       String?                   @unique @map("event_key") @db.VarChar(255)
   deliveryStatus NotificationDeliveryStatus @default(PENDING) @map("delivery_status")
   attempts       Int                       @default(0)
   readAt         DateTime?                 @map("read_at")
   sentAt         DateTime?                 @map("sent_at")
+  sendingStartedAt DateTime?               @map("sending_started_at")
+  nextAttemptAt  DateTime                  @default(now()) @map("next_attempt_at")
   createdAt      DateTime                  @default(now()) @map("created_at")
   user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushReceipts   PushNotificationReceipt[]
 
   @@index([userId, readAt, createdAt])
-  @@index([deliveryStatus, createdAt])
+  @@index([deliveryStatus, nextAttemptAt, createdAt])
+  @@index([deliveryStatus, nextAttemptAt, userId, createdAt], map: "app_notifications_fair_queue_idx")
   @@map("app_notifications")
 }
 
@@ -422,6 +513,7 @@ model JobEngagement {
   completionSubmissions JobCompletionSubmission[]
   review                ProviderReview?
   seekerReview          SeekerReview?
+  payment               Payment?
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@map("job_engagements")
@@ -464,6 +556,8 @@ model JobCostAdjustment {
 model JobCompletionSubmission {
   id             String                           @id @default(uuid()) @db.Uuid
   engagementId   String                           @db.Uuid @map("engagement_id")
+  idempotencyKey String?                          @db.VarChar(100) @map("idempotency_key")
+  idempotencyPayloadHash String?                  @db.Char(64) @map("idempotency_payload_hash")
   providerId     String?                          @db.Uuid @map("provider_id")
   notes          String                           @db.VarChar(3000)
   evidenceUrls   String[]                         @default([]) @map("evidence_urls")
@@ -473,6 +567,7 @@ model JobCompletionSubmission {
   submittedAt    DateTime                         @default(now()) @map("submitted_at")
   reviewedAt     DateTime?                        @map("reviewed_at")
   engagement     JobEngagement                    @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  @@unique([engagementId, idempotencyKey])
   @@index([engagementId, status, submittedAt])
   @@map("job_completion_submissions")
 }
@@ -481,6 +576,8 @@ model JobCompletionSubmission {
 model MediaAsset {
   id                     String                       @id @default(uuid()) @db.Uuid
   userId                 String                       @db.Uuid @map("user_id")
+  idempotencyKey         String?                      @db.VarChar(100) @map("idempotency_key")
+  idempotencyPayloadHash String?                      @db.Char(64) @map("idempotency_payload_hash")
   objectKey              String                       @unique @map("object_key") @db.VarChar(512)
   originalName            String                       @map("original_name") @db.VarChar(255)
   contentType             String                       @map("content_type") @db.VarChar(100)
@@ -489,11 +586,14 @@ model MediaAsset {
   status                  MediaAssetStatus             @default(PENDING)
   expiresAt               DateTime                     @map("expires_at")
   uploadedAt              DateTime?                    @map("uploaded_at")
+  verificationStartedAt   DateTime?                    @map("verification_started_at")
   completionSubmissionId  String?                      @db.Uuid @map("completion_submission_id")
   createdAt               DateTime                     @default(now()) @map("created_at")
   user                    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
   completionSubmission    JobCompletionSubmission?     @relation(fields: [completionSubmissionId], references: [id], onDelete: SetNull)
   @@index([userId, status, expiresAt])
+  @@index([status, expiresAt])
+  @@unique([userId, idempotencyKey])
   @@index([completionSubmissionId])
   @@map("media_assets")
 }
@@ -595,4 +695,143 @@ model ProviderReview {
   @@index([providerId, skillCategory, createdAt])
   @@index([providerId, createdAt])
   @@map("provider_reviews")
+}
+
+
+// Financial records are retained independently of user account lifecycle.
+// All amounts are integer minor units (for ZAR, cents); never use float money.
+model PaymentMethod {
+  id                       String              @id @default(uuid()) @db.Uuid
+  userId                   String              @db.Uuid @map("user_id")
+  provider                 String              @default("PAYGATE") @db.VarChar(40)
+  gatewayMethodReference   String              @unique @map("gateway_method_reference") @db.VarChar(255)
+  gatewayCustomerReference String?             @map("gateway_customer_reference") @db.VarChar(255)
+  encryptedToken           String              @map("encrypted_token") @db.Text
+  encryptionKeyVersion     String              @map("encryption_key_version") @db.VarChar(80)
+  brand                    String?             @db.VarChar(40)
+  last4                    String?             @db.Char(4)
+  status                   PaymentMethodStatus @default(SETUP_PENDING)
+  consentAt                DateTime            @map("consent_at")
+  consentVersion           String              @map("consent_version") @db.VarChar(40)
+  createdAt                DateTime            @default(now()) @map("created_at")
+  updatedAt                DateTime            @updatedAt @map("updated_at")
+  user                     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments                 Payment[]
+  @@index([userId, status])
+  @@map("payment_methods")
+}
+
+model Payment {
+  id                          String        @id @default(uuid()) @db.Uuid
+  engagementId                String        @unique @db.Uuid @map("engagement_id")
+  seekerId                    String?       @db.Uuid @map("seeker_id")
+  providerId                  String?       @db.Uuid @map("provider_id")
+  paymentMethodId             String?       @db.Uuid @map("payment_method_id")
+  currency                    String        @default("ZAR") @db.Char(3)
+  estimateVersion             Int           @map("estimate_version")
+  amountAuthorizedMinor       BigInt?       @map("amount_authorized_minor")
+  amountCapturedMinor         BigInt?       @map("amount_captured_minor")
+  status                      PaymentStatus @default(PENDING)
+  gatewayTransactionReference String?       @unique @map("gateway_transaction_reference") @db.VarChar(255)
+  authorizedAt                DateTime?     @map("authorized_at")
+  capturedAt                  DateTime?     @map("captured_at")
+  createdAt                   DateTime      @default(now()) @map("created_at")
+  updatedAt                   DateTime      @updatedAt @map("updated_at")
+  engagement                  JobEngagement @relation(fields: [engagementId], references: [id], onDelete: Restrict)
+  seeker                      User?         @relation("PaymentSeeker", fields: [seekerId], references: [id], onDelete: SetNull)
+  provider                    User?         @relation("PaymentProvider", fields: [providerId], references: [id], onDelete: SetNull)
+  paymentMethod               PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  operations                  PaymentOperation[]
+  ledgerEntries               FinancialLedgerEntry[]
+  @@index([seekerId, status, createdAt])
+  @@index([providerId, status, createdAt])
+  @@index([status, updatedAt])
+  @@map("payments")
+}
+
+model PaymentOperation {
+  id               String                 @id @default(uuid()) @db.Uuid
+  paymentId        String                 @db.Uuid @map("payment_id")
+  type             PaymentOperationType
+  status           PaymentOperationStatus @default(PENDING)
+  idempotencyKey   String                 @unique @map("idempotency_key") @db.VarChar(120)
+  requestHash      String                 @map("request_hash") @db.Char(64)
+  amountMinor      BigInt                 @map("amount_minor")
+  currency         String                 @db.Char(3)
+  gatewayReference String?                @unique @map("gateway_reference") @db.VarChar(255)
+  failureCode      String?                @map("failure_code") @db.VarChar(100)
+  safeResponse     Json?                  @map("safe_response")
+  requestedAt      DateTime               @default(now()) @map("requested_at")
+  completedAt      DateTime?              @map("completed_at")
+  payment          Payment                @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  @@index([paymentId, type, status])
+  @@index([status, requestedAt])
+  @@map("payment_operations")
+}
+
+model PaymentWebhookEvent {
+  id                 String               @id @default(uuid()) @db.Uuid
+  provider           String               @db.VarChar(40)
+  providerEventId    String               @map("provider_event_id") @db.VarChar(255)
+  payloadHash        String               @map("payload_hash") @db.Char(64)
+  normalizedPayload Json                 @map("normalized_payload")
+  signatureVerified Boolean              @default(false) @map("signature_verified")
+  status             PaymentWebhookStatus @default(RECEIVED)
+  attempts           Int                  @default(0)
+  receivedAt         DateTime             @default(now()) @map("received_at")
+  processedAt        DateTime?            @map("processed_at")
+  lastError          String?              @map("last_error") @db.VarChar(500)
+  @@unique([provider, providerEventId])
+  @@index([status, receivedAt])
+  @@map("payment_webhook_events")
+}
+
+model ProviderPayout {
+  id                String               @id @default(uuid()) @db.Uuid
+  providerId        String?              @db.Uuid @map("provider_id")
+  amountMinor       BigInt               @map("amount_minor")
+  currency          String               @db.Char(3)
+  status            ProviderPayoutStatus @default(PENDING)
+  idempotencyKey    String               @unique @map("idempotency_key") @db.VarChar(120)
+  payoutRail        String               @map("payout_rail") @db.VarChar(60)
+  externalReference String?              @unique @map("external_reference") @db.VarChar(255)
+  failureCode       String?              @map("failure_code") @db.VarChar(100)
+  requestedAt       DateTime             @default(now()) @map("requested_at")
+  completedAt       DateTime?            @map("completed_at")
+  provider          User?                @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  @@index([providerId, status, requestedAt])
+  @@index([status, requestedAt])
+  @@map("provider_payouts")
+}
+
+model FinancialLedgerEntry {
+  id             String         @id @default(uuid()) @db.Uuid
+  entryGroupId   String         @map("entry_group_id") @db.Uuid
+  paymentId      String?        @db.Uuid @map("payment_id")
+  accountCode    String         @map("account_code") @db.VarChar(80)
+  direction      LedgerDirection
+  amountMinor    BigInt         @map("amount_minor")
+  currency       String         @db.Char(3)
+  idempotencyKey String         @unique @map("idempotency_key") @db.VarChar(160)
+  description    String         @db.VarChar(500)
+  createdAt      DateTime       @default(now()) @map("created_at")
+  payment        Payment?       @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  @@index([entryGroupId])
+  @@index([paymentId, createdAt])
+  @@index([accountCode, currency, createdAt])
+  @@map("financial_ledger_entries")
+}
+
+
+model WorkerHeartbeat {
+  name                String   @id @db.VarChar(80)
+  status              String   @db.VarChar(20)
+  heartbeatAt         DateTime @default(now()) @map("heartbeat_at")
+  lastSuccessAt       DateTime? @map("last_success_at")
+  consecutiveFailures Int      @default(0) @map("consecutive_failures")
+  lastErrorCode       String?  @map("last_error_code") @db.VarChar(64)
+  lastCycleDurationMs Int?     @map("last_cycle_duration_ms")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("worker_heartbeats")
 }

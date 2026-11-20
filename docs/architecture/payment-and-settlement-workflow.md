@@ -113,3 +113,37 @@ Do not assume PayWeb3 and PayHost provide the same saved-card, authorisation, ca
 - **Additional authorisation, void/refund and reconciliation:** Not implemented.
 - **Provider payout/settlement:** Not implemented.
 - **Live payment testing:** Not performed.
+
+
+## Engineering foundation added (19 November 2026)
+
+The hardening branch now contains persistence primitives and an internal accounting/operation service for the approved workflow:
+
+- One payment aggregate per job engagement, tied to the estimate version and denominated in integer minor units (ZAR cents).
+- Saved payment-method references store only an encrypted gateway token plus masked metadata and consent evidence. Raw PAN and CVV have no fields in the AnySkill schema.
+- Authorise/capture/void/refund operation records have globally unique idempotency keys and unique gateway references.
+- Webhook inbox records deduplicate by provider and provider event ID and retain a payload hash and signature-verification result.
+- Provider payout records are separate from card payment capture.
+- Financial ledger entries are append-only at the database level; corrections require compensating entries. A deferred PostgreSQL constraint trigger validates debit/credit equality per currency for every journal group at transaction commit, including writes that bypass the service.
+- An internal PaymentsService creates idempotent AUTHORIZE/CAPTURE/VOID/REFUND operation intents under PostgreSQL advisory locks and rejects key reuse with a different request hash.
+- The same service validates journal groups for per-currency debit/credit equality and writes all lines atomically with line-level idempotency keys. Replayed groups are checked against their original entries.
+- Operation results can be recorded only through an internal method documented for verified gateway notifications or server-to-server queries. It serializes by payment, makes terminal outcomes idempotent, transitions payment status for authorization/capture/void/refund, and moves ambiguous outcomes to reconciliation-required.
+- A checksum-verified PayWeb3 notification can be persisted into the durable webhook inbox with provider-event deduplication and a SHA-256 hash of the raw form body. The normalized allowlist deliberately excludes `VAULT_ID` and other token material.
+- CI integration tests exercise concurrent idempotent operation creation, authorization/capture/refund state transitions, conflicting result replays, and balanced-ledger replay/imbalance rejection.
+
+These controls are not a completed payment integration. No gateway request, public payment endpoint, verified webhook processor, or payout executor is enabled. The result-recording method is not exposed over HTTP and must only be called by a future verified gateway adapter/reconciliation worker. The service deliberately does not claim that a payment succeeded or that funds moved without an authoritative result. The payment schema/migration passed CI on 19 November 2026; the current operation-result service and integration-test changes are awaiting CI.
+
+## Current PayGate integration evidence
+
+The current PayGate by Network developer overview describes three integration families: hosted PayWeb3, server-to-server PayHost, and batch PayBatch. It describes PayHost as supporting tokenisation/vaulting and PayBatch as supporting Auth, Settle and Refund operations. The merchant-specific product/configuration and the precise delayed-capture lifecycle still need written confirmation. In particular, PayGate documentation notes that Auto-Settle is enabled by default and merchants must request that it be disabled to separate authorisation from settlement.
+
+Before writing the gateway adapter, obtain written confirmation for the merchant account covering:
+
+1. PayVault activation, token creation without an unintended charge, token reuse and deletion lifecycle.
+2. Stored-credential / merchant-initiated authorisation rules and required cardholder consent/3-D Secure handling.
+3. Auth-only configuration, capture deadline, partial capture, incremental authorisation and reversal/void support.
+4. Callback checksum/signature verification, retry semantics, server-side query and transaction reference fields.
+5. Refund and partial-refund capabilities and reconciliation exports.
+6. Whether Provider disbursements are actually available on the contracted product, including beneficiary onboarding, compliance/KYC, fees, limits and settlement timing.
+
+Official technical references: [PayGate API overview](https://docs.paygate.co.za/paygate-by-network/reference/paygate-api-overview), [PayGate FAQ](https://docs.paygate.co.za/paygate-by-network/reference/frequently-asked-questions), [PayGate webhook/ITN guide](https://docs.paygate.co.za/paygate-by-network/reference/consuming-webhooks), [PayGate PayVault configuration](https://docs.paygate.co.za/paygate-by-network/reference/configuration).

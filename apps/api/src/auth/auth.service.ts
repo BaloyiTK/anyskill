@@ -486,7 +486,7 @@ export class AuthService {
 
     const accessToken = await this.jwt.signAsync(
       { sub: userId, email, typ: "access" },
-      { secret, expiresIn: ACCESS_TOKEN_TTL },
+      { secret, expiresIn: ACCESS_TOKEN_TTL, algorithm: "HS256", issuer: "anyskill-api", audience: "anyskill-client" },
     );
 
     const refreshToken = opaqueToken();
@@ -563,7 +563,7 @@ export class AuthService {
 
     const accessToken = await this.jwt.signAsync(
       { sub: session.userId, email: session.user.email, typ: "access" },
-      { secret, expiresIn: ACCESS_TOKEN_TTL },
+      { secret, expiresIn: ACCESS_TOKEN_TTL, algorithm: "HS256", issuer: "anyskill-api", audience: "anyskill-client" },
     );
 
     return {
@@ -583,11 +583,75 @@ export class AuthService {
       throw new UnauthorizedException("This account is no longer active.");
     }
 
-    // Remove private files first. If storage cleanup fails, keep the account
+    // Reserve the account for deletion before touching external storage.
+    // The shared eligibility lock prevents new requests, offers and matching
+    // invitations from being created while private assets are being removed.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('notification-delivery:' || ${userId}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('staff-membership'), hashtext(${userId}))`;
+
+      const current = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, deletedAt: true },
+      });
+      if (!current || current.deletedAt) throw new UnauthorizedException("This account is no longer active.");
+      const staffMembership = await tx.staffMembership.findUnique({
+        where: { userId },
+        select: { role: true, isActive: true },
+      });
+      if (staffMembership?.isActive && staffMembership.role === "SUPER_ADMIN") {
+        throw new ConflictException("The Super Administrator account cannot be self-deleted. Transfer administrator responsibility through the approved support process first.");
+      }
+
+      const [activeEngagement, openRequests, outstandingOffers, incomingInvitations] = await Promise.all([
+        tx.jobEngagement.findFirst({
+          where: { OR: [{ seekerId: userId }, { providerId: userId }], status: { not: "COMPLETED" } },
+          select: { id: true, status: true },
+        }),
+        tx.serviceRequest.count({ where: { seekerId: userId, status: "OPEN" } }),
+        tx.providerResponse.count({ where: { providerId: userId, status: "OFFERED" } }),
+        tx.requestMatch.count({ where: { providerId: userId, status: "NOTIFIED" } }),
+      ]);
+      if (activeEngagement) {
+        throw new ConflictException("Complete or resolve your active service engagement before deleting your account.");
+      }
+      if (openRequests > 0 || outstandingOffers > 0 || incomingInvitations > 0) {
+        throw new ConflictException("Cancel your open service requests, withdraw outstanding offers, and decline incoming Provider invitations before deleting your account.");
+      }
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { seekerRoleStatus: "SUSPENDED", providerRoleStatus: "SUSPENDED" },
+      });
+      await tx.providerProfile.updateMany({
+        where: { userId },
+        data: {
+          isAvailable: false,
+          liveLatitude: null,
+          liveLongitude: null,
+          liveAccuracyM: null,
+          liveLocationUpdatedAt: null,
+        },
+      });
+      // The notification lock is held, so no queued private push can be
+      // delivered after the deletion reservation commits.
+      await tx.appNotification.deleteMany({ where: { userId } });
+      await tx.pushDevice.deleteMany({ where: { userId } });
+    });
+
+    // Remove private files after marketplace actions have been blocked. If
+    // storage cleanup fails, the suspended account can retry deletion safely.
     // intact so deletion can be retried without leaving private files behind.
     await this.media.deleteUserAssets(userId);
 
     await this.prisma.$transaction(async (tx) => {
+      // Coordinate with push delivery so no queued private notification can be
+      // sent after this account-deletion transaction commits.
+      // Keep the same lock order as the deletion-reservation transaction.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('notification-delivery:' || ${userId}, 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('staff-membership'), hashtext(${userId}))`;
       // Audit records contain account identifiers and are not marketplace history.
       await tx.staffAuditLog.deleteMany({
         where: { OR: [{ actorId: userId }, { targetUserId: userId }] },

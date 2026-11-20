@@ -1,7 +1,9 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
-import { IdentityVerificationStatus, MarketplaceRoleStatus, ProviderApplicationStatus, RegistrationMode, StaffRole, VerificationCaseStatus } from "@prisma/client";
+import { IdentityVerificationStatus, MarketplaceRoleStatus, Prisma, ProviderApplicationStatus, RegistrationMode, StaffRole, VerificationCaseStatus } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
 import { MediaService } from "./media.service";
+
+const normalizeSkillKey = (value: string) => value.trim().toLocaleLowerCase("en-ZA").replace(/[^\p{L}\p{N}]+/gu, "");
 
 export type StaffMemberUpdate = { role?: StaffRole; isActive?: boolean };
 
@@ -15,6 +17,50 @@ export type ProviderApplicationInput = {
 @Injectable()
 export class MarketplaceRolesService {
   constructor(private readonly prisma: PrismaService, private readonly media: MediaService) {}
+
+  private async deactivateProviderMarketplaceActivity(tx: Prisma.TransactionClient, userId: string) {
+    const [offers, matches] = await Promise.all([
+      tx.providerResponse.findMany({ where: { providerId: userId, status: "OFFERED" }, select: { requestId: true } }),
+      tx.requestMatch.findMany({ where: { providerId: userId, status: { in: ["NOTIFIED", "RESPONDED"] } }, select: { requestId: true } }),
+    ]);
+    const requestIds = [...new Set([...offers, ...matches].map((item) => item.requestId))];
+    if (requestIds.length === 0) return;
+
+    await tx.providerResponse.updateMany({
+      where: { providerId: userId, status: "OFFERED" },
+      data: { status: "WITHDRAWN", message: null },
+    });
+    await tx.requestMatch.updateMany({
+      where: { providerId: userId, status: { in: ["NOTIFIED", "RESPONDED"] } },
+      data: { status: "EXPIRED" },
+    });
+
+    const requests = await tx.serviceRequest.findMany({
+      where: { id: { in: requestIds }, status: "OPEN" },
+      select: { id: true, seekerId: true },
+    });
+    const notifications = requests.filter((request) => request.seekerId).map((request) => ({
+      userId: request.seekerId!,
+      title: "Provider unavailable",
+      body: "A matched Provider is no longer available. AnySkill will continue matching your request.",
+      data: { type: "PROVIDER_UNAVAILABLE", requestId: request.id },
+    }));
+    if (notifications.length) await tx.appNotification.createMany({ data: notifications });
+
+    for (const request of requests) {
+      const [pendingOffers, pendingMatches] = await Promise.all([
+        tx.providerResponse.count({ where: { requestId: request.id, status: "OFFERED" } }),
+        tx.requestMatch.count({ where: { requestId: request.id, status: "NOTIFIED" } }),
+      ]);
+      await tx.serviceRequest.updateMany({
+        where: { id: request.id, status: "OPEN" },
+        data: {
+          matchingNextAt: pendingOffers > 0 ? null : new Date(Date.now() + (pendingMatches > 0 ? 300_000 : 0)),
+          matchingExhaustedAt: null,
+        },
+      });
+    }
+  }
 
   async getRoles(userId: string) {
     const [user, application] = await Promise.all([
@@ -56,38 +102,22 @@ export class MarketplaceRolesService {
   }
 
   async activateSeeker(userId: string) {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { seekerRoleStatus: true },
-    });
-    if (user.seekerRoleStatus === MarketplaceRoleStatus.SUSPENDED) {
-      throw new ForbiddenException("Seeker access is suspended. Contact AnySkill support.");
-    }
-    await this.prisma.user.update({
-      where: { id: userId },
+    // Keep suspension enforcement in the write predicate. A separate read then
+    // update can reactivate a role if a staff suspension commits between them.
+    const updated = await this.prisma.user.updateMany({
+      where: { id: userId, seekerRoleStatus: { not: MarketplaceRoleStatus.SUSPENDED } },
       data: {
         seekerRoleStatus: MarketplaceRoleStatus.ACTIVE,
         activeMarketplaceMode: RegistrationMode.SEEKER,
       },
     });
+    if (updated.count !== 1) {
+      throw new ForbiddenException("Seeker access is suspended. Contact AnySkill support.");
+    }
     return this.getRoles(userId);
   }
 
   async submitProviderApplication(userId: string, input: ProviderApplicationInput) {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { providerRoleStatus: true },
-    });
-    if (user.providerRoleStatus === MarketplaceRoleStatus.ACTIVE) {
-      throw new ConflictException("Your Provider role is already active.");
-    }
-    if (user.providerRoleStatus === MarketplaceRoleStatus.PENDING) {
-      throw new ConflictException("Your Provider application is already awaiting review.");
-    }
-    if (user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED) {
-      throw new ForbiddenException("Provider access is suspended. Contact AnySkill support.");
-    }
-
     const applicationData = {
       publicName: input.publicName.trim(),
       skills: [...new Set(input.skills.map((value) => value.trim().toLocaleLowerCase("en-ZA")).filter(Boolean))],
@@ -99,6 +129,21 @@ export class MarketplaceRolesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const user = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { providerRoleStatus: true },
+      });
+      if (user.providerRoleStatus === MarketplaceRoleStatus.ACTIVE) {
+        throw new ConflictException("Your Provider role is already active.");
+      }
+      if (user.providerRoleStatus === MarketplaceRoleStatus.PENDING) {
+        throw new ConflictException("Your Provider application is already awaiting review.");
+      }
+      if (user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED) {
+        throw new ForbiddenException("Provider access is suspended. Contact AnySkill support.");
+      }
+
       await tx.providerRoleApplication.upsert({
         where: { userId },
         create: { userId, status: ProviderApplicationStatus.PENDING, applicationData },
@@ -157,25 +202,48 @@ export class MarketplaceRolesService {
   }
 
   async updateStaffMember(actorId: string, targetUserId: string, input: StaffMemberUpdate) {
-    if (targetUserId === actorId && (input.isActive === false || (input.role && input.role !== StaffRole.SUPER_ADMIN))) {
-      throw new ForbiddenException("You cannot remove or change your own Super Administrator access.");
-    }
-    if (input.role === StaffRole.SUPER_ADMIN) {
-      throw new ForbiddenException("The Super Administrator role is reserved for the single bootstrap account.");
-    }
-    const existing = await this.prisma.staffMembership.findUnique({ where: { userId: targetUserId }, select: { id: true, role: true, isActive: true } });
-    if (!existing) throw new NotFoundException("Staff membership not found.");
-    if (existing.role === StaffRole.SUPER_ADMIN) throw new ForbiddenException("The Super Administrator membership cannot be changed here.");
     const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('staff-membership'), hashtext(${targetUserId}))`;
+      const existing = await tx.staffMembership.findUnique({
+        where: { userId: targetUserId },
+        select: { id: true, role: true, isActive: true },
+      });
+      if (!existing) throw new NotFoundException("Staff membership not found.");
+      if (existing.role === StaffRole.SUPER_ADMIN) {
+        throw new ForbiddenException("The Super Administrator membership cannot be changed here.");
+      }
+      if (targetUserId === actorId && (input.isActive === false || (input.role && input.role !== StaffRole.SUPER_ADMIN))) {
+        throw new ForbiddenException("You cannot remove or change your own Super Administrator access.");
+      }
+      if (input.role === StaffRole.SUPER_ADMIN) {
+        throw new ForbiddenException("The Super Administrator role is reserved for the single bootstrap account.");
+      }
+
       const membership = await tx.staffMembership.update({
         where: { userId: targetUserId },
-        data: { ...(input.role ? { role: input.role } : {}), ...(typeof input.isActive === "boolean" ? { isActive: input.isActive } : {}) },
+        data: {
+          ...(input.role ? { role: input.role } : {}),
+          ...(typeof input.isActive === "boolean" ? { isActive: input.isActive } : {}),
+        },
         select: { id: true, role: true, isActive: true, createdAt: true },
       });
-      await tx.staffAuditLog.create({ data: { actorId, targetUserId, action: "STAFF_MEMBER_UPDATED", metadata: { before: existing, after: { role: membership.role, isActive: membership.isActive } } } });
+      await tx.staffAuditLog.create({
+        data: {
+          actorId,
+          targetUserId,
+          action: "STAFF_MEMBER_UPDATED",
+          metadata: { before: existing, after: { role: membership.role, isActive: membership.isActive } },
+        },
+      });
       return membership;
     });
-    return { ...updated, user: await this.prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true, email: true, createdAt: true } }) };
+    return {
+      ...updated,
+      user: await this.prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { id: true, email: true, createdAt: true },
+      }),
+    };
   }
 
   async listAdminAccounts() {
@@ -220,9 +288,12 @@ export class MarketplaceRolesService {
     });
   }
 
-  async listIdentityReviews() {
+  async listIdentityReviews(reviewerId: string) {
     const cases = await this.prisma.identityVerificationCase.findMany({
-      where: { status: { in: [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW] } },
+      where: {
+        status: { in: [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW] },
+        userId: { not: reviewerId },
+      },
       orderBy: { submittedAt: "asc" },
       take: 200,
       select: {
@@ -231,19 +302,47 @@ export class MarketplaceRolesService {
       },
     });
     return Promise.all(cases.map(async (item) => {
-      const previews = await Promise.all(
-        (["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] as const)
-          .map(async (purpose) => {
-            try {
-              const preview = await this.media.getIdentityPreviewUrl(item.user.id, purpose);
-              return [purpose, preview?.url ?? null] as const;
-            } catch {
-              return [purpose, null] as const;
-            }
-          }),
-      );
-      return { ...item, documents: Object.fromEntries(previews) };
+      const assets = await this.prisma.mediaAsset.findMany({
+        where: {
+          userId: item.user.id,
+          status: "READY",
+          purpose: { in: ["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] },
+        },
+        select: { purpose: true },
+      });
+      const available = new Set(assets.map((asset) => asset.purpose));
+      return {
+        ...item,
+        // Never return storage URLs or asset IDs in the review queue.
+        documents: Object.fromEntries(
+          (["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] as const)
+            .map((purpose) => [purpose, available.has(purpose)]),
+        ),
+      };
     }));
+  }
+
+  async getIdentityDocumentForReviewer(reviewerId: string, caseId: string, purpose: string) {
+    const allowedPurposes = ["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"] as const;
+    if (!allowedPurposes.includes(purpose as typeof allowedPurposes[number])) throw new NotFoundException("Identity document not found.");
+    const verificationCase = await this.prisma.identityVerificationCase.findUnique({
+      where: { id: caseId },
+      select: { id: true, userId: true, status: true },
+    });
+    if (!verificationCase || verificationCase.userId === reviewerId ||
+        ![VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW].some((status: VerificationCaseStatus) => status === verificationCase.status)) {
+      throw new NotFoundException("Identity document not found.");
+    }
+    const result = await this.media.getIdentityImageBytes(verificationCase.userId, purpose as typeof allowedPurposes[number]);
+    await this.prisma.staffAuditLog.create({
+      data: {
+        actorId: reviewerId,
+        targetUserId: verificationCase.userId,
+        action: "IDENTITY_DOCUMENT_VIEWED",
+        metadata: { caseId, purpose },
+      },
+    });
+    return result;
   }
 
   async decideIdentityVerification(reviewerId: string, caseId: string, decision: "APPROVED" | "REJECTED", reason: string) {
@@ -256,12 +355,20 @@ export class MarketplaceRolesService {
       select: { id: true, userId: true, status: true },
     });
     if (!verificationCase) throw new NotFoundException("Identity verification case not found.");
-    if (verificationCase.userId === reviewerId) throw new ForbiddenException("Reviewers cannot verify their own identity.");
-    if (verificationCase.status !== VerificationCaseStatus.SUBMITTED && verificationCase.status !== VerificationCaseStatus.UNDER_REVIEW) {
-      throw new ConflictException("This identity verification case has already been decided.");
-    }
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
+      // Use the same per-user lock as identity submission so a reviewer decision
+      // cannot race a new submission and accidentally downgrade VERIFIED status.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${verificationCase.userId}))`;
+      const currentCase = await tx.identityVerificationCase.findUnique({
+        where: { id: caseId },
+        select: { id: true, userId: true, status: true },
+      });
+      if (!currentCase) throw new NotFoundException("Identity verification case not found.");
+      if (currentCase.userId === reviewerId) throw new ForbiddenException("Reviewers cannot verify their own identity.");
+      if (currentCase.status !== VerificationCaseStatus.SUBMITTED && currentCase.status !== VerificationCaseStatus.UNDER_REVIEW) {
+        throw new ConflictException("This identity verification case has already been decided.");
+      }
       const changed = await tx.identityVerificationCase.updateMany({
         where: { id: caseId, status: { in: [VerificationCaseStatus.SUBMITTED, VerificationCaseStatus.UNDER_REVIEW] } },
         data: { status: decision === "APPROVED" ? VerificationCaseStatus.APPROVED : VerificationCaseStatus.REJECTED,
@@ -269,29 +376,45 @@ export class MarketplaceRolesService {
       });
       if (changed.count !== 1) throw new ConflictException("This identity verification case has already been decided.");
       const approvedSkills = await tx.providerSkill.findMany({
-        where: { userId: verificationCase.userId, status: "APPROVED" },
+        where: { userId: currentCase.userId, status: "APPROVED" },
         select: { category: true },
         orderBy: { category: "asc" },
       });
-      const user = await tx.user.findUniqueOrThrow({ where: { id: verificationCase.userId },
-        select: { providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } });
+      const user = await tx.user.findUniqueOrThrow({ where: { id: currentCase.userId },
+        select: { providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true, deletedAt: true } });
+      if (user.deletedAt !== null || (user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED && user.seekerRoleStatus === MarketplaceRoleStatus.SUSPENDED)) {
+        throw new ConflictException("This account is being closed and cannot receive identity review changes.");
+      }
       const identityStatus = decision === "APPROVED" ? IdentityVerificationStatus.VERIFIED : IdentityVerificationStatus.FAILED;
       const providerActive = decision === "APPROVED" && approvedSkills.length > 0 && user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
       if (providerActive) {
-        const draft = await tx.onboardingDraft.findUnique({ where: { userId: verificationCase.userId }, select: { profile: true } });
+        const draft = await tx.onboardingDraft.findUnique({ where: { userId: currentCase.userId }, select: { profile: true } });
         const profile = draft?.profile && typeof draft.profile === "object" && !Array.isArray(draft.profile)
           ? draft.profile as Record<string, unknown> : {};
         const fullName = [profile.firstName, profile.lastName].filter((value) => typeof value === "string" && value.trim()).join(" ");
         const publicName = [profile.businessName, fullName].find((value) => typeof value === "string" && value.trim()) as string | undefined;
         if (publicName) {
           await tx.providerProfile.upsert({
-            where: { userId: verificationCase.userId },
-            create: { userId: verificationCase.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
-            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category) },
+            where: { userId: currentCase.userId },
+            create: { userId: currentCase.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalizeSkillKey(item.category)).filter(Boolean))], isAvailable: false },
+            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalizeSkillKey(item.category)).filter(Boolean))] },
           });
         }
       }
-      await tx.user.update({ where: { id: verificationCase.userId }, data: {
+      if (!providerActive) {
+        await tx.providerProfile.updateMany({
+          where: { userId: currentCase.userId },
+          data: {
+            isAvailable: false,
+            liveLatitude: null,
+            liveLongitude: null,
+            liveAccuracyM: null,
+            liveLocationUpdatedAt: null,
+          },
+        });
+        await this.deactivateProviderMarketplaceActivity(tx, currentCase.userId);
+      }
+      await tx.user.update({ where: { id: currentCase.userId }, data: {
         identityVerification: identityStatus, identityVerifiedAt: decision === "APPROVED" ? now : null,
         providerRoleStatus: user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
           ? MarketplaceRoleStatus.SUSPENDED
@@ -301,9 +424,9 @@ export class MarketplaceRolesService {
           : providerActive && user.activeMarketplaceMode === null && user.seekerRoleStatus !== MarketplaceRoleStatus.ACTIVE
             ? RegistrationMode.PROVIDER : user.activeMarketplaceMode,
       } });
-      await tx.staffAuditLog.create({ data: { actorId: reviewerId, targetUserId: verificationCase.userId,
+      await tx.staffAuditLog.create({ data: { actorId: reviewerId, targetUserId: currentCase.userId,
         action: `IDENTITY_VERIFICATION_${decision}`, metadata: { caseId, reason: trimmedReason || null } } });
-      await tx.appNotification.create({ data: { userId: verificationCase.userId,
+      await tx.appNotification.create({ data: { userId: currentCase.userId,
         title: decision === "APPROVED" ? "Identity verified" : "Identity verification rejected",
         body: decision === "APPROVED" ? "Your identity has been verified." : trimmedReason,
         data: { type: "IDENTITY_VERIFICATION_DECISION", caseId, decision } } });
@@ -311,16 +434,16 @@ export class MarketplaceRolesService {
     return { caseId, status: decision === "APPROVED" ? "VERIFIED" : "REJECTED", reason: trimmedReason || null };
   }
 
-  async listSkillReviews() {
+  async listSkillReviews(reviewerId: string) {
     const skills = await this.prisma.providerSkill.findMany({
-      where: { status: "PENDING" },
+      where: { status: "PENDING", userId: { not: reviewerId } },
       orderBy: { submittedAt: "asc" },
       take: 300,
       select: { id: true, category: true, details: true, status: true, submittedAt: true,
         user: { select: { id: true, email: true, identityVerification: true } } },
     });
 
-    return Promise.all(skills.map(async (skill) => {
+    const results = await Promise.all(skills.map(async (skill) => {
       const details = skill.details && typeof skill.details === "object" && !Array.isArray(skill.details)
         ? skill.details as Record<string, unknown>
         : {};
@@ -348,6 +471,21 @@ export class MarketplaceRolesService {
       })));
       return { ...skill, providerEvidence };
     }));
+    const accessed = results.filter((skill) => Object.values(skill.providerEvidence).some(Boolean));
+    if (accessed.length) {
+      await this.prisma.staffAuditLog.createMany({
+        data: accessed.map((skill) => ({
+          actorId: reviewerId,
+          targetUserId: skill.user.id,
+          action: "PROVIDER_QUALIFICATION_EVIDENCE_ACCESSED",
+          metadata: {
+            skillId: skill.id,
+            assetIds: Object.entries(skill.providerEvidence).filter(([, url]) => Boolean(url)).map(([assetId]) => assetId),
+          },
+        })),
+      });
+    }
+    return results;
   }
 
   async decideSkill(reviewerId: string, skillId: string, decision: "APPROVED" | "REJECTED", reason: string) {
@@ -355,28 +493,52 @@ export class MarketplaceRolesService {
     if (decision === "REJECTED" && trimmedReason.length < 5) {
       throw new ConflictException("A rejection reason of at least 5 characters is required.");
     }
-    const skill = await this.prisma.providerSkill.findUnique({ where: { id: skillId },
-      select: { id: true, userId: true, status: true, user: { select: { identityVerification: true, providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } } } });
-    if (!skill) throw new NotFoundException("Skill not found.");
-    if (skill.userId === reviewerId) throw new ForbiddenException("Reviewers cannot approve their own skills.");
-    if (skill.status !== "PENDING") throw new ConflictException("This skill has already been decided.");
-    if (decision === "APPROVED" && skill.user.identityVerification !== IdentityVerificationStatus.VERIFIED) {
-      throw new ConflictException("Identity must be verified before a skill can be approved.");
-    }
+    const initialSkill = await this.prisma.providerSkill.findUnique({
+      where: { id: skillId },
+      select: { id: true, userId: true },
+    });
+    if (!initialSkill) throw new NotFoundException("Skill not found.");
     const now = new Date();
     await this.prisma.$transaction(async (tx) => {
-      const changed = await tx.providerSkill.updateMany({ where: { id: skillId, status: "PENDING" },
-        data: { status: decision, reviewerId, reviewedAt: now, decisionReason: trimmedReason || null } });
+      // Serialize all eligibility changes for one Provider account. Identity
+      // decisions, skill decisions and Provider applications use this same lock.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${initialSkill.userId}))`;
+      const currentSkill = await tx.providerSkill.findUnique({
+        where: { id: skillId },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          user: { select: { identityVerification: true, providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true, deletedAt: true } },
+        },
+      });
+      if (!currentSkill) throw new NotFoundException("Skill not found.");
+      if (currentSkill.userId !== initialSkill.userId) throw new ConflictException("Skill ownership changed. Refresh and try again.");
+      if (currentSkill.user.deletedAt !== null ||
+          (currentSkill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED && currentSkill.user.seekerRoleStatus === MarketplaceRoleStatus.SUSPENDED)) {
+        throw new ConflictException("This account is being closed and cannot receive skill review changes.");
+      }
+      if (currentSkill.userId === reviewerId) throw new ForbiddenException("Reviewers cannot approve their own skills.");
+      if (currentSkill.status !== "PENDING") throw new ConflictException("This skill has already been decided.");
+      if (decision === "APPROVED" && currentSkill.user.identityVerification !== IdentityVerificationStatus.VERIFIED) {
+        throw new ConflictException("Identity must be verified before a skill can be approved.");
+      }
+
+      const changed = await tx.providerSkill.updateMany({
+        where: { id: skillId, userId: currentSkill.userId, status: "PENDING" },
+        data: { status: decision, reviewerId, reviewedAt: now, decisionReason: trimmedReason || null },
+      });
       if (changed.count !== 1) throw new ConflictException("This skill has already been decided.");
+
       const approvedSkills = await tx.providerSkill.findMany({
-        where: { userId: skill.userId, status: "APPROVED" },
+        where: { userId: currentSkill.userId, status: "APPROVED" },
         select: { category: true },
         orderBy: { category: "asc" },
       });
-      const providerActive = skill.user.identityVerification === IdentityVerificationStatus.VERIFIED &&
-        approvedSkills.length > 0 && skill.user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
+      const providerActive = currentSkill.user.identityVerification === IdentityVerificationStatus.VERIFIED &&
+        approvedSkills.length > 0 && currentSkill.user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
       if (providerActive) {
-        const draft = await tx.onboardingDraft.findUnique({ where: { userId: skill.userId }, select: { profile: true } });
+        const draft = await tx.onboardingDraft.findUnique({ where: { userId: currentSkill.userId }, select: { profile: true } });
         const profile = draft?.profile && typeof draft.profile === "object" && !Array.isArray(draft.profile)
           ? draft.profile as Record<string, unknown> : {};
         const fullName = [profile.firstName, profile.lastName]
@@ -385,25 +547,53 @@ export class MarketplaceRolesService {
           .find((value) => typeof value === "string" && value.trim()) as string | undefined;
         if (publicName) {
           await tx.providerProfile.upsert({
-            where: { userId: skill.userId },
-            create: { userId: skill.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
-            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category) },
+            where: { userId: currentSkill.userId },
+            create: { userId: currentSkill.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalizeSkillKey(item.category)).filter(Boolean))], isAvailable: false },
+            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), normalizedSkillKeys: [...new Set(approvedSkills.map((item) => normalizeSkillKey(item.category)).filter(Boolean))] },
           });
         }
       }
-      await tx.user.update({ where: { id: skill.userId }, data: {
-        providerRoleStatus: skill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
-          ? MarketplaceRoleStatus.SUSPENDED
-          : providerActive ? MarketplaceRoleStatus.ACTIVE : MarketplaceRoleStatus.PENDING,
-        activeMarketplaceMode: providerActive && skill.user.activeMarketplaceMode === null &&
-          skill.user.seekerRoleStatus !== MarketplaceRoleStatus.ACTIVE ? RegistrationMode.PROVIDER : skill.user.activeMarketplaceMode,
-      } });
-      await tx.staffAuditLog.create({ data: { actorId: reviewerId, targetUserId: skill.userId,
-        action: `PROVIDER_SKILL_${decision}`, metadata: { skillId, reason: trimmedReason || null } } });
-      await tx.appNotification.create({ data: { userId: skill.userId,
-        title: decision === "APPROVED" ? "Skill approved" : "Skill rejected",
-        body: decision === "APPROVED" ? `Your skill "${skillId}" has been approved.` : trimmedReason,
-        data: { type: "PROVIDER_SKILL_DECISION", skillId, decision } } });
+      if (!providerActive) {
+        await tx.providerProfile.updateMany({
+          where: { userId: currentSkill.userId },
+          data: {
+            isAvailable: false,
+            liveLatitude: null,
+            liveLongitude: null,
+            liveAccuracyM: null,
+            liveLocationUpdatedAt: null,
+          },
+        });
+        await this.deactivateProviderMarketplaceActivity(tx, currentSkill.userId);
+      }
+      await tx.user.update({
+        where: { id: currentSkill.userId },
+        data: {
+          providerRoleStatus: currentSkill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
+            ? MarketplaceRoleStatus.SUSPENDED
+            : providerActive ? MarketplaceRoleStatus.ACTIVE : MarketplaceRoleStatus.PENDING,
+          activeMarketplaceMode: providerActive && currentSkill.user.activeMarketplaceMode === null &&
+            currentSkill.user.seekerRoleStatus !== MarketplaceRoleStatus.ACTIVE
+            ? RegistrationMode.PROVIDER
+            : currentSkill.user.activeMarketplaceMode,
+        },
+      });
+      await tx.staffAuditLog.create({
+        data: {
+          actorId: reviewerId,
+          targetUserId: currentSkill.userId,
+          action: `PROVIDER_SKILL_${decision}`,
+          metadata: { skillId, reason: trimmedReason || null },
+        },
+      });
+      await tx.appNotification.create({
+        data: {
+          userId: currentSkill.userId,
+          title: decision === "APPROVED" ? "Skill approved" : "Skill rejected",
+          body: decision === "APPROVED" ? `Your skill "${skillId}" has been approved.` : trimmedReason,
+          data: { type: "PROVIDER_SKILL_DECISION", skillId, decision },
+        },
+      });
     });
     return { skillId, status: decision, reason: trimmedReason || null };
   }

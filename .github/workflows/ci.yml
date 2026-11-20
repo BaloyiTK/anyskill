@@ -6,6 +6,7 @@ on:
       - main
       - "foundation/**"
       - "feature/**"
+      - "hardening/**"
   pull_request:
 
 permissions:
@@ -25,6 +26,9 @@ jobs:
 
       - name: Verify protected project standards and configuration
         run: node scripts/check-project-standards.mjs
+
+      - name: Verify production Android Firebase and Maps configuration gates
+        run: node scripts/check-mobile-production-config.mjs
 
   validate:
     runs-on: ubuntu-latest
@@ -59,6 +63,9 @@ jobs:
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
+      - name: Audit production dependencies for high and critical vulnerabilities
+        run: pnpm check:security
+
       - name: Generate Prisma client
         run: pnpm db:generate
         env:
@@ -74,6 +81,11 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
 
+      - name: Test concurrent marketplace state transitions
+        run: pnpm --filter @anyskill/api test:marketplace-concurrency
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
+
       - name: Verify PostGIS and geographic index
         run: |
           psql "postgresql://postgres:postgres@localhost:5432/anyskill" -v ON_ERROR_STOP=1 -c "SELECT postgis_version();"
@@ -84,6 +96,14 @@ jobs:
 
       - name: Build API
         run: pnpm build:api
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
+
+      - name: Verify production API and worker configuration gates
+        run: node scripts/check-production-config.mjs
+
+      - name: Test payment operation and ledger concurrency
+        run: pnpm --filter @anyskill/api test:payments
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/anyskill?schema=public
 

@@ -129,12 +129,9 @@ export default function App() {
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
 
   const refreshHomeEligibility = async (initialMode?: string, hasExistingActiveRole = false) => {
-    // Profile completion controls the first screen after login. Identity
-    // verification is tracked separately and must not force onboarding.
     const [profileResult, identityResult] = await Promise.allSettled([
       apiRequest<{
         profile?: { marketplaceRoles?: string[]; marketplaceRole?: string };
-        skills?: unknown[];
         portfolio?: unknown[];
         sections?: { profile?: boolean; skills?: boolean; portfolio?: boolean };
         submittedAt?: string | null;
@@ -143,6 +140,8 @@ export default function App() {
     ]);
 
     if (profileResult.status === "rejected") {
+      setProfileComplete(false);
+      setIdentity(null);
       throw new Error("We could not verify your saved profile right now. Please try again.");
     }
 
@@ -154,8 +153,6 @@ export default function App() {
         : [];
     const providerRequired = registeredRoles.includes("PROVIDER")
       || (initialMode ?? account?.initialMode) === "PROVIDER";
-    // A draft with all fields filled is still incomplete until the user
-    // explicitly submits it. Identity verification is intentionally separate.
     const requiredSectionsComplete = Boolean(
       (onboarding?.submittedAt || hasExistingActiveRole)
       && onboarding.sections?.profile === true
@@ -163,27 +160,48 @@ export default function App() {
     );
 
     setProfileComplete(requiredSectionsComplete);
-    setIdentity(identityResult.status === "fulfilled" ? identityResult.value : null);
-    return requiredSectionsComplete;
+    const identity = identityResult.status === "fulfilled" ? identityResult.value : null;
+    setIdentity(identity);
+
+    const identityStatus = (identity?.latestCase?.status ?? identity?.status ?? "").toUpperCase();
+    const identityApproved = ["VERIFIED", "APPROVED"].includes(identityStatus);
+    let providerApproved = true;
+    if (providerRequired) {
+      try {
+        const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
+        // Provider onboarding is complete when the provider application
+        // itself is approved and active. Individual skill reviews do not
+        // determine the app's initial login destination.
+        providerApproved = roles.providerStatus === "ACTIVE";
+      } catch {
+        providerApproved = false;
+      }
+    }
+
+    // This flag controls only the first screen after authentication. It does
+    // not prevent users from navigating elsewhere during an active session.
+    return Boolean(
+      requiredSectionsComplete
+      && identityResult.status === "fulfilled"
+      && identityApproved
+      && providerApproved,
+    );
   };
 
   const routeAfterAuthentication = async (initialMode?: string, hasExistingActiveRole = false) => {
     setScreen("profile-check");
     setError("");
-    let profileIsComplete = false;
-    let profileStatusAvailable = true;
+    let allApprovalsComplete = false;
     try {
-      profileIsComplete = await refreshHomeEligibility(initialMode, hasExistingActiveRole);
+      allApprovalsComplete = await refreshHomeEligibility(initialMode, hasExistingActiveRole);
     } catch (e) {
-      // Do not trap returning users in onboarding because a profile-status
-      // request is temporarily unavailable. Protected actions remain gated
-      // by the latest server-side role and identity status.
-      profileStatusAvailable = false;
+      // If approval state cannot be confirmed, keep onboarding as the safe
+      // entry point. Users can still navigate to other screens afterwards.
       setProfileComplete(false);
-      console.warn("[AnySkill profile] Could not refresh completion status.", e);
+      console.warn("[AnySkill profile] Could not refresh approval status.", e);
     }
     setActiveTab("home");
-    setScreen(profileIsComplete || !profileStatusAvailable ? "dashboard" : "onboarding");
+    setScreen(allApprovalsComplete ? "dashboard" : "onboarding");
   };
 
   const navigateHome = async () => {
@@ -952,7 +970,7 @@ export default function App() {
   // The latest verification case is authoritative when the account-level
   // summary has not yet caught up with an administrator's decision.
   const verified = identityStatus.toLowerCase() === "verified" || identityCaseStatus === "verified" || identityCaseStatus === "approved";
-  const identityAwaitingReview = ["pending", "pending_review", "submitted", "in_review", "under_review"].includes(identityCaseStatus);
+  const identityAwaitingReview = ["pending", "pending_review", "submitted", "in_review", "under_review", "needs_information", "requires_information"].includes(identityCaseStatus);
   const canRequestSkill = profileComplete && verified && roleSummary?.seekerStatus === "ACTIVE";
 
   return (
@@ -1206,7 +1224,7 @@ export default function App() {
               <Text style={s.subtitle}>You can complete your profile and check your application status, but going online is only enabled after both identity verification and Provider approval.</Text>
               <View style={s.statusCard}>
                 <Text style={s.statusLabel}>IDENTITY VERIFICATION</Text>
-                <Text style={s.statusValue}>{verified ? "Verified" : formatStatus(identityStatus)}</Text>
+                <Text style={s.statusValue}>{verified ? "Verified" : identityAwaitingReview ? "Pending verification" : formatStatus(identityStatus)}</Text>
                 <View style={s.divider} />
                 <Text style={s.statusLabel}>PROVIDER APPROVAL</Text>
                 <Text style={s.statusValue}>{formatStatus(roleSummary?.providerStatus ?? "pending")}</Text>

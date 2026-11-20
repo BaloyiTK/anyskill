@@ -1,7 +1,8 @@
 import {
-  BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
+  BadRequestException, Body, Controller, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
 } from "@nestjs/common";
 import { IsOptional, IsUUID } from "class-validator";
+import { Throttle } from "@nestjs/throttler";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MarketplaceAccessGuard, RequireIdentityFor } from "../identity/marketplace-access.guard";
@@ -17,15 +18,15 @@ import {
 import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
-import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsIn, IsInt, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 
 class CreateMediaUploadDto {
-  @IsString() @MaxLength(255) fileName!: string;
+  @IsString() @MinLength(1) @MaxLength(255) fileName!: string;
   @IsString() @MaxLength(100) contentType!: string;
-  @IsOptional() @IsString() purpose?: "JOB_COMPLETION_EVIDENCE";
+  @IsOptional() @IsIn(["JOB_COMPLETION_EVIDENCE"]) purpose?: "JOB_COMPLETION_EVIDENCE";
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
 }
-class ConfirmMediaUploadDto { @IsString() @MaxLength(64) assetId!: string; }
+class ConfirmMediaUploadDto { @IsUUID() assetId!: string; }
 
 class CursorQuery {
   @IsOptional()
@@ -48,14 +49,22 @@ export class MarketplaceController {
   @RequireMarketplaceRole("PROVIDER")
   updateProviderLiveLocation(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateLiveLocationDto) { return this.marketplace.updateProviderLiveLocation(user.id, dto); }
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("marketplace/media/uploads")
-  createMediaUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateMediaUploadDto) { return this.media.createUpload(user.id, dto); }
+  createMediaUpload(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateMediaUploadDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.media.createUpload(user.id, dto, idempotencyKey);
+  }
 
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post("marketplace/media/uploads/confirm")
   confirmMediaUpload(@CurrentUser() user: AuthenticatedUser, @Body() dto: ConfirmMediaUploadDto) { return this.media.confirmUpload(user.id, dto.assetId); }
 
   @Get("marketplace/media/:assetId/url")
-  getEvidenceUrl(@CurrentUser() user: AuthenticatedUser, @Param("assetId") assetId: string) { return this.media.getEvidenceUrl(user.id, assetId); }
+  getEvidenceUrl(@CurrentUser() user: AuthenticatedUser, @Param("assetId", new ParseUUIDPipe()) assetId: string) { return this.media.getEvidenceUrl(user.id, assetId); }
 
   @Get("marketplace/skills")
   listSkills(@Query("q") query?: string) { return this.marketplace.listSkills(query ?? ""); }
@@ -64,8 +73,12 @@ export class MarketplaceController {
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("SEEKER_SUBMIT_REQUEST")
   @RequireMarketplaceRole("SEEKER")
-  createRequest(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateServiceRequestDto) {
-    return this.marketplace.createRequest(user.id, dto);
+  createRequest(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateServiceRequestDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.marketplace.createRequest(user.id, dto, idempotencyKey);
   }
 
   @Get("marketplace/incoming-requests")
@@ -78,6 +91,14 @@ export class MarketplaceController {
   @RequireMarketplaceRole("SEEKER")
   myRequests(@CurrentUser() user: AuthenticatedUser) {
     return this.marketplace.listMyRequests(user.id);
+  }
+
+  @Post("marketplace/requests/:requestId/decline")
+  declineIncomingRequest(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+  ) {
+    return this.marketplace.declineIncomingRequest(user.id, requestId);
   }
 
   @Post("marketplace/requests/:requestId/accept")
@@ -105,6 +126,26 @@ export class MarketplaceController {
     return this.marketplace.scheduleRequest(user.id, requestId, dto);
   }
 
+  @Post("marketplace/requests/:requestId/offers/:responseId/withdraw")
+  @RequireMarketplaceRole("PROVIDER")
+  withdrawProviderOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Param("responseId", new ParseUUIDPipe()) responseId: string,
+  ) {
+    return this.marketplace.withdrawProviderOffer(user.id, requestId, responseId);
+  }
+
+  @Post("marketplace/requests/:requestId/offers/:responseId/decline")
+  @RequireMarketplaceRole("SEEKER")
+  declineProviderOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Param("responseId", new ParseUUIDPipe()) responseId: string,
+  ) {
+    return this.marketplace.declineProviderOffer(user.id, requestId, responseId);
+  }
+
   @Post("marketplace/requests/:requestId/select-provider")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("SEEKER_SELECT_PROVIDER")
@@ -119,12 +160,18 @@ export class MarketplaceController {
 
 
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("marketplace/requests/:requestId/completion")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("PROVIDER_SUBMIT_COMPLETION")
   @RequireMarketplaceRole("PROVIDER")
-  submitJobCompletion(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: SubmitJobCompletionDto) {
-    return this.marketplace.submitJobCompletion(user.id, requestId, dto);
+  submitJobCompletion(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Body() dto: SubmitJobCompletionDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+  ) {
+    return this.marketplace.submitJobCompletion(user.id, requestId, dto, idempotencyKey);
   }
 
   @Post("marketplace/requests/:requestId/completion/:submissionId/decision")
@@ -221,6 +268,7 @@ export class MarketplaceController {
     return this.marketplace.updateProviderProfile(user.id, dto);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("notifications/devices")
   registerPushDevice(@CurrentUser() user: AuthenticatedUser, @Body() dto: RegisterPushDeviceDto) {
     return this.marketplace.registerPushDevice(user.id, dto);
@@ -246,6 +294,7 @@ export class MarketplaceController {
 export class PublicProviderDiscoveryController {
   constructor(private readonly marketplace: MarketplaceService, private readonly places: GooglePlacesService) {}
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get("marketplace/places/autocomplete")
   autocompletePlaces(
     @Query("input") input: string,
@@ -256,6 +305,7 @@ export class PublicProviderDiscoveryController {
     return this.places.autocomplete(input, sessionToken, latitude, longitude);
   }
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get("marketplace/places/reverse-geocode")
   reverseGeocode(
     @Query("latitude") latitude: string,
@@ -264,6 +314,7 @@ export class PublicProviderDiscoveryController {
     return this.places.reverseGeocode(latitude, longitude);
   }
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get("marketplace/places/details/:placeId")
   getPlaceDetails(
     @Param("placeId") placeId: string,
@@ -272,6 +323,7 @@ export class PublicProviderDiscoveryController {
     return this.places.getPlaceDetails(placeId, sessionToken);
   }
 
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Get("marketplace/discover/providers")
   discoverProviders(
     @Query("latitude") latitudeValue: string,

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { MarketplaceRoleStatus, Prisma, ProviderApplicationStatus, RegistrationMode } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
 
@@ -9,6 +9,13 @@ export class OnboardingService {
   constructor(private readonly prisma: PrismaService) {}
 
   private validatePayload(input: SectionInput) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new BadRequestException("Onboarding data must be an object.");
+    }
+    const suppliedSections = Object.keys(input);
+    if (suppliedSections.length === 0 || suppliedSections.some((key) => !["profile", "skills", "portfolio"].includes(key))) {
+      throw new BadRequestException("Provide at least one valid onboarding section.");
+    }
     const allowed = new Set([
       "accountType","marketplaceRole","marketplaceRoles","firstName","lastName","phone","phoneDialCode","profilePhotoUrl",
       "country","countryCode","province","city","suburb","address","houseNumber",
@@ -16,6 +23,7 @@ export class OnboardingService {
       "contactFirstName","contactLastName","contactJobTitle","contactEmail","contactPhone",
     ]);
     if (input.profile) {
+      if (typeof input.profile !== "object" || Array.isArray(input.profile)) throw new BadRequestException("Profile must be an object.");
       for (const [key,value] of Object.entries(input.profile)) {
         if (!allowed.has(key)) throw new BadRequestException(`Invalid profile field: ${key}`);
         if (key === "marketplaceRoles") {
@@ -24,7 +32,11 @@ export class OnboardingService {
           }
           continue;
         }
-        if (typeof value !== "string" || value.length > 1000) throw new BadRequestException(`Invalid profile field: ${key}`);
+        if (typeof value !== "string" || value.length > 1000 || value.trim() !== value) throw new BadRequestException(`Invalid profile field: ${key}`);
+        if (["firstName", "lastName", "businessName", "businessType", "contactFirstName", "contactLastName", "contactJobTitle"].includes(key) && value.length > 120) throw new BadRequestException(`Invalid profile field: ${key}`);
+        if (["phone", "phoneDialCode", "businessPhone", "contactPhone"].includes(key) && value && !/^[+0-9 ()-]{3,30}$/.test(value)) throw new BadRequestException(`Invalid phone number: ${key}`);
+        if (["businessEmail", "contactEmail"].includes(key) && value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new BadRequestException(`Invalid email address: ${key}`);
+        if (key === "profilePhotoUrl" && value) this.assertHttpsUrl(value, "Profile photo");
         if (key === "accountType" && !["INDIVIDUAL","BUSINESS"].includes(value)) {
           throw new BadRequestException("Account type must be INDIVIDUAL or BUSINESS.");
         }
@@ -39,28 +51,98 @@ export class OnboardingService {
     for (const skill of input.skills ?? []) {
       if (!skill || typeof skill !== "object" || Array.isArray(skill)) throw new BadRequestException("Each skill must be an object.");
       const item = skill as Record<string, unknown>;
-      if (typeof item.category !== "string" || item.category.trim().length < 2 || item.category.length > 100) throw new BadRequestException("Each skill needs a valid category.");
+      const skillFields = new Set(["category", "description", "yearsOfExperience", "licencesQualifications", "portfolio"]);
+      if (Object.keys(item).some((key) => !skillFields.has(key))) throw new BadRequestException("Each skill contains an unsupported field.");
+      if (typeof item.category !== "string" || item.category.trim().length < 2 || item.category.length > 100 || item.category.trim() !== item.category) throw new BadRequestException("Each skill needs a valid category.");
       if (item.description !== undefined && (typeof item.description !== "string" || item.description.length > 2000)) throw new BadRequestException("Skill descriptions must be 2,000 characters or fewer.");
-      if (item.yearsOfExperience !== undefined && !(typeof item.yearsOfExperience === "string" || (typeof item.yearsOfExperience === "number" && Number.isFinite(item.yearsOfExperience)))) throw new BadRequestException("Years of experience must be text or a number.");
+      if (item.yearsOfExperience !== undefined && !(
+        (typeof item.yearsOfExperience === "string" && item.yearsOfExperience.length <= 80) ||
+        (typeof item.yearsOfExperience === "number" && Number.isFinite(item.yearsOfExperience) && item.yearsOfExperience >= 0 && item.yearsOfExperience <= 80)
+      )) throw new BadRequestException("Years of experience must be a valid value between 0 and 80.");
       if (item.licencesQualifications !== undefined && (!Array.isArray(item.licencesQualifications) || item.licencesQualifications.length > 20)) throw new BadRequestException("Each skill can have up to 20 licences or qualifications.");
-      for (const qualification of (item.licencesQualifications as unknown[] | undefined) ?? []) { const q = qualification as Record<string, unknown>; if (!q || typeof q !== "object" || Array.isArray(q) || typeof q.name !== "string" || q.name.trim().length < 2 || q.name.length > 200 || typeof q.attachmentUrl !== "string" || q.attachmentUrl.length > 2000) throw new BadRequestException("Each qualification needs a name and attachment reference."); }
+      for (const qualification of (item.licencesQualifications as unknown[] | undefined) ?? []) {
+        const q = qualification as Record<string, unknown>;
+        if (!q || typeof q !== "object" || Array.isArray(q) || Object.keys(q).some((key) => !["name", "attachmentUrl", "attachmentName"].includes(key)) || typeof q.name !== "string" || q.name.trim().length < 2 || q.name.length > 200 || typeof q.attachmentUrl !== "string" || q.attachmentUrl.length > 2000) throw new BadRequestException("Each qualification needs a name and attachment reference.");
+        this.assertAssetId(q.attachmentUrl, "Qualification attachment");
+        if (q.attachmentName !== undefined && (typeof q.attachmentName !== "string" || q.attachmentName.length > 255)) throw new BadRequestException("Qualification attachment names must be 255 characters or fewer.");
+      }
       if (item.portfolio !== undefined && (!Array.isArray(item.portfolio) || item.portfolio.length > 30)) throw new BadRequestException("Each skill can have up to 30 portfolio items.");
       for (const portfolioItem of (item.portfolio as unknown[] | undefined) ?? []) {
         const work = portfolioItem as Record<string, unknown>;
-        if (!work || typeof work !== "object" || Array.isArray(work)) throw new BadRequestException("Each portfolio item must be an object.");
+        if (!work || typeof work !== "object" || Array.isArray(work) || Object.keys(work).some((key) => !["title", "description", "linkTitle", "linkUrl", "links", "imageUrls"].includes(key))) throw new BadRequestException("Each portfolio item must be an object containing supported fields.");
         if (work.title !== undefined && (typeof work.title !== "string" || work.title.length > 200)) throw new BadRequestException("Portfolio titles must be 200 characters or fewer.");
         if (work.description !== undefined && (typeof work.description !== "string" || work.description.length > 2000)) throw new BadRequestException("Portfolio descriptions must be 2,000 characters or fewer.");
         if (work.linkTitle !== undefined && (typeof work.linkTitle !== "string" || work.linkTitle.length > 200)) throw new BadRequestException("Portfolio link titles must be 200 characters or fewer.");
         if (work.linkUrl !== undefined && (typeof work.linkUrl !== "string" || work.linkUrl.length > 2000)) throw new BadRequestException("Portfolio links must be valid text URLs.");
-        for (const key of ["links", "imageUrls"]) if (work[key] !== undefined && (!Array.isArray(work[key]) || (work[key] as unknown[]).length > 20 || (work[key] as unknown[]).some((url) => typeof url !== "string" || url.length > 2000))) throw new BadRequestException(`Portfolio ${key} must be a list of valid references.`);
+        if (work.linkUrl !== undefined && work.linkUrl !== "") this.assertHttpsUrl(work.linkUrl as string, "Portfolio link");
+        for (const key of ["links", "imageUrls"]) {
+          if (work[key] !== undefined && (!Array.isArray(work[key]) || (work[key] as unknown[]).length > 20 || (work[key] as unknown[]).some((url) => typeof url !== "string" || url.length > 2000))) throw new BadRequestException(`Portfolio ${key} must be a list of valid references.`);
+          for (const url of (work[key] as string[] | undefined) ?? []) {
+            if (key === "imageUrls") this.assertAssetId(url, "Portfolio image");
+            else this.assertHttpsUrl(url, "Portfolio link");
+          }
+        }
       }
     }
     const normalizedSkills = (input.skills ?? []).map((skill) => String((skill as Record<string, unknown>).category ?? "").trim().toLocaleLowerCase("en-ZA")).filter(Boolean);
     if (new Set(normalizedSkills).size !== normalizedSkills.length) throw new BadRequestException("Duplicate skills are not allowed. Keep one entry for each skill.");
     for (const item of input.portfolio ?? []) {
-      if (!item || typeof item !== "object" || Array.isArray(item) || typeof (item as Record<string, unknown>).title !== "string") {
-        throw new BadRequestException("Each portfolio item needs a title.");
+      if (!item || typeof item !== "object" || Array.isArray(item)) throw new BadRequestException("Each portfolio item must be an object.");
+      const work = item as Record<string, unknown>;
+      if (Object.keys(work).some((key) => !["title", "description", "linkTitle", "linkUrl", "links", "imageUrls"].includes(key)) || typeof work.title !== "string" || !work.title.trim() || work.title.length > 200) throw new BadRequestException("Each portfolio item needs a valid title.");
+      if (work.description !== undefined && (typeof work.description !== "string" || work.description.length > 2000)) throw new BadRequestException("Portfolio descriptions must be 2,000 characters or fewer.");
+      if (work.linkUrl !== undefined && (typeof work.linkUrl !== "string" || work.linkUrl.length > 2000)) throw new BadRequestException("Portfolio links must be valid URLs.");
+      if (typeof work.linkUrl === "string" && work.linkUrl) this.assertHttpsUrl(work.linkUrl, "Portfolio link");
+      for (const key of ["links", "imageUrls"]) {
+        if (work[key] !== undefined && (!Array.isArray(work[key]) || (work[key] as unknown[]).length > 20 || (work[key] as unknown[]).some((url) => typeof url !== "string" || url.length > 2000))) throw new BadRequestException(`Portfolio ${key} must be a list of valid references.`);
+        for (const url of (work[key] as string[] | undefined) ?? []) {
+          if (key === "imageUrls") this.assertAssetId(url, "Portfolio image");
+          else this.assertHttpsUrl(url, "Portfolio link");
+        }
       }
+    }
+  }
+
+  private assertAssetId(value: string, label: string): void {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+      throw new BadRequestException(`${label} must reference a valid uploaded asset.`);
+    }
+  }
+
+  private async assertOwnedReadyAssets(userId: string, input: SectionInput): Promise<void> {
+    const expected = new Map<string, string>();
+    for (const skill of input.skills ?? []) {
+      const item = skill as Record<string, unknown>;
+      for (const qualification of (item.licencesQualifications as Array<Record<string, unknown>> | undefined) ?? []) {
+        if (typeof qualification.attachmentUrl === "string") expected.set(qualification.attachmentUrl, "PROVIDER_QUALIFICATION");
+      }
+      for (const portfolioItem of (item.portfolio as Array<Record<string, unknown>> | undefined) ?? []) {
+        for (const assetId of (portfolioItem.imageUrls as string[] | undefined) ?? []) expected.set(assetId, "PROVIDER_PORTFOLIO_IMAGE");
+      }
+    }
+    for (const portfolioItem of input.portfolio ?? []) {
+      const item = portfolioItem as Record<string, unknown>;
+      for (const assetId of (item.imageUrls as string[] | undefined) ?? []) expected.set(assetId, "PROVIDER_PORTFOLIO_IMAGE");
+    }
+    if (expected.size === 0) return;
+    const assets = await this.prisma.mediaAsset.findMany({
+      where: { id: { in: [...expected.keys()] }, userId, status: "READY" },
+      select: { id: true, purpose: true },
+    });
+    const found = new Map(assets.map((asset) => [asset.id, asset.purpose]));
+    for (const [assetId, purpose] of expected) {
+      if (found.get(assetId) !== purpose) {
+        throw new BadRequestException("One or more onboarding attachments are unavailable, not ready, or do not belong to this account. Upload them again.");
+      }
+    }
+  }
+
+  private assertHttpsUrl(value: string, label: string): void {
+    let parsed: URL;
+    try { parsed = new URL(value); } catch { throw new BadRequestException(`${label} must be a valid HTTPS URL.`); }
+    const host = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || !host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || /^127\./.test(host) || host === "::1" || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) {
+      throw new BadRequestException(`${label} must use a public HTTPS address.`);
     }
   }
 
@@ -128,16 +210,22 @@ export class OnboardingService {
 
   async save(userId: string, input: SectionInput) {
     this.validatePayload(input);
+    await this.assertOwnedReadyAssets(userId, input);
     const data = {
       ...(input.profile !== undefined ? { profile: input.profile as Prisma.InputJsonValue } : {}),
       ...(input.skills !== undefined ? { skills: input.skills as Prisma.InputJsonValue } : {}),
       ...(input.portfolio !== undefined ? { portfolio: input.portfolio as Prisma.InputJsonValue } : {}),
       submittedAt: null,
     };
-    await this.prisma.onboardingDraft.upsert({
-      where: { userId },
-      create: { userId, profile: (input.profile ?? {}) as Prisma.InputJsonValue, skills: (input.skills ?? []) as Prisma.InputJsonValue, portfolio: (input.portfolio ?? []) as Prisma.InputJsonValue },
-      update: data,
+    await this.prisma.$transaction(async (tx) => {
+      // Draft edits and submission share the account lifecycle lock. This makes
+      // a save atomic with respect to a simultaneous submit/review decision.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      await tx.onboardingDraft.upsert({
+        where: { userId },
+        create: { userId, profile: (input.profile ?? {}) as Prisma.InputJsonValue, skills: (input.skills ?? []) as Prisma.InputJsonValue, portfolio: (input.portfolio ?? []) as Prisma.InputJsonValue },
+        update: data,
+      });
     });
 
     // Saving a draft must not create review-queue records. ProviderSkill
@@ -148,8 +236,22 @@ export class OnboardingService {
   async submit(userId: string) {
     const [onboarding, user] = await Promise.all([
       this.get(userId),
-      this.prisma.user.findUnique({ where: { id: userId }, select: { initialMode: true } }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { initialMode: true, identityVerification: true },
+      }),
     ]);
+    // The mobile flow submits identity evidence immediately before this
+    // endpoint. Enforce the same rule server-side so callers cannot bypass
+    // the Verification stage and submit an onboarding profile directly.
+    if (!user || !["PENDING", "UNDER_REVIEW", "REQUIRES_INFORMATION", "VERIFIED"].includes(user.identityVerification)) {
+      throw new BadRequestException("Complete and submit identity verification before submitting your onboarding profile.");
+    }
+    await this.assertOwnedReadyAssets(userId, {
+      profile: (onboarding.profile ?? {}) as Record<string, unknown>,
+      skills: (Array.isArray(onboarding.skills) ? onboarding.skills : []) as unknown[],
+      portfolio: (Array.isArray(onboarding.portfolio) ? onboarding.portfolio : []) as unknown[],
+    });
     const profile =
       onboarding.profile && typeof onboarding.profile === "object" && !Array.isArray(onboarding.profile)
         ? (onboarding.profile as Record<string, unknown>)
@@ -204,6 +306,17 @@ export class OnboardingService {
     const submittedAt = new Date();
     const wantsProvider = requestedRoles.has("PROVIDER");
     await this.prisma.$transaction(async (tx) => {
+      // Serialize onboarding submission with Provider applications and identity
+      // review decisions. This prevents duplicate review notifications and stale
+      // role state from winning when two lifecycle actions race across replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const currentDraft = await tx.onboardingDraft.findUnique({
+        where: { userId },
+        select: { updatedAt: true },
+      });
+      if (!currentDraft || currentDraft.updatedAt.getTime() !== onboarding.updatedAt?.getTime()) {
+        throw new ConflictException("Your onboarding details changed while you were submitting. Refresh your profile and submit again.");
+      }
       await tx.onboardingDraft.update({
         where: { userId },
         data: { submittedAt },

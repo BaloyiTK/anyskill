@@ -1,5 +1,6 @@
 import {
   Controller,
+  ConflictException,
   ForbiddenException,
   Get,
   Post,
@@ -8,7 +9,7 @@ import {
   BadRequestException,
   Param,
 } from "@nestjs/common";
-import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PrismaService } from "../database/prisma.service";
@@ -20,7 +21,11 @@ class CreateIdentityUploadDto {
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
   @IsString() purpose!: "ID_DOCUMENT" | "ID_DOCUMENT_FRONT" | "ID_DOCUMENT_BACK" | "ID_BOOK_PAGE_1" | "ID_BOOK_PAGE_2" | "ID_SELFIE" | "PROVIDER_QUALIFICATION" | "PROVIDER_PORTFOLIO_IMAGE";
 }
-class ConfirmIdentityUploadDto { @IsString() @MaxLength(64) assetId!: string; }
+class ConfirmIdentityUploadDto { @IsUUID() assetId!: string; }
+class SubmitIdentityVerificationDto {
+  @IsIn(["SMART_ID_CARD", "GREEN_ID_BOOK"])
+  idType!: "SMART_ID_CARD" | "GREEN_ID_BOOK";
+}
 class IdentityUploadFailureDto {
   @IsString() @IsIn(["ID_DOCUMENT_FRONT", "ID_DOCUMENT_BACK", "ID_BOOK_PAGE_1", "ID_BOOK_PAGE_2", "ID_SELFIE"]) purpose!: string;
   @IsString() @IsIn(["read_file", "reserve", "cloudinary_upload", "confirm"]) stage!: string;
@@ -105,7 +110,7 @@ export class IdentityController {
   }
 
   @Post("submit")
-  async submit(@CurrentUser() user: AuthenticatedUser, @Body() body: { idType?: string }) {
+  async submit(@CurrentUser() user: AuthenticatedUser, @Body() body: SubmitIdentityVerificationDto) {
     const account = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       select: { identityVerification: true },
@@ -130,25 +135,42 @@ export class IdentityController {
     const validId = body.idType === "SMART_ID_CARD" ? Boolean(front && back) : body.idType === "GREEN_ID_BOOK" ? Boolean(page1) : false;
     if (!validId || !selfie) throw new BadRequestException(body.idType === "GREEN_ID_BOOK" ? "Upload the Green ID book photo/details page and take a live selfie before submitting verification." : "Upload both sides of your Smart ID card and take a live selfie before submitting verification.");
 
-    const existingPending = await this.prisma.identityVerificationCase.findFirst({
-      where: {
-        userId: user.id,
-        status: { in: ["SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION"] },
-      },
-      select: { id: true, status: true, submittedAt: true },
-    });
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Serialize submissions and reviewer decisions per account across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${user.id}))`;
+      const currentAccount = await tx.user.findUniqueOrThrow({
+        where: { id: user.id },
+        select: { identityVerification: true, seekerRoleStatus: true, providerRoleStatus: true, deletedAt: true },
+      });
+      if (currentAccount.deletedAt !== null ||
+          (currentAccount.seekerRoleStatus === "SUSPENDED" && currentAccount.providerRoleStatus === "SUSPENDED")) {
+        throw new ForbiddenException("This account is being closed and cannot submit new identity documents.");
+      }
+      if (currentAccount.identityVerification === "VERIFIED") {
+        return { verificationCase: null, created: false, alreadyVerified: true };
+      }
+      if (currentAccount.identityVerification === "SUSPENDED" || currentAccount.identityVerification === "REVOKED") {
+        throw new ForbiddenException("Identity verification is suspended. Contact AnySkill support.");
+      }
 
-    if (existingPending) {
-      return {
-        caseId: existingPending.id,
-        status: existingPending.status.toLowerCase(),
-        submittedAt: existingPending.submittedAt,
-      };
-    }
+      const existingPending = await tx.identityVerificationCase.findFirst({
+        where: {
+          userId: user.id,
+          status: { in: ["SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION"] },
+        },
+        select: { id: true, status: true, submittedAt: true },
+      });
+      if (existingPending) return { verificationCase: existingPending, created: false, alreadyVerified: false };
 
-    const verificationCase = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.identityVerificationCase.create({
-        data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW", providerReference: (body.idType === "SMART_ID_CARD" ? "type:SMART_ID_CARD;front:" + front!.id + ";back:" + back!.id : "type:GREEN_ID_BOOK;page1:" + page1!.id) + ";selfie:" + selfie.id },
+      const verificationCase = await tx.identityVerificationCase.create({
+        data: {
+          userId: user.id,
+          status: "SUBMITTED",
+          provider: "MANUAL_REVIEW",
+          providerReference: body.idType === "SMART_ID_CARD"
+            ? "type:SMART_ID_CARD;front:" + front!.id + ";back:" + back!.id + ";selfie:" + selfie.id
+            : "type:GREEN_ID_BOOK;page1:" + page1!.id + ";selfie:" + selfie.id,
+        },
         select: { id: true, status: true, submittedAt: true },
       });
 
@@ -162,18 +184,24 @@ export class IdentityController {
           userId: user.id,
           title: "Profile submitted for verification",
           body: "Your profile and identity documents have been submitted. We'll notify you when the review is complete.",
-          data: { type: "PROFILE_VERIFICATION_SUBMITTED", verificationCaseId: created.id },
+          data: { type: "PROFILE_VERIFICATION_SUBMITTED", verificationCaseId: verificationCase.id },
         },
       });
 
-      return created;
+      return { verificationCase, created: true, alreadyVerified: false };
     });
 
+    if (result.alreadyVerified) {
+      return { status: "verified", message: "Your identity is already verified." };
+    }
+    if (!result.verificationCase) throw new ConflictException("Identity verification submission could not be completed.");
     return {
-      caseId: verificationCase.id,
-      status: verificationCase.status.toLowerCase(),
-      submittedAt: verificationCase.submittedAt,
-      message: "Your verification request has been recorded. Marketplace access remains locked until verification is approved.",
+      caseId: result.verificationCase.id,
+      status: result.verificationCase.status.toLowerCase(),
+      submittedAt: result.verificationCase.submittedAt,
+      ...(result.created ? {
+        message: "Your verification request has been recorded. Marketplace access remains locked until verification is approved.",
+      } : {}),
     };
   }
 }

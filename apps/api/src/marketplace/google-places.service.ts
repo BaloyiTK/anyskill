@@ -15,6 +15,14 @@ export class GooglePlacesService {
   private readonly placesUrl = "https://places.googleapis.com/v1";
   private readonly geocodingUrl = "https://maps.googleapis.com/maps/api/geocode/json";
 
+  private async request(url: string, init: RequestInit, failureMessage: string): Promise<Response> {
+    try {
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(5_000) });
+    } catch {
+      throw new BadGatewayException(failureMessage);
+    }
+  }
+
   private get apiKey(): string {
     const key = process.env.GOOGLE_PLACES_API_KEY?.trim();
     if (!key) {
@@ -56,7 +64,7 @@ export class GooglePlacesService {
       };
     }
 
-    const response = await fetch(`${this.placesUrl}/places:autocomplete`, {
+    const response = await this.request(`${this.placesUrl}/places:autocomplete`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -64,7 +72,7 @@ export class GooglePlacesService {
         "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.text.text",
       },
       body: JSON.stringify(body),
-    });
+    }, "Google Places location search timed out or is unavailable.");
     if (!response.ok) throw new BadGatewayException("Google Places location search failed.");
     const payload = await response.json() as {
       suggestions?: Array<{ placePrediction?: GooglePlacePrediction }>;
@@ -83,7 +91,7 @@ export class GooglePlacesService {
       throw new BadRequestException("A valid Google Place ID is required.");
     }
     const token = this.validateSessionToken(sessionToken);
-    const response = await fetch(
+    const response = await this.request(
       `${this.placesUrl}/places/${encodeURIComponent(placeId)}?sessionToken=${encodeURIComponent(token)}`,
       {
         headers: {
@@ -91,6 +99,7 @@ export class GooglePlacesService {
           "X-Goog-FieldMask": "id,formattedAddress,location",
         },
       },
+      "Google Places details timed out or are unavailable.",
     );
     if (!response.ok) throw new BadGatewayException("Google Places could not retrieve the selected location.");
     const payload = await response.json() as {
@@ -123,7 +132,7 @@ export class GooglePlacesService {
       key: this.apiKey,
       language: "en",
     });
-    const response = await fetch(`${this.geocodingUrl}?${params.toString()}`);
+    const response = await this.request(`${this.geocodingUrl}?${params.toString()}`, {}, "Google reverse geocoding timed out or is unavailable.");
     if (!response.ok) throw new BadGatewayException("Google reverse geocoding failed.");
     const payload = await response.json() as {
       status?: string;

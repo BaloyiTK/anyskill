@@ -1,3 +1,4 @@
+import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
@@ -39,6 +40,33 @@ function removeStoredItem(key: string): Promise<void> {
     return Promise.resolve();
   }
   return SecureStore.deleteItemAsync(key);
+}
+
+const IDEMPOTENCY_STORAGE_PREFIX = "anyskill.idempotency.";
+
+export async function getOrCreateIdempotencyKey(storageKey: string, payload: unknown): Promise<string> {
+  const fingerprint = await Crypto.digestStringAsync(
+    Crypto.CryptoDigestAlgorithm.SHA256,
+    JSON.stringify(payload),
+  );
+  const storageKeyHash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, storageKey);
+  const storageId = IDEMPOTENCY_STORAGE_PREFIX + storageKeyHash;
+  const stored = await getStoredItem(storageId);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored) as { key?: string; fingerprint?: string };
+      if (parsed.key && parsed.fingerprint === fingerprint) return parsed.key;
+    } catch {
+      // Replace malformed local state with a fresh key.
+    }
+  }
+  const key = Crypto.randomUUID();
+  await setStoredItem(storageId, JSON.stringify({ key, fingerprint }));
+  return key;
+}
+
+export async function clearIdempotencyKey(storageKey: string): Promise<void> {
+  await removeStoredItem(IDEMPOTENCY_STORAGE_PREFIX + storageKey);
 }
 
 type TokenResponse = {

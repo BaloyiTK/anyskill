@@ -4,7 +4,7 @@ import { File, UploadType } from "expo-file-system";
 import { CameraView, useCameraPermissions } from "expo-camera";
 type CountryOption = { name: string; code: string; dialCode: string };
 type AddressSuggestion = { label: string; latitude: number; longitude: number };
-import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, AppState, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
 
 type Section = "Profile" | "Verification" | "Skills" | "Portfolio" | "Submit";
@@ -157,7 +157,21 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load your saved profile."); }
     finally { setBusy(false); }
   };
-  useEffect(() => { void load(); }, []);
+  // Refresh server-owned review states whenever the app returns to the foreground.
+  // This keeps identity and Provider skill decisions current without requiring
+  // the user to leave and reopen onboarding.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    void loadRef.current();
+    let previousState = AppState.currentState;
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const returnedToForeground = previousState !== "active" && nextState === "active";
+      previousState = nextState;
+      if (returnedToForeground) void loadRef.current();
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,6 +215,13 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const save = async (section: "profile" | "skills" | "portfolio"): Promise<boolean> => {
     setBusy(true); setError(""); setMessage("");
     try {
+      // Validate both coordinates before persisting the profile section. The
+      // profile and home-location endpoints are separate writes, so invalid
+      // location input must not leave the user with a misleading partial save.
+      if (section === "profile" && (homeLatitude.trim() || homeLongitude.trim())) {
+        if (!homeLatitude.trim() || !homeLongitude.trim()) throw new Error("Choose both latitude and longitude for your Home Location.");
+        if (!Number.isFinite(Number(homeLatitude)) || !Number.isFinite(Number(homeLongitude)) || Number(homeLatitude) < -90 || Number(homeLatitude) > 90 || Number(homeLongitude) < -180 || Number(homeLongitude) > 180) throw new Error("Enter valid Home Location coordinates.");
+      }
       const body = section === "profile" ? { profile: {
         accountType, marketplaceRoles: p.initialMode === "PROVIDER"
           ? ["PROVIDER", ...(alsoSeeker ? ["SEEKER" as const] : [])]
@@ -213,9 +234,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         : { portfolio: [] };
       const result = await apiRequest<Payload>("/profile/onboarding", { method: "PATCH", body: JSON.stringify(body) }, true);
       setData(result);
-      if (section === "profile" && (homeLatitude.trim() || homeLongitude.trim())) {
-        if (!homeLatitude.trim() || !homeLongitude.trim()) throw new Error("Choose both latitude and longitude for your Home Location.");
-        if (!Number.isFinite(Number(homeLatitude)) || !Number.isFinite(Number(homeLongitude)) || Number(homeLatitude) < -90 || Number(homeLatitude) > 90 || Number(homeLongitude) < -180 || Number(homeLongitude) > 180) throw new Error("Enter valid Home Location coordinates.");
+      if (section === "profile" && homeLatitude.trim() && homeLongitude.trim()) {
         await apiRequest("/profile/location/home", { method: "PATCH", body: JSON.stringify({ label: [address, suburb, city, province, country].filter(Boolean).join(", ") || "Saved Home Location", latitude: Number(homeLatitude), longitude: Number(homeLongitude) }) }, true);
       }
       setMessage("Your changes have been saved as a draft.");
@@ -458,12 +477,14 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const submitIdentityVerification = async () => {
     const idComplete = idType === "SMART_ID_CARD" ? idFrontReady && idBackReady : bookPage1Ready;
     if (!idComplete || !selfieReady) { setError("Complete both required ID images and take a live selfie before continuing."); return false; }
-    setBusy(true); setError(""); setMessage("");
+    // The final onboarding submit handler owns the busy state for both
+    // identity and profile/skill submission, preventing duplicate taps between
+    // the two API calls.
+    setError(""); setMessage("");
     try {
       const result = await apiRequest<{status:string;message?:string}>("/identity-verification/submit", { method: "POST", body: JSON.stringify({ idType }) }, true);
       setIdentityStatus(result.status); setMessage(result.message ?? "Your identity documents were submitted for administrator review."); return true;
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit identity verification."); return false; }
-    finally { setBusy(false); }
   };
 
   const saveCurrent = async () => {
@@ -471,9 +492,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     if (active === "Skills") return save("skills");
     if (active === "Portfolio") return save("skills");
     if (active === "Verification") {
-      setMessage(identitySubmitted
-        ? "Your identity documents have already been submitted and are awaiting review. You do not need to submit them again."
-        : "Your ID images and live selfie are saved securely as you upload them. Tap Save & Continue when all required items are ready to submit them for review.");
+      setMessage("Your identity documents and live selfie will be submitted for review at the final Submit stage.");
       return true;
     }
     if (!await save("profile")) return false;
@@ -484,26 +503,34 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
   const continueCurrent = async () => {
     if (active === "Profile") {
       if (!accountType) { setError("Choose Individual or Business before continuing."); return; }
-      if (await save("profile")) setActive("Verification");
+      if (!await save("profile")) return;
+      // Trust the API's canonical required-field validation, not the presence
+      // of a successful draft-save response.
+      let latest: Payload;
+      try {
+        latest = await apiRequest<Payload>("/profile/onboarding", {}, true);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not confirm your saved profile details.");
+        return;
+      }
+      setData(latest);
+      if (!latest.sections?.profile) {
+        setError(accountType === "BUSINESS"
+          ? "Complete all required business and authorised contact details before continuing."
+          : "Complete your first name, last name and valid contact number before continuing.");
+        return;
+      }
+      setActive("Verification");
       return;
     }
     if (active === "Verification") {
-      // Attempt submission when the documents are ready, but a verification
-      // service error must never trap the user in onboarding.
-      let identitySent = identitySubmitted;
-      if (identityRequirementsComplete && !identitySubmitted) {
-        identitySent = await submitIdentityVerification();
-      }
-      setError("");
-      setMessage(identitySent
-        ? "Identity verification is submitted and may remain pending while you continue."
-        : "Identity verification can be completed separately. Continue with your profile setup.");
+      setMessage("");
       setActive(isProvider ? "Skills" : "Submit");
       return;
     }
     if (active === "Skills") {
-      if (!skills.some((v) => v.category.trim())) { setError("Add at least one skill before continuing."); return; }
-      if (await save("skills")) setActive("Submit");
+      if (!await save("skills")) return;
+      setActive("Submit");
       return;
     }
     if (isProvider && !skills.some((v) => v.category.trim())) {
@@ -527,7 +554,6 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       const missingSections = [
         ...(!latest.sections?.profile ? ["Profile"] : []),
         ...(providerRequired && !latest.sections?.skills ? ["Skills"] : []),
-
       ];
       if (missingSections.length > 0) {
         setOnboardingSubmitted(false);
@@ -536,28 +562,61 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         return;
       }
 
+      // The final Submit action is the single submission gate for onboarding.
+      // Identity review is submitted here; Provider skills are submitted by the
+      // onboarding API in the same final action.
+      const currentIdentityStatus = identityStatus.toUpperCase();
+      const identityAlreadySubmitted = submittedIdentityStatuses.includes(currentIdentityStatus);
+      if (!identityAlreadySubmitted && !identityRequirementsComplete) {
+        setOnboardingSubmitted(false);
+        setError("Complete the required ID images and live selfie before submitting your onboarding.");
+        setActive("Verification");
+        return;
+      }
+      if (providerRequired && !latest.sections?.skills) {
+        setOnboardingSubmitted(false);
+        setError("Complete at least one valid skill before submitting your Provider profile.");
+        setActive("Skills");
+        return;
+      }
+      if (!identityAlreadySubmitted) {
+        const identitySent = await submitIdentityVerification();
+        if (!identitySent) return;
+      }
+
       const result = await apiRequest<{ message: string }>("/profile/onboarding/submit", { method: "POST", body: "{}" }, true);
       setOnboardingSubmitted(true);
       setMessage(result.message);
+      // Keep the successful Submit check visible before leaving onboarding.
+      await new Promise((resolve) => setTimeout(resolve, 1000));
       await p.onComplete();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your profile."); }
     finally { setBusy(false); }
   };
 
-  const submittedIdentityStatuses = ["PENDING", "PENDING_REVIEW", "SUBMITTED", "IN_REVIEW", "UNDER_REVIEW", "APPROVED", "VERIFIED", "COMPLETE", "COMPLETED"];
+  const submittedIdentityStatuses = ["PENDING", "PENDING_REVIEW", "SUBMITTED", "IN_REVIEW", "UNDER_REVIEW", "NEEDS_INFORMATION", "REQUIRES_INFORMATION", "APPROVED", "VERIFIED", "COMPLETE", "COMPLETED"];
   const identitySubmitted = submittedIdentityStatuses.includes(identityStatus.toUpperCase());
   const identityRequirementsComplete = idType === "SMART_ID_CARD"
     ? idFrontReady && idBackReady && selfieReady
     : bookPage1Ready && selfieReady;
   const identityApproved = ["VERIFIED", "APPROVED", "COMPLETE", "COMPLETED"].includes(identityStatus.toUpperCase());
-  const verificationComplete = identityApproved && identityRequirementsComplete;
-  const verificationPending = identitySubmitted && !identityApproved;
-  const allSkillsApproved = Boolean(data.skillReviewStatuses?.length)
-    && data.skillReviewStatuses!.every((skill) => skill.status === "APPROVED");
-  const skillsPending = Boolean(data.skillReviewStatuses?.some((skill) => skill.status === "PENDING"));
+  const verificationComplete = identityApproved;
+  // Show the orange review marker once the required identity evidence is
+  // complete; approval alone turns the stage green.
+  const verificationPending = !identityApproved && (identitySubmitted || identityRequirementsComplete);
+  // The Skills stage is green only when every currently entered skill
+  // has a matching approved review record. One approved skill is not enough.
+  const submittedSkillCategories = [...new Set(
+    skills.map((skill) => skill.category.trim().toLocaleLowerCase("en-ZA")).filter(Boolean),
+  )];
+  const reviewForSkill = (category: string) => data.skillReviewStatuses?.find(
+    (item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"),
+  );
+  const allSkillsApproved = submittedSkillCategories.length > 0 &&
+    submittedSkillCategories.every((category) => reviewForSkill(category)?.status === "APPROVED");
+  const skillsPending = isProvider && submittedSkillCategories.length > 0 && !allSkillsApproved;
   const completionStates = isProvider ? [Boolean(data.sections?.profile), verificationComplete, allSkillsApproved, onboardingSubmitted] : [Boolean(data.sections?.profile), verificationComplete, onboardingSubmitted];
   const pendingStates = isProvider ? [false, verificationPending, skillsPending, false] : [false, verificationPending, false];
-  const reviewForSkill = (category: string) => data.skillReviewStatuses?.find((item) => item.category.trim().toLocaleLowerCase("en-ZA") === category.trim().toLocaleLowerCase("en-ZA"));
   const completedSectionCount = [Boolean(data.sections?.profile), ...(isProvider ? [Boolean(data.sections?.skills)] : [])].filter(Boolean).length;
   const completionPercentage = Math.round((completedSectionCount / (isProvider ? 2 : 1)) * 100);
   const status = (key: "profile" | "skills" | "portfolio") => data.sections?.[key] ? "Complete" : "Not complete";
@@ -844,8 +903,8 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         <Text style={st.heading}>Review and submit</Text><Text style={st.help}>Submitting saves the information currently available. It does not make your profile mandatory or grant identity-verified permissions. You can edit drafts later.</Text>
         <View style={st.card}>
           <Text style={st.status}>Profile: {status("profile")}</Text>
-          <Text style={st.status}>Identity: {identityApproved ? "Verified" : verificationPending ? "Pending review" : identityStatus.replace(/_/g, " ")}</Text>
-          {isProvider ? <Text style={st.status}>Skill reviews: {allSkillsApproved ? "All submitted skills approved" : skillsPending ? "One or more skills pending review" : data.skillReviewStatuses?.some((skill) => skill.status === "REJECTED") ? "Changes requested on one or more skills" : status("skills")}</Text> : null}
+          <Text style={st.status}>Identity: {identityApproved ? "Verified" : verificationPending || identitySubmitted ? "Pending verification" : identityStatus.replace(/_/g, " ")}</Text>
+          {isProvider ? <Text style={st.status}>Skill reviews: {allSkillsApproved ? "At least one skill approved" : skillsPending ? "Awaiting approval of at least one skill" : data.skillReviewStatuses?.some((skill) => skill.status === "REJECTED") ? "Changes requested on one or more skills" : status("skills")}</Text> : null}
         </View>
 
       </>}

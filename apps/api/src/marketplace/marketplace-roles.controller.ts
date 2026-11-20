@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post, Param, ParseUUIDPipe, UseGuards, StreamableFile } from "@nestjs/common";
 import { RegistrationMode, StaffRole } from "@prisma/client";
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { Throttle } from "@nestjs/throttler";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MarketplaceRolesService, ProviderApplicationInput } from "./marketplace-roles.service";
@@ -117,8 +118,25 @@ export class MarketplaceRolesController {
   @Get("admin/identity-reviews")
   @UseGuards(StaffAccessGuard)
   @RequireStaffRole(StaffRole.IDENTITY_REVIEWER)
-  listIdentityReviews() {
-    return this.roles.listIdentityReviews();
+  listIdentityReviews(@CurrentUser() user: AuthenticatedUser) {
+    return this.roles.listIdentityReviews(user.id);
+  }
+
+  @Get("admin/identity-reviews/:caseId/documents/:purpose")
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.IDENTITY_REVIEWER)
+  async getIdentityReviewDocument(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("caseId", new ParseUUIDPipe()) caseId: string,
+    @Param("purpose") purpose: string,
+  ) {
+    const document = await this.roles.getIdentityDocumentForReviewer(user.id, caseId, purpose);
+    return new StreamableFile(document.bytes, {
+      type: document.contentType,
+      disposition: "inline",
+      length: document.bytes.length,
+    });
   }
 
   @Post("admin/identity-reviews/:caseId/decision")
@@ -135,8 +153,8 @@ export class MarketplaceRolesController {
   @Get("admin/skill-reviews")
   @UseGuards(StaffAccessGuard)
   @RequireStaffRole(StaffRole.PROVIDER_REVIEWER)
-  listSkillReviews() {
-    return this.roles.listSkillReviews();
+  listSkillReviews(@CurrentUser() user: AuthenticatedUser) {
+    return this.roles.listSkillReviews(user.id);
   }
 
   @Post("admin/skill-reviews/:skillId/decision")

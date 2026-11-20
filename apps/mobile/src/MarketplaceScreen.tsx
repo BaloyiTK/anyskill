@@ -7,7 +7,7 @@ import { Platform } from "react-native";
 import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
-import { apiRequest } from "./api";
+import { apiRequest, clearIdempotencyKey, getOrCreateIdempotencyKey } from "./api";
 import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
 
 type Mode = "seeker" | "provider";
@@ -234,6 +234,33 @@ export function MarketplaceScreen(p: Props) {
     } finally { setSelectingOfferId(null); }
   };
 
+  const declineProviderOffer = async (requestId: string, responseId: string) => {
+    setSelectingOfferId(responseId); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/offers/${responseId}/decline`, {
+        method: "POST",
+      }, true);
+      setNotice("Offer declined. AnySkill is moving to the next eligible Provider.");
+      await loadMyRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not decline this Provider offer.");
+      await loadMyRequests();
+    } finally { setSelectingOfferId(null); }
+  };
+
+  const withdrawProviderOffer = async (requestId: string, responseId: string) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/offers/${responseId}/withdraw`, { method: "POST" }, true);
+      setNotice("Your offer has been withdrawn. AnySkill will continue matching if no other offers remain.");
+      setIncomingRequestId(null);
+      await loadRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not withdraw your Provider offer.");
+      await loadRequests();
+    } finally { setJobActionBusy(false); }
+  };
+
   const submitEstimate = async (requestId: string) => {
     setJobActionBusy(true); setError(""); setNotice("");
     try {
@@ -307,18 +334,45 @@ export function MarketplaceScreen(p: Props) {
         if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) throw new Error("Only JPEG, PNG and WebP photos are supported.");
         const size = file.fileSize ?? 0;
         if (!size || size > 10 * 1024 * 1024) throw new Error("Each photo must be no larger than 10 MB.");
-        const reservation = await apiRequest<{assetId:string;cloudName:string;apiKey:string;timestamp:number;signature:string;publicId:string;assetFolder:string}>("/marketplace/media/uploads", {
-          method: "POST", body: JSON.stringify({ fileName: file.fileName ?? "completion-photo", contentType: mime, sizeBytes: size }),
+        const fileName = file.fileName ?? "completion-photo";
+        const uploadPayload = { fileName, contentType: mime, sizeBytes: size };
+        const idempotencyStorageKey = "completion-evidence:" + file.uri;
+        const idempotencyKey = await getOrCreateIdempotencyKey(idempotencyStorageKey, uploadPayload);
+        const reservation = await apiRequest<{
+          assetId: string; cloudName?: string; apiKey?: string; timestamp?: number; signature?: string;
+          publicId?: string; assetFolder?: string; alreadyUploaded?: boolean;
+        }>("/marketplace/media/uploads", {
+          method: "POST",
+          headers: { "Idempotency-Key": idempotencyKey },
+          body: JSON.stringify(uploadPayload),
         }, true);
-        const body = new FormData();
-        body.append("file", { uri: file.uri, name: file.fileName ?? "completion-photo", type: mime } as unknown as Blob);
-        body.append("api_key", reservation.apiKey); body.append("timestamp", String(reservation.timestamp)); body.append("signature", reservation.signature);
-        body.append("public_id", reservation.publicId); body.append("asset_folder", reservation.assetFolder);
-        body.append("overwrite", "false"); body.append("unique_filename", "false"); body.append("use_filename", "false");
-        const uploaded = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated", { method: "POST", body });
-        if (!uploaded.ok) { const detail = await uploaded.json().catch(() => ({})); throw new Error(detail.error?.message ?? "Cloudinary upload failed."); }
-        await apiRequest("/marketplace/media/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
-        setCompletionEvidenceAssets((current) => [...current, { id: reservation.assetId, name: file.fileName ?? "Completion photo", uri: file.uri, contentType: mime, sizeBytes: size }]);
+        let confirmed = false;
+        try {
+          await apiRequest("/marketplace/media/uploads/confirm", {
+            method: "POST", body: JSON.stringify({ assetId: reservation.assetId }),
+          }, true);
+          confirmed = true;
+        } catch (confirmError) {
+          const imageNotUploaded = confirmError instanceof Error
+            && confirmError.message.includes("Cloudinary has not received this image.");
+          if (!imageNotUploaded || reservation.alreadyUploaded) throw confirmError;
+        }
+        if (!confirmed) {
+          if (!reservation.alreadyUploaded) {
+            const body = new FormData();
+            body.append("file", { uri: file.uri, name: fileName, type: mime } as unknown as Blob);
+            body.append("api_key", reservation.apiKey!); body.append("timestamp", String(reservation.timestamp)); body.append("signature", reservation.signature!);
+            body.append("public_id", reservation.publicId!); body.append("asset_folder", reservation.assetFolder!);
+            body.append("overwrite", "false"); body.append("unique_filename", "false"); body.append("use_filename", "false");
+            const uploaded = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated", { method: "POST", body });
+            if (!uploaded.ok) { const detail = await uploaded.json().catch(() => ({})); throw new Error(detail.error?.message ?? "Cloudinary upload failed."); }
+          }
+          await apiRequest("/marketplace/media/uploads/confirm", {
+            method: "POST", body: JSON.stringify({ assetId: reservation.assetId }),
+          }, true);
+        }
+        await clearIdempotencyKey(idempotencyStorageKey);
+        setCompletionEvidenceAssets((current) => [...current, { id: reservation.assetId, name: fileName, uri: file.uri, contentType: mime, sizeBytes: size }]);
       }
       setNotice("Photo upload complete. Images are securely stored in Cloudinary.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not upload evidence photos."); }
@@ -328,9 +382,18 @@ export function MarketplaceScreen(p: Props) {
   const submitCompletion = async (requestId: string) => {
     setJobActionBusy(true); setError(""); setNotice("");
     try {
+      const completionPayload = {
+        notes: completionNotes.trim(),
+        evidenceAssetIds: completionEvidenceAssets.map((asset) => asset.id),
+      };
+      const completionStorageKey = "completion-submit:" + requestId;
+      const idempotencyKey = await getOrCreateIdempotencyKey(completionStorageKey, completionPayload);
       await apiRequest("/marketplace/requests/" + requestId + "/completion", {
-        method: "POST", body: JSON.stringify({ notes: completionNotes.trim(), evidenceAssetIds: completionEvidenceAssets.map((asset) => asset.id) }),
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(completionPayload),
       }, true);
+      await clearIdempotencyKey(completionStorageKey);
       setNotice("Completion submitted with uploaded photo evidence. The Seeker must review and approve it.");
       setCompletionNotes(""); setCompletionEvidenceAssets([]); await loadMyJobs();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit job completion."); }
@@ -391,17 +454,22 @@ export function MarketplaceScreen(p: Props) {
     if (deliveryMode !== "REMOTE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the exact job location on the map, use your saved Home Location, or use current GPS. Select Remote if the work does not need a physical location."); return; }
     setBusy(true);
     try {
+      const requestPayload = {
+        title: title.trim(), skillCategory: category.trim(), description: description.trim(), ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
+        ...(location.trim() ? { location: location.trim() } : {}),
+        ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude, searchRadiusKm } : {}), deliveryMode,
+      };
+      const idempotencyKey = await getOrCreateIdempotencyKey("create-service-request", requestPayload);
       const published = await apiRequest<{
         id: string; title: string; skillCategory: string; location: string | null; createdAt: string; matchingStartedAt: string;
         matching?: { notified?: number; wave?: number; exhausted?: boolean };
+        idempotentReplay?: boolean;
       }>("/marketplace/requests", {
         method: "POST",
-        body: JSON.stringify({
-          title: title.trim(), skillCategory: category.trim(), description: description.trim(), ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
-          ...(location.trim() ? { location: location.trim() } : {}),
-          ...(deliveryMode !== "REMOTE" && requestLatitude != null && requestLongitude != null ? { latitude: requestLatitude, longitude: requestLongitude, searchRadiusKm } : {}), deliveryMode,
-        }),
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(requestPayload),
       }, true);
+      await clearIdempotencyKey("create-service-request");
       setMatchingRequest({
         id: published.id, title: published.title, skillCategory: published.skillCategory,
         location: published.location, createdAt: published.matchingStartedAt, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
@@ -778,6 +846,19 @@ export function MarketplaceScreen(p: Props) {
     } finally { setBusy(false); }
   };
 
+  const declineIncomingRequest = async (request: RequestItem) => {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${request.id}/decline`, { method: "POST" }, true);
+      setNotice("Request declined. AnySkill will continue matching the next eligible Provider.");
+      setIncomingRequestId(null);
+      await loadRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not decline this request.");
+      await loadRequests();
+    } finally { setBusy(false); }
+  };
+
   const cancelLiveRequest = async () => {
     if (!matchingRequest || jobActionBusy) return;
     setJobActionBusy(true); setError("");
@@ -907,7 +988,7 @@ export function MarketplaceScreen(p: Props) {
               : "Your request was saved. Provider matching is being prepared."}</Text>
         </View>}
         <Text style={s.section}>Your service requests and Provider offers</Text>
-        <Text style={s.helper}>Compare the offers you receive. Selecting a Provider closes the request to further offers. You can only select one offer.</Text>
+        <Text style={s.helper}>Compare each offer. Select a Provider to proceed, decline an offer to move matching forward, or cancel the request to stop the search.</Text>
         <Secondary label="Refresh my requests" onPress={() => void loadMyRequests()} />
         {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
         {myRequests.map((request) => {
@@ -953,7 +1034,8 @@ export function MarketplaceScreen(p: Props) {
             {request.jobEngagement?.completionSubmissions.filter((submission) => submission.status === "REJECTED").map((submission) => <View key={submission.id} style={s.offerCard}>
               <Text style={s.meta}>Previous completion review: corrections requested</Text>
               <Text style={s.body}>{submission.reviewNote}</Text>
-            </View>)}            {request.jobEngagement ? <View style={s.offerCard}>
+            </View>)}
+            {request.jobEngagement ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Assessment and job-cost approval</Text>
               <Text style={s.meta}>Status: {request.jobEngagement.status.replaceAll("_", " ")}</Text>
               {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(request.jobEngagement.status) ? <>
@@ -996,7 +1078,10 @@ export function MarketplaceScreen(p: Props) {
               {offer.provider.providerProfile?.deliveryModes?.length ? <Text style={s.meta}>Work modes: {offer.provider.providerProfile.deliveryModes.join(", ")}</Text> : null}
               <Text style={s.body}>{offer.message?.trim() || "The Provider did not add a message."}</Text>
               {offer.status === "SELECTED" ? <Text style={s.response}>Selected</Text> : request.status === "OPEN" ?
-                <Primary label={selectingOfferId === offer.id ? "Selecting..." : "Select this Provider"} onPress={() => void selectProvider(request.id, offer.id)} disabled={!!selectingOfferId || busy} /> :
+                <View style={s.choiceRow}>
+                  <Primary label={selectingOfferId === offer.id ? "Please wait..." : "Accept Provider"} onPress={() => void selectProvider(request.id, offer.id)} disabled={!!selectingOfferId || busy} />
+                  <Secondary label={selectingOfferId === offer.id ? "Please wait..." : "Decline offer"} onPress={() => void declineProviderOffer(request.id, offer.id)} disabled={!!selectingOfferId || busy} />
+                </View> :
                 <Text style={s.meta}>This request is closed; this offer cannot be selected.</Text>}
             </View>)}
             {offers.length === 0 ? <Text style={s.helper}>No offers yet. Matched Providers can still respond while this request is open.</Text> : null}
@@ -1134,7 +1219,13 @@ export function MarketplaceScreen(p: Props) {
                 {request.distanceKm != null ? `${request.distanceKm.toFixed(1)} km straight-line distance to the job` : "Distance unavailable — enable fresh location sharing while Available"}
               </Text>
             </> : request.deliveryMode !== "REMOTE" ? <Text style={s.meta}>Job map and distance will appear when location coordinates are available.</Text> : <Text style={s.meta}>Remote request · no travel required.</Text>}
-            {request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
+            {request.alreadyResponded ? <>
+              <Text style={s.response}>You have already sent an offer to this Seeker.</Text>
+              {request.myResponse?.status === "OFFERED" ? <Secondary label={jobActionBusy ? "Withdrawing..." : "Withdraw my offer"} onPress={() => void withdrawProviderOffer(request.id, request.myResponse!.id)} disabled={jobActionBusy} /> : null}
+            </> : <View style={s.choiceRow}>
+              <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />
+              <Secondary label="Decline request" onPress={() => void declineIncomingRequest(request)} disabled={busy} />
+            </View>}
           </View>;
         })}
         {!busy && requests.length === 0 && <Text style={s.helper}>No open requests are available right now. Pull to refresh or check again later.</Text>}
@@ -1181,7 +1272,7 @@ export function MarketplaceScreen(p: Props) {
               <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 10 }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: "#102A43", fontSize: 13, fontWeight: "900" }}>{incomingAreaLabel || "Service area shown on map"}</Text>
-                  <Text style={{ color: "#718096", fontSize: 10, marginTop: 3 }}>Actual job location · Street address hidden</Text>
+                  <Text style={{ color: "#718096", fontSize: 10, marginTop: 3 }}>Approximate job area · Exact street address hidden</Text>
                 </View>
                 <View style={{ backgroundColor: "#EAF3FF", borderRadius: 9, paddingHorizontal: 9, paddingVertical: 7 }}>
                   <Text style={{ color: "#176BCE", fontSize: 11, fontWeight: "900" }}>{activeIncomingRequest.distanceKm != null ? `${activeIncomingRequest.distanceKm.toFixed(1)} km` : "—"}</Text>
@@ -1209,9 +1300,18 @@ export function MarketplaceScreen(p: Props) {
             <Pressable onPress={() => setIncomingRequestId(null)} disabled={busy} style={{ flex: 1, minHeight: 52, borderRadius: 13, borderWidth: 1, borderColor: "#FFFFFF55", alignItems: "center", justifyContent: "center", opacity: busy ? 0.5 : 1 }}>
               <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "800" }}>Not now</Text>
             </Pressable>
-            <Pressable onPress={() => void acceptRequest(activeIncomingRequest)} disabled={busy || activeIncomingRequest.alreadyResponded} style={{ flex: 1.5, minHeight: 52, borderRadius: 13, backgroundColor: "#1677EE", alignItems: "center", justifyContent: "center", opacity: busy || activeIncomingRequest.alreadyResponded ? 0.5 : 1 }}>
-              {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "900" }}>✓  Accept request</Text>}
-            </Pressable>
+            {activeIncomingRequest.alreadyResponded && activeIncomingRequest.myResponse?.status === "OFFERED" ?
+              <Pressable onPress={() => void withdrawProviderOffer(activeIncomingRequest.id, activeIncomingRequest.myResponse!.id)} disabled={jobActionBusy} style={{ flex: 1.5, minHeight: 52, borderRadius: 13, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", opacity: jobActionBusy ? 0.5 : 1 }}>
+                <Text style={{ color: "#9B2C2C", fontSize: 13, fontWeight: "900" }}>{jobActionBusy ? "Withdrawing..." : "Withdraw my offer"}</Text>
+              </Pressable> :
+              <View style={{ flex: 1.5, flexDirection: "row", gap: 8 }}>
+                <Pressable onPress={() => void acceptRequest(activeIncomingRequest)} disabled={busy || activeIncomingRequest.alreadyResponded} style={{ flex: 1, minHeight: 52, borderRadius: 13, backgroundColor: "#1677EE", alignItems: "center", justifyContent: "center", opacity: busy || activeIncomingRequest.alreadyResponded ? 0.5 : 1 }}>
+                  {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "900" }}>✓ Accept</Text>}
+                </Pressable>
+                <Pressable onPress={() => void declineIncomingRequest(activeIncomingRequest)} disabled={busy || activeIncomingRequest.alreadyResponded} style={{ flex: 1, minHeight: 52, borderRadius: 13, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#D6E0EA", alignItems: "center", justifyContent: "center", opacity: busy || activeIncomingRequest.alreadyResponded ? 0.5 : 1 }}>
+                  <Text style={{ color: "#425466", fontSize: 13, fontWeight: "900" }}>Decline</Text>
+                </Pressable>
+              </View>}
           </View>
           <Text style={{ color: "#AFC4DB", fontSize: 10, lineHeight: 15, textAlign: "center", marginTop: 11 }}>Your response goes to the Seeker. They choose their Provider. The full street address stays private at this stage.</Text>
         </ScrollView>
@@ -1247,7 +1347,10 @@ export function MarketplaceScreen(p: Props) {
               <Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>{offer.message || "This Provider is available for your request."}</Text>
               <Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>Hourly rate: {offer.hourlyRateAtOffer == null ? "To be confirmed" : `R ${Number(offer.hourlyRateAtOffer).toFixed(2)}`}</Text>
               <Pressable onPress={() => void selectProvider(matchingRequest.id, offer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#0066CC", borderRadius: 10, padding: 12, alignItems: "center", marginTop: 10 }}>
-                <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{selectingOfferId === offer.id ? "Selecting..." : "Select this Provider"}</Text>
+                <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{selectingOfferId === offer.id ? "Please wait..." : "Accept Provider"}</Text>
+              </Pressable>
+              <Pressable onPress={() => void declineProviderOffer(matchingRequest.id, offer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#FFFFFF", borderColor: "#D6E0EA", borderWidth: 1, borderRadius: 10, padding: 12, alignItems: "center", marginTop: 8 }}>
+                <Text style={{ color: "#425466", fontWeight: "800" }}>{selectingOfferId === offer.id ? "Please wait..." : "Decline offer"}</Text>
               </Pressable>
             </View>)}
             {timedOut ? <>

@@ -94,3 +94,120 @@ test("refresh-token rotation is single-use and family revocation invalidates des
   await prisma.refreshSession.deleteMany({ where: { tokenFamilyId: familyId } });
   await prisma.user.delete({ where: { id: user.id } });
 });
+
+test("concurrent identity submissions create only one pending case and notification", async () => {
+  const user = await prisma.user.create({
+    data: {
+      email: `identity-submit-race-${suffix}@example.invalid`,
+      passwordHash: "integration-test-only-not-a-real-password-hash",
+      emailVerifiedAt: new Date(),
+    },
+    select: { id: true },
+  });
+
+  const submit = () => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${user.id}))`;
+    const existing = await tx.identityVerificationCase.findFirst({
+      where: { userId: user.id, status: { in: ["SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION"] } },
+      select: { id: true },
+    });
+    if (existing) return false;
+    const created = await tx.identityVerificationCase.create({
+      data: { userId: user.id, status: "SUBMITTED", provider: "MANUAL_REVIEW" },
+      select: { id: true },
+    });
+    await tx.user.update({ where: { id: user.id }, data: { identityVerification: "PENDING" } });
+    await tx.appNotification.create({
+      data: { userId: user.id, title: "Profile submitted", body: "Identity review submitted." },
+    });
+    return Boolean(created.id);
+  });
+
+  const results = await Promise.all([submit(), submit(), submit(), submit()]);
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal(await prisma.identityVerificationCase.count({ where: { userId: user.id } }), 1);
+  assert.equal(await prisma.appNotification.count({ where: { userId: user.id, title: "Profile submitted" } }), 1);
+  await prisma.user.delete({ where: { id: user.id } });
+});
+
+test("account deletion waits for an in-flight notification delivery lock", async () => {
+  const user = await prisma.user.create({
+    data: {
+      email: `push-delete-race-${suffix}@example.invalid`,
+      passwordHash: "integration-test-only-not-a-real-password-hash",
+      emailVerifiedAt: new Date(),
+    },
+    select: { id: true },
+  });
+  const notification = await prisma.appNotification.create({
+    data: { userId: user.id, title: "Private delivery race", body: "Must not outlive account deletion." },
+    select: { id: true },
+  });
+  await prisma.pushDevice.create({
+    data: { userId: user.id, expoPushToken: `ExponentPushToken[${randomUUID()}]`, platform: "android" },
+  });
+
+  let releaseWorker;
+  let workerHasLock;
+  const workerGate = new Promise((resolve) => { releaseWorker = resolve; });
+  const lockAcquired = new Promise((resolve) => { workerHasLock = resolve; });
+  const worker = prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('notification-delivery:' || ${user.id}, 0))`;
+    workerHasLock();
+    await workerGate;
+    await tx.appNotification.update({
+      where: { id: notification.id },
+      data: { deliveryStatus: "SENT", sentAt: new Date() },
+    });
+  });
+
+  await lockAcquired;
+  let deletionFinished = false;
+  const deletion = prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('notification-delivery:' || ${user.id}, 0))`;
+    await tx.appNotification.deleteMany({ where: { userId: user.id } });
+    await tx.pushDevice.deleteMany({ where: { userId: user.id } });
+    await tx.user.delete({ where: { id: user.id } });
+    deletionFinished = true;
+  });
+
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(deletionFinished, false, "deletion must wait while delivery owns the per-user lock");
+  } finally {
+    releaseWorker();
+  }
+  await Promise.all([worker, deletion]);
+  assert.equal(await prisma.user.count({ where: { id: user.id } }), 0);
+  assert.equal(await prisma.appNotification.count({ where: { id: notification.id } }), 0);
+  assert.equal(await prisma.pushDevice.count({ where: { userId: user.id } }), 0);
+});
+
+test("account cleanup removes registered push tokens and queued private notifications", async () => {
+  const user = await prisma.user.create({
+    data: {
+      email: `push-cleanup-${suffix}@example.invalid`,
+      passwordHash: "integration-test-only-not-a-real-password-hash",
+      emailVerifiedAt: new Date(),
+    },
+    select: { id: true },
+  });
+  const token = `ExponentPushToken[${randomUUID()}]`;
+  await prisma.pushDevice.create({
+    data: { userId: user.id, expoPushToken: token, platform: "android" },
+  });
+  await prisma.appNotification.create({
+    data: { userId: user.id, title: "Private test notification", body: "Must not be delivered after account deletion." },
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.pushDevice.deleteMany({ where: { userId: user.id } });
+    await tx.appNotification.deleteMany({ where: { userId: user.id } });
+    await tx.refreshSession.deleteMany({ where: { userId: user.id } });
+    await tx.user.delete({ where: { id: user.id } });
+  });
+
+  assert.equal(await prisma.pushDevice.count({ where: { expoPushToken: token } }), 0);
+  assert.equal(await prisma.appNotification.count({ where: { userId: user.id } }), 0);
+  assert.equal(await prisma.user.count({ where: { id: user.id } }), 0);
+});

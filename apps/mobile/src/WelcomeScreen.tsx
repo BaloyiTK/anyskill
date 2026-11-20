@@ -301,7 +301,7 @@ export function WelcomeScreen({ onSignIn, onSignUp, showAuthActions = true, onRe
         <Text style={styles.requestSkillArrow}>›</Text>
       </Pressable> : accountPendingReview ? <View accessibilityRole="text" style={styles.pendingReview}>
         <View style={styles.pendingReviewDot} />
-        <Text style={styles.pendingReviewText}>Account Pending Review</Text>
+        <Text style={styles.pendingReviewText}>Pending verification</Text>
       </View> : canRequestSkill ? <Pressable accessibilityRole="button" onPress={onRequestSkill} style={styles.requestSkillButton}>
         <Text style={styles.requestSkillIcon}>＋</Text>
         <View style={styles.requestSkillCopy}>

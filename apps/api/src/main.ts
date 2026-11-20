@@ -15,6 +15,7 @@ import { HttpAdapterHost, NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { MarketplaceService } from "./marketplace/marketplace.service";
 import { LiveProviderMapService } from "./marketplace/live-provider-map.service";
+import { validateProductionConfiguration } from "./config/production-config";
 
 const MAX_ERROR_LOG_BYTES = 5 * 1024 * 1024;
 const LOG_DIRECTORY = join(__dirname, "..", "logs");
@@ -27,6 +28,13 @@ function redactLogText(value: string): string {
 }
 
 function writeErrorLog(entry: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === "production") {
+    // Container platforms collect stdout/stderr. Never rely on ephemeral
+    // filesystem logs in production; emit one redacted JSON record per line.
+    process.stderr.write(JSON.stringify(entry) + String.fromCharCode(10));
+    return;
+  }
+
   const logDirectory = LOG_DIRECTORY;
   const logFile = ERROR_LOG_FILE;
   try {
@@ -60,8 +68,13 @@ class ApiExceptionFilter implements ExceptionFilter {
     const statusCode = exception instanceof HttpException ? exception.getStatus() : 500;
     const errorName = exception instanceof Error ? exception.name : "UnknownError";
     const rawMessage = exception instanceof Error ? exception.message : String(exception);
-    const message = redactLogText(rawMessage);
-    const stack = exception instanceof Error && exception.stack
+    const production = process.env.NODE_ENV === "production";
+    // Production logs must not copy arbitrary exception text or stack traces:
+    // ORM/SDK errors can embed emails, user input, credentials or provider data.
+    const message = production
+      ? (statusCode >= 500 ? "Internal server error." : "Request rejected.")
+      : redactLogText(rawMessage);
+    const stack = !production && exception instanceof Error && exception.stack
       ? redactLogText(exception.stack)
       : undefined;
     const path = (request.originalUrl ?? request.url ?? "").split("?")[0];
@@ -101,10 +114,30 @@ class ApiExceptionFilter implements ExceptionFilter {
 }
 
 async function bootstrap(): Promise<void> {
+  validateProductionConfiguration("api");
+  // The HTTP entrypoint must never run marketplace polling, even if a worker
+  // environment variable is accidentally inherited by the API deployment.
+  process.env.ANYSKILL_PROCESS_ROLE = "api";
   const logger = new Logger("HTTP");
-  mkdirSync(LOG_DIRECTORY, { recursive: true });
-  appendFileSync(ERROR_LOG_FILE, "", { encoding: "utf8", mode: 0o600 });
+  if (process.env.NODE_ENV !== "production") {
+    mkdirSync(LOG_DIRECTORY, { recursive: true });
+    appendFileSync(ERROR_LOG_FILE, "", { encoding: "utf8", mode: 0o600 });
+  }
   const app = await NestFactory.create(AppModule);
+
+  // Express only trusts forwarded client IP headers from the configured number
+  // of proxy hops. Never enable blanket "trust proxy" in production.
+  const trustProxyHops = process.env.TRUST_PROXY_HOPS === undefined
+    ? 0
+    : Number(process.env.TRUST_PROXY_HOPS);
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0 || trustProxyHops > 10) {
+    throw new Error("TRUST_PROXY_HOPS must be an integer between 0 and 10.");
+  }
+  const expressInstance = app.getHttpAdapter().getInstance() as {
+    set(name: string, value: number): void;
+  };
+  expressInstance.set("trust proxy", trustProxyHops);
+  logger.log(`Express trusted proxy hops: ${trustProxyHops}`);
 
   app.use((
     request: { method: string; originalUrl?: string; url: string; requestId?: string },
@@ -122,6 +155,15 @@ async function bootstrap(): Promise<void> {
     request.requestId = requestId;
 
     response.setHeader("x-request-id", requestId);
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("X-Frame-Options", "DENY");
+    response.setHeader("Referrer-Policy", "no-referrer");
+    response.setHeader("Cache-Control", "no-store");
+    response.setHeader("Pragma", "no-cache");
+    if (process.env.NODE_ENV === "production") {
+      // Production traffic must terminate TLS at the trusted edge.
+      response.setHeader("Strict-Transport-Security", "max-age=31536000");
+    }
     response.once("finish", () => {
       const durationMs = Date.now() - startedAt;
       const message = `${method} ${path} ${response.statusCode} ${durationMs}ms requestId=${requestId}`;
@@ -178,6 +220,23 @@ async function bootstrap(): Promise<void> {
     ? [...new Set([...configuredOrigins, "http://localhost:4173", "http://127.0.0.1:4173"])]
     : configuredOrigins;
 
+  if (process.env.NODE_ENV === "production" && allowedOrigins.length === 0) {
+    throw new Error("CORS_ALLOWED_ORIGINS must contain the exact deployed browser origins in production.");
+  }
+  for (const origin of allowedOrigins) {
+    let parsedOrigin: URL;
+    try {
+      parsedOrigin = new URL(origin);
+    } catch {
+      throw new Error(`Invalid CORS origin configured: ${origin}`);
+    }
+    if (!["https:", "http:"].includes(parsedOrigin.protocol) ||
+        parsedOrigin.origin !== origin ||
+        (process.env.NODE_ENV === "production" && parsedOrigin.protocol !== "https:")) {
+      throw new Error(`CORS origin must be an exact origin without a path; production origins must use HTTPS: ${origin}`);
+    }
+  }
+
   if (allowedOrigins.length > 0) {
     app.enableCors({ origin: allowedOrigins, credentials: true });
   }
@@ -193,7 +252,7 @@ async function bootstrap(): Promise<void> {
   const staleLocationSweep = setInterval(() => app.get(LiveProviderMapService).notifyChanged(), 10_000);
   staleLocationSweep.unref();
   logger.log(`API listening on http://0.0.0.0:${port}/api/v1`);
-  logger.log(`API error log file: ${ERROR_LOG_FILE}`);
+  if (process.env.NODE_ENV !== "production") logger.log(`API error log file: ${ERROR_LOG_FILE}`);
   logger.log(
     allowedOrigins.length > 0
       ? `CORS allowed origins: ${allowedOrigins.join(", ")}`

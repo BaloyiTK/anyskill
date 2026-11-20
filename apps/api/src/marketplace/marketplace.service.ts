@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -11,6 +12,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
 import { LiveProviderMapService } from "./live-provider-map.service";
+import { MediaService } from "./media.service";
 import {
   CreateServiceRequestDto,
   ProviderResponseDto,
@@ -23,37 +25,64 @@ import {
 type RankedProvider = { userId: string; score: number };
 const normalise = (value: string) => value.trim().toLocaleLowerCase("en-ZA");
 const RESPONSE_WINDOW_MS = Math.max(60, Number(process.env.MATCH_RESPONSE_WINDOW_SECONDS ?? 300)) * 1000;
-const WAVE_SIZE = Math.max(1, Math.min(25, Number(process.env.MATCH_WAVE_SIZE ?? 5)));
+const WAVE_SIZE = 1;
 const LIVE_MATCHING_WINDOW_MS = 30 * 60 * 1000;
 const LIVE_LOCATION_MAX_AGE_MS = 30_000;
 const MAX_LIVE_LOCATION_ACCURACY_M = 50;
+const MAX_PLAUSIBLE_PROVIDER_SPEED_KMH = 250;
+const PROVIDER_SPEED_CHECK_MAX_GAP_MS = 5 * 60 * 1000;
+
+function distanceBetweenCoordinatesM(
+  latitudeA: number, longitudeA: number, latitudeB: number, longitudeB: number,
+): number {
+  const radians = (degrees: number) => degrees * Math.PI / 180;
+  const latitudeDelta = radians(latitudeB - latitudeA);
+  const longitudeDelta = radians(longitudeB - longitudeA);
+  const a = Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(radians(latitudeA)) * Math.cos(radians(latitudeB)) *
+    Math.sin(longitudeDelta / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 @Injectable()
 export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MarketplaceService.name);
   private worker: ReturnType<typeof setInterval> | undefined;
   private workerRunning = false;
+  private workerCyclePromise: Promise<void> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly liveProviderMap: LiveProviderMapService,
+    private readonly media: MediaService,
   ) {}
 
   onModuleInit() {
-    // Matching deadlines and notification retries are persisted in PostgreSQL.
-    // This lightweight poller is a development/single-instance worker; production
-    // should run the same methods in a dedicated queue worker.
-    this.worker = setInterval(() => { void this.runWorkerCycle(); }, 15_000);
-    this.worker.unref?.();
+    // API replicas must never start background polling. Run this Nest application
+    // context separately with ANYSKILL_PROCESS_ROLE=worker.
+    if (process.env.ANYSKILL_PROCESS_ROLE !== "worker") return;
+
+    this.logger.log("Marketplace background worker started; polling persisted jobs every 15 seconds.");
+    this.startWorkerCycle();
+    this.worker = setInterval(() => this.startWorkerCycle(), 15_000);
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy() {
     if (this.worker) clearInterval(this.worker);
+    // Let in-flight database and provider calls finish before Prisma disconnects.
+    await this.workerCyclePromise;
+  }
+
+  private startWorkerCycle() {
+    if (this.workerCyclePromise) return;
+    this.workerCyclePromise = this.runWorkerCycle().finally(() => {
+      this.workerCyclePromise = null;
+    });
   }
 
   async listSkills(query: string) {
     const profiles = await this.prisma.providerProfile.findMany({
-      where: { skillCategories: { isEmpty: false }, user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } } }, select: { skillCategories: true }, take: 2000,
+      where: { skillCategories: { isEmpty: false }, user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED", deletedAt: null } } }, select: { skillCategories: true }, take: 2000,
     });
     const counts = new Map<string, number>();
     for (const profile of profiles) for (const skill of profile.skillCategories) {
@@ -73,24 +102,56 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { items: ranked.map(({ name, providerCount }) => ({ name, providerCount })) };
   }
 
-  async createRequest(seekerId: string, input: CreateServiceRequestDto) {
+  async createRequest(seekerId: string, input: CreateServiceRequestDto, idempotencyKey?: string) {
+    if (idempotencyKey != null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+      throw new BadRequestException("Idempotency-Key must be a valid UUID.");
+    }
+    const payloadHash = idempotencyKey
+      ? createHash("sha256").update(JSON.stringify({
+          title: input.title.trim(),
+          skillCategory: input.skillCategory.trim(),
+          description: input.description.trim(),
+          imageUrls: input.imageUrls ?? [],
+          location: input.location?.trim() || null,
+          deliveryMode: input.deliveryMode,
+          latitude: input.deliveryMode === "REMOTE" ? null : input.latitude ?? null,
+          longitude: input.deliveryMode === "REMOTE" ? null : input.longitude ?? null,
+          searchRadiusKm: input.deliveryMode === "REMOTE" ? 10 : input.searchRadiusKm ?? 10,
+          preferredStartAt: input.preferredStartAt ?? null,
+          instructions: input.instructions?.trim() || null,
+        })).digest("hex")
+      : null;
+
     if ((input.latitude == null) !== (input.longitude == null)) throw new BadRequestException("Provide both latitude and longitude for the job location.");
     if (input.deliveryMode !== "REMOTE" && (input.latitude == null || input.longitude == null)) throw new BadRequestException("Choose the job location on the map before publishing an on-site or either-mode request.");
-    const seeker = await this.prisma.user.findUnique({
-      where: { id: seekerId },
-      select: { identityVerification: true },
-    });
-    if (!seeker || seeker.identityVerification !== "VERIFIED") {
-      throw new ForbiddenException({
-        code: "IDENTITY_VERIFICATION_REQUIRED",
-        action: "SEEKER_SUBMIT_REQUEST",
-        message: "Complete identity verification before submitting your service request.",
-      });
+    if (input.preferredStartAt) {
+      const preferredStartAt = new Date(input.preferredStartAt);
+      if (!Number.isFinite(preferredStartAt.getTime()) || preferredStartAt.getTime() < Date.now() + 15 * 60 * 1000) {
+        throw new BadRequestException("Choose a preferred start time at least 15 minutes from now.");
+      }
     }
-
-    const request = await this.prisma.serviceRequest.create({
+    let request;
+    try {
+      request = await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${seekerId}))`;
+        const seeker = await tx.user.findUnique({
+          where: { id: seekerId },
+          select: { identityVerification: true, seekerRoleStatus: true, deletedAt: true },
+        });
+        if (!seeker || seeker.deletedAt !== null || seeker.seekerRoleStatus !== "ACTIVE") {
+          throw new ForbiddenException("An active Seeker account is required to publish a service request.");
+        }
+        if (seeker.identityVerification !== "VERIFIED") {
+          throw new ForbiddenException({
+            code: "IDENTITY_VERIFICATION_REQUIRED",
+            action: "SEEKER_SUBMIT_REQUEST",
+            message: "Complete identity verification before submitting your service request.",
+          });
+        }
+        return tx.serviceRequest.create({
       data: {
         seekerId,
+        ...(idempotencyKey ? { idempotencyKey, idempotencyPayloadHash: payloadHash } : {}),
         title: input.title.trim(),
         skillCategory: input.skillCategory.trim(),
         description: input.description.trim(),
@@ -110,10 +171,31 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         imageUrls: true, location: true, deliveryMode: true, matchingStartedAt: true,
         preferredStartAt: true, instructions: true, status: true, createdAt: true,
       },
-    });
+        });
+      });
+    } catch (error) {
+      if (!idempotencyKey || !(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+        throw error;
+      }
+      const existing = await this.prisma.serviceRequest.findFirst({
+        where: { seekerId, idempotencyKey },
+        select: {
+          id: true, idempotencyPayloadHash: true, title: true, skillCategory: true, description: true,
+          imageUrls: true, location: true, deliveryMode: true, matchingStartedAt: true,
+          preferredStartAt: true, instructions: true, status: true, createdAt: true,
+        },
+      });
+      if (!existing) throw error;
+      if (existing.idempotencyPayloadHash !== payloadHash) {
+        throw new ConflictException("This Idempotency-Key was already used with a different service request payload.");
+      }
+      const matching = await this.dispatchNextWave(existing.id, 1);
+      const { idempotencyPayloadHash: _hash, ...safeExisting } = existing;
+      return { ...safeExisting, matching, idempotentReplay: true };
+    }
 
     const matching = await this.dispatchNextWave(request.id, 1);
-    return { ...request, matching };
+    return { ...request, matching, ...(idempotencyKey ? { idempotentReplay: false } : {}) };
   }
 
 
@@ -127,48 +209,79 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async updateProviderLiveLocation(userId: string, input: UpdateLiveLocationDto) {
     if (input.accuracyM > MAX_LIVE_LOCATION_ACCURACY_M) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix (50 m or better).");
-    const updatedAt = new Date();
-    // Any online Provider shares a live map location, regardless of skill or
-    // delivery mode. Going offline clears the location and stops this heartbeat.
-    const result = await this.prisma.providerProfile.updateMany({
-      where: { userId, isAvailable: true },
-      data: {
-        liveLatitude: input.latitude,
-        liveLongitude: input.longitude,
-        liveAccuracyM: input.accuracyM,
-        liveLocationUpdatedAt: updatedAt,
-      },
-    });
-    if (result.count !== 1) {
-      const profile = await this.prisma.providerProfile.findUnique({ where: { userId }, select: { userId: true } });
-      if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
-      throw new ConflictException("Set your Provider status to Available before sharing your live location.");
+    const capturedAt = new Date(input.capturedAt);
+    const now = Date.now();
+    // A queued OS callback must never make an old GPS fix appear current.
+    // Allow a small clock-skew window, but reject stale or future-dated fixes.
+    if (!Number.isFinite(capturedAt.getTime()) || capturedAt.getTime() < now - LIVE_LOCATION_MAX_AGE_MS || capturedAt.getTime() > now + 5_000) {
+      throw new ConflictException("This GPS fix is stale or has an invalid timestamp. Wait for a new location fix and try again.");
     }
+    const updatedAt = capturedAt;
+    await this.prisma.$transaction(async (tx) => {
+      // Prevent a location heartbeat from racing an identity/skill suspension.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { providerRoleStatus: true, identityVerification: true, deletedAt: true },
+      });
+      if (!user || user.deletedAt !== null || user.providerRoleStatus !== "ACTIVE" || user.identityVerification !== "VERIFIED") {
+        throw new ForbiddenException("Only an approved and identity-verified Provider can share live location.");
+      }
+      const profile = await tx.providerProfile.findUnique({
+        where: { userId },
+        select: {
+          isAvailable: true,
+          liveLatitude: true,
+          liveLongitude: true,
+          liveAccuracyM: true,
+          liveLocationUpdatedAt: true,
+        },
+      });
+      if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
+      if (!profile.isAvailable) throw new ConflictException("Set your Provider status to Available before sharing your live location.");
+
+      // GPS is client-reported and cannot be proven authentic by the API. Reject
+      // out-of-order fixes and physically implausible jumps as a useful spoofing
+      // signal, while allowing vehicle travel and accounting for GPS accuracy.
+      if (profile.liveLocationUpdatedAt) {
+        const previousCapturedAt = profile.liveLocationUpdatedAt.getTime();
+        const elapsedMs = capturedAt.getTime() - previousCapturedAt;
+        if (elapsedMs <= 0) {
+          throw new ConflictException("This GPS fix is older than the last accepted fix. Wait for a newer location update.");
+        }
+        if (
+          elapsedMs <= PROVIDER_SPEED_CHECK_MAX_GAP_MS &&
+          profile.liveLatitude != null &&
+          profile.liveLongitude != null
+        ) {
+          const travelledM = distanceBetweenCoordinatesM(
+            profile.liveLatitude, profile.liveLongitude, input.latitude, input.longitude,
+          );
+          const accuracyAllowanceM = (profile.liveAccuracyM ?? 0) + input.accuracyM;
+          const minimumPlausibleTravelM = Math.max(0, travelledM - accuracyAllowanceM);
+          const maximumTravelM = MAX_PLAUSIBLE_PROVIDER_SPEED_KMH * (elapsedMs / 3_600_000) * 1000;
+          if (minimumPlausibleTravelM > maximumTravelM) {
+            throw new ConflictException("This GPS update implies an implausible movement speed. Wait for a fresh GPS fix and try again.");
+          }
+        }
+      }
+      await tx.providerProfile.update({
+        where: { userId },
+        data: {
+          liveLatitude: input.latitude,
+          liveLongitude: input.longitude,
+          liveAccuracyM: input.accuracyM,
+          liveLocationUpdatedAt: updatedAt,
+        },
+      });
+    });
     this.liveProviderMap.notifyChanged();
     return { isAvailable: true, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
   }
 
   async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
-    if (input.isAvailable) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: userId },
-        select: { providerRoleStatus: true, identityVerification: true },
-      });
-      if (!user || user.providerRoleStatus !== "ACTIVE") {
-        throw new ForbiddenException({
-          code: "PROVIDER_APPROVAL_REQUIRED",
-          message: "Provider availability is only available after your Provider application is approved.",
-        });
-      }
-      if (user.identityVerification !== "VERIFIED") {
-        throw new ForbiddenException({
-          code: "IDENTITY_VERIFICATION_REQUIRED",
-          action: "PROVIDER_GO_ONLINE",
-          message: "Complete identity verification before going online.",
-        });
-      }
-    }
     const skillCategories = [...new Set(input.skillCategories.map(normalise).filter(Boolean))];
+    const normalizedSkillKeys = [...new Set(skillCategories.map((skill) => normalise(skill).replace(/[^\p{L}\p{N}]+/gu, "")).filter(Boolean))];
     const serviceAreas = [...new Set(input.serviceAreas.map(normalise).filter(Boolean))];
     const deliveryModes = [...new Set(input.deliveryModes)];
     if (skillCategories.length === 0) {
@@ -197,32 +310,71 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           liveLocationUpdatedAt: onlineAt!,
         }
       : { liveLatitude: null, liveLongitude: null, liveAccuracyM: null, liveLocationUpdatedAt: null };
-    const updated = await this.prisma.providerProfile.upsert({
-      where: { userId },
-      create: {
-        userId,
-        publicName: input.publicName.trim(),
-        hourlyRate: input.hourlyRate,
-        assessmentFee: input.assessmentFee,
-        skillCategories,
-        serviceAreas,
-        deliveryModes,
-        isAvailable: input.isAvailable,
-        ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
-        ...liveLocationData,
-      },
-      update: {
-        publicName: input.publicName.trim(),
-        hourlyRate: input.hourlyRate,
-        assessmentFee: input.assessmentFee,
-        skillCategories,
-        serviceAreas,
-        deliveryModes,
-        isAvailable: input.isAvailable,
-        ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
-        ...liveLocationData,
-      },
-      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Going online shares the same eligibility lock as staff identity and skill decisions.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const account = await tx.user.findUnique({
+        where: { id: userId },
+        select: { seekerRoleStatus: true, providerRoleStatus: true, deletedAt: true },
+      });
+      if (!account || account.deletedAt !== null ||
+          (account.seekerRoleStatus === "SUSPENDED" && account.providerRoleStatus === "SUSPENDED")) {
+        throw new ForbiddenException("This account is being closed and cannot update Provider settings.");
+      }
+      if (input.isAvailable) {
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          select: { providerRoleStatus: true, identityVerification: true, deletedAt: true },
+        });
+        if (!user || user.deletedAt !== null || user.providerRoleStatus !== "ACTIVE") {
+          throw new ForbiddenException({
+            code: "PROVIDER_APPROVAL_REQUIRED",
+            message: "Provider availability is only available after your Provider application is approved.",
+          });
+        }
+        if (user.identityVerification !== "VERIFIED") {
+          throw new ForbiddenException({
+            code: "IDENTITY_VERIFICATION_REQUIRED",
+            action: "PROVIDER_GO_ONLINE",
+            message: "Complete identity verification before going online.",
+          });
+        }
+      }
+      return tx.providerProfile.upsert({
+        where: { userId },
+        create: {
+          userId,
+          publicName: input.publicName.trim(),
+          hourlyRate: input.hourlyRate,
+          assessmentFee: input.assessmentFee,
+          skillCategories,
+          normalizedSkillKeys,
+          serviceAreas,
+          deliveryModes,
+          isAvailable: input.isAvailable,
+          ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
+          ...liveLocationData,
+        },
+        update: {
+          publicName: input.publicName.trim(),
+          hourlyRate: input.hourlyRate,
+          assessmentFee: input.assessmentFee,
+          skillCategories,
+          normalizedSkillKeys,
+          serviceAreas,
+          deliveryModes,
+          isAvailable: input.isAvailable,
+          ...(input.maxTravelDistanceKm != null ? { maxTravelDistanceKm: input.maxTravelDistanceKm } : {}),
+          ...liveLocationData,
+        },
+        select: {
+          publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true,
+          serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true,
+          liveLatitude: true, liveLongitude: true, liveAccuracyM: true,
+          liveLocationUpdatedAt: true, updatedAt: true,
+        },
+      });
     });
     this.liveProviderMap.notifyChanged();
     return updated;
@@ -277,64 +429,89 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException("Provide valid coordinates and a supported map radius (5, 10, 20 or 50 km).");
     }
 
-    // Discovery is independent of service-request matching. Show online
-    // Providers within the Seeker's selected map radius. Do not filter by skill,
-    // identity status, Provider role status, or delivery mode.
-    // A map pin is live only while the provider has refreshed it recently.
+    // Use the existing PostGIS geography index instead of loading every online
+    // Provider profile into application memory. A hard result cap bounds query
+    // cost and response size for public discovery.
     const cutoff = new Date(Date.now() - LIVE_LOCATION_MAX_AGE_MS);
-    const profiles = await this.prisma.providerProfile.findMany({
-      where: {
-        isAvailable: true,
-        liveLatitude: { not: null },
-        liveLongitude: { not: null },
-        liveLocationUpdatedAt: { gte: cutoff },
-        liveAccuracyM: { lte: MAX_LIVE_LOCATION_ACCURACY_M },
-      },
-      select: {
-        id: true,
-        skillCategories: true,
-        liveLatitude: true,
-        liveLongitude: true,
-      },
-      orderBy: { liveLocationUpdatedAt: "desc" },
-    });
+    const profiles = await this.prisma.$queryRaw<Array<{
+      id: string;
+      skillCategories: string[];
+      liveLatitude: number;
+      liveLongitude: number;
+      distanceKm: number;
+    }>>`
+      SELECT
+        p.id,
+        p.skill_categories AS "skillCategories",
+        p.live_latitude AS "liveLatitude",
+        p.live_longitude AS "liveLongitude",
+        ST_Distance(
+          ST_SetSRID(ST_MakePoint(p.live_longitude, p.live_latitude), 4326)::geography,
+          ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography
+        ) / 1000.0 AS "distanceKm"
+      FROM provider_profiles p
+      INNER JOIN users u ON u.id = p.user_id
+      WHERE p.is_available = TRUE
+        AND u.provider_role_status = 'ACTIVE'
+        AND u.identity_verification_status = 'VERIFIED'
+        AND u.deleted_at IS NULL
+        AND p.live_latitude IS NOT NULL
+        AND p.live_longitude IS NOT NULL
+        AND p.live_location_updated_at >= ${cutoff}
+        AND p.live_accuracy_m <= ${MAX_LIVE_LOCATION_ACCURACY_M}
+        AND ST_DWithin(
+          ST_SetSRID(ST_MakePoint(p.live_longitude, p.live_latitude), 4326)::geography,
+          ST_SetSRID(ST_MakePoint(${longitude}, ${latitude}), 4326)::geography,
+          ${seekerRadiusKm} * 1000.0
+        )
+      ORDER BY "distanceKm" ASC
+      LIMIT 200
+    `;
 
-    const radians = (degrees: number) => degrees * Math.PI / 180;
-    const distanceKm = (lat: number, lon: number) => {
-      const dLat = radians(lat - latitude);
-      const dLon = radians(lon - longitude);
-      const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(radians(latitude)) * Math.cos(radians(lat)) * Math.sin(dLon / 2) ** 2;
-      return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
-
-    return profiles.flatMap((profile) => {
-      if (profile.liveLatitude == null || profile.liveLongitude == null) return [];
-      const distance = distanceKm(profile.liveLatitude, profile.liveLongitude);
-      if (distance > seekerRadiusKm) return [];
-      return [{
-        id: profile.id,
-        skill: profile.skillCategories[0] || "Skill not added",
-        distanceKm: Math.round(distance * 10) / 10,
-        // Approximately 100 m precision is sufficient for a public discovery pin.
-        latitude: Math.round(profile.liveLatitude * 1000) / 1000,
-        longitude: Math.round(profile.liveLongitude * 1000) / 1000,
-      }];
-    });
+    return profiles.map((profile) => ({
+      id: profile.id,
+      skill: profile.skillCategories[0] || "Skill not added",
+      // Coarse, deterministic ~1 km grid cells reduce the precision of public
+      // pins and make repeated snapshots less useful for tracking a household.
+      distanceKm: Math.round(profile.distanceKm * 2) / 2,
+      latitude: Math.round(profile.liveLatitude * 100) / 100,
+      longitude: Math.round(profile.liveLongitude * 100) / 100,
+    }));
   }
 
   async registerPushDevice(userId: string, input: RegisterPushDeviceDto) {
     if (!/^(Expo|Exponent)PushToken\[[^\]]+\]$/.test(input.expoPushToken)) {
       throw new ConflictException("The device did not provide a valid Expo push token.");
     }
-    return this.prisma.pushDevice.upsert({
-      where: { expoPushToken: input.expoPushToken },
-      create: { userId, expoPushToken: input.expoPushToken, platform: input.platform },
-      update: { userId, platform: input.platform, lastSeenAt: new Date() },
-      select: { id: true, platform: true, lastSeenAt: true },
+
+    // A push token is a private delivery address. Never let another account
+    // claim it, and serialize first-time claims across API replicas.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${userId}))`;
+      const account = await tx.user.findUnique({
+        where: { id: userId },
+        select: { deletedAt: true, seekerRoleStatus: true, providerRoleStatus: true },
+      });
+      if (!account || account.deletedAt !== null ||
+          (account.seekerRoleStatus === "SUSPENDED" && account.providerRoleStatus === "SUSPENDED")) {
+        throw new ForbiddenException("This account is being closed and cannot register a push device.");
+      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.expoPushToken}, 2))`;
+      const existing = await tx.pushDevice.findUnique({
+        where: { expoPushToken: input.expoPushToken },
+        select: { id: true, userId: true },
+      });
+      if (existing && existing.userId !== userId) {
+        throw new ForbiddenException("This device token is already registered to another account.");
+      }
+      return tx.pushDevice.upsert({
+        where: { expoPushToken: input.expoPushToken },
+        create: { userId, expoPushToken: input.expoPushToken, platform: input.platform },
+        update: { platform: input.platform, lastSeenAt: new Date() },
+        select: { id: true, platform: true, lastSeenAt: true },
+      });
     });
   }
-
   async listNotifications(userId: string) {
     return this.prisma.appNotification.findMany({
       where: { userId },
@@ -428,6 +605,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         : null;
       return {
         ...request,
+        // Before a Provider is selected, expose only a coarse map pin and no
+        // free-form location label that might contain a street address.
+        location: null,
+        latitude: request.latitude == null ? null : Math.round(request.latitude * 1000) / 1000,
+        longitude: request.longitude == null ? null : Math.round(request.longitude * 1000) / 1000,
         seeker: {
           firstName,
           lastName,
@@ -456,12 +638,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async listMyRequests(seekerId: string) {
     const requests = await this.prisma.serviceRequest.findMany({
       where: { seekerId },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      // Bound response and nested relation fan-out until cursor pagination is
+      // introduced without breaking the current mobile response contract.
+      take: 100,
       include: {
         jobEngagement: { include: { review: true, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } } },
         _count: { select: { matches: true } },
         providerResponses: {
           orderBy: { createdAt: "asc" },
+          take: 50,
           select: {
             id: true, providerId: true, status: true, message: true, createdAt: true,
             hourlyRateAtOffer: true, assessmentFeeAtOffer: true,
@@ -527,22 +713,48 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cancelRequest(seekerId: string, requestId: string) {
-    const request = await this.prisma.serviceRequest.findFirst({
-      where: { id: requestId, seekerId },
-      select: { id: true, status: true },
+    return this.prisma.$transaction(async (tx) => {
+      // Share the request-level lock with provider responses, selections and matching.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findFirst({
+        where: { id: requestId, seekerId },
+        select: { id: true, status: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
+      const matchedProviders = await tx.requestMatch.findMany({
+        where: { requestId, status: { in: ["NOTIFIED", "RESPONDED"] }, providerId: { not: null } },
+        select: { providerId: true },
+      });
+      const changed = await tx.serviceRequest.updateMany({
+        where: { id: requestId, seekerId, status: "OPEN" },
+        data: { status: "CANCELLED", matchingNextAt: null },
+      });
+      if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
+      await tx.requestMatch.updateMany({
+        // Both invitations and submitted offers become terminal on cancellation.
+        where: { requestId, status: { in: ["NOTIFIED", "RESPONDED"] } },
+        data: { status: "EXPIRED" },
+      });
+      await tx.providerResponse.updateMany({
+        where: { requestId, status: "OFFERED" },
+        data: { status: "WITHDRAWN" },
+      });
+      const providerIds = [...new Set(matchedProviders.map((match) => match.providerId).filter((id): id is string => Boolean(id)))];
+      if (providerIds.length > 0) {
+        await tx.appNotification.createMany({
+          data: providerIds.map((providerId) => ({
+            userId: providerId,
+            eventKey: `request:${requestId}:cancelled:${providerId}`,
+            title: "Service request cancelled",
+            body: "The Skill Seeker has cancelled this service request. No further action is required.",
+            data: { type: "REQUEST_CANCELLED", requestId },
+          })),
+          skipDuplicates: true,
+        });
+      }
+      return { success: true, requestId, status: "CANCELLED" };
     });
-    if (!request) throw new NotFoundException("This service request could not be found.");
-    if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
-    const changed = await this.prisma.serviceRequest.updateMany({
-      where: { id: requestId, seekerId, status: "OPEN" },
-      data: { status: "CANCELLED", matchingNextAt: null },
-    });
-    if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
-    await this.prisma.requestMatch.updateMany({
-      where: { requestId, status: "NOTIFIED" },
-      data: { status: "EXPIRED" },
-    });
-    return { success: true, requestId, status: "CANCELLED" };
   }
 
   async scheduleRequest(seekerId: string, requestId: string, input: ScheduleServiceRequestDto) {
@@ -550,23 +762,238 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (!Number.isFinite(preferredStartAt.getTime()) || preferredStartAt.getTime() < Date.now() + 15 * 60 * 1000) {
       throw new BadRequestException("Choose a scheduled start time at least 15 minutes from now.");
     }
-    const request = await this.prisma.serviceRequest.findFirst({
-      where: { id: requestId, seekerId, status: "OPEN" },
-      select: { id: true, matchingWave: true, matchingStartedAt: true },
+    await this.prisma.$transaction(async (tx) => {
+      // Scheduling changes matching state, so serialize it with cancellation and offer decisions.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findFirst({
+        where: { id: requestId, seekerId, status: "OPEN" },
+        select: { id: true, matchingStartedAt: true },
+      });
+      if (!request) throw new NotFoundException("This open service request could not be found.");
+      if (Date.now() - request.matchingStartedAt.getTime() < LIVE_MATCHING_WINDOW_MS) throw new ConflictException("Live Provider search has not timed out yet. You can schedule this request after 30 minutes.");
+      const restarted = await tx.serviceRequest.updateMany({
+        where: { id: requestId, seekerId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
+        data: { preferredStartAt, matchingStartedAt: new Date(), matchingWave: 0, matchingNextAt: null, matchingExhaustedAt: null },
+      });
+      if (restarted.count !== 1) throw new ConflictException("The request changed. Refresh before scheduling it.");
     });
-    if (!request) throw new NotFoundException("This open service request could not be found.");
-    if (Date.now() - request.matchingStartedAt.getTime() < LIVE_MATCHING_WINDOW_MS) throw new ConflictException("Live Provider search has not timed out yet. You can schedule this request after 30 minutes.");
-    const restarted = await this.prisma.serviceRequest.updateMany({
-      where: { id: requestId, seekerId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
-      data: { preferredStartAt, matchingStartedAt: new Date(), matchingWave: 0, matchingNextAt: null, matchingExhaustedAt: null },
-    });
-    if (restarted.count !== 1) throw new ConflictException("The request changed. Refresh before scheduling it.");
     const matching = await this.dispatchNextWave(requestId, 1, true);
     return { success: true, requestId, preferredStartAt, matching };
   }
 
+  async declineIncomingRequest(providerId: string, requestId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findUnique({
+        where: { id: requestId },
+        select: { id: true, status: true, matchingWave: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.status !== "OPEN") throw new ConflictException("This service request is no longer available.");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${providerId}))`;
+
+      const match = await tx.requestMatch.findUnique({
+        where: { requestId_providerId: { requestId, providerId } },
+        select: { id: true, status: true },
+      });
+      if (!match || match.status !== "NOTIFIED") {
+        throw new ConflictException("This matching invitation is no longer available to decline.");
+      }
+      const changed = await tx.requestMatch.updateMany({
+        where: { id: match.id, requestId, providerId, status: "NOTIFIED" },
+        data: { status: "EXPIRED" },
+      });
+      if (changed.count !== 1) throw new ConflictException("This matching invitation has already changed.");
+
+      const pendingOffers = await tx.providerResponse.count({ where: { requestId, status: "OFFERED" } });
+      const pendingMatches = await tx.requestMatch.count({ where: { requestId, status: "NOTIFIED" } });
+      if (pendingOffers === 0 && pendingMatches === 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+        });
+        return { dispatchNextWave: true, nextWave: request.matchingWave + 1 };
+      }
+      if (pendingOffers === 0 && pendingMatches > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+      } else if (pendingOffers > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: null },
+        });
+      }
+      return { dispatchNextWave: false, nextWave: request.matchingWave + 1 };
+    });
+
+    const matching = result.dispatchNextWave
+      ? await this.dispatchNextWave(requestId, result.nextWave)
+      : null;
+    return { success: true, requestId, status: "DECLINED", matching };
+  }
+
+  async declineProviderOffer(seekerId: string, requestId: string, responseId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findUnique({
+        where: { id: requestId },
+        select: { id: true, seekerId: true, status: true, matchingWave: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.seekerId !== seekerId) {
+        throw new ForbiddenException("Only the Skill Seeker who created this request can decline a Provider offer.");
+      }
+      if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider decisions.");
+
+      const candidateOffer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId },
+        select: { providerId: true },
+      });
+      if (!candidateOffer?.providerId) throw new NotFoundException("This Provider offer could not be found.");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${candidateOffer.providerId}))`;
+      const offer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, providerId: candidateOffer.providerId },
+        select: { id: true, providerId: true, status: true },
+      });
+      if (!offer || !offer.providerId) throw new ConflictException("This Provider offer is no longer available.");
+      if (offer.status === "SELECTED" || offer.status === "WITHDRAWN") {
+        throw new ConflictException("This Provider offer is no longer available to decline.");
+      }
+      if (offer.status !== "DECLINED") {
+        const changed = await tx.providerResponse.updateMany({
+          where: { id: offer.id, requestId, status: "OFFERED" },
+          data: { status: "DECLINED" },
+        });
+        if (changed.count !== 1) throw new ConflictException("This Provider offer has already changed. Refresh and try again.");
+        await tx.requestMatch.updateMany({
+          where: { requestId, providerId: offer.providerId, status: "RESPONDED" },
+          data: { status: "EXPIRED" },
+        });
+        await tx.appNotification.create({
+          data: {
+            userId: offer.providerId,
+            eventKey: `offer:${offer.id}:declined`,
+            title: "Your offer was declined",
+            body: "The Skill Seeker has declined your offer. You may receive another request through AnySkill.",
+            data: { type: "PROVIDER_OFFER_DECLINED", requestId, responseId: offer.id },
+          },
+        });
+      }
+
+      const pendingOffers = await tx.providerResponse.count({ where: { requestId, status: "OFFERED" } });
+      const pendingMatches = await tx.requestMatch.count({ where: { requestId, status: "NOTIFIED" } });
+      if (pendingOffers === 0 && pendingMatches === 0 && offer.status !== "DECLINED") {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, seekerId, status: "OPEN" },
+          data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+        });
+        return { declined: true, dispatchNextWave: true, nextWave: request.matchingWave + 1 };
+      }
+      if (pendingOffers === 0 && pendingMatches > 0 && offer.status !== "DECLINED") {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, seekerId, status: "OPEN" },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+      } else if (pendingOffers > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, seekerId, status: "OPEN" },
+          data: { matchingNextAt: null },
+        });
+      }
+      return { declined: true, dispatchNextWave: false, nextWave: request.matchingWave + 1 };
+    });
+
+    const matching = result.dispatchNextWave
+      ? await this.dispatchNextWave(requestId, result.nextWave)
+      : null;
+    return {
+      success: true,
+      requestId,
+      responseId,
+      status: "DECLINED",
+      matching,
+    };
+  }
+
+  async withdrawProviderOffer(providerId: string, requestId: string, responseId: string) {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+      const request = await tx.serviceRequest.findUnique({
+        where: { id: requestId },
+        select: { id: true, seekerId: true, status: true, matchingWave: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+      if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider decisions.");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${providerId}))`;
+
+      const offer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, providerId },
+        select: { id: true, status: true },
+      });
+      if (!offer) throw new NotFoundException("Your Provider offer could not be found.");
+      if (offer.status === "WITHDRAWN") {
+        return { withdrawn: true, dispatchNextWave: false, nextWave: request.matchingWave + 1 };
+      }
+      if (offer.status !== "OFFERED") {
+        throw new ConflictException("Only an outstanding Provider offer can be withdrawn.");
+      }
+
+      const changed = await tx.providerResponse.updateMany({
+        where: { id: offer.id, requestId, providerId, status: "OFFERED" },
+        data: { status: "WITHDRAWN" },
+      });
+      if (changed.count !== 1) throw new ConflictException("This Provider offer has already changed. Refresh and try again.");
+
+      await tx.requestMatch.updateMany({
+        where: { requestId, providerId, status: "RESPONDED" },
+        data: { status: "EXPIRED" },
+      });
+      if (request.seekerId) {
+        await tx.appNotification.create({
+          data: {
+            userId: request.seekerId,
+            eventKey: `offer:${offer.id}:withdrawn`,
+            title: "Provider withdrew an offer",
+            body: "A Provider has withdrawn their offer. AnySkill will continue matching if no other offers remain.",
+            data: { type: "PROVIDER_OFFER_WITHDRAWN", requestId, responseId: offer.id },
+          },
+        });
+      }
+
+      const pendingOffers = await tx.providerResponse.count({ where: { requestId, status: "OFFERED" } });
+      const pendingMatches = await tx.requestMatch.count({ where: { requestId, status: "NOTIFIED" } });
+      if (pendingOffers === 0 && pendingMatches === 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+        });
+        return { withdrawn: true, dispatchNextWave: true, nextWave: request.matchingWave + 1 };
+      }
+      if (pendingOffers === 0 && pendingMatches > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+      } else if (pendingOffers > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: null },
+        });
+      }
+      return { withdrawn: true, dispatchNextWave: false, nextWave: request.matchingWave + 1 };
+    });
+
+    const matching = result.dispatchNextWave
+      ? await this.dispatchNextWave(requestId, result.nextWave)
+      : null;
+    return { success: true, requestId, responseId, status: "WITHDRAWN", matching };
+  }
+
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
       const request = await tx.serviceRequest.findUnique({
         where: { id: requestId },
         select: { id: true, seekerId: true, status: true, title: true },
@@ -574,12 +1001,33 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!request) throw new NotFoundException("This service request could not be found.");
       if (request.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker who created this request can select a Provider.");
       if (request.status !== "OPEN") throw new ConflictException("This request is no longer open for Provider selection.");
+      const seeker = await tx.user.findUnique({
+        where: { id: seekerId },
+        select: { seekerRoleStatus: true, deletedAt: true },
+      });
+      if (!seeker || seeker.deletedAt !== null || seeker.seekerRoleStatus !== "ACTIVE") {
+        throw new ForbiddenException("An active Seeker account is required to select a Provider.");
+      }
 
-      const offer = await tx.providerResponse.findFirst({
+      const candidateOffer = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId, status: "OFFERED" },
+        select: { providerId: true },
+      });
+      if (!candidateOffer?.providerId) throw new NotFoundException("This Provider offer is no longer available.");
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${candidateOffer.providerId}))`;
+      const offer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, status: "OFFERED", providerId: candidateOffer.providerId },
         select: { id: true, providerId: true },
       });
-      if (!offer || !offer.providerId) throw new NotFoundException("This Provider offer is no longer available.");
+      if (!offer?.providerId) throw new ConflictException("This Provider offer is no longer available.");
+      const selectedProvider = await tx.user.findUnique({
+        where: { id: offer.providerId },
+        select: { providerRoleStatus: true, identityVerification: true, deletedAt: true },
+      });
+      if (!selectedProvider || selectedProvider.deletedAt !== null ||
+          selectedProvider.providerRoleStatus !== "ACTIVE" || selectedProvider.identityVerification !== "VERIFIED") {
+        throw new ConflictException("This Provider is no longer eligible. Choose another offer or continue matching.");
+      }
 
       // Conditional update is the final concurrency guard: only one selection can close an open request.
       const claimed = await tx.serviceRequest.updateMany({
@@ -600,9 +1048,19 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { requestId, providerId: offer.providerId },
         data: { status: "RESPONDED" },
       });
+      // Close all other outstanding matches when this request is selected.
+      await tx.requestMatch.updateMany({
+        where: {
+          requestId,
+          providerId: { not: offer.providerId },
+          status: { in: ["NOTIFIED", "RESPONDED"] },
+        },
+        data: { status: "EXPIRED" },
+      });
       await tx.appNotification.create({
         data: {
           userId: offer.providerId,
+          eventKey: `offer:${offer.id}:selected`,
           title: "Your offer was selected",
           body: `The Skill Seeker selected your offer for: ${request.title}`,
           data: { type: "PROVIDER_SELECTED", requestId, responseId: offer.id },
@@ -611,7 +1069,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       await tx.jobEngagement.create({
         data: { requestId, responseId: offer.id, seekerId, providerId: offer.providerId, hourlyRate: (await tx.providerResponse.findUniqueOrThrow({ where: { id: offer.id }, select: { hourlyRateAtOffer: true } })).hourlyRateAtOffer!, assessmentFee: (await tx.providerResponse.findUniqueOrThrow({ where: { id: offer.id }, select: { assessmentFeeAtOffer: true } })).assessmentFeeAtOffer ?? 0 },
       });
-      await tx.appNotification.create({ data: { userId: offer.providerId, title: "Assessment required", body: `Your offer was selected for: ${request.title}. Complete the assessment and submit an estimate before starting work.`, data: { type: "ASSESSMENT_REQUIRED", requestId } } });
+      await tx.appNotification.create({ data: { userId: offer.providerId, eventKey: `offer:${offer.id}:assessment-required`, title: "Assessment required", body: `Your offer was selected for: ${request.title}. Complete the assessment and submit an estimate before starting work.`, data: { type: "ASSESSMENT_REQUIRED", requestId } } });
       return { success: true, requestId, selectedResponseId: offer.id, selectedProviderId: offer.providerId, status: "ASSESSMENT_PENDING" };
     });
   }
@@ -619,7 +1077,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async listMyJobs(providerId: string) {
     const jobs = await this.prisma.jobEngagement.findMany({
-      where: { providerId }, orderBy: { updatedAt: "desc" },
+      where: { providerId }, orderBy: [{ updatedAt: "desc" }, { id: "desc" }], take: 100,
       include: { seekerReview: true, request: { select: { id: true, title: true, description: true, location: true, latitude: true, longitude: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
     });
     const serverNow = new Date().toISOString();
@@ -627,21 +1085,49 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
 
-  async submitJobCompletion(providerId: string, requestId: string, input: SubmitJobCompletionDto) {
+  async submitJobCompletion(providerId: string, requestId: string, input: SubmitJobCompletionDto, idempotencyKey?: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit completion.");
+      if (idempotencyKey != null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
+        throw new BadRequestException("Idempotency-Key must be a valid UUID.");
+      }
+      const evidenceIds = [...new Set(input.evidenceAssetIds)];
+      if (evidenceIds.length !== input.evidenceAssetIds.length) throw new ConflictException("Duplicate evidence files are not allowed.");
+      const payloadHash = idempotencyKey
+        ? createHash("sha256").update(JSON.stringify({ notes: input.notes.trim(), evidenceAssetIds: [...evidenceIds].sort() })).digest("hex")
+        : null;
+      if (idempotencyKey) {
+        const existing = await tx.jobCompletionSubmission.findFirst({
+          where: { engagementId: job.id, idempotencyKey },
+          include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } },
+        });
+        if (existing) {
+          if (existing.idempotencyPayloadHash !== payloadHash) {
+            throw new ConflictException("This Idempotency-Key was already used with a different completion submission.");
+          }
+          return existing;
+        }
+      }
       if (job.status !== "IN_PROGRESS") throw new ConflictException("The job must be in progress before completion can be submitted.");
-      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Resume the work timer before submitting completion.");
+      const timerIsRunning = job.workSegmentStartedAt !== null && job.workPausedAt === null;
+      const timerIsPaused = job.workSegmentStartedAt === null && job.workPausedAt !== null;
+      if (!timerIsRunning && !timerIsPaused) {
+        throw new ConflictException("The work timer must have been started before submitting completion.");
+      }
       const completionTime = new Date();
-      const accumulatedWorkMs = job.workAccumulatedMs + Math.max(0, completionTime.getTime() - job.workSegmentStartedAt.getTime());
+      // A paused timer has already checkpointed its elapsed time. Do not force
+      // Providers to resume work merely to submit completion evidence.
+      const accumulatedWorkMs = job.workAccumulatedMs + (
+        timerIsRunning ? Math.max(0, completionTime.getTime() - job.workSegmentStartedAt!.getTime()) : 0
+      );
       const pendingAdjustments = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pendingAdjustments > 0) throw new ConflictException("Resolve pending additional-hours approvals before submitting completion.");
       const pendingSubmission = await tx.jobCompletionSubmission.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pendingSubmission > 0) throw new ConflictException("A completion submission is already awaiting the Seeker's review.");
-      const evidenceIds = [...new Set(input.evidenceAssetIds)];
-      if (evidenceIds.length !== input.evidenceAssetIds.length) throw new ConflictException("Duplicate evidence files are not allowed.");
       const assets = await tx.mediaAsset.findMany({
         where: { id: { in: evidenceIds }, userId: providerId, status: "READY", purpose: "JOB_COMPLETION_EVIDENCE", completionSubmissionId: null, expiresAt: { gt: new Date() } },
         select: { id: true },
@@ -650,12 +1136,32 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const submission = await tx.jobCompletionSubmission.create({
         data: {
           engagementId: job.id, providerId, notes: input.notes.trim(), evidenceUrls: [],
-          evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) },
+          ...(idempotencyKey ? { idempotencyKey, idempotencyPayloadHash: payloadHash } : {}),
         },
+      });
+      // Claim each evidence asset with a conditional update. This prevents the
+      // same READY upload being attached to two jobs submitted concurrently.
+      const claimedAssets = await tx.mediaAsset.updateMany({
+        where: {
+          id: { in: evidenceIds }, userId: providerId, status: "READY",
+          purpose: "JOB_COMPLETION_EVIDENCE", completionSubmissionId: null, expiresAt: { gt: new Date() },
+        },
+        data: { completionSubmissionId: submission.id },
+      });
+      if (claimedAssets.count !== evidenceIds.length) {
+        throw new ConflictException("One or more evidence files have already been used. Upload the evidence again.");
+      }
+      const submissionWithEvidence = await tx.jobCompletionSubmission.findUniqueOrThrow({
+        where: { id: submission.id },
         include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } },
       });
       const claimed = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        where: {
+          id: job.id,
+          status: "IN_PROGRESS",
+          workSegmentStartedAt: job.workSegmentStartedAt,
+          workPausedAt: job.workPausedAt,
+        },
         data: {
           status: "COMPLETION_PENDING",
           workAccumulatedMs: accumulatedWorkMs,
@@ -666,14 +1172,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
       if (job.seekerId) await tx.appNotification.create({
-        data: { userId: job.seekerId, title: "Job completion submitted", body: "Your Provider submitted completion notes and photo evidence. Review the work in AnySkill.", data: { type: "JOB_COMPLETION_SUBMITTED", requestId, submissionId: submission.id } },
+        data: { userId: job.seekerId, eventKey: `completion:${submission.id}:submitted`, title: "Job completion submitted", body: "Your Provider submitted completion notes and photo evidence. Review the work in AnySkill.", data: { type: "JOB_COMPLETION_SUBMITTED", requestId, submissionId: submission.id } },
       });
-      return submission;
+      return submissionWithEvidence;
     });
   }
 
   async decideJobCompletion(seekerId: string, requestId: string, submissionId: string, input: DecideJobCompletionDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can review completion.");
@@ -699,6 +1207,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (job.providerId) await tx.appNotification.create({
         data: {
           userId: job.providerId,
+          eventKey: `completion:${submissionId}:${input.approved ? "approved" : "rejected"}`,
           title: input.approved ? "Job completion approved" : "Corrections requested",
           body: input.approved ? "The Skill Seeker approved the completed job." : `The Skill Seeker requested corrections: ${input.note}`,
           data: { type: input.approved ? "JOB_COMPLETION_APPROVED" : "JOB_COMPLETION_REJECTED", requestId, submissionId },
@@ -769,6 +1278,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async submitEstimate(providerId: string, requestId: string, input: SubmitEstimateDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit this estimate.");
@@ -776,26 +1287,30 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const hours = new Prisma.Decimal(input.estimatedHours);
       const total = hours.mul(job.hourlyRate).toDecimalPlaces(2);
       const updated = await tx.jobEngagement.update({ where: { id: job.id }, data: { estimatedHours: hours, estimatedTotal: total, estimateNotes: input.notes.trim(), estimateSubmittedAt: new Date(), estimateDecisionNote: null, status: "ESTIMATE_SUBMITTED" } });
-      if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, title: "Job estimate ready", body: `Your Provider submitted an estimate of R ${total.toFixed(2)} for ${hours.toString()} hours. Review and approve before work starts.`, data: { type: "ESTIMATE_SUBMITTED", requestId } } });
+      if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, eventKey: `estimate:${job.id}:${updated.estimateSubmittedAt?.toISOString() ?? updated.updatedAt.toISOString()}:submitted`, title: "Job estimate ready", body: `Your Provider submitted an estimate of R ${total.toFixed(2)} for ${hours.toString()} hours. Review and approve before work starts.`, data: { type: "ESTIMATE_SUBMITTED", requestId } } });
       return updated;
     });
   }
 
   async decideEstimate(seekerId: string, requestId: string, input: DecideEstimateDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Job estimate not found.");
       if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide this estimate.");
       if (job.status !== "ESTIMATE_SUBMITTED") throw new ConflictException("There is no estimate awaiting your decision.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the estimate.");
       const updated = await tx.jobEngagement.update({ where: { id: job.id }, data: { status: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", estimateDecisionNote: input.note?.trim() || null, estimateDecidedAt: new Date() } });
-      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Estimate approved" : "Estimate needs revision", body: input.approved ? "The Seeker approved your estimate. You may now start the agreed work." : `The Seeker rejected the estimate: ${input.note}`, data: { type: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", requestId } } });
+      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, eventKey: `estimate:${job.id}:${job.estimateSubmittedAt?.toISOString() ?? updated.updatedAt.toISOString()}:${input.approved ? "approved" : "rejected"}`, title: input.approved ? "Estimate approved" : "Estimate needs revision", body: input.approved ? "The Seeker approved your estimate. You may now start the agreed work." : `The Seeker rejected the estimate: ${input.note}`, data: { type: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", requestId } } });
       return updated;
     });
   }
 
   async startWork(providerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
@@ -809,6 +1324,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (job.seekerId) await tx.appNotification.create({
         data: {
           userId: job.seekerId,
+          eventKey: `work:${job.id}:started:${now.toISOString()}`,
           title: "Work has started",
           body: "Your selected Provider has started work on your job.",
           data: { type: "JOB_WORK_STARTED", requestId },
@@ -820,6 +1336,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async pauseWork(providerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can pause this job.");
@@ -838,6 +1356,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async resumeWork(providerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can resume this job.");
@@ -855,15 +1375,26 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async requestAdditionalHours(providerId: string, requestId: string, input: RequestAdditionalHoursDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("Extra hours can only be requested while work is in progress.");
-      if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Additional hours can only be requested while the work timer is running.");
-      // Claim the active timer state before creating the request so a concurrent break cannot
-      // make an additional-hours request slip through after the timer has been paused.
+      const timerIsRunning = job.workSegmentStartedAt !== null && job.workPausedAt === null;
+      const timerIsPaused = job.workSegmentStartedAt === null && job.workPausedAt !== null;
+      if (!timerIsRunning && !timerIsPaused) {
+        throw new ConflictException("The work timer must have been started before requesting additional hours.");
+      }
+      // Claim the exact timer state before creating the adjustment. Requests are
+      // allowed during a break; the Provider can resume after the Seeker decides.
       const timerClaim = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
+        where: {
+          id: job.id,
+          status: "IN_PROGRESS",
+          workSegmentStartedAt: job.workSegmentStartedAt,
+          workPausedAt: job.workPausedAt,
+        },
         data: { workAccumulatedMs: job.workAccumulatedMs },
       });
       if (timerClaim.count !== 1) throw new ConflictException("The work timer changed. Refresh and try again.");
@@ -872,13 +1403,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const hours = new Prisma.Decimal(input.additionalHours);
       const amount = hours.mul(job.hourlyRate).toDecimalPlaces(2);
       const adjustment = await tx.jobCostAdjustment.create({ data: { engagementId: job.id, requestedHours: hours, hourlyRate: job.hourlyRate, requestedAmount: amount, reason: input.reason.trim() } });
-      if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, title: "Additional hours approval needed", body: `Your Provider requested ${hours.toString()} extra hours costing R ${amount.toFixed(2)}. Approval is required before this extra work.`, data: { type: "ADDITIONAL_HOURS_PENDING", requestId, adjustmentId: adjustment.id } } });
+      if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, eventKey: `adjustment:${adjustment.id}:pending`, title: "Additional hours approval needed", body: `Your Provider requested ${hours.toString()} extra hours costing R ${amount.toFixed(2)}. Approval is required before this extra work.`, data: { type: "ADDITIONAL_HOURS_PENDING", requestId, adjustmentId: adjustment.id } } });
       return adjustment;
     });
   }
 
   async decideAdditionalHours(seekerId: string, requestId: string, adjustmentId: string, input: DecideAdditionalHoursDto) {
     return this.prisma.$transaction(async (tx) => {
+      // Serialize every state transition for this engagement across API replicas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 1))`;
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide additional hours.");
@@ -886,30 +1419,19 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!adjustment) throw new NotFoundException("Pending additional-hours request not found.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the additional hours.");
       const updated = await tx.jobCostAdjustment.update({ where: { id: adjustment.id }, data: { status: input.approved ? "APPROVED" : "REJECTED", decisionNote: input.note?.trim() || null, decidedAt: new Date() } });
-      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Additional hours approved" : "Additional hours rejected", body: input.approved ? "The Seeker approved the additional hours. You may proceed with the extra work." : `The Seeker rejected the additional hours: ${input.note}`, data: { type: input.approved ? "ADDITIONAL_HOURS_APPROVED" : "ADDITIONAL_HOURS_REJECTED", requestId, adjustmentId } } });
+      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, eventKey: `adjustment:${adjustment.id}:${input.approved ? "approved" : "rejected"}`, title: input.approved ? "Additional hours approved" : "Additional hours rejected", body: input.approved ? "The Seeker approved the additional hours. You may proceed with the extra work." : `The Seeker rejected the additional hours: ${input.note}`, data: { type: input.approved ? "ADDITIONAL_HOURS_APPROVED" : "ADDITIONAL_HOURS_REJECTED", requestId, adjustmentId } } });
       return updated;
     });
   }
 
   async respondToRequest(providerId: string, requestId: string, input: ProviderResponseDto) {
-    const provider = await this.prisma.user.findUnique({
-      where: { id: providerId },
-      select: { identityVerification: true, providerProfile: { select: { hourlyRate: true, assessmentFee: true } } },
-    });
-    if (!provider || provider.identityVerification !== "VERIFIED") {
-      throw new ForbiddenException({
-        code: "IDENTITY_VERIFICATION_REQUIRED",
-        action: "PROVIDER_ACCEPT_REQUEST",
-        message: "You can view this request, but you must complete identity verification before accepting it. Your request will remain available if it has not been taken or closed.",
-      });
-    }
-
-    if (!provider.providerProfile?.hourlyRate) {
-      throw new ConflictException("Complete your Provider profile and set your hourly rate before sending an offer.");
-    }
-
     try {
       return await this.prisma.$transaction(async (tx) => {
+        // Lock order is request first, then Provider eligibility. Account
+        // deletion and offer decisions use the same order for this workflow.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${providerId}))`;
+
         const request = await tx.serviceRequest.findUnique({
           where: { id: requestId },
           select: { id: true, seekerId: true, status: true },
@@ -919,25 +1441,57 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         if (request.seekerId === providerId) throw new ForbiddenException("You cannot respond to your own service request.");
         if (request.status !== "OPEN") throw new ConflictException("This service request is no longer available.");
 
+        const provider = await tx.user.findUnique({
+          where: { id: providerId },
+          select: {
+            identityVerification: true,
+            providerRoleStatus: true,
+            deletedAt: true,
+            providerProfile: { select: { hourlyRate: true, assessmentFee: true } },
+          },
+        });
+        if (!provider || provider.deletedAt !== null || provider.providerRoleStatus !== "ACTIVE" || provider.identityVerification !== "VERIFIED") {
+          throw new ForbiddenException({
+            code: "IDENTITY_VERIFICATION_REQUIRED",
+            action: "PROVIDER_ACCEPT_REQUEST",
+            message: "You can view this request, but an active, identity-verified Provider account is required to send an offer.",
+          });
+        }
+        if (!provider.providerProfile?.hourlyRate) {
+          throw new ConflictException("Complete your Provider profile and set your hourly rate before sending an offer.");
+        }
+
         const match = await tx.requestMatch.findUnique({
           where: { requestId_providerId: { requestId, providerId } },
-          select: { id: true },
+          select: { id: true, status: true },
         });
-        if (!match) throw new ForbiddenException("This request has not been matched to your Provider profile.");
+        if (!match || match.status !== "NOTIFIED") {
+          throw new ConflictException("This matching invitation is no longer available.");
+        }
 
         const response = await tx.providerResponse.create({
           data: {
-            requestId, providerId, message: input.message?.trim() || null, status: "OFFERED",
-            hourlyRateAtOffer: provider.providerProfile!.hourlyRate!,
-            assessmentFeeAtOffer: provider.providerProfile!.assessmentFee,
+            requestId,
+            providerId,
+            message: input.message?.trim() || null,
+            status: "OFFERED",
+            hourlyRateAtOffer: provider.providerProfile.hourlyRate,
+            assessmentFeeAtOffer: provider.providerProfile.assessmentFee,
           },
-          select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true },
+          select: {
+            id: true, requestId: true, status: true, message: true,
+            hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true,
+          },
         });
         await tx.requestMatch.update({ where: { id: match.id }, data: { status: "RESPONDED" } });
-        await tx.serviceRequest.update({ where: { id: requestId }, data: { matchingNextAt: null } });
-        if (request.seekerId) await tx.appNotification.create({
+        await tx.serviceRequest.update({
+          where: { id: requestId },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+        await tx.appNotification.create({
           data: {
             userId: request.seekerId,
+            eventKey: `offer:${response.id}:provider-response`,
             title: "A Provider has responded",
             body: "A matched Skill Provider has sent you an offer. Review the response in AnySkill.",
             data: { type: "PROVIDER_RESPONSE", requestId, responseId: response.id },
@@ -956,40 +1510,175 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async runWorkerCycle() {
     if (this.workerRunning) return;
     this.workerRunning = true;
+    const startedAt = Date.now();
     try {
-      await this.expandExpiredWaves();
-      await this.retryExhaustedRequests();
-      await this.dispatchPendingNotifications();
+      await this.recordWorkerHeartbeat({ status: "RUNNING", heartbeatAt: new Date() });
+      // Transaction-scoped advisory lock coordinates all API replicas.
+      const cycle = await this.prisma.$transaction(async (tx) => {
+        const acquired = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(741928364::bigint) AS locked`;
+        if (!acquired[0]?.locked) return { acquired: false as const };
+
+        await this.recoverStaleNotificationClaims();
+        await this.expandExpiredWaves();
+        await this.retryExhaustedRequests();
+        await this.dispatchPendingNotifications();
+        await this.checkExpoPushReceipts();
+        const expiredMediaReservationsCleaned = await this.media.cleanupExpiredReservations();
+
+        const queueGroups = await tx.appNotification.groupBy({
+          by: ["deliveryStatus"],
+          _count: { _all: true },
+        });
+        const [oldestPending, oldestSending] = await Promise.all([
+          tx.appNotification.findFirst({
+            where: { deliveryStatus: "PENDING" },
+            orderBy: { createdAt: "asc" },
+            select: { createdAt: true },
+          }),
+          tx.appNotification.findFirst({
+            where: { deliveryStatus: "SENDING" },
+            orderBy: { sendingStartedAt: "asc" },
+            select: { sendingStartedAt: true },
+          }),
+        ]);
+        return {
+          acquired: true as const,
+          queueCounts: Object.fromEntries(queueGroups.map((group) => [group.deliveryStatus, group._count._all])),
+          oldestPendingAgeMs: oldestPending ? Math.max(0, Date.now() - oldestPending.createdAt.getTime()) : 0,
+          oldestSendingAgeMs: oldestSending?.sendingStartedAt
+            ? Math.max(0, Date.now() - oldestSending.sendingStartedAt.getTime())
+            : 0,
+          expiredMediaReservationsCleaned,
+        };
+      }, { maxWait: 10_000, timeout: 120_000 });
+
+      if (cycle.acquired) {
+        await this.recordWorkerHeartbeat({
+          status: "HEALTHY",
+          heartbeatAt: new Date(),
+          lastSuccessAt: new Date(),
+          consecutiveFailures: 0,
+          lastErrorCode: null,
+          lastCycleDurationMs: Date.now() - startedAt,
+        });
+        this.logger.log(JSON.stringify({
+          event: "anyskill_marketplace_worker_cycle",
+          durationMs: Date.now() - startedAt,
+          queueCounts: cycle.queueCounts,
+          oldestPendingAgeMs: cycle.oldestPendingAgeMs,
+          oldestSendingAgeMs: cycle.oldestSendingAgeMs,
+          expiredMediaReservationsCleaned: cycle.expiredMediaReservationsCleaned,
+        }));
+      }
     } catch (error) {
-      this.logger.error("Marketplace worker cycle failed.", error);
+      const errorCode = error && typeof error === "object" && "code" in error && typeof error.code === "string"
+        ? error.code.slice(0, 64)
+        : "unknown";
+      try {
+        await this.recordWorkerHeartbeat({
+          status: "DEGRADED",
+          heartbeatAt: new Date(),
+          consecutiveFailures: { increment: 1 },
+          lastErrorCode: errorCode,
+          lastCycleDurationMs: Date.now() - startedAt,
+        });
+      } catch (heartbeatError) {
+        this.logger.error(`Unable to persist worker failure heartbeat: ${String(heartbeatError)}`);
+      }
+      this.logger.error(JSON.stringify({
+        event: "anyskill_marketplace_worker_cycle_failed",
+        durationMs: Date.now() - startedAt,
+        errorCode,
+      }));
     } finally {
       this.workerRunning = false;
+    }
+  }
+
+  private async recordWorkerHeartbeat(data: {
+    status: string;
+    heartbeatAt: Date;
+    lastSuccessAt?: Date;
+    consecutiveFailures?: number | { increment: number };
+    lastErrorCode?: string | null;
+    lastCycleDurationMs?: number;
+  }) {
+    await this.prisma.workerHeartbeat.upsert({
+      where: { name: "marketplace" },
+      create: {
+        name: "marketplace",
+        status: data.status,
+        heartbeatAt: data.heartbeatAt,
+        ...(data.lastSuccessAt ? { lastSuccessAt: data.lastSuccessAt } : {}),
+        ...(typeof data.consecutiveFailures === "number" ? { consecutiveFailures: data.consecutiveFailures } : {}),
+        ...(data.lastErrorCode !== undefined ? { lastErrorCode: data.lastErrorCode } : {}),
+        ...(data.lastCycleDurationMs !== undefined ? { lastCycleDurationMs: data.lastCycleDurationMs } : {}),
+      },
+      update: {
+        status: data.status,
+        heartbeatAt: data.heartbeatAt,
+        ...(data.lastSuccessAt ? { lastSuccessAt: data.lastSuccessAt } : {}),
+        ...(data.consecutiveFailures !== undefined ? { consecutiveFailures: data.consecutiveFailures } : {}),
+        ...(data.lastErrorCode !== undefined ? { lastErrorCode: data.lastErrorCode } : {}),
+        ...(data.lastCycleDurationMs !== undefined ? { lastCycleDurationMs: data.lastCycleDurationMs } : {}),
+      },
+    });
+  }
+
+  private async recoverStaleNotificationClaims() {
+    // A stale SENDING claim is an ambiguous external side effect: Expo may
+    // have accepted the push immediately before the worker crashed. Never
+    // automatically resend it, because that can deliver duplicate pushes.
+    // A notification can target more than one 100-device Expo batch. Even
+    // when some tickets were persisted, a crash may have interrupted later
+    // batches. Keep the notification UNKNOWN and preserve receipts for
+    // reconciliation; never infer whole-notification success from partial tickets.
+    const recovered = await this.prisma.$executeRaw`
+      UPDATE app_notifications AS notification
+      SET delivery_status = 'UNKNOWN'::"NotificationDeliveryStatus",
+          sending_started_at = NULL
+      WHERE notification.delivery_status = 'SENDING'::"NotificationDeliveryStatus"
+        AND notification.sending_started_at < ${new Date(Date.now() - 2 * 60_000)}
+    `;
+    if (recovered > 0) {
+      this.logger.warn(`Moved ${recovered} stale notification claim(s) to UNKNOWN; existing Expo tickets are preserved for reconciliation and notifications are not automatically resent.`);
     }
   }
 
   private async rankedProviders(request: {
     id: string; seekerId: string; skillCategory: string; location: string | null;
     latitude?: number | null; longitude?: number | null; deliveryMode: string; searchRadiusKm: number;
-  }): Promise<RankedProvider[]> {
-    const profiles = await this.prisma.providerProfile.findMany({
+  }, db: Prisma.TransactionClient | PrismaService = this.prisma): Promise<RankedProvider[]> {
+    const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
+    const requestedSkill = compact(request.skillCategory);
+    const compatibleModes = request.deliveryMode === "REMOTE"
+      ? ["REMOTE", "EITHER"]
+      : request.deliveryMode === "ONSITE"
+        ? ["ONSITE", "EITHER"]
+        : ["REMOTE", "ONSITE", "EITHER"];
+    // GIN-indexed normalized skill keys avoid loading every online Provider
+    // profile. A deterministic 5,000-candidate cap bounds memory and groupBy cost.
+    const profiles = await db.providerProfile.findMany({
       where: {
         isAvailable: true,
-        user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } },
+        normalizedSkillKeys: { has: requestedSkill },
+        deliveryModes: { hasSome: compatibleModes },
+        user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED", deletedAt: null } },
         userId: { not: request.seekerId },
       },
+      orderBy: [{ updatedAt: "desc" }, { userId: "asc" }],
+      take: 5000,
       select: {
         userId: true, skillCategories: true, deliveryModes: true, maxTravelDistanceKm: true,
         liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true,
         user: { select: { onboardingDraft: { select: { skills: true } } } },
       },
     });
-    const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
-    const requestedSkill = compact(request.skillCategory);
     const matchingProfiles = profiles.filter((profile) => profile.skillCategories.some((skill) => compact(skill) === requestedSkill));
     if (!matchingProfiles.length) return [];
     const providerIds = matchingProfiles.map((profile) => profile.userId);
     const [completedCounts, skillRatingGroups, overallRatingGroups] = await Promise.all([
-      this.prisma.jobEngagement.groupBy({
+      db.jobEngagement.groupBy({
         by: ["providerId"],
         where: {
           providerId: { in: providerIds }, status: "COMPLETED",
@@ -997,11 +1686,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         },
         _count: { _all: true },
       }),
-      this.prisma.providerReview.groupBy({
+      db.providerReview.groupBy({
         by: ["providerId", "skillCategory"], where: { providerId: { in: providerIds } },
         _avg: { skillRating: true }, _count: { _all: true },
       }),
-      this.prisma.providerReview.groupBy({
+      db.providerReview.groupBy({
         by: ["providerId"], where: { providerId: { in: providerIds } },
         _avg: { platformRating: true }, _count: { _all: true },
       }),
@@ -1061,60 +1750,146 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return eligible.map((provider) => ({ userId: provider.userId, score: provider.score }));
   }
 
-  private async dispatchNextWave(requestId: string, wave: number, force = false) {
-    const request = await this.prisma.serviceRequest.findUnique({
-      where: { id: requestId },
-      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, searchRadiusKm: true, deliveryMode: true, status: true, matchingStartedAt: true },
-    });
-    if (!request || request.status !== "OPEN") return { notified: 0, wave };
-    if (!force && Date.now() - request.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
-      await this.prisma.serviceRequest.updateMany({ where: { id: requestId, status: "OPEN" }, data: { matchingNextAt: null } });
-      return { notified: 0, wave, timedOut: true };
-    }
-    const seekerId = request.seekerId;
-    if (!seekerId) return { notified: 0, wave };
+  private async dispatchNextWave(requestId: string, wave: number, force = false, expireUnanswered = false) {
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize all wave dispatches for a request across API replicas and workers.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 0))`;
 
-    const ranked = await this.rankedProviders({ ...request, seekerId });
-    const alreadyMatched = await this.prisma.requestMatch.findMany({
-      where: { requestId },
-      select: { providerId: true },
-    });
-    const seen = new Set(alreadyMatched.map((match) => match.providerId));
-    const next = ranked.filter((provider) => !seen.has(provider.userId)).slice(0, WAVE_SIZE);
-    if (next.length === 0) {
-      await this.prisma.serviceRequest.update({
+      const request = await tx.serviceRequest.findUnique({
         where: { id: requestId },
-        data: { matchingNextAt: null, matchingExhaustedAt: new Date() },
+        select: {
+          id: true, seekerId: true, skillCategory: true, location: true,
+          latitude: true, longitude: true, searchRadiusKm: true, deliveryMode: true,
+          status: true, matchingStartedAt: true, matchingWave: true,
+        },
       });
-      return { notified: 0, wave, exhausted: true };
-    }
+      if (!request || request.status !== "OPEN") return { notified: 0, wave };
+      if (!force && Date.now() - request.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
+          data: { matchingNextAt: null },
+        });
+        return { notified: 0, wave, timedOut: true };
+      }
+      const seekerId = request.seekerId;
+      if (!seekerId) return { notified: 0, wave };
 
-    const now = new Date();
-    await this.prisma.$transaction([
-      this.prisma.requestMatch.createMany({
-        data: next.map((provider) => ({
-          requestId, providerId: provider.userId, score: provider.score, wave, status: "NOTIFIED" as const,
+      // Never open another matching wave while any provider offer from an
+      // earlier wave is still awaiting the seeker's decision. This check is
+      // inside the same request lock as provider responses and selections.
+      const pendingOffers = await tx.providerResponse.count({
+        where: { requestId, status: "OFFERED" },
+      });
+      if (pendingOffers > 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: null },
+        });
+        return { notified: 0, wave, awaitingProviderDecision: true };
+      }
+
+      const pendingMatches = await tx.requestMatch.count({
+        where: { requestId, status: "NOTIFIED" },
+      });
+      if (pendingMatches > 0 && !expireUnanswered) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(Date.now() + RESPONSE_WINDOW_MS) },
+        });
+        return { notified: 0, wave, awaitingProviderResponse: true };
+      }
+      if (pendingMatches > 0 && expireUnanswered) {
+        await tx.requestMatch.updateMany({
+          where: { requestId, status: "NOTIFIED" },
+          data: { status: "EXPIRED" },
+        });
+      }
+
+      const ranked = await this.rankedProviders({ ...request, seekerId }, tx);
+      const alreadyMatched = await tx.requestMatch.findMany({
+        where: { requestId },
+        select: { providerId: true },
+      });
+      const seen = new Set(alreadyMatched.map((match) => match.providerId));
+      const next = ranked.filter((provider) => !seen.has(provider.userId)).slice(0, WAVE_SIZE);
+      if (next.length === 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
+          data: { matchingNextAt: null, matchingExhaustedAt: new Date() },
+        });
+        return { notified: 0, wave, exhausted: true };
+      }
+
+      // Serialize each selected Provider with identity review, availability
+      // updates and account deletion, then re-check eligibility before insert.
+      for (const candidate of [...next].sort((a, b) => a.userId.localeCompare(b.userId))) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('provider-eligibility'), hashtext(${candidate.userId}))`;
+      }
+      const stillEligible = await tx.user.findMany({
+        where: {
+          id: { in: next.map((provider) => provider.userId) },
+          providerRoleStatus: "ACTIVE",
+          identityVerification: "VERIFIED",
+          deletedAt: null,
+          providerProfile: { is: { isAvailable: true } },
+        },
+        select: { id: true },
+      });
+      const eligibleIds = new Set(stillEligible.map((provider) => provider.id));
+      const waveProviders = next.filter((provider) => eligibleIds.has(provider.userId));
+      if (waveProviders.length === 0) {
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
+          data: { matchingNextAt: null, matchingExhaustedAt: new Date() },
+        });
+        return { notified: 0, wave, exhausted: true };
+      }
+
+      const insertedMatches = await tx.requestMatch.createManyAndReturn({
+        data: waveProviders.map((provider) => ({
+          requestId, providerId: provider.userId, score: provider.score, wave,
+          status: "NOTIFIED" as const,
         })),
         skipDuplicates: true,
-      }),
-      this.prisma.appNotification.createMany({
-        data: next.map((provider) => ({
-          userId: provider.userId,
-          title: "Incoming AnySkill service request",
-          body: "A new " + request.skillCategory + " request is available. Tap to view the Seeker and job details.",
-          data: { type: "MATCHED_REQUEST", requestId, wave },
-        })),
-      }),
-      this.prisma.serviceRequest.update({
-        where: { id: requestId },
+        select: { providerId: true },
+      });
+      const insertedProviderIds = insertedMatches
+        .map((match) => match.providerId)
+        .filter((providerId): providerId is string => providerId !== null);
+
+      if (insertedProviderIds.length > 0) {
+        await tx.appNotification.createMany({
+          data: insertedProviderIds.map((providerId) => ({
+            userId: providerId,
+            eventKey: `request:${requestId}:wave:${wave}:provider:${providerId}`,
+            title: "Incoming AnySkill service request",
+            body: "A new " + request.skillCategory + " request is available. Tap to view the Seeker and job details.",
+            data: { type: "MATCHED_REQUEST", requestId, wave },
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      const updated = await tx.serviceRequest.updateMany({
+        where: { id: requestId, status: "OPEN", matchingStartedAt: request.matchingStartedAt },
         data: {
-          matchingWave: wave,
-          matchingNextAt: new Date(now.getTime() + RESPONSE_WINDOW_MS),
+          matchingWave: Math.max(request.matchingWave ?? 0, wave),
+          matchingNextAt: insertedProviderIds.length > 0
+            ? new Date(Date.now() + RESPONSE_WINDOW_MS)
+            : new Date(Date.now() + 1_000),
           matchingExhaustedAt: null,
         },
-      }),
-    ]);
-    return { notified: next.length, wave, responseWindowSeconds: RESPONSE_WINDOW_MS / 1000 };
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException("The service request changed while matching. The dispatch was rolled back.");
+      }
+
+      return {
+        notified: insertedProviderIds.length,
+        wave,
+        responseWindowSeconds: RESPONSE_WINDOW_MS / 1000,
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
   }
 
   private async expandExpiredWaves() {
@@ -1131,14 +1906,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: { matchingNextAt: new Date(now.getTime() + 60_000) },
       });
       if (claim.count === 0) continue;
-      const responses = await this.prisma.providerResponse.count({
-        where: { requestId: request.id, status: "OFFERED" },
-      });
-      if (responses > 0) {
-        await this.prisma.serviceRequest.update({ where: { id: request.id }, data: { matchingNextAt: null } });
-      } else {
-        await this.dispatchNextWave(request.id, request.matchingWave + 1);
-      }
+      await this.dispatchNextWave(request.id, request.matchingWave + 1, false, true);
     }
   }
 
@@ -1146,7 +1914,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     // A request with no eligible Providers should remain open and be retried
     // periodically. This also recovers requests exhausted before a Provider
     // updated their skills, coverage, verification, or availability.
-    const retryBefore = new Date(Date.now() - 5 * 60 * 1000);
+    // Retry exhausted open requests every minute so newly available Providers
+    // are discovered promptly without creating a hot polling loop.
+    const retryBefore = new Date(Date.now() - 60 * 1000);
     const exhausted = await this.prisma.serviceRequest.findMany({
       where: {
         status: "OPEN",
@@ -1178,62 +1948,253 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async dispatchPendingNotifications() {
-    const pending = await this.prisma.appNotification.findMany({
-      where: { deliveryStatus: "PENDING", attempts: { lt: 5 } },
-      take: 50,
-      orderBy: { createdAt: "asc" },
-      select: { id: true, userId: true, title: true, body: true, data: true, attempts: true },
-    });
-    for (const notification of pending) {
-      const devices = await this.prisma.pushDevice.findMany({
-        where: { userId: notification.userId },
-        select: { expoPushToken: true },
-      });
-      if (devices.length === 0) {
-        await this.prisma.appNotification.updateMany({
-          where: { id: notification.id, deliveryStatus: "PENDING" },
-          data: { deliveryStatus: "IN_APP_ONLY" },
+    // Select one oldest due notification per account in PostgreSQL. Limiting
+    // before de-duplicating in application code lets a single noisy account
+    // fill the whole candidate page and starve every other account.
+    const pending = await this.prisma.$queryRaw<Array<{ id: string; userId: string; createdAt: Date }>>`
+      SELECT DISTINCT ON (user_id)
+        id, user_id AS "userId", created_at AS "createdAt"
+      FROM app_notifications
+      WHERE delivery_status = 'PENDING'
+        AND attempts < 5
+        AND next_attempt_at <= NOW()
+      ORDER BY user_id, created_at ASC, id ASC
+      LIMIT 10
+    `;
+    const uniquePending = pending.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    // Bounded concurrency keeps notification throughput useful without
+    // allowing a slow Expo response to hold the worker cycle indefinitely.
+    for (let offset = 0; offset < uniquePending.length; offset += 5) {
+      const batch = uniquePending.slice(offset, offset + 5);
+      await Promise.all(batch.map(async (item) => {
+        await this.prisma.$transaction(async (tx) => {
+        const candidate = await tx.appNotification.findUnique({
+          where: { id: item.id },
+          select: { id: true, userId: true, deliveryStatus: true },
         });
-        continue;
-      }
-      const claim = await this.prisma.appNotification.updateMany({
-        where: { id: notification.id, deliveryStatus: "PENDING" },
-        data: { deliveryStatus: "SENDING", attempts: { increment: 1 } },
+        if (!candidate || candidate.deliveryStatus !== "PENDING") return;
+
+        // Account deletion takes the same per-user lock. It therefore either
+        // removes the notification before this read, or waits until an already
+        // claimed delivery has finished; no push can be sent after deletion commits.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('notification-delivery:' || ${candidate.userId}, 0))`;
+        const notification = await tx.appNotification.findUnique({
+          where: { id: item.id },
+          select: { id: true, userId: true, title: true, body: true, data: true, attempts: true, deliveryStatus: true },
+        });
+        if (!notification || notification.deliveryStatus !== "PENDING" || notification.attempts >= 5) return;
+
+        const existingReceipts = await tx.pushNotificationReceipt.findMany({
+          where: { notificationId: notification.id },
+          select: { pushDeviceId: true },
+        });
+        const alreadyTicketed = new Set(existingReceipts.map((receipt) => receipt.pushDeviceId));
+        const devices = await tx.pushDevice.findMany({
+          where: {
+            userId: notification.userId,
+            ...(alreadyTicketed.size ? { id: { notIn: [...alreadyTicketed] } } : {}),
+          },
+          select: { id: true, expoPushToken: true },
+        });
+        if (devices.length === 0) {
+          const status = existingReceipts.length > 0 ? "SENT" : "IN_APP_ONLY";
+          await tx.appNotification.updateMany({
+            where: { id: notification.id, userId: notification.userId, deliveryStatus: "PENDING" },
+            data: { deliveryStatus: status, sendingStartedAt: null, ...(status === "SENT" ? { sentAt: new Date() } : {}) },
+          });
+          return;
+        }
+
+        const claim = await tx.appNotification.updateMany({
+          where: { id: notification.id, userId: notification.userId, deliveryStatus: "PENDING" },
+          data: { deliveryStatus: "SENDING", sendingStartedAt: new Date(), attempts: { increment: 1 } },
+        });
+        if (claim.count !== 1) return;
+
+        const attempts = notification.attempts + 1;
+        const retryDelayMs = Math.min(5 * 60_000, 5_000 * (2 ** Math.max(0, attempts - 1)));
+        let outboundRequestStarted = false;
+        try {
+          // Expo accepts at most 100 messages per send request. Persist each
+          // batch's accepted tickets before sending the next batch so a timeout
+          // later in the sequence cannot cause already-accepted pushes to be
+          // sent again when this notification is retried.
+          let transientTicketErrors = 0;
+          for (let offset = 0; offset < devices.length; offset += 100) {
+            const batch = devices.slice(offset, offset + 100);
+            outboundRequestStarted = true;
+            const response = await fetch("https://exp.host/--/api/v2/push/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
+              signal: AbortSignal.timeout(15_000),
+              body: JSON.stringify(batch.map((device) => ({
+                to: device.expoPushToken,
+                title: notification.title,
+                body: notification.body,
+                data: notification.data ?? {},
+                sound: "default",
+                priority: "high",
+                channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
+                  ? "incoming_requests"
+                  : "default",
+              }))),
+            });
+            if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
+            const payload = await response.json() as {
+              data?: Array<{ status?: string; id?: string; message?: string; details?: { error?: string } }>;
+            };
+            const tickets = payload.data ?? [];
+            if (tickets.length !== batch.length) {
+              throw new Error(`Expo returned ${tickets.length} ticket(s) for ${batch.length} device(s).`);
+            }
+
+            const receiptRows: Array<{ notificationId: string; pushDeviceId: string; expoTicketId: string }> = [];
+            const invalidDeviceIds: string[] = [];
+            for (const [index, ticket] of tickets.entries()) {
+              const device = batch[index];
+              if (!device) {
+                throw new Error(`Expo returned a ticket without a matching device at index ${index}.`);
+              }
+              if (ticket.status === "ok" && ticket.id) {
+                receiptRows.push({ notificationId: notification.id, pushDeviceId: device.id, expoTicketId: ticket.id });
+                alreadyTicketed.add(device.id);
+              } else if (ticket.details?.error === "DeviceNotRegistered") {
+                invalidDeviceIds.push(device.id);
+              } else {
+                transientTicketErrors += 1;
+                this.logger.warn(`Expo rejected push for device ${device.id}: ${ticket.message ?? ticket.details?.error ?? "unknown ticket error"}`);
+              }
+            }
+
+            if (receiptRows.length) {
+              await tx.pushNotificationReceipt.createMany({ data: receiptRows, skipDuplicates: true });
+            }
+            if (invalidDeviceIds.length) {
+              await tx.pushDevice.deleteMany({ where: { id: { in: invalidDeviceIds }, userId: notification.userId } });
+            }
+          }
+          const hasAcceptedTicket = alreadyTicketed.size > 0;
+          await tx.appNotification.updateMany({
+            where: { id: notification.id, userId: notification.userId, deliveryStatus: "SENDING" },
+            data: {
+              deliveryStatus: transientTicketErrors > 0
+                ? (attempts >= 5 ? (hasAcceptedTicket ? "SENT" : "FAILED") : "PENDING")
+                : hasAcceptedTicket ? "SENT" : "IN_APP_ONLY",
+              sentAt: hasAcceptedTicket ? new Date() : null,
+              sendingStartedAt: null,
+              nextAttemptAt: new Date(Date.now() + retryDelayMs),
+            },
+          });
+        } catch (error) {
+          await tx.appNotification.updateMany({
+            where: { id: notification.id, userId: notification.userId, deliveryStatus: "SENDING" },
+            data: {
+              deliveryStatus: outboundRequestStarted
+                ? "UNKNOWN"
+                : attempts >= 5 ? "FAILED" : "PENDING",
+              sendingStartedAt: null,
+              nextAttemptAt: new Date(Date.now() + retryDelayMs),
+            },
+          });
+          if (outboundRequestStarted) {
+            this.logger.error(`Push notification ${notification.id} has UNKNOWN delivery after an ambiguous Expo response (attempt ${attempts}/5); automatic retry suppressed.`);
+          } else {
+            this.logger.warn(`Push notification ${notification.id} failed before outbound delivery (attempt ${attempts}/5): ${String(error)}`);
+          }
+        }
+        }, { maxWait: 10_000, timeout: 25_000 });
+      }));
+    }
+  }
+
+  private async checkExpoPushReceipts() {
+    const now = new Date();
+    const receiptCutoff = new Date(now.getTime() - 15 * 60_000);
+    const expiredCutoff = new Date(now.getTime() - 24 * 60 * 60_000);
+    const expired = await this.prisma.pushNotificationReceipt.updateMany({
+      where: { status: "PENDING", createdAt: { lt: expiredCutoff } },
+      data: {
+        status: "ERROR",
+        errorCode: "ReceiptUnavailable",
+        errorMessage: "Expo receipt was not available within 24 hours.",
+        checkedAt: now,
+      },
+    });
+    if (expired.count > 0) {
+      this.logger.warn(`Marked ${expired.count} Expo receipt(s) unavailable after 24 hours.`);
+    }
+
+    // nextCheckAt is advanced before the network call. A missing receipt or a
+    // transient Expo outage therefore cannot pin the first 100 rows forever.
+    const receipts = await this.prisma.pushNotificationReceipt.findMany({
+      where: {
+        status: "PENDING",
+        createdAt: { lte: receiptCutoff },
+        nextCheckAt: { lte: now },
+      },
+      take: 100,
+      orderBy: [{ nextCheckAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, expoTicketId: true, pushDeviceId: true, checkAttempts: true },
+    });
+    if (receipts.length === 0) return;
+
+    const claimed = [];
+    for (const receipt of receipts) {
+      const nextAttempt = receipt.checkAttempts + 1;
+      const retryDelayMs = Math.min(6 * 60 * 60_000, 15 * 60_000 * (2 ** Math.min(nextAttempt, 5)));
+      const claim = await this.prisma.pushNotificationReceipt.updateMany({
+        where: { id: receipt.id, status: "PENDING", nextCheckAt: { lte: now } },
+        data: {
+          checkAttempts: { increment: 1 },
+          nextCheckAt: new Date(now.getTime() + retryDelayMs),
+        },
       });
-      if (claim.count === 0) continue;
+      if (claim.count === 1) claimed.push(receipt);
+    }
+    if (claimed.length === 0) return;
+
+    for (let offset = 0; offset < claimed.length; offset += 100) {
+      const batch = claimed.slice(offset, offset + 100);
       try {
-        const response = await fetch("https://exp.host/--/api/v2/push/send", {
+        const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify(devices.map((device) => ({
-            to: device.expoPushToken,
-            title: notification.title,
-            body: notification.body,
-            data: notification.data ?? {},
-            sound: "default",
-            priority: "high",
-            channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
-              ? "incoming_requests"
-              : "default",
-          }))),
+          signal: AbortSignal.timeout(15_000),
+          body: JSON.stringify({ ids: batch.map((receipt) => receipt.expoTicketId) }),
         });
-        if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
-        const payload = await response.json() as { data?: Array<{ status?: string; message?: string }> };
-        const tickets = payload.data ?? [];
-        if (tickets.length === 0 || tickets.some((ticket) => ticket.status !== "ok")) {
-          throw new Error(tickets.find((ticket) => ticket.status !== "ok")?.message ?? "No push delivery tickets returned.");
+        if (!response.ok) throw new Error(`Expo receipt service returned HTTP ${response.status}`);
+        const payload = await response.json() as {
+          data?: Record<string, { status?: string; message?: string; details?: { error?: string } }>;
+        };
+        if (!payload.data || typeof payload.data !== "object" || Array.isArray(payload.data)) {
+          throw new Error("Expo receipt response did not contain a valid data object.");
         }
-        await this.prisma.appNotification.update({
-          where: { id: notification.id },
-          data: { deliveryStatus: "SENT", sentAt: new Date() },
-        });
+        for (const receipt of batch) {
+          const result = payload.data[receipt.expoTicketId];
+          if (!result) continue; // nextCheckAt already schedules a bounded retry.
+          const status = result.status === "ok" ? "OK" : result.status === "error" ? "ERROR" : null;
+          if (!status) continue;
+          await this.prisma.$transaction(async (tx) => {
+            const changed = await tx.pushNotificationReceipt.updateMany({
+              where: { id: receipt.id, status: "PENDING" },
+              data: {
+                status,
+                errorCode: result.details?.error?.slice(0, 100) ?? null,
+                errorMessage: result.message?.slice(0, 500) ?? null,
+                checkedAt: new Date(),
+              },
+            });
+            if (changed.count > 0 && result.details?.error === "DeviceNotRegistered") {
+              await tx.pushDevice.deleteMany({ where: { id: receipt.pushDeviceId } });
+            }
+          });
+          if (status === "ERROR") {
+            this.logger.warn(`Expo delivery receipt ${receipt.expoTicketId} failed: ${result.details?.error ?? result.message ?? "unknown receipt error"}`);
+          }
+        }
       } catch (error) {
-        const attempts = notification.attempts + 1;
-        await this.prisma.appNotification.update({
-          where: { id: notification.id },
-          data: { deliveryStatus: attempts >= 5 ? "FAILED" : "PENDING" },
-        });
-        this.logger.warn(`Push notification ${notification.id} failed: ${String(error)}`);
+        this.logger.warn(`Expo receipt polling failed for ${batch.length} receipt(s); retry scheduled: ${String(error)}`);
       }
     }
   }
