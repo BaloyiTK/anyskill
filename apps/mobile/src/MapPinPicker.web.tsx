@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { loadGoogleMaps } from "./google-maps-loader.web";
 
 type Props = {
   latitude: number;
@@ -11,36 +12,7 @@ type Props = {
   showCenterMarker?: boolean;
 };
 
-declare global {
-  interface Window {
-    google?: any;
-    __anyskillGoogleMapsPromise?: Promise<any>;
-  }
-}
-
 const GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-
-function loadGoogleMaps(): Promise<any> {
-  if (window.google?.maps) return Promise.resolve(window.google);
-  if (window.__anyskillGoogleMapsPromise) return window.__anyskillGoogleMapsPromise;
-  window.__anyskillGoogleMapsPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>("script[data-anyskill-google-maps]");
-    if (existing) {
-      existing.addEventListener("load", () => resolve(window.google), { once: true });
-      existing.addEventListener("error", () => reject(new Error("Google Maps could not be loaded.")), { once: true });
-      return;
-    }
-    const script = document.createElement("script");
-    script.dataset.anyskillGoogleMaps = "true";
-    script.async = true;
-    script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_KEY ?? "")}&v=weekly`;
-    script.onload = () => resolve(window.google);
-    script.onerror = () => reject(new Error("Google Maps could not be loaded. Check the browser key and Maps JavaScript API settings."));
-    document.head.appendChild(script);
-  });
-  return window.__anyskillGoogleMapsPromise;
-}
 
 export function MapPinPicker(p: Props) {
   const mapElement = useRef<HTMLDivElement | null>(null);
@@ -50,6 +22,8 @@ export function MapPinPicker(p: Props) {
   const clickListener = useRef<any>(null);
   const [mapError, setMapError] = useState("");
   const [mapReady, setMapReady] = useState(false);
+  const latestProps = useRef(p);
+  latestProps.current = p;
 
   useEffect(() => {
     let active = true;
@@ -71,7 +45,8 @@ export function MapPinPicker(p: Props) {
         scaleControl: true,
       });
       clickListener.current = mapInstance.current.addListener("click", (event: any) => {
-        if (!p.readOnly && event.latLng) p.onSelect(event.latLng.lat(), event.latLng.lng());
+        const current = latestProps.current;
+        if (!current.readOnly && event.latLng) current.onSelect(event.latLng.lat(), event.latLng.lng());
       });
       setMapReady(true);
     }).catch((error: unknown) => {
