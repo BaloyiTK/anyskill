@@ -67,6 +67,8 @@ export function MapPinPicker(p: Props) {
         fullscreenControl: false,
         clickableIcons: false,
         gestureHandling: p.readOnly ? "cooperative" : "greedy",
+        zoomControl: true,
+        scaleControl: true,
       });
       clickListener.current = mapInstance.current.addListener("click", (event: any) => {
         if (!p.readOnly && event.latLng) p.onSelect(event.latLng.lat(), event.latLng.lng());
@@ -75,7 +77,13 @@ export function MapPinPicker(p: Props) {
     }).catch((error: unknown) => {
       if (active) setMapError(error instanceof Error ? error.message : "Google Maps could not be loaded.");
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      clickListener.current?.remove();
+      jobMarker.current?.setMap(null);
+      currentMarker.current?.setMap(null);
+      mapInstance.current = null;
+    };
   }, []);
 
   useEffect(() => {
