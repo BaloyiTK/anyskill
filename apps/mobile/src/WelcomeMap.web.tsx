@@ -235,6 +235,15 @@ export default function WelcomeMap({
       strokeWeight: 2,
       clickable: false,
     });
+
+    return () => {
+      markerOverlays.current.forEach((overlay) => overlay.setMap(null));
+      markerOverlays.current = [];
+      seekerOverlay.current?.setMap(null);
+      seekerOverlay.current = null;
+      circleInstance.current?.setMap(null);
+      circleInstance.current = null;
+    };
   }, [mapReady, center.latitude, center.longitude, zoom, radiusKm, seekerLocation?.latitude, seekerLocation?.longitude, markers, selectedMarkerId, onSelectMarker]);
 
   return <View style={StyleSheet.absoluteFill}>
