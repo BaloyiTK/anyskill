@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import MapView, { Marker } from "react-native-maps";
 
 type Props = {
   latitude: number;
@@ -26,6 +26,7 @@ export function MapPinPicker(p: Props) {
   const mapRef = useRef<MapView | null>(null);
   const [zoom, setZoom] = useState(p.readOnly ? 11 : 14);
   const region = useMemo(() => regionFor(p.latitude, p.longitude, zoom), [p.latitude, p.longitude, zoom]);
+  const mapProviderName = Platform.OS === "ios" ? "Apple Maps" : "Google Maps";
 
   useEffect(() => {
     mapRef.current?.animateToRegion(region, 250);
@@ -38,7 +39,6 @@ export function MapPinPicker(p: Props) {
       <MapView
         ref={mapRef}
         style={StyleSheet.absoluteFill}
-        provider={PROVIDER_GOOGLE}
         initialRegion={region}
         mapType="standard"
         toolbarEnabled={false}
@@ -77,7 +77,7 @@ export function MapPinPicker(p: Props) {
         <Pressable accessibilityLabel="Zoom out" onPress={() => changeZoom(-1)} style={styles.zoomButton}><Text style={styles.zoomText}>−</Text></Pressable>
       </View>
     </View>
-    <Text style={styles.help}>{p.readOnly ? "Google Maps · Blue dot: your current location. Pin: the job location." : "Google Maps · Tap the map to place the job-location pin. Use + / − to change zoom."}</Text>
+    <Text style={styles.help}>{p.readOnly ? `${mapProviderName} · Blue dot: your current location. Pin: the job location.` : `${mapProviderName} · Tap the map to place the job-location pin. Use + / − to change zoom.`}</Text>
     {p.selectedLatitude != null && p.selectedLongitude != null
       ? <Text style={styles.coords}>Selected pin: {p.selectedLatitude.toFixed(6)}, {p.selectedLongitude.toFixed(6)}</Text>
       : <Text style={styles.coords}>No pin selected yet.</Text>}
