@@ -13,9 +13,12 @@ function readEnvValue(filePath, name) {
 
 module.exports = ({ config }) => {
   const projectRoot = __dirname;
-  const key = process.env.GOOGLE_MAPS_API_KEY
+  const androidMapsKey = process.env.GOOGLE_MAPS_API_KEY
     || readEnvValue(path.resolve(projectRoot, "../../.env"), "GOOGLE_MAPS_API_KEY")
     || readEnvValue(path.resolve(projectRoot, ".env"), "GOOGLE_MAPS_API_KEY");
+  const iosMapsKey = process.env.GOOGLE_MAPS_IOS_API_KEY
+    || readEnvValue(path.resolve(projectRoot, "../../.env"), "GOOGLE_MAPS_IOS_API_KEY")
+    || readEnvValue(path.resolve(projectRoot, ".env"), "GOOGLE_MAPS_IOS_API_KEY");
 
   // For local Android builds, place google-services.json in apps/mobile.
   // EAS can supply the file path through a GOOGLE_SERVICES_JSON file variable.
@@ -24,8 +27,11 @@ module.exports = ({ config }) => {
     : path.resolve(projectRoot, "google-services.json");
   const hasGoogleServices = fs.existsSync(googleServicesPath);
 
-  if (!key) {
-    console.warn("[AnySkill] GOOGLE_MAPS_API_KEY is missing; Google Maps may show a blank map.");
+  if (!androidMapsKey) {
+    console.warn("[AnySkill] GOOGLE_MAPS_API_KEY is missing; Android Google Maps may show a blank map.");
+  }
+  if (!iosMapsKey) {
+    console.warn("[AnySkill] GOOGLE_MAPS_IOS_API_KEY is missing; iOS Google Maps may not initialize.");
   }
   if (!hasGoogleServices) {
     console.warn("[AnySkill] Firebase google-services.json is missing. Android push notifications will not initialize.");
@@ -33,6 +39,13 @@ module.exports = ({ config }) => {
 
   return {
     ...config,
+    plugins: [
+      ...(config.plugins ?? []),
+      ["react-native-maps", {
+        ...(androidMapsKey ? { androidGoogleMapsApiKey: androidMapsKey } : {}),
+        ...(iosMapsKey ? { iosGoogleMapsApiKey: iosMapsKey } : {}),
+      }],
+    ],
     android: {
       ...config.android,
       ...(hasGoogleServices ? { googleServicesFile: googleServicesPath } : {}),
@@ -40,7 +53,7 @@ module.exports = ({ config }) => {
         ...config.android?.config,
         googleMaps: {
           ...config.android?.config?.googleMaps,
-          ...(key ? { apiKey: key } : {}),
+          ...(androidMapsKey ? { apiKey: androidMapsKey } : {}),
         },
       },
     },
