@@ -1178,7 +1178,7 @@ export function MarketplaceScreen(p: Props) {
           <Text style={s.cardTitle}>{item.title}</Text><Text style={s.meta}>{item.body}</Text>
         </View>)}
         <Text style={s.section}>Incoming service requests</Text>
-        <Text style={s.helper}>You can view requests before verification. You must be verified before sending an offer.</Text>
+        <Text style={s.helper}>A Skill Seeker has requested a service that matches your skills. Review the request and send an offer if you are available. Identity verification is required before your offer can be sent.</Text>
         {!p.verified && <View style={s.notice}><Text style={s.noticeTitle}>You can explore available work</Text><Text style={s.noticeText}>When you tap Accept, AnySkill will ask you to verify your identity first. The request can be reopened after approval if it is still available.</Text></View>}
         <Secondary label="Refresh requests" onPress={() => void loadRequests()} />
         {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
@@ -1210,8 +1210,11 @@ export function MarketplaceScreen(p: Props) {
             {request.imageUrls?.length ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
               {request.imageUrls.slice(0, 4).map((uri, index) => <Image key={uri + index} source={{ uri }} style={{ width: 76, height: 76, borderRadius: 9, backgroundColor: "#E8EDF2" }} />)}
             </View> : null}
-            {request.location ? <Text style={s.meta}>Job area: {request.location}</Text> : null}
-            {request.preferredStartAt ? <Text style={s.meta}>Preferred: {new Date(request.preferredStartAt).toLocaleString()}</Text> : null}
+            <View style={{ backgroundColor: "#F1F6F2", borderRadius: 14, padding: 14, marginTop: 14 }}>
+              <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900", letterSpacing: 1 }}>SERVICE REQUEST DETAILS</Text>
+              {request.location ? <Text style={{ color: "#24352D", fontSize: 13, fontWeight: "700", marginTop: 8 }}>📍 Job area: {request.location}</Text> : null}
+              {request.preferredStartAt ? <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }}>Preferred time: {new Date(request.preferredStartAt).toLocaleString()}</Text> : null}
+            </View>
             {request.deliveryMode !== "REMOTE" && hasJobPin && hasMapCenter ? <>
               <Text style={s.sectionSmall}>Your location and job location</Text>
               <MapPinPicker latitude={mapLatitude!} longitude={mapLongitude!} selectedLatitude={request.latitude} selectedLongitude={request.longitude} onSelect={() => undefined} readOnly showCenterMarker={!!request.providerLocation} />
@@ -1220,7 +1223,12 @@ export function MarketplaceScreen(p: Props) {
                 {request.distanceKm != null ? `${request.distanceKm.toFixed(1)} km straight-line distance to the job` : "Distance unavailable — enable fresh location sharing while Available"}
               </Text>
             </> : request.deliveryMode !== "REMOTE" ? <Text style={s.meta}>Job map and distance will appear when location coordinates are available.</Text> : <Text style={s.meta}>Remote request · no travel required.</Text>}
-            {request.myResponse?.status === "OFFERED" ? <Pressable onPress={() => { const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker"; setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: request.myResponse!.id, status: "OFFERED" }); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>OFFER SENT · AWAITING SEEKER REVIEW</Text><Text style={{ color: "#53645A", fontSize: 12, marginTop: 5 }}>Tap to view your offer status.</Text></Pressable> : request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <Primary label="Accept request" onPress={() => void acceptRequest(request)} disabled={busy} />}
+            {request.myResponse?.status === "OFFERED" ? <Pressable onPress={() => { const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker"; setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: request.myResponse!.id, status: "OFFERED" }); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>OFFER SENT · AWAITING SEEKER REVIEW</Text><Text style={{ color: "#53645A", fontSize: 12, marginTop: 5 }}>Tap to view your offer status.</Text></Pressable> : request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <>
+              <Text style={s.label}>Message to the Skill Seeker (optional)</Text>
+              <TextInput value={responseMessage} onChangeText={setResponseMessage} placeholder="Introduce yourself and explain how you can help..." multiline maxLength={500} style={[s.input, s.multiline]} />
+              <Text style={s.helper}>Review the request details, then send your offer. Your profile rate and assessment fee will be included.</Text>
+              <Primary label={busy ? "Sending offer..." : "Send offer"} onPress={() => void acceptRequest(request)} disabled={busy} />
+            </>}
           </View>;
         })}
         {!busy && requests.length === 0 && <Text style={s.helper}>No open requests are available right now. Pull to refresh or check again later.</Text>}
