@@ -10,7 +10,7 @@ const root = process.cwd();
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const node = process.execPath;
 const git = process.platform === "win32" ? "git.exe" : "git";
-const expectedBranch = "feature/shared-job-work-timer";
+const expectedBranch = "hardening/production-readiness";
 let failed = false;
 const skipped = [];
 
