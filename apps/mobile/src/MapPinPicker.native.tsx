@@ -45,7 +45,7 @@ export function MapPinPicker(p: Props) {
         showsCompass
         showsScale
         zoomEnabled
-        scrollEnabled={!p.readOnly || true}
+        scrollEnabled
         onPress={(event) => {
           if (!p.readOnly) {
             const { latitude, longitude } = event.nativeEvent.coordinate;
