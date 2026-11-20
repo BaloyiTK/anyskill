@@ -3,8 +3,6 @@ import { StyleSheet, Text, View } from "react-native";
 import type { WelcomeMapProps } from "./WelcomeMap.types";
 import { loadGoogleMaps } from "./google-maps-loader.web";
 
-const GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-
 export default function WelcomeMap({
   center,
   zoom,
