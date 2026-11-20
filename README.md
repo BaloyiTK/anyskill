@@ -31,13 +31,13 @@ The mobile product is one application with two operating modes. A single account
 docker compose up -d postgres
 ```
 
-## API setup
+## API and worker setup
 
 1. Copy `apps/api/.env.example` to `apps/api/.env`.
 2. Generate a unique `JWT_ACCESS_SECRET` of at least 32 characters.
-3. Configure an SMTP provider in `apps/api/.env` if email delivery is required.
+3. Configure a SMTP provider in `apps/api/.env` if email delivery is required.
 4. Install dependencies, generate Prisma Client and apply migrations.
-5. Start the API.
+5. Run the HTTP API and the marketplace worker as two separate long-running processes. The worker is required for Provider incoming-request push notifications, notification delivery/retries and other background marketplace tasks.
 
 ```bash
 corepack enable
@@ -47,7 +47,21 @@ pnpm db:deploy
 pnpm dev:api
 ```
 
+Open a **second terminal** in the repository and start the worker:
+
+```bash
+pnpm dev:worker
+```
+
+The worker command sets `ANYSKILL_PROCESS_ROLE=worker` for the worker process and starts the dedicated Nest worker entrypoint in watch mode. It polls persisted marketplace work every 15 seconds. Do not set this role on the HTTP API process.
+
 The API health endpoint is `http://localhost:3000/api/v1/health`.
+
+### Production process configuration
+
+Deploy the HTTP API and marketplace worker as **separate always-on processes/services** from the same built API artifact and with the same required database and application environment. Configure the API process to run `pnpm --filter @anyskill/api start:prod`. Configure the worker process to run `pnpm start:worker`; this command sets `ANYSKILL_PROCESS_ROLE=worker` before launching `dist/worker.js`. The worker must remain running and restart automatically on process failure. Do not run multiple worker replicas unless the worker's shared database lock and operational capacity have been deliberately validated.
+
+The worker must pass its own production configuration validation at startup. A healthy HTTP API by itself does not mean marketplace push notifications are being processed; monitor the worker's startup log and marketplace worker heartbeat.
 
 ## Mobile setup
 
