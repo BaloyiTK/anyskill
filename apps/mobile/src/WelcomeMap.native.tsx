@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { StyleSheet } from "react-native";
-import MapView, { Circle, Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapView, { Circle, Marker } from "react-native-maps";
 import type { WelcomeMapProps } from "./WelcomeMap.types";
 
 function regionFor(center: WelcomeMapProps["center"], zoom: number) {
@@ -28,10 +28,10 @@ export default function WelcomeMap({
     mapRef.current?.animateToRegion(region, 250);
   }, [region.latitude, region.longitude, region.latitudeDelta, region.longitudeDelta]);
 
+  // react-native-maps defaults to Google Maps on Android and Apple Maps on iOS.
   return <MapView
     ref={mapRef}
     style={StyleSheet.absoluteFill}
-    provider={PROVIDER_GOOGLE}
     initialRegion={region}
     mapType="standard"
     showsCompass
