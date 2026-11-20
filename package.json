@@ -10,6 +10,8 @@
   "scripts": {
     "dev:mobile": "pnpm --filter @anyskill/mobile start",
     "dev:api": "pnpm --filter @anyskill/api start:dev",
+    "dev:worker": "node scripts/run-worker.mjs dev",
+    "start:worker": "node scripts/run-worker.mjs",
     "build:api": "pnpm --filter @anyskill/api build",
     "db:generate": "pnpm --filter @anyskill/api db:generate",
     "db:migrate": "pnpm --filter @anyskill/api db:migrate",
