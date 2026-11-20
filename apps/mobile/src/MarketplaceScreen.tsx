@@ -1034,7 +1034,8 @@ export function MarketplaceScreen(p: Props) {
             {request.jobEngagement?.completionSubmissions.filter((submission) => submission.status === "REJECTED").map((submission) => <View key={submission.id} style={s.offerCard}>
               <Text style={s.meta}>Previous completion review: corrections requested</Text>
               <Text style={s.body}>{submission.reviewNote}</Text>
-            </View>)}            {request.jobEngagement ? <View style={s.offerCard}>
+            </View>)}
+            {request.jobEngagement ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Assessment and job-cost approval</Text>
               <Text style={s.meta}>Status: {request.jobEngagement.status.replaceAll("_", " ")}</Text>
               {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(request.jobEngagement.status) ? <>
