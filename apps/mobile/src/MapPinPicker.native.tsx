@@ -99,7 +99,7 @@ export function MapPinPicker(p: Props) {
         <Pressable accessibilityLabel="Zoom out" onPress={() => changeZoom(-1)} style={styles.zoomButton}><Text style={styles.zoomText}>−</Text></Pressable>
       </View>
     </View>
-    <Text style={styles.help}>{p.readOnly ? `${mapProviderName} · Blue dot: your current location. Pin: the job location.` : `${mapProviderName} · Tap the map to place the job-location pin. Use + / − to change zoom.`}</Text>
+    <Text style={styles.help}>{p.liveLatitude != null ? `${mapProviderName} · Blue dot: Provider's live location. Pin: service destination.` : p.routeCoordinates?.length ? `${mapProviderName} · Green line: driving route. Pin: service destination.` : p.readOnly ? `${mapProviderName} · Blue dot: your current location. Pin: the job location.` : `${mapProviderName} · Tap the map to place the job-location pin. Use + / − to change zoom.`}</Text>
     {p.selectedLatitude != null && p.selectedLongitude != null
       ? <Text style={styles.coords}>Selected pin: {p.selectedLatitude.toFixed(6)}, {p.selectedLongitude.toFixed(6)}</Text>
       : <Text style={styles.coords}>No pin selected yet.</Text>}
