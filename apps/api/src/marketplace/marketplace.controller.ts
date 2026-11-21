@@ -184,6 +184,17 @@ export class MarketplaceController {
     return this.marketplace.sendServiceChatMessage(user.id, requestId, dto.body);
   }
 
+  @Get("marketplace/requests/:requestId/provider-route")
+  @RequireMarketplaceRole("PROVIDER")
+  getProviderRoute(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Query("originLatitude") originLatitude: string,
+    @Query("originLongitude") originLongitude: string,
+  ) {
+    return this.marketplace.getProviderRoute(user.id, requestId, originLatitude, originLongitude);
+  }
+
   @Get("marketplace/my-jobs")
   @RequireMarketplaceRole("PROVIDER")
   myJobs(@CurrentUser() user: AuthenticatedUser) { return this.marketplace.listMyJobs(user.id); }
