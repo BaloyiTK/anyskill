@@ -479,8 +479,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             hourlyRateAtOffer: true, assessmentFeeAtOffer: true,
             provider: {
               select: {
+                phone: true,
                 providerProfile: {
-                  select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true },
+                  select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true, liveLocationUpdatedAt: true },
                 },
               },
             },
@@ -534,6 +535,22 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               serviceAreas: profile.serviceAreas,
               deliveryModes: profile.deliveryModes,
               isAvailable: profile.isAvailable,
+              phone: request.jobEngagement?.providerId === response.providerId ? response.provider.phone ?? null : null,
+              liveLatitude: request.jobEngagement?.providerId === response.providerId
+                && !["COMPLETED", "CANCELLED"].includes(request.jobEngagement.status)
+                && profile.liveLocationUpdatedAt != null
+                && Date.now() - profile.liveLocationUpdatedAt.getTime() <= 60_000
+                ? profile.liveLatitude : null,
+              liveLongitude: request.jobEngagement?.providerId === response.providerId
+                && !["COMPLETED", "CANCELLED"].includes(request.jobEngagement.status)
+                && profile.liveLocationUpdatedAt != null
+                && Date.now() - profile.liveLocationUpdatedAt.getTime() <= 60_000
+                ? profile.liveLongitude : null,
+              liveLocationUpdatedAt: request.jobEngagement?.providerId === response.providerId
+                && !["COMPLETED", "CANCELLED"].includes(request.jobEngagement.status)
+                && profile.liveLocationUpdatedAt != null
+                && Date.now() - profile.liveLocationUpdatedAt.getTime() <= 60_000
+                ? profile.liveLocationUpdatedAt : null,
               identityVerified: providerUser?.identityVerification === "VERIFIED",
               experience: (() => {
                 const skills = providerUser?.onboardingDraft?.skills;
@@ -775,6 +792,57 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+
+
+  async getProviderRoute(providerId: string, requestId: string, originLatitudeValue: string, originLongitudeValue: string) {
+    const originLatitude = Number(originLatitudeValue);
+    const originLongitude = Number(originLongitudeValue);
+    if (!Number.isFinite(originLatitude) || originLatitude < -90 || originLatitude > 90
+      || !Number.isFinite(originLongitude) || originLongitude < -180 || originLongitude > 180) {
+      throw new BadRequestException("A valid current Provider location is required to calculate the route.");
+    }
+    const job = await this.prisma.jobEngagement.findUnique({
+      where: { requestId },
+      select: { providerId: true, status: true, request: { select: { latitude: true, longitude: true, deliveryMode: true } } },
+    });
+    if (!job || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can view this service route.");
+    if (job.request.deliveryMode === "REMOTE" || job.request.latitude == null || job.request.longitude == null) {
+      throw new BadRequestException("This service does not have a physical destination.");
+    }
+    if (["COMPLETED", "CANCELLED"].includes(job.status)) throw new ConflictException("This service route is no longer active.");
+    const key = process.env.GOOGLE_PLACES_API_KEY?.trim();
+    if (!key) throw new ServiceUnavailableException("Google Maps route directions are not configured on the AnySkill API.");
+    const params = new URLSearchParams({
+      origin: `${originLatitude},${originLongitude}`,
+      destination: `${job.request.latitude},${job.request.longitude}`,
+      mode: "driving",
+      key,
+    });
+    const response = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`);
+    if (!response.ok) throw new BadGatewayException("Google Maps could not calculate the service route.");
+    const payload = await response.json() as {
+      status?: string;
+      routes?: Array<{ overview_polyline?: { points?: string } }>;
+    };
+    const encoded = payload.routes?.[0]?.overview_polyline?.points;
+    if (payload.status !== "OK" || !encoded) {
+      throw new BadGatewayException(payload.status === "ZERO_RESULTS"
+        ? "No driving route is available for this destination."
+        : "Google Maps route directions are unavailable. Check that the Directions API is enabled for the configured key.");
+    }
+    const coordinates: Array<{ latitude: number; longitude: number }> = [];
+    let index = 0, latitude = 0, longitude = 0;
+    while (index < encoded.length) {
+      let result = 0, shift = 0, byte = 0;
+      do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+      latitude += (result & 1) ? ~(result >> 1) : (result >> 1);
+      result = 0; shift = 0;
+      do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+      longitude += (result & 1) ? ~(result >> 1) : (result >> 1);
+      coordinates.push({ latitude: latitude / 1e5, longitude: longitude / 1e5 });
+    }
+    return { coordinates, destination: { latitude: job.request.latitude, longitude: job.request.longitude } };
+  }
 
   async listMyJobs(providerId: string) {
     const jobs = await this.prisma.jobEngagement.findMany({
