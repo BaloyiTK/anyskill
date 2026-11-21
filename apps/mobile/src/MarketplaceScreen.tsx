@@ -46,7 +46,7 @@ type SeekerRequest = {
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
     hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null;
-    provider: { providerProfile: { publicName: string; hourlyRate: string | number | null; assessmentFee: string | number; skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable?: boolean; identityVerified?: boolean; experience?: string | null; distanceKm?: number | null; ratings?: {overall:number;overallReviewCount:number;overallIsRated:boolean;requestedSkill:number;requestedSkillReviewCount:number;requestedSkillIsRated:boolean} } | null };
+    provider: { phone?: string | null; providerProfile: { publicName: string; hourlyRate: string | number | null; assessmentFee: string | number; skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable?: boolean; phone?: string | null; liveLatitude?: number | null; liveLongitude?: number | null; liveLocationUpdatedAt?: string | null; identityVerified?: boolean; experience?: string | null; distanceKm?: number | null; ratings?: {overall:number;overallReviewCount:number;overallIsRated:boolean;requestedSkill:number;requestedSkillReviewCount:number;requestedSkillIsRated:boolean} } | null };
   }>;
 };
 type Props = {
@@ -82,7 +82,7 @@ export function MarketplaceScreen(p: Props) {
   const [activeOfferId, setActiveOfferId] = useState<string | null>(null);
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
-  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string}|null>(null);
+  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
   const [dismissedProviderOfferIds, setDismissedProviderOfferIds] = useState<string[]>([]);
   const [myJobs, setMyJobs] = useState<ProviderJob[]>([]);
@@ -92,6 +92,9 @@ export function MarketplaceScreen(p: Props) {
   const [serviceChatDraft, setServiceChatDraft] = useState("");
   const [serviceChatBusy, setServiceChatBusy] = useState(false);
   const [serviceChatLoading, setServiceChatLoading] = useState(false);
+  const [contactDrawerOpen, setContactDrawerOpen] = useState(false);
+  const [providerRoute, setProviderRoute] = useState<{requestId:string;origin:{latitude:number;longitude:number};coordinates:Array<{latitude:number;longitude:number}>}|null>(null);
+  const [providerRouteLoading, setProviderRouteLoading] = useState(false);
   const activeChatRequestIdRef = useRef<string | null>(null);
   const serviceChatLoadVersionRef = useRef(0);
   const [clockNow, setClockNow] = useState(Date.now());
@@ -319,6 +322,57 @@ export function MarketplaceScreen(p: Props) {
     };
   }, [activeChatRequestId, loadServiceChat]);
 
+  useEffect(() => {
+    if (!journeyScreen) return;
+    const request = myRequests.find((item) => item.id === journeyScreen.requestId);
+    const offer = request?.providerResponses.find((item) => item.id === journeyScreen.responseId);
+    const profile = offer?.provider.providerProfile;
+    const liveAt = profile?.liveLocationUpdatedAt ?? null;
+    const isFresh = !!liveAt && Date.now() - Date.parse(liveAt) <= 60_000;
+    setJourneyScreen((current) => {
+      if (!current || current.requestId !== journeyScreen.requestId) return current;
+      const liveLatitude = isFresh ? profile?.liveLatitude ?? null : null;
+      const liveLongitude = isFresh ? profile?.liveLongitude ?? null : null;
+      const phone = offer?.provider.phone ?? profile?.phone ?? current.phone;
+      if (current.liveLatitude === liveLatitude && current.liveLongitude === liveLongitude
+        && current.liveLocationUpdatedAt === (isFresh ? liveAt : null) && current.phone === phone) return current;
+      return { ...current, liveLatitude, liveLongitude, liveLocationUpdatedAt: isFresh ? liveAt : null, phone };
+    });
+  }, [myRequests, journeyScreen?.requestId, journeyScreen?.responseId]);
+
+  const activeProviderJobForRoute = myJobs.find((item) => item.request.id === activeProviderJobId);
+  useEffect(() => {
+    if (p.mode !== "provider" || !activeProviderJobId || !activeProviderJobForRoute
+      || activeProviderJobForRoute.request.latitude == null || activeProviderJobForRoute.request.longitude == null
+      || activeProviderJobForRoute.request.deliveryMode === "REMOTE") {
+      setProviderRoute(null);
+      setProviderRouteLoading(false);
+      return;
+    }
+    let active = true;
+    const loadRoute = async () => {
+      setProviderRouteLoading(true);
+      try {
+        const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        const origin = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+        const route = await apiRequest<{coordinates:Array<{latitude:number;longitude:number}>}>(
+          `/marketplace/requests/${activeProviderJobId}/provider-route?originLatitude=${origin.latitude}&originLongitude=${origin.longitude}`,
+          {}, true,
+        );
+        if (active) setProviderRoute({ requestId: activeProviderJobId, origin, coordinates: route.coordinates });
+      } catch (e) {
+        if (active) {
+          setProviderRoute(null);
+          setError(e instanceof Error ? e.message : "Could not load the full driving route.");
+        }
+      } finally {
+        if (active) setProviderRouteLoading(false);
+      }
+    };
+    void loadRoute();
+    return () => { active = false; };
+  }, [p.mode, activeProviderJobId, activeProviderJobForRoute?.request.latitude, activeProviderJobForRoute?.request.longitude, activeProviderJobForRoute?.request.deliveryMode]);
+
   const acceptRequest = async (request: RequestItem) => {
     if (!p.verified) { p.onIdentityRequired(request.id); return; }
     setBusy(true); setError(""); setNotice("");
@@ -362,11 +416,16 @@ export function MarketplaceScreen(p: Props) {
       const selectedOffer = selectedRequest?.providerResponses.find((offer) => offer.id === responseId);
       setJourneyScreen({
         requestId,
+        responseId,
         title: selectedRequest?.title ?? matchingRequest?.title ?? "Your service",
         location: selectedRequest?.location ?? matchingRequest?.location ?? null,
         latitude: selectedRequest?.latitude ?? null,
         longitude: selectedRequest?.longitude ?? null,
         providerName: selectedOffer?.provider.providerProfile?.publicName ?? "Your selected Provider",
+        phone: selectedOffer?.provider.phone ?? selectedOffer?.provider.providerProfile?.phone ?? null,
+        liveLatitude: selectedOffer?.provider.providerProfile?.liveLatitude ?? null,
+        liveLongitude: selectedOffer?.provider.providerProfile?.liveLongitude ?? null,
+        liveLocationUpdatedAt: selectedOffer?.provider.providerProfile?.liveLocationUpdatedAt ?? null,
       });
       setNotice("Provider selected. Your request is now closed to further offers.");
       setActiveOfferId(null);
@@ -1437,29 +1496,22 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SKILL SEEKER</Text>
             <Text style={{ color: "#15251E", fontSize: 20, fontWeight: "900", marginTop: 7 }}>{seekerName}</Text>
             <Text style={{ color: job.seeker?.identityVerified ? "#176B55" : "#8A6A27", fontSize: 12, fontWeight: "800", marginTop: 4 }}>{job.seeker?.identityVerified ? "✓ Identity verified" : "Identity not verified"}</Text>
-            {job.seeker?.phone ? <Pressable onPress={() => { void Linking.openURL("tel:" + job.seeker?.phone).catch(() => setError("Could not open the phone dialler.")); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900", textAlign: "center" }}>Call Seeker · {job.seeker.phone}</Text></Pressable> : <Text style={{ color: "#66756D", fontSize: 12, marginTop: 10 }}>No phone number is available for this Seeker.</Text>}
+            <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900", textAlign: "center" }}>Contact Seeker · Chat or call</Text></Pressable>
           </View>
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
             <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>ROUTE TO SERVICE LOCATION</Text>
             <Text style={{ color: "#15251E", fontSize: 15, fontWeight: "800", marginTop: 7 }}>{job.request.location || "Pinned service destination"}</Text>
             {destinationReady ? <>
               <View style={{ marginTop: 12, borderRadius: 14, overflow: "hidden" }}>
-                <MapPinPicker latitude={job.request.latitude!} longitude={job.request.longitude!} selectedLatitude={job.request.latitude} selectedLongitude={job.request.longitude} onSelect={() => undefined} readOnly />
+                <MapPinPicker latitude={job.request.latitude!} longitude={job.request.longitude!} selectedLatitude={job.request.latitude} selectedLongitude={job.request.longitude} onSelect={() => undefined} readOnly routeCoordinates={providerRoute?.requestId === job.request.id ? providerRoute.coordinates : undefined} liveLatitude={providerRoute?.requestId === job.request.id ? providerRoute.origin.latitude : null} liveLongitude={providerRoute?.requestId === job.request.id ? providerRoute.origin.longitude : null} />
               </View>
-              <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17 }}>The map marks the Seeker's service destination. Start navigation to get the live route and turn-by-turn directions from your current location.</Text>
+              <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17 }}>{providerRouteLoading ? "Calculating the full driving route from your current location..." : providerRoute?.requestId === job.request.id ? "The green line shows the full driving route from your current location to the Seeker's destination." : "The destination is pinned. The full route will appear when directions are available."}</Text>
               <Pressable onPress={() => { const url = "https://www.google.com/maps/dir/?api=1&destination=" + job.request.latitude + "," + job.request.longitude + "&travelmode=driving"; void Linking.openURL(url).catch(() => setError("Could not open your navigation application.")); }} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Start navigation</Text></Pressable>
             </> : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>This is a remote service or has no pinned physical destination. Navigation is not required.</Text>}
           </View>
-          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
-            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}><Text style={{ color: "#15251E", fontSize: 17, fontWeight: "900" }}>Service chat</Text><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900" }}>ACTIVE</Text></View>
-            <Text style={{ color: "#66756D", fontSize: 11, marginTop: 4 }}>Messages are private to this Seeker and the selected Provider.</Text>
-            <View style={{ maxHeight: 260, marginTop: 12 }}>
-              {serviceChatLoading && serviceChatMessages.length === 0 ? <ActivityIndicator color="#176B55" /> : serviceChatMessages.length === 0 ? <Text style={{ color: "#66756D", fontSize: 12, paddingVertical: 14 }}>No messages yet. Send the Seeker a message to coordinate arrival and access.</Text> : serviceChatMessages.map((message) => <View key={message.id} style={{ alignSelf: message.isMine ? "flex-end" : "flex-start", maxWidth: "88%", backgroundColor: message.isMine ? "#E5F3EA" : "#F1F4F2", borderRadius: 13, padding: 10, marginBottom: 8 }}><Text style={{ color: "#24352C", fontSize: 12, lineHeight: 18 }}>{message.body}</Text><Text style={{ color: "#718078", fontSize: 9, marginTop: 4 }}>{new Date(message.createdAt).toLocaleString()}</Text></View>)}
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>
-              <TextInput value={serviceChatDraft} onChangeText={setServiceChatDraft} placeholder="Message the Seeker..." multiline style={{ flex: 1, minHeight: 46, maxHeight: 100, borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: "#15251E" }} />
-              <Pressable disabled={serviceChatBusy || !serviceChatDraft.trim()} onPress={() => void sendServiceChatMessage(job.request.id)} style={{ backgroundColor: "#176B55", opacity: serviceChatBusy || !serviceChatDraft.trim() ? 0.5 : 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 15 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{serviceChatBusy ? "..." : "Send"}</Text></Pressable>
-            </View>
+          <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
+            <Text style={{ color: "#176B55", fontWeight: "900" }}>Open contact drawer</Text>
+          </Pressable>
           </View>
           {["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED"].includes(job.status) ? <Pressable onPress={() => cancelProviderJob(job.request.id, job.request.title)} style={{ backgroundColor: "#FFF7F7", borderWidth: 1, borderColor: "#E7B8B8", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text></Pressable> : null}
           <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Back to selected jobs</Text></Pressable>
@@ -1483,10 +1535,10 @@ export function MarketplaceScreen(p: Props) {
         {journeyScreen?.latitude != null && journeyScreen.longitude != null ? (
           <>
             <View style={{ marginTop: 18, borderRadius: 16, overflow: "hidden" }}>
-              <MapPinPicker latitude={journeyScreen.latitude} longitude={journeyScreen.longitude} selectedLatitude={journeyScreen.latitude} selectedLongitude={journeyScreen.longitude} onSelect={() => undefined} readOnly />
+              <MapPinPicker latitude={journeyScreen.latitude} longitude={journeyScreen.longitude} selectedLatitude={journeyScreen.latitude} selectedLongitude={journeyScreen.longitude} onSelect={() => undefined} readOnly liveLatitude={journeyScreen.liveLatitude} liveLongitude={journeyScreen.liveLongitude} />
             </View>
             <Pressable onPress={() => { const url = `https://www.google.com/maps/dir/?api=1&destination=${journeyScreen.latitude},${journeyScreen.longitude}&travelmode=driving`; void Linking.openURL(url).catch(() => setError("Could not open your maps application.")); }} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", marginTop: 18 }}>
-              <Text style={{ color: "#FFFFFF", fontSize: 14, fontWeight: "900" }}>Start navigation</Text>
+              <Text style={{ color: "#FFFFFF", fontSize: 14, fontWeight: "900" }}>Navigate to service location</Text>
             </Pressable>
           </>
         ) : (
@@ -1494,21 +1546,41 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20 }}>This request does not have a physical destination. No travel navigation is required.</Text>
           </View>
         )}
-        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}><Text style={{ color: "#15251E", fontSize: 17, fontWeight: "900" }}>Chat with Provider</Text><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900" }}>ACTIVE</Text></View>
-          <View style={{ maxHeight: 220, marginTop: 12 }}>
-            {serviceChatLoading && serviceChatMessages.length === 0 ? <ActivityIndicator color="#176B55" /> : serviceChatMessages.length === 0 ? <Text style={{ color: "#66756D", fontSize: 12, paddingVertical: 14 }}>Your service chat is ready. Send the Provider a message.</Text> : serviceChatMessages.map((message) => <View key={message.id} style={{ alignSelf: message.isMine ? "flex-end" : "flex-start", maxWidth: "88%", backgroundColor: "#F1F4F2", borderRadius: 13, padding: 10, marginBottom: 8 }}><Text style={{ color: "#24352C", fontSize: 12, lineHeight: 18 }}>{message.body}</Text><Text style={{ color: "#718078", fontSize: 9, marginTop: 4 }}>{new Date(message.createdAt).toLocaleString()}</Text></View>)}
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>
-            <TextInput value={serviceChatDraft} onChangeText={setServiceChatDraft} placeholder="Message your Provider..." multiline style={{ flex: 1, minHeight: 46, maxHeight: 100, borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: "#15251E" }} />
-            <Pressable disabled={serviceChatBusy || !serviceChatDraft.trim()} onPress={() => void sendServiceChatMessage(journeyScreen!.requestId)} style={{ backgroundColor: "#176B55", opacity: serviceChatBusy || !serviceChatDraft.trim() ? 0.5 : 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 15 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{serviceChatBusy ? "..." : "Send"}</Text></Pressable>
-          </View>
+        <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
+          <Text style={{ color: "#176B55", fontWeight: "900" }}>Contact Provider · Chat or call</Text>
+        </Pressable>
         </View>
         <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 14, marginTop: 18 }}>
           <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>WHAT HAPPENS NEXT</Text>
           <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>The Provider must complete the assessment and submit an estimate. Work starts only after the estimate is approved in AnySkill.</Text>
         </View>
         <Pressable onPress={() => journeyScreen && cancelSeekerJourney(journeyScreen.requestId, journeyScreen.title)} style={{ backgroundColor: "#FFF7F7", borderWidth: 1, borderColor: "#E7B8B8", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 14 }}><Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text></Pressable>
+      </View>
+    </Modal>
+    <Modal visible={contactDrawerOpen} transparent animationType="slide" onRequestClose={() => setContactDrawerOpen(false)}>
+      <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(10,25,18,0.42)" }}>
+        <Pressable onPress={() => setContactDrawerOpen(false)} style={{ flex: 1 }} accessibilityLabel="Close contact drawer" />
+        <View style={{ backgroundColor: "#FFFFFF", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 28, maxHeight: "78%" }}>
+          <View style={{ alignSelf: "center", width: 42, height: 5, borderRadius: 3, backgroundColor: "#D6E0D9", marginBottom: 17 }} />
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+            <View><Text style={{ color: "#15251E", fontSize: 20, fontWeight: "900" }}>Contact {p.mode === "provider" ? "Seeker" : "Provider"}</Text><Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>This conversation belongs to the active service.</Text></View>
+            <Pressable onPress={() => setContactDrawerOpen(false)}><Text style={{ color: "#176B55", fontWeight: "900" }}>Close</Text></Pressable>
+          </View>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
+            <Pressable onPress={() => { const phone = p.mode === "provider" ? myJobs.find((item) => item.request.id === activeProviderJobId)?.seeker?.phone : journeyScreen?.phone; if (phone) void Linking.openURL("tel:" + phone).catch(() => setError("Could not open the phone dialler.")); else setError("A phone number is not available for this contact."); }} style={{ flex: 1, backgroundColor: "#EAF4EE", borderRadius: 13, padding: 13, alignItems: "center" }}>
+              <Text style={{ color: "#176B55", fontWeight: "900" }}>Call</Text>
+            </Pressable>
+            <View style={{ flex: 1, backgroundColor: "#F1F5F2", borderRadius: 13, padding: 13, alignItems: "center" }}><Text style={{ color: "#66756D", fontWeight: "800" }}>Request safety</Text></View>
+          </View>
+          <Text style={{ color: "#15251E", fontSize: 14, fontWeight: "900", marginTop: 18, marginBottom: 9 }}>Service chat</Text>
+          <ScrollView style={{ maxHeight: 230 }} contentContainerStyle={{ paddingBottom: 8 }}>
+            {serviceChatLoading && serviceChatMessages.length === 0 ? <ActivityIndicator color="#176B55" /> : serviceChatMessages.length === 0 ? <Text style={{ color: "#66756D", fontSize: 12, paddingVertical: 18 }}>No messages yet. Start the conversation to coordinate arrival and access.</Text> : serviceChatMessages.map((message) => <View key={message.id} style={{ alignSelf: message.isMine ? "flex-end" : "flex-start", maxWidth: "88%", backgroundColor: message.isMine ? "#E5F3EA" : "#F1F4F2", borderRadius: 13, padding: 10, marginBottom: 8 }}><Text style={{ color: "#24352C", fontSize: 12, lineHeight: 18 }}>{message.body}</Text><Text style={{ color: "#718078", fontSize: 9, marginTop: 4 }}>{new Date(message.createdAt).toLocaleString()}</Text></View>)}
+          </ScrollView>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>
+            <TextInput value={serviceChatDraft} onChangeText={setServiceChatDraft} placeholder="Write a message..." multiline style={{ flex: 1, minHeight: 48, maxHeight: 100, borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, color: "#15251E" }} />
+            <Pressable disabled={serviceChatBusy || !serviceChatDraft.trim() || !activeChatRequestId} onPress={() => activeChatRequestId && void sendServiceChatMessage(activeChatRequestId)} style={{ backgroundColor: "#176B55", opacity: serviceChatBusy || !serviceChatDraft.trim() || !activeChatRequestId ? 0.5 : 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 15 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{serviceChatBusy ? "..." : "Send"}</Text></Pressable>
+          </View>
+        </View>
       </View>
     </Modal>
   </View>;
