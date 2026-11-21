@@ -3,7 +3,7 @@ import * as Notifications from "expo-notifications";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { MapPinPicker } from "./MapPinPicker";
-import { Linking, Platform } from "react-native";
+import { Alert, Linking, Platform } from "react-native";
 import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
@@ -605,6 +605,37 @@ export function MarketplaceScreen(p: Props) {
       setMyJobs(result);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not load selected jobs."); }
   }, []);
+
+  const cancelProviderJob = (requestId: string, title: string) => {
+    Alert.alert("Cancel selected service?", `Are you sure you want to cancel "${title}"? The Skill Seeker will be notified and can find another Provider.`, [
+      { text: "Keep service", style: "cancel" },
+      { text: "Cancel service", style: "destructive", onPress: () => {
+        void apiRequest("/marketplace/requests/" + requestId + "/provider-cancel", { method: "POST" }, true)
+          .then(() => {
+            setActiveProviderJobId(null);
+            setMyJobs((jobs) => jobs.filter((item) => item.request.id !== requestId));
+            setNotice("Service cancelled. You are back on your Provider Home screen.");
+            p.onBack();
+          })
+          .catch((e) => setError(e instanceof Error ? e.message : "Could not cancel this service."));
+      } },
+    ]);
+  };
+
+  const cancelSeekerJourney = (requestId: string, title: string) => {
+    Alert.alert("Cancel selected Provider?", `Are you sure you want to cancel "${title}"? The Provider will be notified and you can find another Provider.`, [
+      { text: "Keep service", style: "cancel" },
+      { text: "Cancel service", style: "destructive", onPress: () => {
+        void apiRequest("/marketplace/requests/" + requestId + "/cancel", { method: "POST" }, true)
+          .then(async () => {
+            setJourneyScreen(null);
+            await loadMyRequests();
+            setNotice("Service cancelled. You can now match with another Provider.");
+          })
+          .catch((e) => setError(e instanceof Error ? e.message : "Could not cancel this service."));
+      } },
+    ]);
+  };
 
   useEffect(() => {
     if (p.mode !== "provider") return;
@@ -1403,6 +1434,7 @@ export function MarketplaceScreen(p: Props) {
               <Pressable disabled={serviceChatBusy || !serviceChatDraft.trim()} onPress={() => void sendServiceChatMessage(job.request.id)} style={{ backgroundColor: "#176B55", opacity: serviceChatBusy || !serviceChatDraft.trim() ? 0.5 : 1, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 15 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{serviceChatBusy ? "..." : "Send"}</Text></Pressable>
             </View>
           </View>
+          {["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED"].includes(job.status) ? <Pressable onPress={() => cancelProviderJob(job.request.id, job.request.title)} style={{ backgroundColor: "#FFF7F7", borderWidth: 1, borderColor: "#E7B8B8", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text></Pressable> : null}
           <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Back to selected jobs</Text></Pressable>
         </ScrollView>;
       })()}
@@ -1449,6 +1481,7 @@ export function MarketplaceScreen(p: Props) {
           <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>WHAT HAPPENS NEXT</Text>
           <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>The Provider must complete the assessment and submit an estimate. Work starts only after the estimate is approved in AnySkill.</Text>
         </View>
+        <Pressable onPress={() => journeyScreen && cancelSeekerJourney(journeyScreen.requestId, journeyScreen.title)} style={{ backgroundColor: "#FFF7F7", borderWidth: 1, borderColor: "#E7B8B8", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 14 }}><Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text></Pressable>
       </View>
     </Modal>
   </View>;

@@ -570,10 +570,37 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const request = await tx.serviceRequest.findFirst({
         where: { id: requestId, seekerId },
-        select: { id: true, status: true },
+        select: { id: true, title: true, status: true },
       });
       if (!request) throw new NotFoundException("This service request could not be found.");
-      if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
+
+      if (request.status === "CLOSED") {
+        const job = await tx.jobEngagement.findUnique({
+          where: { requestId },
+          select: { id: true, providerId: true, status: true },
+        });
+        if (!job || !job.providerId) throw new NotFoundException("The selected service could not be found.");
+        if (!["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED"].includes(job.status)) {
+          throw new ConflictException("A service can only be cancelled before work starts.");
+        }
+        const changed = await tx.jobEngagement.updateMany({
+          where: { id: job.id, status: job.status },
+          data: { status: "CANCELLED" },
+        });
+        if (changed.count !== 1) throw new ConflictException("The service changed. Refresh and try again.");
+        await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: "CLOSED" }, data: { status: "CANCELLED", matchingNextAt: null } });
+        await tx.appNotification.create({
+          data: {
+            userId: job.providerId,
+            title: "Service cancelled by Skill Seeker",
+            body: `The Skill Seeker cancelled "${request.title}". You have been returned to your Provider Home screen.`,
+            data: { type: "SERVICE_CANCELLED_BY_SEEKER", requestId },
+          },
+        });
+        return { success: true, requestId, status: "CANCELLED" };
+      }
+
+      if (request.status !== "OPEN") throw new ConflictException("This request can no longer be cancelled.");
       const changed = await tx.serviceRequest.updateMany({
         where: { id: requestId, seekerId, status: "OPEN" },
         data: { status: "CANCELLED", matchingNextAt: null },
@@ -603,6 +630,33 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async cancelSelectedJob(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({
+        where: { requestId },
+        select: { id: true, providerId: true, seekerId: true, status: true, request: { select: { title: true, status: true } } },
+      });
+      if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
+      if (!["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED"].includes(job.status)) {
+        throw new ConflictException("A service can only be cancelled before work starts.");
+      }
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, providerId, status: job.status },
+        data: { status: "CANCELLED" },
+      });
+      if (changed.count !== 1) throw new ConflictException("The service changed. Refresh and try again.");
+      await tx.serviceRequest.updateMany({ where: { id: requestId, status: "CLOSED" }, data: { status: "CANCELLED", matchingNextAt: null } });
+      await tx.appNotification.create({
+        data: {
+          userId: job.seekerId,
+          title: "Service cancelled by Skill Provider",
+          body: `The Skill Provider cancelled "${job.request.title}". You can now find another Provider.`,
+          data: { type: "SERVICE_CANCELLED_BY_PROVIDER", requestId },
+        },
+      });
+      return { success: true, requestId, status: "CANCELLED" };
+    });
+  }
   async withdrawProviderOffer(providerId: string, requestId: string, responseId: string) {
     return this.prisma.$transaction(async (tx) => {
       const response = await tx.providerResponse.findFirst({

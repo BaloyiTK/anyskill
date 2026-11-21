@@ -112,6 +112,12 @@ export class MarketplaceController {
     return this.marketplace.cancelRequest(user.id, requestId);
   }
 
+  @Post("marketplace/requests/:requestId/provider-cancel")
+  @RequireMarketplaceRole("PROVIDER")
+  cancelSelectedJob(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.cancelSelectedJob(user.id, requestId);
+  }
+
   @Post("marketplace/requests/:requestId/offers/:responseId/withdraw")
   @RequireMarketplaceRole("PROVIDER")
   withdrawProviderOffer(

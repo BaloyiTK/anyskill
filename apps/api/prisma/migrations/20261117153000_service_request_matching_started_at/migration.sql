@@ -1,2 +1,0 @@
-ALTER TABLE "service_requests"
-ADD COLUMN "matching_started_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

@@ -385,6 +385,22 @@ export default function App() {
       if (oldest) handledNotificationResponses.current.delete(oldest);
     }
 
+    if (typeof data.requestId === "string" && data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
+      setActiveTab("home");
+      setMode("seeker");
+      setScreen("marketplace");
+      void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", { method: "PATCH", body: JSON.stringify({ mode: "SEEKER" }) }, true).then(setRoleSummary).catch(() => undefined);
+      setMessage("Your Provider cancelled the service. Find another Provider to continue.");
+      return;
+    }
+    if (typeof data.requestId === "string" && data.type === "SERVICE_CANCELLED_BY_SEEKER") {
+      setActiveTab("home");
+      setMode("provider");
+      setScreen("dashboard");
+      void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", { method: "PATCH", body: JSON.stringify({ mode: "PROVIDER" }) }, true).then(setRoleSummary).catch(() => undefined);
+      setMessage("The Skill Seeker cancelled the service. You are back on Provider Home.");
+      return;
+    }
     if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
       const requestId = data.requestId;
       if (response.actionIdentifier === "ACCEPT_REQUEST") {
@@ -476,6 +492,16 @@ export default function App() {
   useEffect(() => {
     const received = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as { type?: string; requestId?: string };
+      if (data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
+        setActiveTab("home"); setMode("seeker"); setScreen("marketplace");
+        setMessage("Your Provider cancelled the service. Find another Provider to continue.");
+        return;
+      }
+      if (data.type === "SERVICE_CANCELLED_BY_SEEKER") {
+        setActiveTab("home"); setMode("provider"); setScreen("dashboard");
+        setMessage("The Skill Seeker cancelled the service. You are back on Provider Home.");
+        return;
+      }
       if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
         void openMatchedRequest(data.requestId);
       }
