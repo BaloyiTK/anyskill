@@ -489,12 +489,37 @@ export function MarketplaceScreen(p: Props) {
   };
 
 
-  const selectProvider = async (requestId: string, responseId: string) => {
+  const selectProvider = (requestId: string, responseId: string) => {
+    // Selection must always be a deliberate Seeker decision. A single tap on
+    // an offer card or an incidental touch must never create a job engagement.
+    const request = myRequests.find((item) => item.id === requestId);
+    const offer = request?.providerResponses.find((item) => item.id === responseId);
+    if (!request || request.status !== "OPEN" || !offer || offer.status !== "OFFERED") {
+      setError("This offer is no longer available for selection. Refresh your requests.");
+      return;
+    }
+    const providerName = offer.provider.providerProfile?.publicName || "this Provider";
+    Alert.alert(
+      "Confirm Provider selection",
+      `You are selecting ${providerName} for "${request.title}". This closes the request to other offers and starts the assessment stage. Continue?`,
+      [
+        { text: "Keep reviewing", style: "cancel" },
+        { text: "Confirm selection", style: "default", onPress: () => { void performSelectProvider(requestId, responseId); } },
+      ],
+    );
+  };
+
+  const performSelectProvider = async (requestId: string, responseId: string) => {
     setSelectingOfferId(responseId); setError(""); setNotice("");
     try {
-      await apiRequest(`/marketplace/requests/${requestId}/select-provider`, {
+      const result = await apiRequest<{success:boolean;requestId:string;selectedResponseId:string;status:string}>(`/marketplace/requests/${requestId}/select-provider`, {
         method: "POST", body: JSON.stringify({ responseId }),
       }, true);
+      // Do not show the Seeker journey unless the server confirms the exact
+      // response selected in this confirmation dialog.
+      if (!result.success || result.requestId !== requestId || result.selectedResponseId !== responseId || result.status !== "ASSESSMENT_PENDING") {
+        throw new Error("The server did not confirm this Provider selection. Refresh your requests before continuing.");
+      }
       const selectedRequest = myRequests.find((item) => item.id === requestId);
       const selectedOffer = selectedRequest?.providerResponses.find((offer) => offer.id === responseId);
       setJourneyScreen({
