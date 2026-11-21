@@ -285,9 +285,22 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode !== "provider") return;
-    const selectedJob = myJobs.find((job) => job.status !== "COMPLETED" && !dismissedActiveJobIds.includes(job.request.id));
-    if (selectedJob) setActiveProviderJobId(selectedJob.request.id);
-  }, [p.mode, myJobs, dismissedActiveJobIds]);
+    const currentJob = activeProviderJobId
+      ? myJobs.find((job) => job.request.id === activeProviderJobId)
+      : null;
+    if (activeProviderJobId && (!currentJob
+      || ["COMPLETED", "CANCELLED"].includes(currentJob.status)
+      || dismissedActiveJobIds.includes(activeProviderJobId))) {
+      setActiveProviderJobId(null);
+    }
+    const nextActiveJob = myJobs.find((job) =>
+      !["COMPLETED", "CANCELLED"].includes(job.status)
+      && !dismissedActiveJobIds.includes(job.request.id),
+    );
+    if (!activeProviderJobId && nextActiveJob) {
+      setActiveProviderJobId(nextActiveJob.request.id);
+    }
+  }, [p.mode, myJobs, dismissedActiveJobIds, activeProviderJobId]);
 
   const loadServiceChat = useCallback(async (requestId: string) => {
     const loadVersion = ++serviceChatLoadVersionRef.current;
@@ -1518,7 +1531,7 @@ export function MarketplaceScreen(p: Props) {
         const destinationReady = job.request.latitude != null && job.request.longitude != null;
         return <ScrollView style={{ flex: 1, backgroundColor: "#F5F7F5" }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>ANYSKILL · ACTIVE SERVICE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>Service accepted</Text></View>
+            <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>ANYSKILL · SERVICE WORKSPACE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? "Assessment required" : job.status === "ESTIMATE_SUBMITTED" ? "Estimate awaiting review" : job.status === "ESTIMATE_REJECTED" ? "Estimate revision required" : job.status === "ESTIMATE_APPROVED" ? "Ready to start work" : job.status === "IN_PROGRESS" ? "Service in progress" : job.status === "COMPLETION_PENDING" ? "Completion awaiting review" : job.status === "COMPLETED" ? "Service completed" : job.status === "CANCELLED" ? "Service cancelled" : "Selected service"}</Text></View>
             <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
           </View>
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 18 }}>
