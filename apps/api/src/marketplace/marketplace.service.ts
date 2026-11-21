@@ -1162,6 +1162,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       await this.expandExpiredWaves();
       await this.retryExhaustedRequests();
       await this.dispatchPendingNotifications();
+      await this.pollExpoPushReceipts();
     } catch (error) {
       this.logger.error("Marketplace worker cycle failed.", error);
     } finally {
@@ -1386,149 +1387,208 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: "asc" },
       select: { id: true, userId: true, title: true, body: true, data: true, attempts: true },
     });
+
     for (const notification of pending) {
-      const devices = await this.prisma.pushDevice.findMany({
-        where: { userId: notification.userId },
-        select: { id: true, platform: true, expoPushToken: true },
-      });
-      if (devices.length === 0) {
-        await this.prisma.appNotification.updateMany({
-          where: { id: notification.id, deliveryStatus: "PENDING" },
-          data: { deliveryStatus: "IN_APP_ONLY" },
-        });
-        continue;
-      }
       const claim = await this.prisma.appNotification.updateMany({
         where: { id: notification.id, deliveryStatus: "PENDING" },
         data: { deliveryStatus: "SENDING", attempts: { increment: 1 } },
       });
       if (claim.count === 0) continue;
+
       try {
-        const response = await fetch("https://exp.host/--/api/v2/push/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify(devices.map((device) => ({
-            to: device.expoPushToken,
-            title: notification.title,
-            body: notification.body,
-            data: notification.data ?? {},
-            sound: "default",
-            priority: "high",
-            channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
-              ? "incoming_requests"
-              : "default",
-            categoryId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
-              ? "incoming_request"
-              : undefined,
-          }))),
+        const devices = await this.prisma.pushDevice.findMany({
+          where: { userId: notification.userId },
+          select: { id: true, platform: true, expoPushToken: true },
+        });
+        if (devices.length === 0) {
+          await this.prisma.appNotification.update({
+            where: { id: notification.id },
+            data: { deliveryStatus: "IN_APP_ONLY" },
+          });
+          continue;
+        }
+
+        // Persist a separate delivery record before contacting Expo. skipDuplicates
+        // makes worker restarts and overlapping instances safe for each notification/device pair.
+        await this.prisma.notificationDeviceDelivery.createMany({
+          data: devices.map((device) => ({
+            notificationId: notification.id,
+            pushDeviceId: device.id,
+            status: "PENDING",
+          })),
+          skipDuplicates: true,
         });
 
-        // Read the response body once so HTTP-level errors retain Expo's diagnostic
-        // details instead of collapsing every rejection into an unhelpful status code.
-        const responseText = await response.text();
-        let payload: {
-          data?: Array<{
-            status?: string;
-            message?: string;
-            details?: { error?: string };
-          }>;
-          errors?: Array<{
-            code?: string;
-            message?: string;
-            details?: Record<string, unknown>;
-          }>;
-        } | null = null;
-        try {
-          payload = responseText ? JSON.parse(responseText) : null;
-        } catch {
-          // Preserve a bounded, redacted response excerpt in the HTTP error below.
-        }
+        const deliveries = await this.prisma.notificationDeviceDelivery.findMany({
+          where: {
+            notificationId: notification.id,
+            status: "PENDING",
+            attempts: { lt: 5 },
+            nextAttemptAt: { lte: new Date() },
+          },
+          include: { pushDevice: { select: { id: true, platform: true, expoPushToken: true } } },
+        });
 
-        const redactPushTokens = (value: string) =>
-          value.replace(/(?:Expo|Exponent)PushToken\[[^\\]]+\\]/g, "[redacted Expo push token]");
-        if (!response.ok) {
-          const details = payload ? JSON.stringify(payload) : responseText || response.statusText;
-          // Expo groups conflicting tokens by experience/project. Map those tokens
-          // to DB device IDs in memory without ever logging the token values.
-          const projectMappings = payload?.errors?.flatMap((item) => {
-            if (!item.details || typeof item.details !== "object") return [];
-            return Object.entries(item.details).map(([project, rawTokens]) => {
-              const tokens = Array.isArray(rawTokens)
-                ? rawTokens.filter((token): token is string => typeof token === "string")
-                : [];
-              const matchingDevices = devices.filter((device) => tokens.includes(device.expoPushToken));
-              const registrations = matchingDevices.length > 0
-                ? matchingDevices.map((device) => `${device.id} (${device.platform})`).join(", ")
-                : `${tokens.length} token(s) not matched to a registered device`;
-              return `${project}: ${registrations}`;
+        let accepted = 0;
+        let pendingRetry = 0;
+        for (const delivery of deliveries) {
+          const device = delivery.pushDevice;
+          const deliveryClaim = await this.prisma.notificationDeviceDelivery.updateMany({
+            where: { id: delivery.id, status: "PENDING", attempts: delivery.attempts },
+            data: { status: "SENDING", attempts: { increment: 1 } },
+          });
+          if (deliveryClaim.count === 0) continue;
+
+          try {
+            const type = (notification.data as { type?: string } | null)?.type;
+            const response = await fetch("https://exp.host/--/api/v2/push/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
+              signal: AbortSignal.timeout(12_000),
+              body: JSON.stringify({
+                to: device.expoPushToken,
+                title: notification.title,
+                body: notification.body,
+                data: notification.data ?? {},
+                sound: "default",
+                priority: "high",
+                channelId: type === "MATCHED_REQUEST" ? "incoming_requests" : "default",
+                ...(type === "MATCHED_REQUEST" ? { categoryId: "incoming_request" } : {}),
+              }),
             });
-          }) ?? [];
-          const mappingMessage = projectMappings.length > 0
-            ? ` Device-to-project mapping: ${projectMappings.join("; ")}.`
-            : "";
-          throw new Error(
-            `Expo Push Service returned HTTP ${response.status}: ${redactPushTokens(details).slice(0, 2000)}${mappingMessage}`,
-          );
-        }
-        if (!payload) {
-          throw new Error("Expo Push Service returned an empty or invalid JSON response.");
-        }
+            const responseText = await response.text();
+            let payload: { data?: { status?: string; id?: string; message?: string; details?: { error?: string } }; errors?: Array<{ code?: string; message?: string }> } | null = null;
+            try { payload = responseText ? JSON.parse(responseText) : null; } catch { /* handled below */ }
 
-        const tickets = payload.data ?? [];
-        if (tickets.length === 0) {
-          const details = payload.errors?.map((item) => [item.code, item.message].filter(Boolean).join(": ")).join("; ");
-          throw new Error(details || "Expo returned no push delivery tickets.");
-        }
+            if (!response.ok || !payload?.data) {
+              const message = (payload?.errors ?? []).map((item) => [item.code, item.message].filter(Boolean).join(": ")).join("; ")
+                || `Expo HTTP ${response.status}: ${responseText.slice(0, 500)}`;
+              throw new Error(message);
+            }
+            if (payload.data.status !== "ok" || !payload.data.id) {
+              const errorCode = payload.data.details?.error ?? "ExpoTicketRejected";
+              const message = payload.data.message ?? "Expo did not accept this device notification.";
+              if (errorCode === "DeviceNotRegistered") {
+                await this.prisma.pushDevice.deleteMany({ where: { id: device.id } });
+                await this.prisma.notificationDeviceDelivery.update({
+                  where: { id: delivery.id },
+                  data: { status: "FAILED", lastError: errorCode },
+                });
+              } else {
+                throw new Error(`${errorCode}: ${message}`);
+              }
+              continue;
+            }
 
-        const failedTickets: string[] = [];
-        for (const [index, ticket] of tickets.entries()) {
-          const device = devices[index];
-          if (ticket.status === "ok") continue;
-
-          const errorCode = ticket.details?.error ?? "UnknownExpoError";
-          const message = redactPushTokens(ticket.message ?? "No error message returned.").slice(0, 500);
-          if (!device) {
-            failedTickets.push(`ticket ${index + 1} has no matching registered device (${errorCode})`);
-            continue;
+            await this.prisma.notificationDeviceDelivery.update({
+              where: { id: delivery.id },
+              data: {
+                status: "ACCEPTED",
+                expoTicketId: payload.data.id,
+                acceptedAt: new Date(),
+                lastError: null,
+              },
+            });
+            accepted += 1;
+          } catch (error) {
+            const attempts = delivery.attempts + 1;
+            const delayMs = Math.min(15 * 60_000, 15_000 * (2 ** Math.max(0, attempts - 1)));
+            const permanent = /DeviceNotRegistered|InvalidCredentials|MessageTooBig|InvalidRecipients/i.test(String(error));
+            await this.prisma.notificationDeviceDelivery.update({
+              where: { id: delivery.id },
+              data: {
+                status: permanent || attempts >= 5 ? "FAILED" : "PENDING",
+                nextAttemptAt: new Date(Date.now() + delayMs),
+                lastError: String(error).slice(0, 1000),
+              },
+            });
+            if (!permanent && attempts < 5) pendingRetry += 1;
+            this.logger.warn(`Push notification ${notification.id} failed for device ${device.id} on attempt ${attempts}/5: ${String(error)}`);
           }
-
-          // Never log Expo tokens. Device ID and platform are enough to identify
-          // the affected registration without exposing credentials in application logs.
-          this.logger.warn(
-            `Expo rejected push for device ${device.id} (${device.platform}) for notification ${notification.id}: ${errorCode}: ${message}`,
-          );
-          failedTickets.push(`${device.id} (${device.platform}): ${errorCode}: ${message}`);
-
-          // Expo marks stale registrations with DeviceNotRegistered. Remove only
-          // that specific token so future notifications are not repeatedly rejected.
-          if (errorCode === "DeviceNotRegistered") {
-            await this.prisma.pushDevice.deleteMany({ where: { id: device.id } });
-          }
         }
 
-        if (tickets.length !== devices.length) {
-          failedTickets.push(`Expo returned ${tickets.length} ticket(s) for ${devices.length} device(s)`);
-        }
-        if (failedTickets.length > 0) {
-          throw new Error(failedTickets.join("; ").slice(0, 1500));
-        }
+        const states = await this.prisma.notificationDeviceDelivery.groupBy({
+          by: ["status"],
+          where: { notificationId: notification.id },
+          _count: { _all: true },
+        });
+        const acceptedCount = states.find((item) => item.status === "ACCEPTED")?._count._all ?? 0;
+        const pendingCount = states.find((item) => item.status === "PENDING" || item.status === "SENDING")?._count._all ?? 0;
+        const failedCount = states.find((item) => item.status === "FAILED")?._count._all ?? 0;
 
-        // SENT means Expo accepted every push ticket; it is not a confirmation
-        // that the operating system displayed the notification on the device.
+        // SENT retains its existing meaning: Expo accepted at least one device ticket.
+        // Per-device states retain the exact outcome for every registration.
         await this.prisma.appNotification.update({
           where: { id: notification.id },
-          data: { deliveryStatus: "SENT", sentAt: new Date() },
+          data: {
+            deliveryStatus: pendingCount > 0 ? "PENDING" : acceptedCount > 0 ? "SENT" : failedCount > 0 ? "FAILED" : "IN_APP_ONLY",
+            ...(acceptedCount > 0 ? { sentAt: new Date() } : {}),
+          },
         });
+        if (accepted > 0 || pendingRetry > 0) {
+          this.logger.log(`Push notification ${notification.id}: ${acceptedCount} device(s) accepted, ${pendingCount} pending, ${failedCount} failed.`);
+        }
       } catch (error) {
         const attempts = notification.attempts + 1;
         await this.prisma.appNotification.update({
           where: { id: notification.id },
           data: { deliveryStatus: attempts >= 5 ? "FAILED" : "PENDING" },
         });
-        this.logger.warn(
-          `Push notification ${notification.id} failed on attempt ${attempts}/5: ${String(error)}`,
-        );
+        this.logger.warn(`Push notification ${notification.id} failed on attempt ${attempts}/5: ${String(error)}`);
       }
     }
   }
-}
+
+  private async pollExpoPushReceipts() {
+    const accepted = await this.prisma.notificationDeviceDelivery.findMany({
+      where: {
+        status: "ACCEPTED",
+        expoTicketId: { not: null },
+        acceptedAt: { lte: new Date(Date.now() - 15 * 60_000) },
+        receiptCheckedAt: null,
+      },
+      take: 100,
+      orderBy: { acceptedAt: "asc" },
+      include: { pushDevice: { select: { id: true } } },
+    });
+    for (let offset = 0; offset < accepted.length; offset += 300) {
+      const batch = accepted.slice(offset, offset + 300);
+      try {
+        const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          signal: AbortSignal.timeout(12_000),
+          body: JSON.stringify({ ids: batch.map((item) => item.expoTicketId) }),
+        });
+        if (!response.ok) throw new Error(`Expo receipts HTTP ${response.status}`);
+        const payload = await response.json() as { data?: Record<string, { status?: string; message?: string; details?: { error?: string } }> };
+        for (const delivery of batch) {
+          const receipt = payload.data?.[delivery.expoTicketId!];
+          if (!receipt) continue;
+          const errorCode = receipt.details?.error;
+          if (receipt.status === "ok") {
+            await this.prisma.notificationDeviceDelivery.update({
+              where: { id: delivery.id },
+              data: { receiptCheckedAt: new Date(), lastError: null },
+            });
+          } else if (receipt.status === "error") {
+            if (errorCode === "DeviceNotRegistered") {
+              await this.prisma.pushDevice.deleteMany({ where: { id: delivery.pushDeviceId } });
+            }
+            await this.prisma.notificationDeviceDelivery.update({
+              where: { id: delivery.id },
+              data: {
+                status: "FAILED",
+                receiptCheckedAt: new Date(),
+                lastError: `${errorCode ?? "ExpoReceiptError"}: ${receipt.message ?? "Push receipt reported an error"}`.slice(0, 1000),
+              },
+            });
+            this.logger.warn(`Expo receipt failed for notification ${delivery.notificationId}, device ${delivery.pushDeviceId}: ${errorCode ?? "ExpoReceiptError"}`);
+          }
+        }
+      } catch (error) {
+        // Leave receiptCheckedAt null so the next worker cycle safely retries receipt polling.
+        this.logger.warn(`Expo push receipt polling failed: ${String(error)}`);
+      }
+    }
+  }}
