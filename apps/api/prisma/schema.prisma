@@ -372,6 +372,7 @@ model PushDevice {
   lastSeenAt   DateTime @default(now()) @map("last_seen_at")
   createdAt    DateTime @default(now()) @map("created_at")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notificationDeliveries NotificationDeviceDelivery[]
 
   @@index([userId])
   @@map("push_devices")
@@ -389,10 +390,34 @@ model AppNotification {
   sentAt         DateTime?                 @map("sent_at")
   createdAt      DateTime                  @default(now()) @map("created_at")
   user           User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceDeliveries NotificationDeviceDelivery[]
 
   @@index([userId, readAt, createdAt])
   @@index([deliveryStatus, createdAt])
   @@map("app_notifications")
+}
+
+
+model NotificationDeviceDelivery {
+  id              String          @id @default(uuid()) @db.Uuid
+  notificationId  String          @db.Uuid @map("notification_id")
+  pushDeviceId    String          @db.Uuid @map("push_device_id")
+  status          String          @default("PENDING") @db.VarChar(20)
+  attempts        Int             @default(0)
+  nextAttemptAt   DateTime        @default(now()) @map("next_attempt_at")
+  expoTicketId    String?         @unique @map("expo_ticket_id") @db.VarChar(100)
+  acceptedAt      DateTime?       @map("accepted_at")
+  receiptCheckedAt DateTime?      @map("receipt_checked_at")
+  lastError       String?         @map("last_error") @db.VarChar(1000)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  notification    AppNotification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  pushDevice      PushDevice      @relation(fields: [pushDeviceId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, pushDeviceId])
+  @@index([status, nextAttemptAt])
+  @@index([status, acceptedAt, receiptCheckedAt])
+  @@map("notification_device_deliveries")
 }
 
 
