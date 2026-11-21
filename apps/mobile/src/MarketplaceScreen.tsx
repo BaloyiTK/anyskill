@@ -92,6 +92,8 @@ export function MarketplaceScreen(p: Props) {
   const [serviceChatDraft, setServiceChatDraft] = useState("");
   const [serviceChatBusy, setServiceChatBusy] = useState(false);
   const [serviceChatLoading, setServiceChatLoading] = useState(false);
+  const activeChatRequestIdRef = useRef<string | null>(null);
+  const serviceChatLoadVersionRef = useRef(0);
   const [clockNow, setClockNow] = useState(Date.now());
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const [estimateHours, setEstimateHours] = useState("2");
@@ -264,32 +266,57 @@ export function MarketplaceScreen(p: Props) {
   }, [p.mode, myJobs, dismissedActiveJobIds]);
 
   const loadServiceChat = useCallback(async (requestId: string) => {
+    const loadVersion = ++serviceChatLoadVersionRef.current;
     setServiceChatLoading(true);
     try {
       const messages = await apiRequest<ServiceChatMessage[]>("/marketplace/requests/" + requestId + "/chat", {}, true);
-      setServiceChatMessages(messages);
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not load service chat."); }
-    finally { setServiceChatLoading(false); }
+      // Ignore late responses from a chat that is no longer open.
+      if (activeChatRequestIdRef.current === requestId && serviceChatLoadVersionRef.current === loadVersion) {
+        setServiceChatMessages(messages);
+      }
+    } catch (e) {
+      if (activeChatRequestIdRef.current === requestId && serviceChatLoadVersionRef.current === loadVersion) {
+        setError(e instanceof Error ? e.message : "Could not load service chat.");
+      }
+    } finally {
+      if (serviceChatLoadVersionRef.current === loadVersion) setServiceChatLoading(false);
+    }
   }, []);
 
   const sendServiceChatMessage = async (requestId: string) => {
     const body = serviceChatDraft.trim();
-    if (!body || serviceChatBusy) return;
+    if (!body || serviceChatBusy || activeChatRequestIdRef.current !== requestId) return;
     setServiceChatBusy(true); setError("");
     try {
       await apiRequest("/marketplace/requests/" + requestId + "/chat", { method: "POST", body: JSON.stringify({ body }) }, true);
-      setServiceChatDraft("");
-      await loadServiceChat(requestId);
+      // A send already in flight remains attached to its original request,
+      // but must not clear or refresh a different request's chat.
+      if (activeChatRequestIdRef.current === requestId) {
+        setServiceChatDraft("");
+        await loadServiceChat(requestId);
+      }
     } catch (e) { setError(e instanceof Error ? e.message : "Could not send your message."); }
     finally { setServiceChatBusy(false); }
   };
 
   const activeChatRequestId = p.mode === "provider" ? activeProviderJobId : p.mode === "seeker" ? journeyScreen?.requestId ?? null : null;
   useEffect(() => {
-    if (!activeChatRequestId) return;
+    activeChatRequestIdRef.current = activeChatRequestId;
+    // Never leave another service's messages or unsent draft visible when
+    // switching between selected jobs / seeker journeys.
+    setServiceChatMessages([]);
+    setServiceChatDraft("");
+    serviceChatLoadVersionRef.current += 1;
+    if (!activeChatRequestId) {
+      setServiceChatLoading(false);
+      return;
+    }
     void loadServiceChat(activeChatRequestId);
     const timer = setInterval(() => { void loadServiceChat(activeChatRequestId); }, 5000);
-    return () => clearInterval(timer);
+    return () => {
+      clearInterval(timer);
+      serviceChatLoadVersionRef.current += 1;
+    };
   }, [activeChatRequestId, loadServiceChat]);
 
   const acceptRequest = async (request: RequestItem) => {
