@@ -1459,8 +1459,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         }
 
         const failedTickets: string[] = [];
-        for (let index = 0; index < tickets.length; index += 1) {
-          const ticket = tickets[index];
+        for (const [index, ticket] of tickets.entries()) {
           const device = devices[index];
           if (ticket.status === "ok") continue;
 
