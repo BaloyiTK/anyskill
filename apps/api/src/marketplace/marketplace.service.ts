@@ -1441,7 +1441,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         }
 
         const redactPushTokens = (value: string) =>
-          value.replace(/(?:Expo|Exponent)PushToken\\[[^\\]]+\\]/g, "[redacted Expo push token]");
+          value.replace(/(?:Expo|Exponent)PushToken\[[^\]]+\]/g, "[redacted Expo push token]");
         if (!response.ok) {
           const details = payload ? JSON.stringify(payload) : responseText || response.statusText;
           throw new Error(
