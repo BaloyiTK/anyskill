@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { loadGoogleMaps } from "./google-maps-loader.web";
+import { loadGoogleMaps, type GoogleMapsWindow } from "./google-maps-loader.web";
 
 type Props = {
   latitude: number;
@@ -56,7 +56,7 @@ export function MapPinPicker(p: Props) {
   }, []);
 
   useEffect(() => {
-    const google = window.google;
+    const google = (window as GoogleMapsWindow).google;
     const map = mapInstance.current;
     if (!mapReady || !google?.maps || !map) return;
     map.setCenter({ lat: p.latitude, lng: p.longitude });
