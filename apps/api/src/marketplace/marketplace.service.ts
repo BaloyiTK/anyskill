@@ -1159,6 +1159,21 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (this.workerRunning) return;
     this.workerRunning = true;
     try {
+      // Recover work left in-flight by a process crash. Network requests are
+      // bounded by a 12-second timeout, so a two-minute lease is conservative.
+      const staleBefore = new Date(Date.now() - 2 * 60_000);
+      await this.prisma.appNotification.updateMany({
+        where: { deliveryStatus: "SENDING", createdAt: { lt: staleBefore } },
+        data: { deliveryStatus: "PENDING" },
+      });
+      await this.prisma.notificationDeviceDelivery.updateMany({
+        where: { status: "SENDING", updatedAt: { lt: staleBefore }, attempts: { lt: 5 } },
+        data: { status: "PENDING", nextAttemptAt: new Date() },
+      });
+      await this.prisma.notificationDeviceDelivery.updateMany({
+        where: { status: "SENDING", updatedAt: { lt: staleBefore }, attempts: { gte: 5 } },
+        data: { status: "FAILED", lastError: "Delivery worker stopped before completing this attempt." },
+      });
       await this.expandExpiredWaves();
       await this.retryExhaustedRequests();
       await this.dispatchPendingNotifications();
@@ -1382,7 +1397,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   private async dispatchPendingNotifications() {
     const pending = await this.prisma.appNotification.findMany({
-      where: { deliveryStatus: "PENDING", attempts: { lt: 5 } },
+      where: { deliveryStatus: "PENDING" },
       take: 50,
       orderBy: { createdAt: "asc" },
       select: { id: true, userId: true, title: true, body: true, data: true, attempts: true },
@@ -1391,7 +1406,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     for (const notification of pending) {
       const claim = await this.prisma.appNotification.updateMany({
         where: { id: notification.id, deliveryStatus: "PENDING" },
-        data: { deliveryStatus: "SENDING", attempts: { increment: 1 } },
+        data: { deliveryStatus: "SENDING" },
       });
       if (claim.count === 0) continue;
 
@@ -1591,4 +1606,5 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`Expo push receipt polling failed: ${String(error)}`);
       }
     }
-  }}
+  }
+}
