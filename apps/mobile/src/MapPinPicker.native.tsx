@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker } from "react-native-maps";
+import MapView, { Marker, Polyline } from "react-native-maps";
 
 type Props = {
   latitude: number;
@@ -10,6 +10,9 @@ type Props = {
   onSelect: (latitude: number, longitude: number) => void;
   readOnly?: boolean;
   showCenterMarker?: boolean;
+  liveLatitude?: number | null;
+  liveLongitude?: number | null;
+  routeCoordinates?: Array<{ latitude: number; longitude: number }>;
 };
 
 function regionFor(latitude: number, longitude: number, zoom: number) {
@@ -29,8 +32,19 @@ export function MapPinPicker(p: Props) {
   const mapProviderName = Platform.OS === "ios" ? "Apple Maps" : "Google Maps";
 
   useEffect(() => {
+    if (p.routeCoordinates && p.routeCoordinates.length > 1) {
+      mapRef.current?.fitToCoordinates(p.routeCoordinates, { edgePadding: { top: 38, right: 38, bottom: 38, left: 38 }, animated: true });
+      return;
+    }
+    if (p.liveLatitude != null && p.liveLongitude != null && p.selectedLatitude != null && p.selectedLongitude != null) {
+      mapRef.current?.fitToCoordinates([
+        { latitude: p.liveLatitude, longitude: p.liveLongitude },
+        { latitude: p.selectedLatitude, longitude: p.selectedLongitude },
+      ], { edgePadding: { top: 42, right: 42, bottom: 42, left: 42 }, animated: true });
+      return;
+    }
     mapRef.current?.animateToRegion(region, 250);
-  }, [region.latitude, region.longitude, region.latitudeDelta, region.longitudeDelta]);
+  }, [region.latitude, region.longitude, region.latitudeDelta, region.longitudeDelta, p.liveLatitude, p.liveLongitude, p.selectedLatitude, p.selectedLongitude, p.routeCoordinates]);
 
   const changeZoom = (delta: number) => setZoom((current) => Math.max(3, Math.min(19, current + delta)));
 
@@ -60,6 +74,14 @@ export function MapPinPicker(p: Props) {
             description="Selected service location"
             pinColor="#176B55"
           />
+        ) : null}
+        {p.routeCoordinates && p.routeCoordinates.length > 1 ? (
+          <Polyline coordinates={p.routeCoordinates} strokeColor="#176B55" strokeWidth={5} lineCap="round" lineJoin="round" />
+        ) : null}
+        {p.liveLatitude != null && p.liveLongitude != null ? (
+          <Marker coordinate={{ latitude: p.liveLatitude, longitude: p.liveLongitude }} title="Provider live location" description="Live position shared by your selected Provider" anchor={{ x: 0.5, y: 0.5 }}>
+            <View style={styles.currentDot} />
+          </Marker>
         ) : null}
         {p.showCenterMarker ? (
           <Marker
