@@ -313,6 +313,15 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode !== "provider") return;
+
+    // A newly submitted offer must remain in review until the exact response is
+    // represented by a server-created job. Do not let an older job in /my-jobs
+    // pull the Provider into an assessment/service workspace prematurely.
+    if (providerSelectionWatch || providerOfferReview?.status === "OFFERED") {
+      if (activeProviderJobId) setActiveProviderJobId(null);
+      return;
+    }
+
     const currentJob = activeProviderJobId
       ? myJobs.find((job) => job.request.id === activeProviderJobId)
       : null;
@@ -328,7 +337,7 @@ export function MarketplaceScreen(p: Props) {
     if (!activeProviderJobId && nextActiveJob) {
       setActiveProviderJobId(nextActiveJob.request.id);
     }
-  }, [p.mode, myJobs, dismissedActiveJobIds, activeProviderJobId]);
+  }, [p.mode, myJobs, dismissedActiveJobIds, activeProviderJobId, providerSelectionWatch, providerOfferReview?.status]);
 
   const loadServiceChat = useCallback(async (requestId: string) => {
     const loadVersion = ++serviceChatLoadVersionRef.current;
