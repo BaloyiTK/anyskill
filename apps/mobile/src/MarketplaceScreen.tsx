@@ -517,7 +517,9 @@ export function MarketplaceScreen(p: Props) {
     try {
       await apiRequest(`/marketplace/requests/${providerOfferReview.requestId}/offers/${providerOfferReview.responseId}/withdraw`, { method: "POST" }, true);
       setProviderSelectionWatch((current) => current?.requestId === providerOfferReview.requestId && current.responseId === providerOfferReview.responseId ? null : current);
-      setProviderOfferReview((current) => current ? { ...current, status: "WITHDRAWN" } : current);
+      setProviderOfferReview(null);
+      setActiveProviderJobId(null);
+      setNotice("You withdrew your offer. You are back at Provider Home and can wait for another request.");
       await loadRequests();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not withdraw this offer.");
