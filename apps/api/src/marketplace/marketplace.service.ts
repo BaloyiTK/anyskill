@@ -727,40 +727,52 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async declineProviderOffer(seekerId: string, requestId: string, responseId: string) {
-    const request = await this.prisma.serviceRequest.findFirst({
-      where: { id: requestId, seekerId, status: "OPEN" },
-      select: { id: true, matchingWave: true },
-    });
-    if (!request) throw new NotFoundException("This open service request could not be found.");
-    const changed = await this.prisma.providerResponse.updateMany({
-      where: { id: responseId, requestId, status: "OFFERED" },
-      data: { status: "WITHDRAWN" },
-    });
-    if (changed.count !== 1) throw new ConflictException("This Provider offer is no longer available.");
-
-    // Tell the Provider immediately; their app also observes the persisted
-    // WITHDRAWN status and returns them to the Provider Home screen.
-    const providerResponse = await this.prisma.providerResponse.findUnique({
-      where: { id: responseId },
-      select: { providerId: true },
-    });
-    if (providerResponse?.providerId) {
-      await this.prisma.appNotification.create({
-        data: {
-          userId: providerResponse.providerId,
-          title: "Your offer was declined",
-          body: "The Skill Seeker declined your offer. You have been returned to Provider Home and can wait for another request.",
-          data: { type: "PROVIDER_OFFER_DECLINED", requestId, responseId },
-        },
+    // The offer transition and Provider notification are one atomic operation.
+    // The relation predicate prevents a decline racing with Seeker selection or
+    // whole-request cancellation from overwriting the winning terminal state.
+    const request = await this.prisma.$transaction(async (tx) => {
+      const ownedRequest = await tx.serviceRequest.findFirst({
+        where: { id: requestId, seekerId, status: "OPEN" },
+        select: { id: true, matchingWave: true },
       });
-    }
+      if (!ownedRequest) throw new NotFoundException("This open service request could not be found.");
 
-    // Hand off immediately instead of waiting for the background poller.
-    // dispatchNextWave excludes every Provider already recorded in request_matches.
-    await this.prisma.serviceRequest.updateMany({
-      where: { id: requestId, seekerId, status: "OPEN" },
-      data: { matchingNextAt: null, matchingExhaustedAt: null },
+      const changed = await tx.providerResponse.updateMany({
+        where: {
+          id: responseId,
+          requestId,
+          status: "OFFERED",
+          request: { is: { id: requestId, seekerId, status: "OPEN" } },
+        },
+        data: { status: "WITHDRAWN" },
+      });
+      if (changed.count !== 1) {
+        throw new ConflictException("This Provider offer is no longer available. The request may already have been selected or cancelled.");
+      }
+
+      const offer = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, status: "WITHDRAWN" },
+        select: { providerId: true },
+      });
+      if (offer?.providerId) {
+        await tx.appNotification.create({
+          data: {
+            userId: offer.providerId,
+            title: "Your offer was declined",
+            body: "The Skill Seeker declined your offer. You have been returned to Provider Home and can wait for another request.",
+            data: { type: "PROVIDER_OFFER_DECLINED", requestId, responseId },
+          },
+        });
+      }
+      await tx.serviceRequest.updateMany({
+        where: { id: requestId, seekerId, status: "OPEN" },
+        data: { matchingNextAt: null, matchingExhaustedAt: null },
+      });
+      return ownedRequest;
     });
+
+    // Dispatch only after the decision is committed. The worker and matching
+    // lease still provide recovery if this process stops after the commit.
     const matching = await this.dispatchNextWave(requestId, request.matchingWave + 1);
     return { success: true, requestId, responseId, status: "WITHDRAWN", matching };
   }
@@ -788,10 +800,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (claimed.count !== 1) throw new ConflictException("Another selection or request update has already closed this request.");
 
-      await tx.providerResponse.update({
-        where: { id: offer.id },
+      // Compare-and-set the exact offer. If a decline/withdrawal won the
+      // race after the initial read, abort the transaction and reopen nothing.
+      const selected = await tx.providerResponse.updateMany({
+        where: { id: offer.id, requestId, providerId: offer.providerId, status: "OFFERED" },
         data: { status: "SELECTED" },
       });
+      if (selected.count !== 1) {
+        throw new ConflictException("This Provider offer was changed before selection could be completed. Refresh and try again.");
+      }
       await tx.providerResponse.updateMany({
         where: { requestId, id: { not: offer.id }, status: "OFFERED" },
         data: { status: "WITHDRAWN" },
