@@ -1368,7 +1368,15 @@ export function MarketplaceScreen(p: Props) {
           const profile = activeOffer?.provider.providerProfile;
           const rating = profile?.ratings;
           return activeOffer ? (
-            <ScrollView style={{ flex: 1, marginTop: 18 }} contentContainerStyle={{ paddingBottom: 28 }}>
+            <View style={{ flex: 1, justifyContent: "flex-end" }}>
+              <Pressable onPress={() => { setActiveOfferId(null); setShowProviderProfile(false); }} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10, 24, 18, 0.38)" }} />
+              <View style={{ maxHeight: "90%", backgroundColor: "#F6F8F6", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingTop: 10, paddingHorizontal: 20, paddingBottom: 18, borderWidth: 1, borderColor: "#DCE8E1" }}>
+                <View style={{ width: 42, height: 5, borderRadius: 3, backgroundColor: "#C8D3CC", alignSelf: "center", marginBottom: 8 }} />
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>NEW PROVIDER OFFER</Text>
+                  <Pressable onPress={() => { setActiveOfferId(null); setShowProviderProfile(false); }}><Text style={{ color: "#53645A", fontWeight: "900", padding: 8 }}>Close</Text></Pressable>
+                </View>
+                <ScrollView style={{ marginTop: 4 }} contentContainerStyle={{ paddingBottom: 24 }}>
               <Pressable onPress={() => { setActiveOfferId(null); setShowProviderProfile(false); }} style={{ paddingVertical: 10 }}><Text style={{ color: "#176B55", fontWeight: "800" }}>‹ Back to matching</Text></Pressable>
               {showProviderProfile ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 22, padding: 20, marginTop: 16 }}>
                 <Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900" }}>Provider profile</Text>
@@ -1393,6 +1401,11 @@ export function MarketplaceScreen(p: Props) {
                     {[["SKILL", matchingRequest.skillCategory], ["EXPERIENCE", profile?.experience || "Not provided"], ["DISTANCE", profile?.distanceKm == null ? "Not available" : `${profile.distanceKm.toFixed(1)} km away`], ["AVAILABILITY", profile?.isAvailable ? "Available now" : "Currently unavailable"]].map(([label,value]) => <View key={label} style={{ width: "50%", paddingVertical: 10 }}><Text style={{ color: "#829087", fontSize: 9, fontWeight: "900" }}>{label}</Text><Text style={{ color: "#24352D", fontSize: 14, fontWeight: "800", marginTop: 5 }}>{value}</Text></View>)}
                   </View>
                   <View style={{ backgroundColor: "#15251E", borderRadius: 16, padding: 16, marginTop: 8 }}><Text style={{ color: "#C8D9D0", fontSize: 10, fontWeight: "900" }}>PROVIDER'S HOURLY RATE</Text><Text style={{ color: "#FFFFFF", fontSize: 26, fontWeight: "900", marginTop: 5 }}>{activeOffer.hourlyRateAtOffer == null ? "To be confirmed" : `R ${Number(activeOffer.hourlyRateAtOffer).toFixed(2)}`}<Text style={{ color: "#D4E0D9", fontSize: 12 }}> / hr</Text></Text></View>
+                  <View style={{ backgroundColor: "#EAF1EC", borderRadius: 14, padding: 14, marginTop: 9 }}>
+                    <Text style={{ color: "#53645A", fontSize: 10, fontWeight: "900" }}>ASSESSMENT / CALL-OUT FEE</Text>
+                    <Text style={{ color: "#15251E", fontSize: 20, fontWeight: "900", marginTop: 5 }}>{activeOffer.assessmentFeeAtOffer == null ? "To be confirmed" : Number(activeOffer.assessmentFeeAtOffer) === 0 ? "No assessment fee" : `R ${Number(activeOffer.assessmentFeeAtOffer).toFixed(2)}`}</Text>
+                  </View>
+                  <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 10 }}>Review the Provider's rate and call-out fee before accepting. Any additional work or charges must be agreed with you before proceeding.</Text>
                   <Pressable onPress={() => setShowProviderProfile(true)} style={{ paddingVertical: 16, alignItems: "center" }}><Text style={{ color: "#176B55", fontWeight: "900" }}>View full Provider profile →</Text></Pressable>
                   <Text style={{ color: "#829087", fontSize: 10, textAlign: "center" }}>Identity verification confirms identity only.</Text>
                 </View>
@@ -1403,7 +1416,9 @@ export function MarketplaceScreen(p: Props) {
                 </Pressable>
                 <Pressable onPress={() => void selectProvider(matchingRequest.id, activeOffer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", marginTop: 10 }}>{selectingOfferId === activeOffer.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Accept offer</Text>}</Pressable>
               </>}
-            </ScrollView>
+                </ScrollView>
+              </View>
+            </View>
           ) : (
           <>            <View style={{ alignItems: "center", marginTop: 35 }}>
               {timedOut ? <Text style={{ color: "#9A5B00", fontSize: 12, fontWeight: "900" }}>LIVE SEARCH TIME LIMIT REACHED</Text> : <ActivityIndicator size="large" color="#0066CC" />}
@@ -1446,13 +1461,13 @@ export function MarketplaceScreen(p: Props) {
             {providerOfferReview?.status === "OFFERED" ? <ActivityIndicator size="large" color="#176B55" /> : <Text style={{ color: "#176B55", fontSize: 34, fontWeight: "900" }}>{providerOfferReview?.status === "SELECTED" ? "✓" : "!"}</Text>}
           </View>
           <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.4, marginTop: 26 }}>
-            {providerOfferReview?.status === "SELECTED" ? "OFFER ACCEPTED" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "OFFER NO LONGER UNDER REVIEW" : "OFFER SUBMITTED"}
+            {providerOfferReview?.status === "SELECTED" ? "OFFER ACCEPTED" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "OFFER NO LONGER UNDER REVIEW" : "OFFER SENT"}
           </Text>
           <Text style={{ color: "#15251E", fontSize: 28, lineHeight: 35, fontWeight: "900", textAlign: "center", marginTop: 10 }}>
-            {providerOfferReview?.status === "SELECTED" ? "The Seeker selected you!" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "This offer is no longer active" : "The Seeker is reviewing your offer"}
+            {providerOfferReview?.status === "SELECTED" ? "The Seeker selected you!" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "This offer is no longer active" : "Your offer is being reviewed"}
           </Text>
           <Text style={{ color: "#66756D", fontSize: 14, lineHeight: 22, textAlign: "center", marginTop: 12 }}>
-            {providerOfferReview?.status === "SELECTED" ? "Congratulations. Your offer was accepted. Your active service workspace is opening with the Seeker's details, route and chat." : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "The Seeker did not proceed with this offer. You can continue exploring other available requests." : "Your offer has been sent successfully to the Skill Seeker. Please wait while they compare the offers and make their decision. You do not need to accept again."}
+            {providerOfferReview?.status === "SELECTED" ? "Congratulations. Your offer was accepted. Your active service workspace is opening with the Seeker's details, route and chat." : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "The Seeker did not proceed with this offer. You can continue exploring other available requests." : "Your offer has been sent to the Skill Seeker and is now being reviewed. They may compare it with other offers before choosing a Provider. You do not need to send it again."}
           </Text>
         </View>
         <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#E1E8E3", padding: 18, marginTop: 30 }}>
@@ -1461,7 +1476,7 @@ export function MarketplaceScreen(p: Props) {
           <Text style={{ color: "#176B55", fontSize: 13, fontWeight: "800", marginTop: 5 }}>{providerOfferReview?.skillCategory}</Text>
           <Text style={{ color: "#66756D", fontSize: 12, marginTop: 12 }}>Sent to {providerOfferReview?.seekerName}</Text>
           <View style={{ backgroundColor: "#F1F6F2", borderRadius: 11, padding: 12, marginTop: 15 }}>
-            <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>{providerOfferReview?.status === "SELECTED" ? "SELECTED BY SEEKER" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "NOT SELECTED" : "PENDING SEEKER DECISION"}</Text>
+            <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>{providerOfferReview?.status === "SELECTED" ? "SELECTED BY SEEKER" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "NOT SELECTED" : "AWAITING SEEKER REVIEW"}</Text>
             <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{providerOfferReview?.status === "OFFERED" ? "AnySkill will update this screen when the Seeker makes a decision. Keep your app available for updates." : providerOfferReview?.status === "SELECTED" ? "Your accepted service workspace is ready." : "This offer has been closed. You can still respond to other matched requests."}</Text>
           </View>
         </View>
