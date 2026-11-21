@@ -1,10 +1,12 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   OnModuleDestroy,
   OnModuleInit,
 } from "@nestjs/common";
