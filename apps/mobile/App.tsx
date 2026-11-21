@@ -362,9 +362,10 @@ export default function App() {
             return current;
           }
 
+          const previews = currentPreviews ?? refreshedPreviews;
           return {
             ...identityStatus,
-            previews: currentPreviews ?? refreshedPreviews,
+            ...(previews ? { previews } : {}),
           };
         });
         const currentIdentityStatus = (identityStatus.latestCase?.status ?? identityStatus.status).toLowerCase();
