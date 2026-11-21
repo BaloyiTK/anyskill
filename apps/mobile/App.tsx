@@ -348,9 +348,25 @@ export default function App() {
         setRoleSummary((current) =>
           current && JSON.stringify(current) === JSON.stringify(roles) ? current : roles,
         );
-        setIdentity((current) =>
-          current && JSON.stringify(current) === JSON.stringify(identityStatus) ? current : identityStatus,
-        );
+        setIdentity((current) => {
+          if (!current) return identityStatus;
+
+          // The identity endpoint may return a newly signed preview URL on
+          // every poll. That URL can change while the underlying selfie does
+          // not, which would remount/reload the header image unnecessarily.
+          // Compare the actual verification data separately and keep the
+          // already-loaded preview during background polling.
+          const { previews: currentPreviews, ...currentDetails } = current;
+          const { previews: refreshedPreviews, ...refreshedDetails } = identityStatus;
+          if (JSON.stringify(currentDetails) === JSON.stringify(refreshedDetails)) {
+            return current;
+          }
+
+          return {
+            ...identityStatus,
+            previews: currentPreviews ?? refreshedPreviews,
+          };
+        });
         const currentIdentityStatus = (identityStatus.latestCase?.status ?? identityStatus.status).toLowerCase();
         if (roles.providerStatus === "ACTIVE" && ["verified", "approved"].includes(currentIdentityStatus)) {
           setMode("provider");
