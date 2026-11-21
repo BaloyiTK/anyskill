@@ -275,20 +275,21 @@ export function MarketplaceScreen(p: Props) {
     if (p.mode !== "provider") return;
     const responseUpdates = requests.filter((item) => item.myResponse);
     if (!responseUpdates.length) return;
-    setProviderOfferReview((current) => {
-      if (!current) {
-        const pending = responseUpdates.find((item) => item.myResponse?.status === "OFFERED"
-          && !dismissedProviderOfferIds.includes(item.myResponse.id));
-        if (!pending?.myResponse) return current;
-        setProviderSelectionWatch({ requestId: pending.id, responseId: pending.myResponse.id });
-        const seekerName = [pending.seeker?.firstName, pending.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
-        return { requestId: pending.id, title: pending.title, skillCategory: pending.skillCategory, seekerName, responseId: pending.myResponse.id, status: pending.myResponse.status };
-      }
-      const updated = responseUpdates.find((item) => item.id === current.requestId);
-      if (!updated?.myResponse || updated.myResponse.id !== current.responseId) return current;
-      return updated.myResponse.status === current.status ? current : { ...current, status: updated.myResponse.status };
-    });
-  }, [p.mode, requests, dismissedProviderOfferIds]);
+    if (!providerOfferReview) {
+      const pending = responseUpdates.find((item) => item.myResponse?.status === "OFFERED"
+        && !dismissedProviderOfferIds.includes(item.myResponse.id));
+      if (!pending?.myResponse) return;
+      setProviderSelectionWatch({ requestId: pending.id, responseId: pending.myResponse.id });
+      const seekerName = [pending.seeker?.firstName, pending.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
+      setProviderOfferReview({ requestId: pending.id, title: pending.title, skillCategory: pending.skillCategory, seekerName, responseId: pending.myResponse.id, status: pending.myResponse.status });
+      return;
+    }
+    const updated = responseUpdates.find((item) => item.id === providerOfferReview.requestId);
+    if (!updated?.myResponse || updated.myResponse.id !== providerOfferReview.responseId) return;
+    if (updated.myResponse.status !== providerOfferReview.status) {
+      setProviderOfferReview({ ...providerOfferReview, status: updated.myResponse.status });
+    }
+  }, [p.mode, requests, dismissedProviderOfferIds, providerOfferReview]);
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerSelectionWatch) return;
