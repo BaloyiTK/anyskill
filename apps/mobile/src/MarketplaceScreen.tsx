@@ -293,8 +293,21 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerSelectionWatch) return;
-    // Watch independently of the review modal: closing "Offer being reviewed"
-    // must not discard the response ID needed to detect the later selection.
+    // The incoming-request endpoint is the authoritative offer-status source.
+    // Poll it while this exact offer awaits a decision, including after the
+    // Seeker closes the request by selecting this Provider.
+    void loadRequests();
+    const timer = setInterval(() => { void loadRequests(); }, 3000);
+    return () => clearInterval(timer);
+  }, [p.mode, providerSelectionWatch?.responseId, loadRequests]);
+
+  useEffect(() => {
+    if (p.mode !== "provider" || !providerSelectionWatch) return;
+    // Require two independent server confirmations: the exact offer must now
+    // be SELECTED, and the selected-job endpoint must return its matching job.
+    // A stale/unrelated job can never advance an offer still under review.
+    const confirmedOffer = requests.find((item) => item.id === providerSelectionWatch.requestId)?.myResponse;
+    if (confirmedOffer?.id !== providerSelectionWatch.responseId || confirmedOffer.status !== "SELECTED") return;
     const selectedJob = myJobs.find((job) =>
       job.request.id === providerSelectionWatch.requestId
       && job.responseId === providerSelectionWatch.responseId,
@@ -309,7 +322,7 @@ export function MarketplaceScreen(p: Props) {
         ? null
         : current,
     );
-  }, [p.mode, myJobs, providerSelectionWatch]);
+  }, [p.mode, requests, myJobs, providerSelectionWatch]);
 
   useEffect(() => {
     if (p.mode !== "provider") return;
