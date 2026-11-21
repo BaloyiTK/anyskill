@@ -26,6 +26,7 @@ class CreateMediaUploadDto {
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
 }
 class ConfirmMediaUploadDto { @IsString() @MaxLength(64) assetId!: string; }
+class SendServiceChatMessageDto { @IsString() @MaxLength(2000) body!: string; }
 
 class CursorQuery {
   @IsOptional()
@@ -74,6 +75,12 @@ export class MarketplaceController {
     return this.marketplace.listIncomingRequests(user.id, query.cursor);
   }
 
+  @Get("marketplace/provider-profile/availability")
+  @RequireMarketplaceRole("PROVIDER")
+  providerAvailability(@CurrentUser() user: AuthenticatedUser) {
+    return this.marketplace.getProviderAvailability(user.id);
+  }
+
   @Get("marketplace/my-requests")
   @RequireMarketplaceRole("SEEKER")
   myRequests(@CurrentUser() user: AuthenticatedUser) {
@@ -93,16 +100,48 @@ export class MarketplaceController {
   }
 
 
+  @Post("marketplace/requests/:requestId/decline")
+  @RequireMarketplaceRole("PROVIDER")
+  declineIncomingRequest(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.declineIncomingRequest(user.id, requestId);
+  }
+
   @Post("marketplace/requests/:requestId/cancel")
   @RequireMarketplaceRole("SEEKER")
   cancelRequest(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
     return this.marketplace.cancelRequest(user.id, requestId);
   }
 
+  @Post("marketplace/requests/:requestId/provider-cancel")
+  @RequireMarketplaceRole("PROVIDER")
+  cancelSelectedJob(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.cancelSelectedJob(user.id, requestId);
+  }
+
+  @Post("marketplace/requests/:requestId/offers/:responseId/withdraw")
+  @RequireMarketplaceRole("PROVIDER")
+  withdrawProviderOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Param("responseId", new ParseUUIDPipe()) responseId: string,
+  ) {
+    return this.marketplace.withdrawProviderOffer(user.id, requestId, responseId);
+  }
+
   @Post("marketplace/requests/:requestId/schedule")
   @RequireMarketplaceRole("SEEKER")
   scheduleRequest(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: ScheduleServiceRequestDto) {
     return this.marketplace.scheduleRequest(user.id, requestId, dto);
+  }
+
+  @Post("marketplace/requests/:requestId/offers/:responseId/decline")
+  @RequireMarketplaceRole("SEEKER")
+  declineProviderOffer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Param("responseId", new ParseUUIDPipe()) responseId: string,
+  ) {
+    return this.marketplace.declineProviderOffer(user.id, requestId, responseId);
   }
 
   @Post("marketplace/requests/:requestId/select-provider")
@@ -133,6 +172,27 @@ export class MarketplaceController {
   @RequireMarketplaceRole("SEEKER")
   decideJobCompletion(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Param("submissionId", new ParseUUIDPipe()) submissionId: string, @Body() dto: DecideJobCompletionDto) {
     return this.marketplace.decideJobCompletion(user.id, requestId, submissionId, dto);
+  }
+
+  @Get("marketplace/requests/:requestId/chat")
+  getServiceChat(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.listServiceChatMessages(user.id, requestId);
+  }
+
+  @Post("marketplace/requests/:requestId/chat")
+  sendServiceChat(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: SendServiceChatMessageDto) {
+    return this.marketplace.sendServiceChatMessage(user.id, requestId, dto.body);
+  }
+
+  @Get("marketplace/requests/:requestId/provider-route")
+  @RequireMarketplaceRole("PROVIDER")
+  getProviderRoute(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Query("originLatitude") originLatitude: string,
+    @Query("originLongitude") originLongitude: string,
+  ) {
+    return this.marketplace.getProviderRoute(user.id, requestId, originLatitude, originLongitude);
   }
 
   @Get("marketplace/my-jobs")

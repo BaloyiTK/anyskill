@@ -1,6 +1,16 @@
-import { Platform, StyleSheet, View } from "react-native";
-import { AppleMaps, GoogleMaps } from "expo-maps";
+import { useEffect, useMemo, useRef } from "react";
+import { StyleSheet } from "react-native";
+import MapView, { Circle, Marker } from "react-native-maps";
 import type { WelcomeMapProps } from "./WelcomeMap.types";
+
+function regionFor(center: WelcomeMapProps["center"], zoom: number) {
+  const latitudeDelta = Math.min(150, 360 / 2 ** zoom);
+  return {
+    ...center,
+    latitudeDelta,
+    longitudeDelta: Math.min(360, latitudeDelta / Math.max(0.2, Math.cos(center.latitude * Math.PI / 180))),
+  };
+}
 
 export default function WelcomeMap({
   center,
@@ -8,72 +18,47 @@ export default function WelcomeMap({
   radiusKm,
   seekerLocation,
   markers,
+  selectedMarkerId,
   onSelectMarker,
 }: WelcomeMapProps) {
-  const circles = [{
-    id: "search-radius",
-    center,
-    radius: radiusKm * 1000,
-    color: "rgba(76,175,80,0.10)",
-    lineColor: "#26845F",
-    lineWidth: 2,
-  }];
+  const mapRef = useRef<MapView | null>(null);
+  const region = useMemo(() => regionFor(center, zoom), [center.latitude, center.longitude, zoom]);
 
-  // Keep the seeker's location as a normal map annotation. This avoids
-  // depending on the device's native "my location" layer/permission state.
-  const nativeMarkers = [
-    ...markers.map((marker) => ({
-      id: marker.id,
-      coordinates: marker.coordinates,
-      title: marker.title,
-      snippet: marker.snippet,
-      showCallout: true,
-    })),
-    ...(seekerLocation ? [{
-      id: "seeker-location",
-      coordinates: seekerLocation,
-      title: "Your location",
-      snippet: "Your current position",
-      showCallout: false,
-    }] : []),
-  ];
+  useEffect(() => {
+    mapRef.current?.animateToRegion(region, 250);
+  }, [region.latitude, region.longitude, region.latitudeDelta, region.longitudeDelta]);
 
-  const handleMarkerClick = (marker: { id?: string | null }) => {
-    if (!marker.id || marker.id === "seeker-location") {
-      onSelectMarker(null);
-      return;
-    }
-    onSelectMarker(marker.id);
-  };
-
-  if (Platform.OS === "android") {
-    return <GoogleMaps.View
-      // Do not key the native map by coordinates: changing a GPS fix or
-      // search centre must update the existing map, not destroy/recreate it.
-      style={StyleSheet.absoluteFill}
-      cameraPosition={{ coordinates: center, zoom }}
-      circles={circles}
-      markers={nativeMarkers}
-      onMarkerClick={handleMarkerClick}
-      properties={{ isBuildingEnabled: true, isIndoorEnabled: true, isMyLocationEnabled: false }}
-      uiSettings={{ compassEnabled: true, zoomControlsEnabled: false, myLocationButtonEnabled: false, scrollGesturesEnabled: true, zoomGesturesEnabled: true }}
-    />;
-  }
-
-  if (Platform.OS === "ios") {
-    return <AppleMaps.View
-      style={StyleSheet.absoluteFill}
-      cameraPosition={{ coordinates: center, zoom }}
-      circles={circles}
-      annotations={nativeMarkers.map((marker) => ({
-        id: marker.id,
-        coordinates: marker.coordinates,
-        title: marker.title,
-        text: marker.snippet,
-      }))}
-      onAnnotationClick={handleMarkerClick}
-    />;
-  }
-
-  return <View style={StyleSheet.absoluteFill} />;
+  // react-native-maps defaults to Google Maps on Android and Apple Maps on iOS.
+  return <MapView
+    ref={mapRef}
+    style={StyleSheet.absoluteFill}
+    initialRegion={region}
+    mapType="standard"
+    showsCompass
+    showsScale
+    toolbarEnabled={false}
+    onPress={() => onSelectMarker(null)}
+  >
+    <Circle
+      center={center}
+      radius={radiusKm * 1000}
+      fillColor="rgba(76,175,80,0.10)"
+      strokeColor="#26845F"
+      strokeWidth={2}
+    />
+    {seekerLocation ? (
+      <Marker coordinate={seekerLocation} title="Your location" description="Your current position" pinColor="#0066CC" />
+    ) : null}
+    {markers.map((marker) => (
+      <Marker
+        key={marker.id}
+        identifier={marker.id}
+        coordinate={marker.coordinates}
+        title={marker.title}
+        description={marker.snippet}
+        pinColor={marker.id === selectedMarkerId ? "#176B55" : "#13875E"}
+        onPress={() => onSelectMarker(marker.id)}
+      />
+    ))}
+  </MapView>;
 }

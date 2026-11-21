@@ -1,10 +1,12 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
   OnModuleDestroy,
   OnModuleInit,
 } from "@nestjs/common";
@@ -23,7 +25,9 @@ import {
 type RankedProvider = { userId: string; score: number };
 const normalise = (value: string) => value.trim().toLocaleLowerCase("en-ZA");
 const RESPONSE_WINDOW_MS = Math.max(60, Number(process.env.MATCH_RESPONSE_WINDOW_SECONDS ?? 300)) * 1000;
-const WAVE_SIZE = Math.max(1, Math.min(25, Number(process.env.MATCH_WAVE_SIZE ?? 5)));
+// Offer one ranked Provider at a time. A decline or response timeout advances to the next
+// eligible Provider; if the ranked shortlist is exhausted, the matching worker retries later.
+const WAVE_SIZE = 1;
 const LIVE_MATCHING_WINDOW_MS = 30 * 60 * 1000;
 const LIVE_LOCATION_MAX_AGE_MS = 30_000;
 const MAX_LIVE_LOCATION_ACCURACY_M = 50;
@@ -228,6 +232,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return updated;
   }
 
+  async getProviderAvailability(userId: string) {
+    const profile = await this.prisma.providerProfile.findUnique({
+      where: { userId },
+      select: { isAvailable: true },
+    });
+    return { isAvailable: profile?.isAvailable === true };
+  }
+
   async getProviderProfile(userId: string) {
     const profile = await this.prisma.providerProfile.findUnique({
       where: { userId },
@@ -357,8 +369,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const [requests, providerProfile] = await Promise.all([
       this.prisma.serviceRequest.findMany({
         where: {
-          status: "OPEN",
-          matches: { some: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] } } },
+          OR: [
+            { status: "OPEN", matches: { some: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] } } } },
+            { providerResponses: { some: { providerId, status: "WITHDRAWN" } } },
+          ],
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: 21,
@@ -467,8 +481,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             hourlyRateAtOffer: true, assessmentFeeAtOffer: true,
             provider: {
               select: {
+                phone: true,
                 providerProfile: {
-                  select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true },
+                  select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, liveLatitude: true, liveLongitude: true, liveLocationUpdatedAt: true },
                 },
               },
             },
@@ -492,6 +507,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           }),
         ])
       : [[], []];
+    const providerUsers = providerIds.length ? await this.prisma.user.findMany({
+      where: { id: { in: providerIds } },
+      select: { id: true, identityVerification: true, onboardingDraft: { select: { skills: true } } },
+    }) : [];
     return requests.map((request) => ({
       ...request,
       jobEngagement: request.jobEngagement ? { ...request.jobEngagement, serverNow } : null,
@@ -505,12 +524,54 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const skillCount = skillGroup?._count._all ?? 0;
         const overall = overallGroup?._avg.platformRating ?? null;
         const skill = skillGroup?._avg.skillRating ?? null;
+        const providerUser = providerUsers.find((item) => item.id === response.providerId);
         return {
           ...response,
           provider: {
             ...response.provider,
+            phone: request.jobEngagement?.providerId === response.providerId
+              && !["COMPLETED", "CANCELLED"].includes(request.jobEngagement.status)
+              ? response.provider.phone ?? null : null,
             providerProfile: {
-              ...profile,
+              publicName: profile.publicName,
+              hourlyRate: profile.hourlyRate,
+              assessmentFee: profile.assessmentFee,
+              skillCategories: profile.skillCategories,
+              serviceAreas: profile.serviceAreas,
+              deliveryModes: profile.deliveryModes,
+              isAvailable: profile.isAvailable,
+              liveLatitude: request.jobEngagement?.providerId === response.providerId
+                && !["COMPLETED", "CANCELLED"].includes(request.jobEngagement.status)
+                && profile.liveLocationUpdatedAt != null
+                && Date.now() - profile.liveLocationUpdatedAt.getTime() <= 60_000
+                ? profile.liveLatitude : null,
+              liveLongitude: request.jobEngagement?.providerId === response.providerId
+                && !["COMPLETED", "CANCELLED"].includes(request.jobEngagement.status)
+                && profile.liveLocationUpdatedAt != null
+                && Date.now() - profile.liveLocationUpdatedAt.getTime() <= 60_000
+                ? profile.liveLongitude : null,
+              liveLocationUpdatedAt: request.jobEngagement?.providerId === response.providerId
+                && !["COMPLETED", "CANCELLED"].includes(request.jobEngagement.status)
+                && profile.liveLocationUpdatedAt != null
+                && Date.now() - profile.liveLocationUpdatedAt.getTime() <= 60_000
+                ? profile.liveLocationUpdatedAt : null,
+              identityVerified: providerUser?.identityVerification === "VERIFIED",
+              experience: (() => {
+                const skills = providerUser?.onboardingDraft?.skills;
+                if (!Array.isArray(skills)) return null;
+                const requested = normalise(request.skillCategory).replace(/[^\p{L}\p{N}]+/gu, "");
+                const entry = skills.find((item) => item && typeof item === "object" && !Array.isArray(item)
+                  && normalise(String((item as Record<string, unknown>).category ?? "")).replace(/[^\p{L}\p{N}]+/gu, "") === requested) as Record<string, unknown> | undefined;
+                return typeof entry?.yearsOfExperience === "string" ? entry.yearsOfExperience : entry?.yearsOfExperience == null ? null : String(entry.yearsOfExperience);
+              })(),
+              distanceKm: (() => {
+                if (request.latitude == null || request.longitude == null || profile.liveLatitude == null || profile.liveLongitude == null) return null;
+                const radians = (value: number) => value * Math.PI / 180;
+                const dLat = radians(profile.liveLatitude - request.latitude);
+                const dLon = radians(profile.liveLongitude - request.longitude);
+                const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(request.latitude)) * Math.cos(radians(profile.liveLatitude)) * Math.sin(dLon / 2) ** 2;
+                return Math.round(6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
+              })(),
               ratings: {
                 overall: overall == null ? 5 : Number(overall.toFixed(1)),
                 overallReviewCount: overallCount,
@@ -527,22 +588,119 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cancelRequest(seekerId: string, requestId: string) {
-    const request = await this.prisma.serviceRequest.findFirst({
-      where: { id: requestId, seekerId },
-      select: { id: true, status: true },
+    return this.prisma.$transaction(async (tx) => {
+      const request = await tx.serviceRequest.findFirst({
+        where: { id: requestId, seekerId },
+        select: { id: true, title: true, status: true },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+
+      if (request.status === "CLOSED") {
+        const job = await tx.jobEngagement.findUnique({
+          where: { requestId },
+          select: { id: true, providerId: true, status: true },
+        });
+        if (!job || !job.providerId) throw new NotFoundException("The selected service could not be found.");
+        if (!["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED"].includes(job.status)) {
+          throw new ConflictException("A service can only be cancelled before work starts.");
+        }
+        const changed = await tx.jobEngagement.updateMany({
+          where: { id: job.id, status: job.status },
+          data: { status: "CANCELLED" },
+        });
+        if (changed.count !== 1) throw new ConflictException("The service changed. Refresh and try again.");
+        await tx.serviceRequest.updateMany({ where: { id: requestId, seekerId, status: "CLOSED" }, data: { status: "CANCELLED", matchingNextAt: null } });
+        await tx.appNotification.create({
+          data: {
+            userId: job.providerId,
+            title: "Service cancelled by Skill Seeker",
+            body: `The Skill Seeker cancelled "${request.title}". You have been returned to your Provider Home screen.`,
+            data: { type: "SERVICE_CANCELLED_BY_SEEKER", requestId },
+          },
+        });
+        return { success: true, requestId, status: "CANCELLED" };
+      }
+
+      if (request.status !== "OPEN") throw new ConflictException("This request can no longer be cancelled.");
+      const changed = await tx.serviceRequest.updateMany({
+        where: { id: requestId, seekerId, status: "OPEN" },
+        data: { status: "CANCELLED", matchingNextAt: null },
+      });
+      if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
+      await tx.requestMatch.updateMany({
+        where: { requestId, status: { in: ["NOTIFIED", "RESPONDED"] } },
+        data: { status: "EXPIRED" },
+      });
+      const pendingOffers = await tx.providerResponse.findMany({
+        where: { requestId, status: "OFFERED", providerId: { not: null } },
+        select: { id: true, providerId: true },
+      });
+      await tx.providerResponse.updateMany({
+        where: { requestId, status: "OFFERED" },
+        data: { status: "WITHDRAWN" },
+      });
+      if (pendingOffers.length) await tx.appNotification.createMany({
+        data: pendingOffers.flatMap((offer) => offer.providerId ? [{
+          userId: offer.providerId,
+          title: "Service request cancelled",
+          body: "The Skill Seeker cancelled this request. Your pending offer is now closed.",
+          data: { type: "REQUEST_CANCELLED", requestId, responseId: offer.id },
+        }] : []),
+      });
+      return { success: true, requestId, status: "CANCELLED" };
     });
-    if (!request) throw new NotFoundException("This service request could not be found.");
-    if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
-    const changed = await this.prisma.serviceRequest.updateMany({
-      where: { id: requestId, seekerId, status: "OPEN" },
-      data: { status: "CANCELLED", matchingNextAt: null },
+  }
+
+  async cancelSelectedJob(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({
+        where: { requestId },
+        select: { id: true, providerId: true, seekerId: true, status: true, request: { select: { title: true, status: true } } },
+      });
+      if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
+      if (!["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED"].includes(job.status)) {
+        throw new ConflictException("A service can only be cancelled before work starts.");
+      }
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, providerId, status: job.status },
+        data: { status: "CANCELLED" },
+      });
+      if (changed.count !== 1) throw new ConflictException("The service changed. Refresh and try again.");
+      await tx.serviceRequest.updateMany({ where: { id: requestId, status: "CLOSED" }, data: { status: "CANCELLED", matchingNextAt: null } });
+      await tx.appNotification.create({
+        data: {
+          userId: job.seekerId,
+          title: "Service cancelled by Skill Provider",
+          body: `The Skill Provider cancelled "${job.request.title}". You can now find another Provider.`,
+          data: { type: "SERVICE_CANCELLED_BY_PROVIDER", requestId },
+        },
+      });
+      return { success: true, requestId, status: "CANCELLED" };
     });
-    if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
-    await this.prisma.requestMatch.updateMany({
-      where: { requestId, status: "NOTIFIED" },
-      data: { status: "EXPIRED" },
+  }
+  async withdrawProviderOffer(providerId: string, requestId: string, responseId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const response = await tx.providerResponse.findFirst({
+        where: { id: responseId, requestId, providerId, status: "OFFERED" },
+        select: { id: true, request: { select: { id: true, seekerId: true, status: true } } },
+      });
+      if (!response || !response.request.seekerId) throw new NotFoundException("This pending offer could not be found.");
+      if (response.request.status !== "OPEN") throw new ConflictException("The request is no longer open for offer withdrawal.");
+      const changed = await tx.providerResponse.updateMany({
+        where: { id: responseId, requestId, providerId, status: "OFFERED" },
+        data: { status: "WITHDRAWN" },
+      });
+      if (changed.count !== 1) throw new ConflictException("The Seeker has already made a decision on this offer.");
+      await tx.appNotification.create({
+        data: {
+          userId: response.request.seekerId,
+          title: "Provider withdrew an offer",
+          body: "A Skill Provider has withdrawn their offer. You can continue reviewing other offers.",
+          data: { type: "PROVIDER_OFFER_WITHDRAWN", requestId, responseId },
+        },
+      });
+      return { success: true, requestId, responseId, status: "WITHDRAWN" };
     });
-    return { success: true, requestId, status: "CANCELLED" };
   }
 
   async scheduleRequest(seekerId: string, requestId: string, input: ScheduleServiceRequestDto) {
@@ -563,6 +721,28 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (restarted.count !== 1) throw new ConflictException("The request changed. Refresh before scheduling it.");
     const matching = await this.dispatchNextWave(requestId, 1, true);
     return { success: true, requestId, preferredStartAt, matching };
+  }
+
+  async declineProviderOffer(seekerId: string, requestId: string, responseId: string) {
+    const request = await this.prisma.serviceRequest.findFirst({
+      where: { id: requestId, seekerId, status: "OPEN" },
+      select: { id: true, matchingWave: true },
+    });
+    if (!request) throw new NotFoundException("This open service request could not be found.");
+    const changed = await this.prisma.providerResponse.updateMany({
+      where: { id: responseId, requestId, status: "OFFERED" },
+      data: { status: "WITHDRAWN" },
+    });
+    if (changed.count !== 1) throw new ConflictException("This Provider offer is no longer available.");
+
+    // Hand off immediately instead of waiting for the background poller.
+    // dispatchNextWave excludes every Provider already recorded in request_matches.
+    await this.prisma.serviceRequest.updateMany({
+      where: { id: requestId, seekerId, status: "OPEN" },
+      data: { matchingNextAt: null, matchingExhaustedAt: null },
+    });
+    const matching = await this.dispatchNextWave(requestId, request.matchingWave + 1);
+    return { success: true, requestId, responseId, status: "WITHDRAWN", matching };
   }
 
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
@@ -617,13 +797,131 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
 
+
+  async getProviderRoute(providerId: string, requestId: string, originLatitudeValue: string, originLongitudeValue: string) {
+    const originLatitude = Number(originLatitudeValue);
+    const originLongitude = Number(originLongitudeValue);
+    if (!Number.isFinite(originLatitude) || originLatitude < -90 || originLatitude > 90
+      || !Number.isFinite(originLongitude) || originLongitude < -180 || originLongitude > 180) {
+      throw new BadRequestException("A valid current Provider location is required to calculate the route.");
+    }
+    const job = await this.prisma.jobEngagement.findUnique({
+      where: { requestId },
+      select: { providerId: true, status: true, request: { select: { latitude: true, longitude: true, deliveryMode: true } } },
+    });
+    if (!job || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can view this service route.");
+    if (job.request.deliveryMode === "REMOTE" || job.request.latitude == null || job.request.longitude == null) {
+      throw new BadRequestException("This service does not have a physical destination.");
+    }
+    if (["COMPLETED", "CANCELLED"].includes(job.status)) throw new ConflictException("This service route is no longer active.");
+    const key = process.env.GOOGLE_PLACES_API_KEY?.trim();
+    if (!key) throw new ServiceUnavailableException("Google Maps route directions are not configured on the AnySkill API.");
+    const params = new URLSearchParams({
+      origin: `${originLatitude},${originLongitude}`,
+      destination: `${job.request.latitude},${job.request.longitude}`,
+      mode: "driving",
+      key,
+    });
+    const response = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`);
+    if (!response.ok) throw new BadGatewayException("Google Maps could not calculate the service route.");
+    const payload = await response.json() as {
+      status?: string;
+      routes?: Array<{ overview_polyline?: { points?: string } }>;
+    };
+    const encoded = payload.routes?.[0]?.overview_polyline?.points;
+    if (payload.status !== "OK" || !encoded) {
+      throw new BadGatewayException(payload.status === "ZERO_RESULTS"
+        ? "No driving route is available for this destination."
+        : "Google Maps route directions are unavailable. Check that the Directions API is enabled for the configured key.");
+    }
+    const coordinates: Array<{ latitude: number; longitude: number }> = [];
+    let index = 0, latitude = 0, longitude = 0;
+    while (index < encoded.length) {
+      let result = 0, shift = 0, byte = 0;
+      do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+      latitude += (result & 1) ? ~(result >> 1) : (result >> 1);
+      result = 0; shift = 0;
+      do { byte = encoded.charCodeAt(index++) - 63; result |= (byte & 0x1f) << shift; shift += 5; } while (byte >= 0x20 && index < encoded.length);
+      longitude += (result & 1) ? ~(result >> 1) : (result >> 1);
+      coordinates.push({ latitude: latitude / 1e5, longitude: longitude / 1e5 });
+    }
+    return { coordinates, destination: { latitude: job.request.latitude, longitude: job.request.longitude } };
+  }
+
   async listMyJobs(providerId: string) {
     const jobs = await this.prisma.jobEngagement.findMany({
       where: { providerId }, orderBy: { updatedAt: "desc" },
-      include: { seekerReview: true, request: { select: { id: true, title: true, description: true, location: true, latitude: true, longitude: true } }, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } } },
+      include: {
+        seekerReview: true,
+        request: {
+          select: {
+            id: true, title: true, description: true, location: true, latitude: true, longitude: true,
+            instructions: true, preferredStartAt: true, deliveryMode: true,
+            seeker: { select: { phone: true, identityVerification: true, onboardingDraft: { select: { profile: true } } } },
+          },
+        },
+        adjustments: { orderBy: { createdAt: "desc" } },
+        completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } },
+      },
     });
     const serverNow = new Date().toISOString();
-    return jobs.map((job) => ({ ...job, serverNow }));
+    return jobs.map((job) => {
+      const profile = job.request.seeker?.onboardingDraft?.profile;
+      const seekerProfile = profile && typeof profile === "object" && !Array.isArray(profile)
+        ? profile as Record<string, unknown> : {};
+      const firstName = typeof seekerProfile.firstName === "string" ? seekerProfile.firstName.trim() : "";
+      const lastName = typeof seekerProfile.lastName === "string" ? seekerProfile.lastName.trim() : "";
+      const profilePhotoUrl = typeof seekerProfile.profilePhotoUrl === "string" ? seekerProfile.profilePhotoUrl.trim() : "";
+      return {
+        ...job,
+        request: { ...job.request, seeker: undefined },
+        seeker: {
+          firstName, lastName, profilePhotoUrl: profilePhotoUrl || null,
+          phone: job.request.seeker?.phone ?? null,
+          identityVerified: job.request.seeker?.identityVerification === "VERIFIED",
+        },
+        serverNow,
+      };
+    });
+  }
+
+  async listServiceChatMessages(userId: string, requestId: string) {
+    const job = await this.prisma.jobEngagement.findUnique({
+      where: { requestId }, select: { seekerId: true, providerId: true },
+    });
+    if (!job || (job.seekerId !== userId && job.providerId !== userId)) {
+      throw new ForbiddenException("Only the Seeker and selected Provider can access this service chat.");
+    }
+    const messages = await this.prisma.serviceChatMessage.findMany({
+      where: { requestId }, orderBy: { createdAt: "asc" }, take: 200,
+      select: { id: true, senderId: true, body: true, createdAt: true },
+    });
+    return messages.map((message) => ({ ...message, isMine: message.senderId === userId }));
+  }
+
+  async sendServiceChatMessage(userId: string, requestId: string, body: string) {
+    const message = body.trim();
+    if (!message || message.length > 2000) throw new BadRequestException("Enter a message of 1 to 2000 characters.");
+    const job = await this.prisma.jobEngagement.findUnique({
+      where: { requestId }, select: { seekerId: true, providerId: true },
+    });
+    if (!job || (job.seekerId !== userId && job.providerId !== userId)) {
+      throw new ForbiddenException("Only the Seeker and selected Provider can send messages in this service chat.");
+    }
+    const saved = await this.prisma.serviceChatMessage.create({
+      data: { requestId, senderId: userId, body: message },
+      select: { id: true, senderId: true, body: true, createdAt: true },
+    });
+    const recipientId = job.seekerId === userId ? job.providerId : job.seekerId;
+    if (recipientId) await this.prisma.appNotification.create({
+      data: {
+        userId: recipientId,
+        title: "New service chat message",
+        body: message.length > 100 ? message.slice(0, 97) + "..." : message,
+        data: { type: "SERVICE_CHAT_MESSAGE", requestId, messageId: saved.id },
+      },
+    });
+    return saved;
   }
 
 
@@ -891,6 +1189,33 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async declineIncomingRequest(providerId: string, requestId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const changed = await tx.requestMatch.updateMany({
+        where: {
+          requestId,
+          providerId,
+          status: "NOTIFIED",
+          request: { status: "OPEN" },
+        },
+        data: { status: "EXPIRED" },
+      });
+      if (changed.count !== 1) {
+        throw new ConflictException("This incoming request is no longer awaiting your response.");
+      }
+
+      await tx.providerResponse.create({
+        data: {
+          requestId,
+          providerId,
+          status: "DECLINED",
+        },
+      });
+    });
+
+    return { success: true, requestId, status: "DECLINED" };
+  }
+
   async respondToRequest(providerId: string, requestId: string, input: ProviderResponseDto) {
     const provider = await this.prisma.user.findUnique({
       where: { id: providerId },
@@ -921,9 +1246,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
         const match = await tx.requestMatch.findUnique({
           where: { requestId_providerId: { requestId, providerId } },
-          select: { id: true },
+          select: { id: true, status: true },
         });
         if (!match) throw new ForbiddenException("This request has not been matched to your Provider profile.");
+        if (match.status !== "NOTIFIED") {
+          throw new ConflictException("This incoming request is no longer awaiting your response.");
+        }
 
         const response = await tx.providerResponse.create({
           data: {
@@ -957,9 +1285,25 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (this.workerRunning) return;
     this.workerRunning = true;
     try {
+      // Recover work left in-flight by a process crash. Network requests are
+      // bounded by a 12-second timeout, so a two-minute lease is conservative.
+      const staleBefore = new Date(Date.now() - 2 * 60_000);
+      await this.prisma.appNotification.updateMany({
+        where: { deliveryStatus: "SENDING", createdAt: { lt: staleBefore } },
+        data: { deliveryStatus: "PENDING" },
+      });
+      await this.prisma.notificationDeviceDelivery.updateMany({
+        where: { status: "SENDING", updatedAt: { lt: staleBefore }, attempts: { lt: 5 } },
+        data: { status: "PENDING", nextAttemptAt: new Date() },
+      });
+      await this.prisma.notificationDeviceDelivery.updateMany({
+        where: { status: "SENDING", updatedAt: { lt: staleBefore }, attempts: { gte: 5 } },
+        data: { status: "FAILED", lastError: "Delivery worker stopped before completing this attempt." },
+      });
       await this.expandExpiredWaves();
       await this.retryExhaustedRequests();
       await this.dispatchPendingNotifications();
+      await this.pollExpoPushReceipts();
     } catch (error) {
       this.logger.error("Marketplace worker cycle failed.", error);
     } finally {
@@ -1101,7 +1445,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: next.map((provider) => ({
           userId: provider.userId,
           title: "Incoming AnySkill service request",
-          body: "A new " + request.skillCategory + " request is available. Tap to view the Seeker and job details.",
+          body: "A new " + request.skillCategory + " request is available. Open AnySkill to review details or choose Accept / Decline.",
           data: { type: "MATCHED_REQUEST", requestId, wave },
         })),
       }),
@@ -1179,61 +1523,217 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   private async dispatchPendingNotifications() {
     const pending = await this.prisma.appNotification.findMany({
-      where: { deliveryStatus: "PENDING", attempts: { lt: 5 } },
+      where: { deliveryStatus: "PENDING" },
       take: 50,
       orderBy: { createdAt: "asc" },
       select: { id: true, userId: true, title: true, body: true, data: true, attempts: true },
     });
+
     for (const notification of pending) {
-      const devices = await this.prisma.pushDevice.findMany({
-        where: { userId: notification.userId },
-        select: { expoPushToken: true },
-      });
-      if (devices.length === 0) {
-        await this.prisma.appNotification.updateMany({
-          where: { id: notification.id, deliveryStatus: "PENDING" },
-          data: { deliveryStatus: "IN_APP_ONLY" },
-        });
-        continue;
-      }
       const claim = await this.prisma.appNotification.updateMany({
         where: { id: notification.id, deliveryStatus: "PENDING" },
-        data: { deliveryStatus: "SENDING", attempts: { increment: 1 } },
+        data: { deliveryStatus: "SENDING" },
       });
       if (claim.count === 0) continue;
+
       try {
-        const response = await fetch("https://exp.host/--/api/v2/push/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify(devices.map((device) => ({
-            to: device.expoPushToken,
-            title: notification.title,
-            body: notification.body,
-            data: notification.data ?? {},
-            sound: "default",
-            priority: "high",
-            channelId: (notification.data as { type?: string } | null)?.type === "MATCHED_REQUEST"
-              ? "incoming_requests"
-              : "default",
-          }))),
+        const devices = await this.prisma.pushDevice.findMany({
+          where: { userId: notification.userId },
+          select: { id: true, platform: true, expoPushToken: true },
         });
-        if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
-        const payload = await response.json() as { data?: Array<{ status?: string; message?: string }> };
-        const tickets = payload.data ?? [];
-        if (tickets.length === 0 || tickets.some((ticket) => ticket.status !== "ok")) {
-          throw new Error(tickets.find((ticket) => ticket.status !== "ok")?.message ?? "No push delivery tickets returned.");
+        if (devices.length === 0) {
+          await this.prisma.appNotification.update({
+            where: { id: notification.id },
+            data: { deliveryStatus: "IN_APP_ONLY" },
+          });
+          continue;
         }
+
+        // Persist a separate delivery record before contacting Expo. skipDuplicates
+        // makes worker restarts and overlapping instances safe for each notification/device pair.
+        await this.prisma.notificationDeviceDelivery.createMany({
+          data: devices.map((device) => ({
+            notificationId: notification.id,
+            pushDeviceId: device.id,
+            status: "PENDING",
+          })),
+          skipDuplicates: true,
+        });
+
+        const deliveries = await this.prisma.notificationDeviceDelivery.findMany({
+          where: {
+            notificationId: notification.id,
+            status: "PENDING",
+            attempts: { lt: 5 },
+            nextAttemptAt: { lte: new Date() },
+          },
+          include: { pushDevice: { select: { id: true, platform: true, expoPushToken: true } } },
+        });
+
+        let accepted = 0;
+        let pendingRetry = 0;
+        for (const delivery of deliveries) {
+          const device = delivery.pushDevice;
+          const deliveryClaim = await this.prisma.notificationDeviceDelivery.updateMany({
+            where: { id: delivery.id, status: "PENDING", attempts: delivery.attempts },
+            data: { status: "SENDING", attempts: { increment: 1 } },
+          });
+          if (deliveryClaim.count === 0) continue;
+
+          try {
+            const type = (notification.data as { type?: string } | null)?.type;
+            const response = await fetch("https://exp.host/--/api/v2/push/send", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Accept: "application/json" },
+              signal: AbortSignal.timeout(12_000),
+              body: JSON.stringify({
+                to: device.expoPushToken,
+                title: notification.title,
+                body: notification.body,
+                data: notification.data ?? {},
+                sound: "default",
+                priority: "high",
+                channelId: type === "MATCHED_REQUEST" ? "incoming_requests" : "default",
+                ...(type === "MATCHED_REQUEST" ? { categoryId: "incoming_request" } : {}),
+              }),
+            });
+            const responseText = await response.text();
+            let payload: { data?: { status?: string; id?: string; message?: string; details?: { error?: string } }; errors?: Array<{ code?: string; message?: string }> } | null = null;
+            try { payload = responseText ? JSON.parse(responseText) : null; } catch { /* handled below */ }
+
+            if (!response.ok || !payload?.data) {
+              const message = (payload?.errors ?? []).map((item) => [item.code, item.message].filter(Boolean).join(": ")).join("; ")
+                || `Expo HTTP ${response.status}: ${responseText.slice(0, 500)}`;
+              throw new Error(message);
+            }
+            if (payload.data.status !== "ok" || !payload.data.id) {
+              const errorCode = payload.data.details?.error ?? "ExpoTicketRejected";
+              const message = payload.data.message ?? "Expo did not accept this device notification.";
+              if (errorCode === "DeviceNotRegistered") {
+                // Mark the delivery before deleting the device: the device relation
+                // cascades on delete, so deleting first would remove this delivery row.
+                await this.prisma.notificationDeviceDelivery.update({
+                  where: { id: delivery.id },
+                  data: { status: "FAILED", lastError: errorCode },
+                });
+                await this.prisma.pushDevice.deleteMany({ where: { id: device.id } });
+              } else {
+                throw new Error(`${errorCode}: ${message}`);
+              }
+              continue;
+            }
+
+            await this.prisma.notificationDeviceDelivery.update({
+              where: { id: delivery.id },
+              data: {
+                status: "ACCEPTED",
+                expoTicketId: payload.data.id,
+                acceptedAt: new Date(),
+                lastError: null,
+              },
+            });
+            accepted += 1;
+          } catch (error) {
+            const attempts = delivery.attempts + 1;
+            const delayMs = Math.min(15 * 60_000, 15_000 * (2 ** Math.max(0, attempts - 1)));
+            const permanent = /DeviceNotRegistered|InvalidCredentials|MessageTooBig|InvalidRecipients/i.test(String(error));
+            await this.prisma.notificationDeviceDelivery.update({
+              where: { id: delivery.id },
+              data: {
+                status: permanent || attempts >= 5 ? "FAILED" : "PENDING",
+                nextAttemptAt: new Date(Date.now() + delayMs),
+                lastError: String(error).slice(0, 1000),
+              },
+            });
+            if (!permanent && attempts < 5) pendingRetry += 1;
+            this.logger.warn(`Push notification ${notification.id} failed for device ${device.id} on attempt ${attempts}/5: ${String(error)}`);
+          }
+        }
+
+        const states = await this.prisma.notificationDeviceDelivery.groupBy({
+          by: ["status"],
+          where: { notificationId: notification.id },
+          _count: { _all: true },
+        });
+        const acceptedCount = states.find((item) => item.status === "ACCEPTED")?._count._all ?? 0;
+        const pendingCount = states.find((item) => item.status === "PENDING" || item.status === "SENDING")?._count._all ?? 0;
+        const failedCount = states.find((item) => item.status === "FAILED")?._count._all ?? 0;
+
+        // SENT retains its existing meaning: Expo accepted at least one device ticket.
+        // Per-device states retain the exact outcome for every registration.
         await this.prisma.appNotification.update({
           where: { id: notification.id },
-          data: { deliveryStatus: "SENT", sentAt: new Date() },
+          data: {
+            deliveryStatus: pendingCount > 0 ? "PENDING" : acceptedCount > 0 ? "SENT" : failedCount > 0 ? "FAILED" : "IN_APP_ONLY",
+            ...(acceptedCount > 0 ? { sentAt: new Date() } : {}),
+          },
         });
+        if (accepted > 0 || pendingRetry > 0) {
+          this.logger.log(`Push notification ${notification.id}: ${acceptedCount} device(s) accepted, ${pendingCount} pending, ${failedCount} failed.`);
+        }
       } catch (error) {
         const attempts = notification.attempts + 1;
         await this.prisma.appNotification.update({
           where: { id: notification.id },
           data: { deliveryStatus: attempts >= 5 ? "FAILED" : "PENDING" },
         });
-        this.logger.warn(`Push notification ${notification.id} failed: ${String(error)}`);
+        this.logger.warn(`Push notification ${notification.id} failed on attempt ${attempts}/5: ${String(error)}`);
+      }
+    }
+  }
+
+  private async pollExpoPushReceipts() {
+    const accepted = await this.prisma.notificationDeviceDelivery.findMany({
+      where: {
+        status: "ACCEPTED",
+        expoTicketId: { not: null },
+        acceptedAt: { lte: new Date(Date.now() - 15 * 60_000) },
+        receiptCheckedAt: null,
+      },
+      take: 100,
+      orderBy: { acceptedAt: "asc" },
+      include: { pushDevice: { select: { id: true } } },
+    });
+    for (let offset = 0; offset < accepted.length; offset += 300) {
+      const batch = accepted.slice(offset, offset + 300);
+      try {
+        const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          signal: AbortSignal.timeout(12_000),
+          body: JSON.stringify({ ids: batch.map((item) => item.expoTicketId) }),
+        });
+        if (!response.ok) throw new Error(`Expo receipts HTTP ${response.status}`);
+        const payload = await response.json() as { data?: Record<string, { status?: string; message?: string; details?: { error?: string } }> };
+        for (const delivery of batch) {
+          const receipt = payload.data?.[delivery.expoTicketId!];
+          if (!receipt) continue;
+          const errorCode = receipt.details?.error;
+          if (receipt.status === "ok") {
+            await this.prisma.notificationDeviceDelivery.update({
+              where: { id: delivery.id },
+              data: { receiptCheckedAt: new Date(), lastError: null },
+            });
+          } else if (receipt.status === "error") {
+            // Persist the receipt outcome before deleting a stale device registration.
+            // The FK cascades its delivery row when the device is removed.
+            await this.prisma.notificationDeviceDelivery.update({
+              where: { id: delivery.id },
+              data: {
+                status: "FAILED",
+                receiptCheckedAt: new Date(),
+                lastError: `${errorCode ?? "ExpoReceiptError"}: ${receipt.message ?? "Push receipt reported an error"}`.slice(0, 1000),
+              },
+            });
+            if (errorCode === "DeviceNotRegistered") {
+              await this.prisma.pushDevice.deleteMany({ where: { id: delivery.pushDeviceId } });
+            }
+            this.logger.warn(`Expo receipt failed for notification ${delivery.notificationId}, device ${delivery.pushDeviceId}: ${errorCode ?? "ExpoReceiptError"}`);
+          }
+        }
+      } catch (error) {
+        // Leave receiptCheckedAt null so the next worker cycle safely retries receipt polling.
+        this.logger.warn(`Expo push receipt polling failed: ${String(error)}`);
       }
     }
   }

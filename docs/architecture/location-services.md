@@ -25,12 +25,16 @@
 - Public discovery uses the latest fix only while it is no older than 30 seconds and rounds map coordinates to approximately 100 metres. Exact provider coordinates must not be exposed through public discovery.
 - Background delivery remains subject to iOS/Android scheduling, device battery policies and manufacturer restrictions. If a user force-stops/terminates the app, background updates can stop; Android does not automatically restart a terminated app for ordinary location updates. Providers must reopen AnySkill and go Online again if tracking has stopped.
 
-## Map pin selection
+## Map rendering and pin selection
 
-- The mobile app includes a tap-to-place map pin picker built from OpenStreetMap raster tiles. It supports iOS and Android-compatible devices, including Huawei Android builds, without requiring Google Play Services.
-- The picker supports zoom and coordinate display; current location can first be centered through foreground GPS, or users can enter coordinates manually.
-- The tile URL template is configurable with `EXPO_PUBLIC_MAP_TILE_URL` using `{z}`, `{x}`, and `{y}` placeholders.
-- The bundled OpenStreetMap public tile endpoint is a development/default option only. Before public production traffic, configure a tile provider whose usage terms, attribution, capacity and service level fit the app. Preserve visible OpenStreetMap attribution when using OSM data.
+- **Android:** `react-native-maps` uses the Google Maps Android SDK. Configure `GOOGLE_MAPS_API_KEY` at build time; the key is embedded in the Android app and must be restricted to the production Android package name and signing-certificate SHA-1 fingerprints, with only the required Maps SDK for Android API enabled.
+- **iOS:** `react-native-maps` uses the platform default provider, Apple MapKit. Do not configure the Google Maps iOS SDK or ship an iOS Google Maps key unless the product explicitly changes this decision.
+- **Web:** map screens use the Google Maps JavaScript API. Configure `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY` as a browser key restricted by allowed production HTTP referrers and the Maps JavaScript API. A browser key is public by design; API and referrer restrictions, quotas, and billing alerts are required.
+- **Shared behavior:** platform-specific map views preserve the same coordinate contract and user flows. Native uses `react-native-maps`; web uses Google Maps JavaScript API. Web script loading is centralized so map screens share one in-flight load and can retry after a failed load.
+- The tap-to-place picker supports zoom and coordinate display. Foreground GPS can center the map, and users can enter coordinates manually when location permission is denied.
+- Map coordinates are WGS84 latitude/longitude. Validate finite values and latitude/longitude bounds at every external boundary; never treat a missing coordinate as (0, 0).
+- Google Maps availability on Android devices without Google Play services, including some Huawei devices, must be validated on the actual supported device/ROM. Do not assume the Google Maps Android SDK is available on a device without GMS; define and test a product-approved fallback before claiming support for those devices.
+- Maps are a presentation layer only. The API remains authoritative for geographic matching, travel radius, exact-coordinate access, and provider eligibility.
 
 ## Geographic matching
 
@@ -76,4 +80,4 @@
 
 ## Deployment note
 
-Apply migrations only after confirming the target PostgreSQL service supports PostGIS and that the application database role can use the extension. Mobile location permissions and foreground-service declarations are native configuration: create a new iOS/Android development build after changing the Expo Location plugin. Background tracking must be tested on physical devices, including Android devices with aggressive battery management. The operating system may stop updates after the user terminates the app. The map pin picker uses standard React Native image rendering and does not require a Google Maps SDK. Foreground GPS and tile rendering still require physical-device testing on iOS, Android and Huawei Android. HarmonyOS NEXT requires its separately planned native ArkTS app and is not covered by the React Native build.
+Apply migrations only after confirming the target PostgreSQL service supports PostGIS and that the application database role can use the extension. Mobile location permissions and foreground-service declarations are native configuration: create a new iOS/Android development build after changing the Expo Location plugin. Background tracking must be tested on physical devices, including Android devices with aggressive battery management. The operating system may stop updates after the user terminates the app. Android Google Maps requires compatible Google Play services; test any supported Huawei/non-GMS device separately and do not assume native map availability. iOS map rendering uses Apple MapKit. Web map rendering uses the restricted browser Maps JavaScript API key. Foreground GPS and map rendering still require physical-device/browser testing on every supported target. HarmonyOS NEXT requires its separately planned native ArkTS app and is not covered by the React Native build.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentRef } from "react";
 import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
@@ -13,22 +13,61 @@ import {
   AppNotification, fetchNotifications, markNotificationRead,
 } from "./src/api";
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
+import { IncomingRequestScreen } from "./src/IncomingRequestScreen";
 import { ProviderHomeScreen } from "./src/ProviderHomeScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
 import { WelcomeScreen } from "./src/WelcomeScreen";
 import { stopProviderLocationUpdates } from "./src/provider-location";
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+if (Platform.OS !== "web") {
+  Notifications.setNotificationHandler({
+    handleNotification: async (notification) => {
+      const data = notification.request.content.data as { type?: string };
+      const matchedRequest = data.type === "MATCHED_REQUEST";
+      return {
+        shouldShowAlert: !matchedRequest,
+        shouldShowBanner: !matchedRequest,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      };
+    },
+  });
+}
 
+async function configureIncomingRequestNotifications() {
+  // Expo notification categories are native-only; the browser uses the app
+  // without native notification actions.
+  if (Platform.OS === "web") return;
+
+  await Notifications.setNotificationCategoryAsync("incoming_request", [
+    {
+      identifier: "ACCEPT_REQUEST",
+      buttonTitle: "Accept",
+      options: { isAuthenticationRequired: true, isDestructive: false, opensAppToForeground: true },
+    },
+    {
+      identifier: "DECLINE_REQUEST",
+      buttonTitle: "Decline",
+      options: { isAuthenticationRequired: true, isDestructive: true, opensAppToForeground: true },
+    },
+  ]);
+
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("incoming_requests", {
+      name: "Incoming service requests",
+      description: "High-priority alerts when AnySkill matches you with a service request.",
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 300, 150, 300],
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      sound: "default",
+      bypassDnd: false,
+      enableVibrate: true,
+      showBadge: true,
+    });
+  }
+}
 
 type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding" | "profile-check";
 type UserMode = "seeker" | "provider";
@@ -93,6 +132,9 @@ export default function App() {
   const [profileComplete, setProfileComplete] = useState(false);
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [pendingIncomingPushId, setPendingIncomingPushId] = useState<string | null>(null);
+  const [activeIncomingRequestId, setActiveIncomingRequestId] = useState<string | null>(null);
+  const dismissedIncomingRequestIds = useRef<Set<string>>(new Set());
+  const handledNotificationResponses = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   // AuthSession is global: prevent sign-in and account-link flows from overlapping.
   const googleAuthInProgress = useRef(false);
@@ -124,6 +166,13 @@ export default function App() {
       native: "com.anyskill.mobile:/oauthredirect",
     },
   );
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    void configureIncomingRequestNotifications().catch((e) => {
+      console.warn("[AnySkill notifications] Could not configure incoming request presentation.", e);
+    });
+  }, []);
 
   const feedback = () => { setMessage(""); setError(""); };
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
@@ -270,14 +319,7 @@ export default function App() {
         if (!projectId) {
           throw new Error("Set EXPO_PUBLIC_EAS_PROJECT_ID to the AnySkill EAS project ID before registering push notifications.");
         }
-        await Notifications.setNotificationChannelAsync("incoming_requests", {
-          name: "Incoming service requests",
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 500, 250, 500, 250, 700],
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-          enableVibrate: true,
-          showBadge: true,
-        });
+        await configureIncomingRequestNotifications();
         const token = await Notifications.getExpoPushTokenAsync({ projectId });
         if (cancelled) return;
         await apiRequest("/notifications/devices", {
@@ -310,8 +352,29 @@ export default function App() {
           apiRequest<IdentitySummary>("/identity-verification/status", {}, true),
         ]);
         if (cancelled) return;
-        setRoleSummary(roles);
-        setIdentity(identityStatus);
+        setRoleSummary((current) =>
+          current && JSON.stringify(current) === JSON.stringify(roles) ? current : roles,
+        );
+        setIdentity((current) => {
+          if (!current) return identityStatus;
+
+          // The identity endpoint may return a newly signed preview URL on
+          // every poll. That URL can change while the underlying selfie does
+          // not, which would remount/reload the header image unnecessarily.
+          // Compare the actual verification data separately and keep the
+          // already-loaded preview during background polling.
+          const { previews: currentPreviews, ...currentDetails } = current;
+          const { previews: refreshedPreviews, ...refreshedDetails } = identityStatus;
+          if (JSON.stringify(currentDetails) === JSON.stringify(refreshedDetails)) {
+            return current;
+          }
+
+          const previews = currentPreviews ?? refreshedPreviews;
+          return {
+            ...identityStatus,
+            ...(previews ? { previews } : {}),
+          };
+        });
         const currentIdentityStatus = (identityStatus.latestCase?.status ?? identityStatus.status).toLowerCase();
         if (roles.providerStatus === "ACTIVE" && ["verified", "approved"].includes(currentIdentityStatus)) {
           setMode("provider");
@@ -328,56 +391,157 @@ export default function App() {
       }
     };
     void syncProviderApproval();
-    const interval = setInterval(() => { void syncProviderApproval(); }, 10000);
+    // Approval changes are not time-critical to the second. Poll at a calmer
+    // cadence so Home does not continually re-render while the user is idle.
+    const interval = setInterval(() => { void syncProviderApproval(); }, 30000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [account?.id, account?.initialMode, screen, activeTab]);
 
   const openMatchedRequest = (requestId: string) => {
     if (!requestId) return;
+    dismissedIncomingRequestIds.current.delete(requestId);
+    setActiveIncomingRequestId(requestId);
     setPendingAcceptRequestId(requestId);
     setPendingIncomingPushId(requestId);
   };
 
+  const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+    const data = response.notification.request.content.data as { type?: string; requestId?: string };
+    const responseKey = response.notification.request.identifier + ":" + response.actionIdentifier;
+    if (handledNotificationResponses.current.has(responseKey)) return;
+    handledNotificationResponses.current.add(responseKey);
+    if (handledNotificationResponses.current.size > 100) {
+      const oldest = handledNotificationResponses.current.values().next().value;
+      if (oldest) handledNotificationResponses.current.delete(oldest);
+    }
+
+    if (typeof data.requestId === "string" && data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
+      setActiveTab("home");
+      setMode("seeker");
+      setScreen("marketplace");
+      void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", { method: "PATCH", body: JSON.stringify({ mode: "SEEKER" }) }, true).then(setRoleSummary).catch(() => undefined);
+      setMessage("Your Provider cancelled the service. Find another Provider to continue.");
+      return;
+    }
+    if (typeof data.requestId === "string" && data.type === "SERVICE_CANCELLED_BY_SEEKER") {
+      setActiveTab("home");
+      setMode("provider");
+      setScreen("dashboard");
+      void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", { method: "PATCH", body: JSON.stringify({ mode: "PROVIDER" }) }, true).then(setRoleSummary).catch(() => undefined);
+      setMessage("The Skill Seeker cancelled the service. You are back on Provider Home.");
+      return;
+    }
+    if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
+      const requestId = data.requestId;
+      if (response.actionIdentifier === "ACCEPT_REQUEST") {
+        void apiRequest("/marketplace/requests/" + requestId + "/accept", {
+          method: "POST",
+          body: JSON.stringify({}),
+        }, true).then(() => {
+          setActiveIncomingRequestId(null);
+          setPendingAcceptRequestId(requestId);
+          setActiveTab("home");
+          setMode("provider");
+          setScreen("marketplace");
+          void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
+            method: "PATCH",
+            body: JSON.stringify({ mode: "PROVIDER" }),
+          }, true).then(setRoleSummary).catch((e) => {
+            console.warn("[AnySkill incoming request] Could not persist Provider mode after accepting.", e);
+          });
+        }).catch((e) => {
+          setError(e instanceof Error ? e.message : "Could not accept this request.");
+          openMatchedRequest(requestId);
+        });
+        return;
+      }
+      if (response.actionIdentifier === "DECLINE_REQUEST") {
+        void apiRequest("/marketplace/requests/" + requestId + "/decline", {
+          method: "POST",
+        }, true).then(() => {
+          setActiveIncomingRequestId(null);
+          setPendingAcceptRequestId(null);
+          setMessage("Request declined.");
+        }).catch((e) => {
+          setError(e instanceof Error ? e.message : "Could not decline this request.");
+          openMatchedRequest(requestId);
+        });
+        return;
+      }
+      openMatchedRequest(requestId);
+      return;
+    }
+    setActiveTab("notifications");
+    setScreen("dashboard");
+    void loadNotifications();
+  };
+
   useEffect(() => {
     if (!account || roleSummary?.providerStatus !== "ACTIVE" || !pendingIncomingPushId) return;
-    // Wait until initial authentication routing has completed. This also
-    // handles a notification tapped while AnySkill was fully closed.
     if (!["dashboard", "onboarding", "marketplace"].includes(screen)) return;
     setPendingIncomingPushId(null);
     setActiveTab("home");
     setMode("provider");
-    setScreen("marketplace");
+    setScreen("dashboard");
     void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
       method: "PATCH",
       body: JSON.stringify({ mode: "PROVIDER" }),
     }, true).then(setRoleSummary).catch((e) => {
-      console.warn("[AnySkill notifications] Could not switch to Provider mode.", e);
+      console.warn("[AnySkill incoming request] Could not switch to Provider mode.", e);
     });
   }, [account?.id, roleSummary?.providerStatus, pendingIncomingPushId, screen]);
 
+  // Reconcile matches from the API while a Provider is online. Push delivery
+  // is an alerting channel only; the persisted match is the source of truth.
+  useEffect(() => {
+    if (!account || screen !== "dashboard" || activeTab !== "home" || mode !== "provider" || roleSummary?.providerStatus !== "ACTIVE") return;
+    let active = true;
+    let checking = false;
+    const reconcile = async () => {
+      if (checking || activeIncomingRequestId) return;
+      checking = true;
+      try {
+        const profile = await apiRequest<{ isAvailable: boolean }>("/marketplace/provider-profile/availability", {}, true);
+        if (!active || !profile?.isAvailable) return;
+        const result = await apiRequest<{ items: Array<{ id: string; alreadyResponded: boolean }> }>("/marketplace/incoming-requests", {}, true);
+        if (!active) return;
+        const next = result.items.find((item) =>
+          !item.alreadyResponded && !dismissedIncomingRequestIds.current.has(item.id),
+        );
+        if (next) setActiveIncomingRequestId(next.id);
+      } catch {
+        // Keep Home visible; the next reconciliation retries transient failures.
+      } finally { checking = false; }
+    };
+    void reconcile();
+    const interval = setInterval(() => { void reconcile(); }, 5000);
+    return () => { active = false; clearInterval(interval); };
+  }, [account?.id, screen, activeTab, mode, roleSummary?.providerStatus, activeIncomingRequestId]);
+
 
   useEffect(() => {
+    // Push notification listeners are only available in native app runtimes.
+    if (Platform.OS === "web") return;
+
     const received = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as { type?: string; requestId?: string };
-      if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
-        void openMatchedRequest(data.requestId);
-      }
-    });
-    const response = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as { type?: string; requestId?: string };
-      if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
-        void openMatchedRequest(data.requestId);
+      if (data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
+        setActiveTab("home"); setMode("seeker"); setScreen("marketplace");
+        setMessage("Your Provider cancelled the service. Find another Provider to continue.");
         return;
       }
-      setActiveTab("notifications");
-      setScreen("dashboard");
-      void loadNotifications();
-    });
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
-      const data = response?.notification.request.content.data as { type?: string; requestId?: string } | undefined;
-      if (data?.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
+      if (data.type === "SERVICE_CANCELLED_BY_SEEKER") {
+        setActiveTab("home"); setMode("provider"); setScreen("dashboard");
+        setMessage("The Skill Seeker cancelled the service. You are back on Provider Home.");
+        return;
+      }
+      if (data.type === "MATCHED_REQUEST" && typeof data.requestId === "string") {
         void openMatchedRequest(data.requestId);
       }
+    });
+    const response = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
+    void Notifications.getLastNotificationResponseAsync().then((lastResponse) => {
+      if (lastResponse) handleNotificationResponse(lastResponse);
     }).catch(() => undefined);
     return () => { received.remove(); response.remove(); };
   }, [account?.id, roleSummary?.providerStatus]);
@@ -949,6 +1113,12 @@ export default function App() {
 
   const identityStatus = identity?.status ?? "not_started";
   const identityCaseStatus = (identity?.latestCase?.status ?? identityStatus).toLowerCase();
+  const avatarUri = identity?.previews?.ID_SELFIE ?? null;
+  // Keep the Image source object stable between unrelated app renders.
+  const avatarImageSource = useMemo(
+    () => (avatarUri ? { uri: avatarUri } : null),
+    [avatarUri],
+  );
   // The latest verification case is authoritative when the account-level
   // summary has not yet caught up with an administrator's decision.
   const verified = identityStatus.toLowerCase() === "verified" || identityCaseStatus === "verified" || identityCaseStatus === "approved";
@@ -975,8 +1145,8 @@ export default function App() {
                 }}
                 style={s.headerAvatar}
               >
-                {identity?.previews?.ID_SELFIE
-                  ? <Image source={{ uri: identity.previews.ID_SELFIE }} style={s.headerAvatarImage} resizeMode="cover" accessibilityLabel="Your profile photo" />
+                {avatarImageSource
+                  ? <Image source={avatarImageSource} style={s.headerAvatarImage} resizeMode="cover" accessibilityLabel="Your profile photo" />
                   : <Text style={s.headerAvatarText}>{(account.email?.trim()?.[0] ?? "U").toUpperCase()}</Text>}
               </Pressable>
               <View pointerEvents="none" accessibilityLabel={verified ? "Identity verified" : "Identity not verified"} style={[s.identityAvatarBadge, verified ? s.identityAvatarBadgeVerified : s.identityAvatarBadgeUnverified]}>
@@ -1392,6 +1562,22 @@ export default function App() {
         <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Profile" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setShowAccountSettings(false); setScreen("dashboard"); feedback(); }} />
       </View>}
+      <IncomingRequestScreen
+        requestId={activeIncomingRequestId}
+        onClose={() => {
+          if (activeIncomingRequestId) dismissedIncomingRequestIds.current.add(activeIncomingRequestId);
+          setActiveIncomingRequestId(null);
+          setPendingAcceptRequestId(null);
+        }}
+        onAccepted={(requestId) => {
+          setActiveIncomingRequestId(null);
+          setPendingAcceptRequestId(requestId);
+          setMessage("Request accepted. Continue to your Provider workspace.");
+          setActiveTab("home");
+          setMode("provider");
+          setScreen("marketplace");
+        }}
+      />
       </SafeAreaView>
     </SafeAreaProvider>
   );

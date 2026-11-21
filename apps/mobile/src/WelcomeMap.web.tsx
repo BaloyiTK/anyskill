@@ -1,40 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { WelcomeMapProps } from "./WelcomeMap.types";
-
-declare global {
-  interface Window {
-    google?: any;
-    __anyskillGoogleMapsPromise?: Promise<any>;
-  }
-}
-
-const GOOGLE_MAPS_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
-
-function loadGoogleMaps(): Promise<any> {
-  if (window.google?.maps) return Promise.resolve(window.google);
-  if (window.__anyskillGoogleMapsPromise) return window.__anyskillGoogleMapsPromise;
-
-  window.__anyskillGoogleMapsPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>("script[data-anyskill-google-maps]");
-    if (existing) {
-      existing.addEventListener("load", () => resolve(window.google), { once: true });
-      existing.addEventListener("error", () => reject(new Error("Google Maps could not be loaded.")), { once: true });
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.dataset.anyskillGoogleMaps = "true";
-    script.async = true;
-    script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_KEY ?? "")}&v=weekly`;
-    script.onload = () => resolve(window.google);
-    script.onerror = () => reject(new Error("Google Maps could not be loaded. Check the browser key and Maps JavaScript API settings."));
-    document.head.appendChild(script);
-  });
-
-  return window.__anyskillGoogleMapsPromise;
-}
+import { loadGoogleMaps, type GoogleMapsWindow } from "./google-maps-loader.web";
 
 export default function WelcomeMap({
   center,
@@ -55,11 +22,6 @@ export default function WelcomeMap({
 
   useEffect(() => {
     let active = true;
-    if (!GOOGLE_MAPS_KEY) {
-      setMapError("Web map key is missing. Add EXPO_PUBLIC_GOOGLE_MAPS_API_KEY to apps/mobile/.env and restart Expo.");
-      return () => { active = false; };
-    }
-
     loadGoogleMaps()
       .then((google) => {
         if (!active || !mapElement.current || mapInstance.current) return;
@@ -83,7 +45,7 @@ export default function WelcomeMap({
 
   useEffect(() => {
     const map = mapInstance.current;
-    const google = window.google;
+    const google = (window as GoogleMapsWindow).google;
     if (!mapReady || !map || !google?.maps) return;
 
     map.setCenter({ lat: center.latitude, lng: center.longitude });
@@ -273,6 +235,15 @@ export default function WelcomeMap({
       strokeWeight: 2,
       clickable: false,
     });
+
+    return () => {
+      markerOverlays.current.forEach((overlay) => overlay.setMap(null));
+      markerOverlays.current = [];
+      seekerOverlay.current?.setMap(null);
+      seekerOverlay.current = null;
+      circleInstance.current?.setMap(null);
+      circleInstance.current = null;
+    };
   }, [mapReady, center.latitude, center.longitude, zoom, radiusKm, seekerLocation?.latitude, seekerLocation?.longitude, markers, selectedMarkerId, onSelectMarker]);
 
   return <View style={StyleSheet.absoluteFill}>
