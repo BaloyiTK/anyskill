@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentRef } from "react";
 import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
@@ -345,8 +345,12 @@ export default function App() {
           apiRequest<IdentitySummary>("/identity-verification/status", {}, true),
         ]);
         if (cancelled) return;
-        setRoleSummary(roles);
-        setIdentity(identityStatus);
+        setRoleSummary((current) =>
+          current && JSON.stringify(current) === JSON.stringify(roles) ? current : roles,
+        );
+        setIdentity((current) =>
+          current && JSON.stringify(current) === JSON.stringify(identityStatus) ? current : identityStatus,
+        );
         const currentIdentityStatus = (identityStatus.latestCase?.status ?? identityStatus.status).toLowerCase();
         if (roles.providerStatus === "ACTIVE" && ["verified", "approved"].includes(currentIdentityStatus)) {
           setMode("provider");
@@ -363,7 +367,9 @@ export default function App() {
       }
     };
     void syncProviderApproval();
-    const interval = setInterval(() => { void syncProviderApproval(); }, 10000);
+    // Approval changes are not time-critical to the second. Poll at a calmer
+    // cadence so Home does not continually re-render while the user is idle.
+    const interval = setInterval(() => { void syncProviderApproval(); }, 30000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [account?.id, account?.initialMode, screen, activeTab]);
 
@@ -1080,6 +1086,12 @@ export default function App() {
 
   const identityStatus = identity?.status ?? "not_started";
   const identityCaseStatus = (identity?.latestCase?.status ?? identityStatus).toLowerCase();
+  const avatarUri = identity?.previews?.ID_SELFIE ?? null;
+  // Keep the Image source object stable between unrelated app renders.
+  const avatarImageSource = useMemo(
+    () => (avatarUri ? { uri: avatarUri } : null),
+    [avatarUri],
+  );
   // The latest verification case is authoritative when the account-level
   // summary has not yet caught up with an administrator's decision.
   const verified = identityStatus.toLowerCase() === "verified" || identityCaseStatus === "verified" || identityCaseStatus === "approved";
@@ -1106,8 +1118,8 @@ export default function App() {
                 }}
                 style={s.headerAvatar}
               >
-                {identity?.previews?.ID_SELFIE
-                  ? <Image source={{ uri: identity.previews.ID_SELFIE }} style={s.headerAvatarImage} resizeMode="cover" accessibilityLabel="Your profile photo" />
+                {avatarImageSource
+                  ? <Image source={avatarImageSource} style={s.headerAvatarImage} resizeMode="cover" accessibilityLabel="Your profile photo" />
                   : <Text style={s.headerAvatarText}>{(account.email?.trim()?.[0] ?? "U").toUpperCase()}</Text>}
               </Pressable>
               <View pointerEvents="none" accessibilityLabel={verified ? "Identity verified" : "Identity not verified"} style={[s.identityAvatarBadge, verified ? s.identityAvatarBadgeVerified : s.identityAvatarBadgeUnverified]}>
