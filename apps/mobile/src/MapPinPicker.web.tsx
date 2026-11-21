@@ -120,7 +120,7 @@ export function MapPinPicker(p: Props) {
       <div ref={mapElement} role="application" aria-label="Google Map for selecting the service location" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} />
       {mapError ? <View pointerEvents="none" style={styles.error}><Text style={styles.errorTitle}>Map unavailable</Text><Text style={styles.errorText}>{mapError}</Text></View> : null}
     </View>
-    <Text style={styles.help}>{p.readOnly ? "Google Maps · Blue dot: your current location. Pin: the job location." : "Google Maps · Click the map to place the job-location pin."}</Text>
+    <Text style={styles.help}>{p.liveLatitude != null ? "Google Maps · Blue dot: Provider's live location. Pin: service destination." : p.routeCoordinates?.length ? "Google Maps · Green line: driving route. Pin: service destination." : p.readOnly ? "Google Maps · Blue dot: your current location. Pin: the job location." : "Google Maps · Click the map to place the job-location pin."}</Text>
     {p.selectedLatitude != null && p.selectedLongitude != null
       ? <Text style={styles.coords}>Selected pin: {p.selectedLatitude.toFixed(6)}, {p.selectedLongitude.toFixed(6)}</Text>
       : <Text style={styles.coords}>No pin selected yet.</Text>}
