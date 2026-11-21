@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { WelcomeMapProps } from "./WelcomeMap.types";
-import { loadGoogleMaps } from "./google-maps-loader.web";
+import { loadGoogleMaps, type GoogleMapsWindow } from "./google-maps-loader.web";
 
 export default function WelcomeMap({
   center,
@@ -45,7 +45,7 @@ export default function WelcomeMap({
 
   useEffect(() => {
     const map = mapInstance.current;
-    const google = window.google;
+    const google = (window as GoogleMapsWindow).google;
     if (!mapReady || !map || !google?.maps) return;
 
     map.setCenter({ lat: center.latitude, lng: center.longitude });
