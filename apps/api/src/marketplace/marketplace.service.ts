@@ -738,6 +738,23 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
     if (changed.count !== 1) throw new ConflictException("This Provider offer is no longer available.");
 
+    // Tell the Provider immediately; their app also observes the persisted
+    // WITHDRAWN status and returns them to the Provider Home screen.
+    const providerResponse = await this.prisma.providerResponse.findUnique({
+      where: { id: responseId },
+      select: { providerId: true },
+    });
+    if (providerResponse?.providerId) {
+      await this.prisma.appNotification.create({
+        data: {
+          userId: providerResponse.providerId,
+          title: "Your offer was declined",
+          body: "The Skill Seeker declined your offer. You have been returned to Provider Home and can wait for another request.",
+          data: { type: "PROVIDER_OFFER_DECLINED", requestId, responseId },
+        },
+      });
+    }
+
     // Hand off immediately instead of waiting for the background poller.
     // dispatchNextWave excludes every Provider already recorded in request_matches.
     await this.prisma.serviceRequest.updateMany({
