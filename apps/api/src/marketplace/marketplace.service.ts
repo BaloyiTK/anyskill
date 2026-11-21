@@ -1389,7 +1389,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     for (const notification of pending) {
       const devices = await this.prisma.pushDevice.findMany({
         where: { userId: notification.userId },
-        select: { expoPushToken: true },
+        select: { id: true, platform: true, expoPushToken: true },
       });
       if (devices.length === 0) {
         await this.prisma.appNotification.updateMany({
@@ -1422,12 +1422,78 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               : undefined,
           }))),
         });
-        if (!response.ok) throw new Error(`Expo Push Service returned HTTP ${response.status}`);
-        const payload = await response.json() as { data?: Array<{ status?: string; message?: string }> };
-        const tickets = payload.data ?? [];
-        if (tickets.length === 0 || tickets.some((ticket) => ticket.status !== "ok")) {
-          throw new Error(tickets.find((ticket) => ticket.status !== "ok")?.message ?? "No push delivery tickets returned.");
+
+        // Read the response body once so HTTP-level errors retain Expo's diagnostic
+        // details instead of collapsing every rejection into an unhelpful status code.
+        const responseText = await response.text();
+        let payload: {
+          data?: Array<{
+            status?: string;
+            message?: string;
+            details?: { error?: string };
+          }>;
+          errors?: Array<{ code?: string; message?: string }>;
+        } | null = null;
+        try {
+          payload = responseText ? JSON.parse(responseText) : null;
+        } catch {
+          // Preserve a bounded, redacted response excerpt in the HTTP error below.
         }
+
+        const redactPushTokens = (value: string) =>
+          value.replace(/(?:Expo|Exponent)PushToken\\[[^\\]]+\\]/g, "[redacted Expo push token]");
+        if (!response.ok) {
+          const details = payload ? JSON.stringify(payload) : responseText || response.statusText;
+          throw new Error(
+            `Expo Push Service returned HTTP ${response.status}: ${redactPushTokens(details).slice(0, 2000)}`,
+          );
+        }
+        if (!payload) {
+          throw new Error("Expo Push Service returned an empty or invalid JSON response.");
+        }
+
+        const tickets = payload.data ?? [];
+        if (tickets.length === 0) {
+          const details = payload.errors?.map((item) => [item.code, item.message].filter(Boolean).join(": ")).join("; ");
+          throw new Error(details || "Expo returned no push delivery tickets.");
+        }
+
+        const failedTickets: string[] = [];
+        for (let index = 0; index < tickets.length; index += 1) {
+          const ticket = tickets[index];
+          const device = devices[index];
+          if (ticket.status === "ok") continue;
+
+          const errorCode = ticket.details?.error ?? "UnknownExpoError";
+          const message = redactPushTokens(ticket.message ?? "No error message returned.").slice(0, 500);
+          if (!device) {
+            failedTickets.push(`ticket ${index + 1} has no matching registered device (${errorCode})`);
+            continue;
+          }
+
+          // Never log Expo tokens. Device ID and platform are enough to identify
+          // the affected registration without exposing credentials in application logs.
+          this.logger.warn(
+            `Expo rejected push for device ${device.id} (${device.platform}) for notification ${notification.id}: ${errorCode}: ${message}`,
+          );
+          failedTickets.push(`${device.id} (${device.platform}): ${errorCode}: ${message}`);
+
+          // Expo marks stale registrations with DeviceNotRegistered. Remove only
+          // that specific token so future notifications are not repeatedly rejected.
+          if (errorCode === "DeviceNotRegistered") {
+            await this.prisma.pushDevice.deleteMany({ where: { id: device.id } });
+          }
+        }
+
+        if (tickets.length !== devices.length) {
+          failedTickets.push(`Expo returned ${tickets.length} ticket(s) for ${devices.length} device(s)`);
+        }
+        if (failedTickets.length > 0) {
+          throw new Error(failedTickets.join("; ").slice(0, 1500));
+        }
+
+        // SENT means Expo accepted every push ticket; it is not a confirmation
+        // that the operating system displayed the notification on the device.
         await this.prisma.appNotification.update({
           where: { id: notification.id },
           data: { deliveryStatus: "SENT", sentAt: new Date() },
@@ -1438,7 +1504,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           where: { id: notification.id },
           data: { deliveryStatus: attempts >= 5 ? "FAILED" : "PENDING" },
         });
-        this.logger.warn(`Push notification ${notification.id} failed: ${String(error)}`);
+        this.logger.warn(
+          `Push notification ${notification.id} failed on attempt ${attempts}/5: ${String(error)}`,
+        );
       }
     }
   }
