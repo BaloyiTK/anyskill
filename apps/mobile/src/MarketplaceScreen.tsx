@@ -330,13 +330,10 @@ export function MarketplaceScreen(p: Props) {
       || dismissedActiveJobIds.includes(activeProviderJobId))) {
       setActiveProviderJobId(null);
     }
-    const nextActiveJob = myJobs.find((job) =>
-      !["COMPLETED", "CANCELLED"].includes(job.status)
-      && !dismissedActiveJobIds.includes(job.request.id),
-    );
-    if (!activeProviderJobId && nextActiveJob) {
-      setActiveProviderJobId(nextActiveJob.request.id);
-    }
+    // Do not auto-open an arbitrary existing job. The only automatic transition
+    // into the workspace is the exact response currently being watched above,
+    // after the server returns its selected engagement. Older jobs stay in the
+    // Selected jobs list and cannot hijack a newly submitted offer.
   }, [p.mode, myJobs, dismissedActiveJobIds, activeProviderJobId, providerSelectionWatch, providerOfferReview?.status]);
 
   const loadServiceChat = useCallback(async (requestId: string) => {
