@@ -1,6 +1,6 @@
-type GoogleMapsWindow = Window & {
-  google?: { maps?: unknown };
-  __anyskillGoogleMapsPromise?: Promise<unknown>;
+export type GoogleMapsWindow = Window & {
+  google?: { maps?: any };
+  __anyskillGoogleMapsPromise?: Promise<unknown> | undefined;
 };
 
 const GOOGLE_MAPS_SCRIPT_SELECTOR = "script[data-anyskill-google-maps]";
