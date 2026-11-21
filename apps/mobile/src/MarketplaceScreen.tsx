@@ -8,6 +8,7 @@ import {
   ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { apiRequest } from "./api";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
 
 type Mode = "seeker" | "provider";
@@ -76,6 +77,7 @@ function formatWorkDuration(milliseconds: number) {
 }
 
 export function MarketplaceScreen(p: Props) {
+  const insets = useSafeAreaInsets();
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [myRequests, setMyRequests] = useState<SeekerRequest[]>([]);
   const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
@@ -96,6 +98,8 @@ export function MarketplaceScreen(p: Props) {
   const [providerRoute, setProviderRoute] = useState<{requestId:string;origin:{latitude:number;longitude:number};coordinates:Array<{latitude:number;longitude:number}>}|null>(null);
   const [providerRouteLoading, setProviderRouteLoading] = useState(false);
   const activeChatRequestIdRef = useRef<string | null>(null);
+  const hasLoadedIncomingRequestsRef = useRef(false);
+  const incomingRequestsLoadInFlightRef = useRef(false);
   const serviceChatLoadVersionRef = useRef(0);
   const [clockNow, setClockNow] = useState(Date.now());
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
@@ -169,12 +173,20 @@ export function MarketplaceScreen(p: Props) {
   };
 
   const loadRequests = useCallback(async () => {
-    setBusy(true); setError("");
+    if (incomingRequestsLoadInFlightRef.current) return;
+    incomingRequestsLoadInFlightRef.current = true;
+    const isInitialLoad = !hasLoadedIncomingRequestsRef.current;
+    if (isInitialLoad) { setBusy(true); setError(""); }
     try {
       const result = await apiRequest<{ items: RequestItem[] }>("/marketplace/incoming-requests", {}, true);
       setRequests(result.items);
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not load incoming requests."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      if (isInitialLoad) setError(e instanceof Error ? e.message : "Could not load incoming requests.");
+    } finally {
+      hasLoadedIncomingRequestsRef.current = true;
+      incomingRequestsLoadInFlightRef.current = false;
+      if (isInitialLoad) setBusy(false);
+    }
   }, []);
 
   const loadMyRequests = useCallback(async () => {
@@ -725,6 +737,7 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode !== "provider") return;
+    hasLoadedIncomingRequestsRef.current = false;
     void loadRequests(); void loadProviderProfile(); void loadMyJobs();
     const refreshIncoming = setInterval(() => { void loadRequests(); }, 8000);
     return () => clearInterval(refreshIncoming);
@@ -1354,7 +1367,7 @@ export function MarketplaceScreen(p: Props) {
       {error ? <Text style={s.error}>{error}</Text> : null}
     </ScrollView>
     <Modal visible={p.mode === "seeker" && matchingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => undefined}>
-      <View style={{ flex: 1, backgroundColor: "#F6F8FA", paddingHorizontal: 22, paddingTop: 54, paddingBottom: 28 }}>
+      <View style={{ flex: 1, backgroundColor: "#F6F8FA", paddingHorizontal: 22, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ color: "#0B2545", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
           <Text style={{ color: "#1B5E20", fontSize: 11, fontWeight: "900" }}>REQUEST SUBMITTED</Text>
@@ -1455,7 +1468,7 @@ export function MarketplaceScreen(p: Props) {
       </View>
     </Modal>
     <Modal visible={p.mode === "provider" && providerOfferReview !== null && providerOfferReview.status !== "SELECTED"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
-      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 24, paddingTop: 62, paddingBottom: 30, justifyContent: "center" }}>
+      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 24, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12, justifyContent: "center" }}>
         <View style={{ alignItems: "center" }}>
           <View style={{ width: 82, height: 82, borderRadius: 41, backgroundColor: providerOfferReview?.status === "SELECTED" ? "#DDF3E5" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "#FCE8E6" : "#E5F1EC", alignItems: "center", justifyContent: "center" }}>
             {providerOfferReview?.status === "OFFERED" ? <ActivityIndicator size="large" color="#176B55" /> : <Text style={{ color: "#176B55", fontSize: 34, fontWeight: "900" }}>{providerOfferReview?.status === "SELECTED" ? "✓" : "!"}</Text>}
@@ -1494,7 +1507,7 @@ export function MarketplaceScreen(p: Props) {
         if (!job) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F5F7F5" }}><ActivityIndicator color="#176B55" /><Text style={{ color: "#66756D", marginTop: 12 }}>Loading your accepted service...</Text></View>;
         const seekerName = [job.seeker?.firstName, job.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
         const destinationReady = job.request.latitude != null && job.request.longitude != null;
-        return <ScrollView style={{ flex: 1, backgroundColor: "#F5F7F5" }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 56, paddingBottom: 36 }}>
+        return <ScrollView style={{ flex: 1, backgroundColor: "#F5F7F5" }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>ANYSKILL · ACTIVE SERVICE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>Service accepted</Text></View>
             <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
@@ -1533,7 +1546,7 @@ export function MarketplaceScreen(p: Props) {
       })()}
     </Modal>
     <Modal visible={journeyScreen !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setJourneyScreen(null)}>
-      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 22, paddingTop: 58, paddingBottom: 28 }}>
+      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 22, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Text style={{ color: "#15251E", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
           <Pressable onPress={() => setJourneyScreen(null)}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
@@ -1573,7 +1586,7 @@ export function MarketplaceScreen(p: Props) {
     <Modal visible={contactDrawerOpen} transparent animationType="slide" onRequestClose={() => setContactDrawerOpen(false)}>
       <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(10,25,18,0.42)" }}>
         <Pressable onPress={() => setContactDrawerOpen(false)} style={{ flex: 1 }} accessibilityLabel="Close contact drawer" />
-        <View style={{ backgroundColor: "#FFFFFF", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 28, maxHeight: "78%" }}>
+        <View style={{ backgroundColor: "#FFFFFF", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + 16, maxHeight: "82%" }}>
           <View style={{ alignSelf: "center", width: 42, height: 5, borderRadius: 3, backgroundColor: "#D6E0D9", marginBottom: 17 }} />
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <View><Text style={{ color: "#15251E", fontSize: 20, fontWeight: "900" }}>Contact {p.mode === "provider" ? "Seeker" : "Provider"}</Text><Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>This conversation belongs to the active service.</Text></View>
