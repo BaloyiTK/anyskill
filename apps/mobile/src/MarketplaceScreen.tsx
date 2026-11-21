@@ -1512,7 +1512,6 @@ export function MarketplaceScreen(p: Props) {
           <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
             <Text style={{ color: "#176B55", fontWeight: "900" }}>Open contact drawer</Text>
           </Pressable>
-          </View>
           {["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED"].includes(job.status) ? <Pressable onPress={() => cancelProviderJob(job.request.id, job.request.title)} style={{ backgroundColor: "#FFF7F7", borderWidth: 1, borderColor: "#E7B8B8", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text></Pressable> : null}
           <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Back to selected jobs</Text></Pressable>
         </ScrollView>;
@@ -1549,7 +1548,6 @@ export function MarketplaceScreen(p: Props) {
         <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
           <Text style={{ color: "#176B55", fontWeight: "900" }}>Contact Provider · Chat or call</Text>
         </Pressable>
-        </View>
         <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 14, marginTop: 18 }}>
           <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>WHAT HAPPENS NEXT</Text>
           <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>The Provider must complete the assessment and submit an estimate. Work starts only after the estimate is approved in AnySkill.</Text>
@@ -1570,7 +1568,7 @@ export function MarketplaceScreen(p: Props) {
             <Pressable onPress={() => { const phone = p.mode === "provider" ? myJobs.find((item) => item.request.id === activeProviderJobId)?.seeker?.phone : journeyScreen?.phone; if (phone) void Linking.openURL("tel:" + phone).catch(() => setError("Could not open the phone dialler.")); else setError("A phone number is not available for this contact."); }} style={{ flex: 1, backgroundColor: "#EAF4EE", borderRadius: 13, padding: 13, alignItems: "center" }}>
               <Text style={{ color: "#176B55", fontWeight: "900" }}>Call</Text>
             </Pressable>
-            <View style={{ flex: 1, backgroundColor: "#F1F5F2", borderRadius: 13, padding: 13, alignItems: "center" }}><Text style={{ color: "#66756D", fontWeight: "800" }}>Request safety</Text></View>
+
           </View>
           <Text style={{ color: "#15251E", fontSize: 14, fontWeight: "900", marginTop: 18, marginBottom: 9 }}>Service chat</Text>
           <ScrollView style={{ maxHeight: 230 }} contentContainerStyle={{ paddingBottom: 8 }}>
