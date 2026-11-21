@@ -87,6 +87,9 @@ export function MarketplaceScreen(p: Props) {
   const [showProviderProfile, setShowProviderProfile] = useState(false);
   const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
+  // Keep tracking the exact offer after its review modal is dismissed. Selection can
+  // happen later, and the selected job must still take priority over older jobs.
+  const [providerSelectionWatch, setProviderSelectionWatch] = useState<{requestId:string;responseId:string}|null>(null);
   const [dismissedProviderOfferIds, setDismissedProviderOfferIds] = useState<string[]>([]);
   const [myJobs, setMyJobs] = useState<ProviderJob[]>([]);
   const [activeProviderJobId, setActiveProviderJobId] = useState<string | null>(null);
@@ -257,16 +260,16 @@ export function MarketplaceScreen(p: Props) {
     };
     // While an offer is awaiting the Seeker's decision, check the authoritative
     // engagement list promptly so the Provider moves into the correct job.
-    if (p.mode === "provider" && providerOfferReview?.status === "OFFERED") {
+    if (p.mode === "provider" && providerSelectionWatch) {
       void refreshJobState();
     }
-    const refreshMs = p.mode === "provider" && providerOfferReview?.status === "OFFERED" ? 3000 : 12000;
+    const refreshMs = p.mode === "provider" && providerSelectionWatch && providerOfferReview?.status === "OFFERED" ? 3000 : 12000;
     const refresh = setInterval(() => { void refreshJobState(); }, refreshMs);
     return () => {
       active = false;
       clearInterval(refresh);
     };
-  }, [p.mode, providerOfferReview?.status]);
+  }, [p.mode, providerOfferReview?.status, providerSelectionWatch?.responseId]);
 
   useEffect(() => {
     if (p.mode !== "provider") return;
@@ -277,6 +280,7 @@ export function MarketplaceScreen(p: Props) {
         const pending = responseUpdates.find((item) => item.myResponse?.status === "OFFERED"
           && !dismissedProviderOfferIds.includes(item.myResponse.id));
         if (!pending?.myResponse) return current;
+        setProviderSelectionWatch({ requestId: pending.id, responseId: pending.myResponse.id });
         const seekerName = [pending.seeker?.firstName, pending.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
         return { requestId: pending.id, title: pending.title, skillCategory: pending.skillCategory, seekerName, responseId: pending.myResponse.id, status: pending.myResponse.status };
       }
@@ -287,24 +291,24 @@ export function MarketplaceScreen(p: Props) {
   }, [p.mode, requests, dismissedProviderOfferIds]);
 
   useEffect(() => {
-    if (p.mode !== "provider" || !providerOfferReview) return;
-    // A selection is confirmed only by a job linked to this exact response.
-    // Open that exact job before dismissing the offer state; never fall through
-    // to an older active job for a different request.
+    if (p.mode !== "provider" || !providerSelectionWatch) return;
+    // Watch independently of the review modal: closing "Offer being reviewed"
+    // must not discard the response ID needed to detect the later selection.
     const selectedJob = myJobs.find((job) =>
-      job.request.id === providerOfferReview.requestId
-      && job.responseId === providerOfferReview.responseId,
+      job.request.id === providerSelectionWatch.requestId
+      && job.responseId === providerSelectionWatch.responseId,
     );
     if (!selectedJob) return;
     setDismissedActiveJobIds((ids) => ids.filter((id) => id !== selectedJob.request.id));
     setActiveProviderJobId(selectedJob.request.id);
+    setProviderSelectionWatch(null);
     setProviderOfferReview((current) =>
       current?.requestId === selectedJob.request.id
       && current.responseId === selectedJob.responseId
         ? null
         : current,
     );
-  }, [p.mode, myJobs, providerOfferReview]);
+  }, [p.mode, myJobs, providerSelectionWatch]);
 
   useEffect(() => {
     if (p.mode !== "provider") return;
@@ -439,6 +443,7 @@ export function MarketplaceScreen(p: Props) {
         body: JSON.stringify({ message: responseMessage.trim() || undefined }),
       }, true);
       const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
+      setProviderSelectionWatch({ requestId: request.id, responseId: response.id });
       setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: response.id, status: response.status });
       setResponseMessage("");
       setNotice("");
@@ -453,6 +458,7 @@ export function MarketplaceScreen(p: Props) {
     setJobActionBusy(true); setError("");
     try {
       await apiRequest(`/marketplace/requests/${providerOfferReview.requestId}/offers/${providerOfferReview.responseId}/withdraw`, { method: "POST" }, true);
+      setProviderSelectionWatch((current) => current?.requestId === providerOfferReview.requestId && current.responseId === providerOfferReview.responseId ? null : current);
       setProviderOfferReview((current) => current ? { ...current, status: "WITHDRAWN" } : current);
       await loadRequests();
     } catch (e) {
@@ -1398,7 +1404,7 @@ export function MarketplaceScreen(p: Props) {
                 {request.distanceKm != null ? `${request.distanceKm.toFixed(1)} km straight-line distance to the job` : "Distance unavailable — enable fresh location sharing while Available"}
               </Text>
             </> : request.deliveryMode !== "REMOTE" ? <Text style={s.meta}>Job map and distance will appear when location coordinates are available.</Text> : <Text style={s.meta}>Remote request · no travel required.</Text>}
-            {request.myResponse?.status === "OFFERED" ? <Pressable onPress={() => { const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker"; setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: request.myResponse!.id, status: "OFFERED" }); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>OFFER SENT · AWAITING SEEKER REVIEW</Text><Text style={{ color: "#53645A", fontSize: 12, marginTop: 5 }}>Tap to view your offer status.</Text></Pressable> : request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <>
+            {request.myResponse?.status === "OFFERED" ? <Pressable onPress={() => { const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker"; setProviderSelectionWatch({ requestId: request.id, responseId: request.myResponse!.id }); setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: request.myResponse!.id, status: "OFFERED" }); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>OFFER SENT · AWAITING SEEKER REVIEW</Text><Text style={{ color: "#53645A", fontSize: 12, marginTop: 5 }}>Tap to view your offer status.</Text></Pressable> : request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <>
               <Text style={s.label}>Message to the Skill Seeker (optional)</Text>
               <TextInput value={responseMessage} onChangeText={setResponseMessage} placeholder="Introduce yourself and explain how you can help..." multiline maxLength={500} style={[s.input, s.multiline]} />
               <Text style={s.helper}>Review the request details, then send your offer. Your profile rate and assessment fee will be included.</Text>
