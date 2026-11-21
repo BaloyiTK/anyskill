@@ -10,6 +10,9 @@ type Props = {
   onSelect: (latitude: number, longitude: number) => void;
   readOnly?: boolean;
   showCenterMarker?: boolean;
+  liveLatitude?: number | null;
+  liveLongitude?: number | null;
+  routeCoordinates?: Array<{ latitude: number; longitude: number }>;
 };
 
 export function MapPinPicker(p: Props) {
@@ -17,6 +20,8 @@ export function MapPinPicker(p: Props) {
   const mapInstance = useRef<any>(null);
   const jobMarker = useRef<any>(null);
   const currentMarker = useRef<any>(null);
+  const liveMarker = useRef<any>(null);
+  const routeLine = useRef<any>(null);
   const clickListener = useRef<any>(null);
   const [mapError, setMapError] = useState("");
   const [mapReady, setMapReady] = useState(false);
@@ -51,6 +56,8 @@ export function MapPinPicker(p: Props) {
       clickListener.current?.remove();
       jobMarker.current?.setMap(null);
       currentMarker.current?.setMap(null);
+      liveMarker.current?.setMap(null);
+      routeLine.current?.setMap(null);
       mapInstance.current = null;
     };
   }, []);
@@ -79,7 +86,34 @@ export function MapPinPicker(p: Props) {
     } else if (currentMarker.current) {
       currentMarker.current.setMap(null);
     }
-  }, [mapReady, p.latitude, p.longitude, p.selectedLatitude, p.selectedLongitude, p.showCenterMarker]);
+    if (p.liveLatitude != null && p.liveLongitude != null) {
+      if (!liveMarker.current) liveMarker.current = new google.maps.Marker({
+        map, title: "Provider live location", clickable: false,
+        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: "#0066CC", fillOpacity: 1, strokeColor: "#FFFFFF", strokeWeight: 3 },
+      });
+      liveMarker.current.setPosition({ lat: p.liveLatitude, lng: p.liveLongitude });
+      liveMarker.current.setMap(map);
+    } else if (liveMarker.current) {
+      liveMarker.current.setMap(null);
+    }
+    if (p.routeCoordinates && p.routeCoordinates.length > 1) {
+      const path = p.routeCoordinates.map((point) => ({ lat: point.latitude, lng: point.longitude }));
+      if (!routeLine.current) routeLine.current = new google.maps.Polyline({ map, strokeColor: "#176B55", strokeOpacity: 0.95, strokeWeight: 6, geodesic: true });
+      routeLine.current.setPath(path);
+      routeLine.current.setMap(map);
+      const bounds = new google.maps.LatLngBounds();
+      path.forEach((point) => bounds.extend(point));
+      map.fitBounds(bounds, 42);
+    } else if (routeLine.current) {
+      routeLine.current.setMap(null);
+    }
+    if ((!p.routeCoordinates || p.routeCoordinates.length < 2) && p.liveLatitude != null && p.liveLongitude != null && p.selectedLatitude != null && p.selectedLongitude != null) {
+      const bounds = new google.maps.LatLngBounds();
+      bounds.extend({ lat: p.liveLatitude, lng: p.liveLongitude });
+      bounds.extend({ lat: p.selectedLatitude, lng: p.selectedLongitude });
+      map.fitBounds(bounds, 42);
+    }
+  }, [mapReady, p.latitude, p.longitude, p.selectedLatitude, p.selectedLongitude, p.showCenterMarker, p.liveLatitude, p.liveLongitude, p.routeCoordinates]);
 
   return <View style={styles.wrap}>
     <View style={styles.map}>
