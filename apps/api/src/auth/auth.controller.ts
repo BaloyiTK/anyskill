@@ -1,0 +1,190 @@
+import { Body, Controller, Delete, Get, Post, UseGuards } from "@nestjs/common";
+import { IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import { Throttle } from "@nestjs/throttler";
+import { AuthService } from "./auth.service";
+import { CurrentUser, AuthenticatedUser } from "./current-user.decorator";
+import { JwtAuthGuard } from "./jwt-auth.guard";
+import { EmailVerificationService } from "./email-verification.service";
+import { LoginDto } from "./dto/login.dto";
+import { RegisterDto } from "./dto/register.dto";
+import { VerifyRegistrationOtpDto } from "./dto/verify-registration-otp.dto";
+import { CompleteRegistrationDto } from "./dto/complete-registration.dto";
+import { ResetPasswordDto } from "./dto/reset-password.dto";
+import { TokenDto } from "./dto/token.dto";
+
+class GoogleIdTokenDto {
+  @IsString()
+  @MinLength(100)
+  @MaxLength(8192)
+  idToken!: string;
+
+  @IsOptional()
+  @IsIn(["SEEKER", "PROVIDER"])
+  mode?: "SEEKER" | "PROVIDER";
+}
+
+class GoogleAuthorizationCodeDto {
+  @IsString()
+  @MinLength(10)
+  @MaxLength(2048)
+  code!: string;
+
+  @IsString()
+  @MinLength(43)
+  @MaxLength(128)
+  codeVerifier!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(2048)
+  redirectUri!: string;
+
+  @IsOptional()
+  @IsIn(["SEEKER", "PROVIDER"])
+  mode?: "SEEKER" | "PROVIDER";
+}
+
+class RefreshDto {
+  @IsString()
+  @MinLength(32)
+  @MaxLength(128)
+  refreshToken!: string;
+}
+
+class VerifyPasswordResetOtpDto {
+  @IsEmail()
+  @MaxLength(320)
+  email!: string;
+
+  @IsString()
+  @Matches(/^\d{6}$/)
+  otp!: string;
+}
+
+class ForgotPasswordDto {
+  @IsEmail()
+  @MaxLength(320)
+  email!: string;
+}
+
+@Controller("auth")
+export class AuthController {
+  constructor(
+    private readonly auth: AuthService,
+    private readonly emailVerification: EmailVerificationService,
+  ) {}
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("register")
+  register(@Body() dto: RegisterDto) { return this.auth.register(dto); }
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("resend-registration-otp")
+  resendRegistrationOtp(@Body() dto: ForgotPasswordDto) {
+    return this.auth.resendRegistrationOtp(dto.email);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("verify-registration-otp")
+  verifyRegistrationOtp(@Body() dto: VerifyRegistrationOtpDto) { return this.auth.verifyRegistrationOtp(dto.email, dto.otp); }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("complete-registration")
+  completeRegistration(@Body() dto: CompleteRegistrationDto) { return this.auth.completeRegistration(dto.registrationToken, dto.password); }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post("google")
+  googleSignIn(@Body() dto: GoogleIdTokenDto) {
+    return this.auth.googleSignIn(dto.idToken, dto.mode);
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post("google/exchange")
+  googleSignInWithAuthorizationCode(@Body() dto: GoogleAuthorizationCodeDto) {
+    return this.auth.googleSignInWithAuthorizationCode(dto.code, dto.codeVerifier, dto.redirectUri, dto.mode);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("google/link/exchange")
+  @UseGuards(JwtAuthGuard)
+  linkGoogleAccountWithAuthorizationCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: GoogleAuthorizationCodeDto,
+  ) {
+    return this.auth.linkGoogleAccountWithAuthorizationCode(user.id, dto.code, dto.codeVerifier, dto.redirectUri);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("google/link")
+  @UseGuards(JwtAuthGuard)
+  linkGoogleAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: GoogleIdTokenDto,
+  ) {
+    return this.auth.linkGoogleAccount(user.id, dto.idToken);
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post("login")
+  login(@Body() dto: LoginDto) {
+    return this.auth.login(dto.email, dto.password);
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post("verify-email")
+  verifyEmail(@Body() dto: TokenDto) {
+    return this.auth.verifyEmail(dto.token);
+  }
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("resend-verification")
+  resendVerification(@Body() dto: ForgotPasswordDto) {
+    return this.emailVerification.resend(dto.email);
+  }
+
+  @Post("refresh")
+  refresh(@Body() dto: RefreshDto) {
+    return this.auth.refresh(dto.refreshToken);
+  }
+
+  @Post("logout")
+  logout(@Body() dto: RefreshDto) {
+    return this.auth.logout(dto.refreshToken);
+  }
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("forgot-password")
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.auth.requestPasswordReset(dto.email);
+  }
+
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post("resend-password-reset-otp")
+  resendPasswordResetOtp(@Body() dto: ForgotPasswordDto) {
+    return this.auth.resendPasswordResetOtp(dto.email);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("verify-password-reset-otp")
+  verifyPasswordResetOtp(@Body() dto: VerifyPasswordResetOtpDto) {
+    return this.auth.verifyPasswordResetOtp(dto.email, dto.otp);
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post("reset-password")
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.auth.resetPassword(dto.token, dto.newPassword);
+  }
+
+  @Delete("account")
+  @UseGuards(JwtAuthGuard)
+  deleteAccount(@CurrentUser() user: AuthenticatedUser) {
+    return this.auth.deleteAccount(user.id);
+  }
+
+  @Get("me")
+  @UseGuards(JwtAuthGuard)
+  me(@CurrentUser() user: AuthenticatedUser) {
+    return user;
+  }
+}
