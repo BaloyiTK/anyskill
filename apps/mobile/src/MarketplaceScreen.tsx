@@ -84,6 +84,7 @@ export function MarketplaceScreen(p: Props) {
   const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
   const [activeOfferId, setActiveOfferId] = useState<string | null>(null);
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
+  const [autoOpenedOfferIds, setAutoOpenedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
   const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
@@ -221,6 +222,24 @@ export function MarketplaceScreen(p: Props) {
     return () => clearTimeout(timer);
   }, [skillQuery, p.mode, searchSkills]);
 
+  // Open each incoming Provider offer automatically, once, as soon as the
+  // Seeker's refreshed request data contains it. One-at-a-time matching is
+  // enforced by the API; this is the immediate presentation layer.
+  useEffect(() => {
+    if (p.mode !== "seeker" || !matchingRequest || activeOfferId) return;
+    const request = myRequests.find((item) => item.id === matchingRequest.id);
+    if (!request || request.status !== "OPEN") return;
+    const nextOffer = request.providerResponses.find((offer) =>
+      offer.status === "OFFERED"
+      && !dismissedOfferIds.includes(offer.id)
+      && !autoOpenedOfferIds.includes(offer.id),
+    );
+    if (!nextOffer) return;
+    setAutoOpenedOfferIds((ids) => [...ids, nextOffer.id]);
+    setActiveOfferId(nextOffer.id);
+    setShowProviderProfile(false);
+  }, [p.mode, matchingRequest?.id, myRequests, activeOfferId, dismissedOfferIds, autoOpenedOfferIds]);
+
   useEffect(() => {
     const clock = setInterval(() => setClockNow(Date.now()), 1000);
     return () => clearInterval(clock);
@@ -250,6 +269,11 @@ export function MarketplaceScreen(p: Props) {
           if (active) {
             if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
             setMyRequests(result);
+            const active = result.find((item) => item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
+            setMatchingRequest(active ? {
+              id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
+              createdAt: active.matchingStartedAt, notified: active._count?.matches ?? 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
+            } : null);
           }
         }
       } catch {
@@ -300,6 +324,20 @@ export function MarketplaceScreen(p: Props) {
     const timer = setInterval(() => { void loadRequests(); }, 3000);
     return () => clearInterval(timer);
   }, [p.mode, providerSelectionWatch?.responseId, loadRequests]);
+
+  useEffect(() => {
+    if (p.mode !== "provider" || !providerOfferReview || !["WITHDRAWN", "DECLINED"].includes(providerOfferReview.status)) return;
+    const request = requests.find((item) => item.id === providerOfferReview.requestId);
+    const wasCancelled = request?.status === "CANCELLED";
+    const responseId = providerOfferReview.responseId;
+    setDismissedProviderOfferIds((ids) => ids.includes(responseId) ? ids : [...ids, responseId]);
+    setProviderSelectionWatch((current) => current?.responseId === responseId ? null : current);
+    setProviderOfferReview(null);
+    setActiveProviderJobId(null);
+    setNotice(wasCancelled
+      ? "The Skill Seeker cancelled the entire service request. You are back at Provider Home and ready for the next request."
+      : "The Skill Seeker declined your offer. You are back at Provider Home and ready for the next request.");
+  }, [p.mode, providerOfferReview, requests]);
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerSelectionWatch) return;
@@ -1542,7 +1580,7 @@ export function MarketplaceScreen(p: Props) {
               {matchingRequest.location ? <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }}>📍 {matchingRequest.location}</Text> : null}
               <Text style={{ color: "#66756D", fontSize: 12, marginTop: 8 }}>Matching wave {matchingRequest.wave} · {matchingRequest.notified} Provider(s) notified · {offers.length} offer(s) received</Text>
             </View>
-            {offers.map((offer) => <Pressable key={offer.id} onPress={() => { setActiveOfferId(offer.id); setShowProviderProfile(false); }} style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#C8DCD1", padding: 15, marginTop: 12 }}>
+            {offers.map((offer) => <Pressable key={offer.id} onPress={() => { setAutoOpenedOfferIds((ids) => ids.includes(offer.id) ? ids : [...ids, offer.id]); setActiveOfferId(offer.id); setShowProviderProfile(false); }} style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#C8DCD1", padding: 15, marginTop: 12 }}>
               <Text style={{ color: "#15251E", fontWeight: "900", fontSize: 15 }}>{offer.provider.providerProfile?.publicName || "Skill Provider"}</Text>
               <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "800", marginTop: 4 }}>✓ Identity verified · ★ {offer.provider.providerProfile?.ratings?.overallIsRated ? offer.provider.providerProfile.ratings.overall.toFixed(1) : "New Provider"}</Text>
               <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }} numberOfLines={2}>{offer.message || "This Provider is available for your request."}</Text>
