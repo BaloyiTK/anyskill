@@ -1,0 +1,27 @@
+{
+  "name": "anyskill",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=22.22.3",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "dev:mobile": "pnpm --filter @anyskill/mobile start",
+    "dev:api": "pnpm --filter @anyskill/api start:dev",
+    "build:api": "pnpm --filter @anyskill/api build",
+    "db:generate": "pnpm --filter @anyskill/api db:generate",
+    "db:migrate": "pnpm --filter @anyskill/api db:migrate",
+    "db:deploy": "pnpm --filter @anyskill/api db:deploy",
+    "typecheck": "pnpm -r typecheck",
+    "check:local": "node scripts/check-local.mjs",
+    "test": "node --test",
+    "check:security": "pnpm audit --prod --audit-level high"
+  },
+  "pnpm": {
+    "overrides": {
+      "deepmerge-ts": "8.0.2"
+    }
+  }
+}
