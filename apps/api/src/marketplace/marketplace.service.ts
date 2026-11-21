@@ -529,6 +529,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           ...response,
           provider: {
             ...response.provider,
+            phone: request.jobEngagement?.providerId === response.providerId
+              && !["COMPLETED", "CANCELLED"].includes(request.jobEngagement.status)
+              ? response.provider.phone ?? null : null,
             providerProfile: {
               publicName: profile.publicName,
               hourlyRate: profile.hourlyRate,
@@ -537,7 +540,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               serviceAreas: profile.serviceAreas,
               deliveryModes: profile.deliveryModes,
               isAvailable: profile.isAvailable,
-              phone: request.jobEngagement?.providerId === response.providerId ? response.provider.phone ?? null : null,
               liveLatitude: request.jobEngagement?.providerId === response.providerId
                 && !["COMPLETED", "CANCELLED"].includes(request.jobEngagement.status)
                 && profile.liveLocationUpdatedAt != null
