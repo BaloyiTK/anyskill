@@ -371,6 +371,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: {
           OR: [
             { status: "OPEN", matches: { some: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] } } } },
+            // Keep a selected response visible to its Provider long enough for
+            // the app to confirm the explicit Seeker decision before navigation.
+            { providerResponses: { some: { providerId, status: "SELECTED" } } },
             { providerResponses: { some: { providerId, status: "WITHDRAWN" } } },
           ],
         },
