@@ -36,6 +36,7 @@ type JobAdjustment = { id: string; requestedHours: string | number; requestedAmo
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
 type JobEngagement = { id: string; providerId?: string | null; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
 type ProviderJob = JobEngagement & {
+  responseId: string;
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
   seeker?: { firstName: string; lastName: string; profilePhotoUrl: string | null; phone: string | null; identityVerified: boolean };
 };
@@ -268,9 +269,17 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerOfferReview) return;
-    const selectedJob = myJobs.find((job) => job.request.id === providerOfferReview.requestId);
+    // A job record alone must not promote an offer to accepted. Confirm that
+    // the job belongs to this exact offer before showing the accepted state.
+    const selectedJob = myJobs.find((job) =>
+      job.request.id === providerOfferReview.requestId
+      && job.responseId === providerOfferReview.responseId,
+    );
     if (selectedJob && providerOfferReview.status !== "SELECTED") {
-      setProviderOfferReview((current) => current?.requestId === selectedJob.request.id ? { ...current, status: "SELECTED" } : current);
+      setProviderOfferReview((current) => current?.requestId === selectedJob.request.id
+        && current.responseId === selectedJob.responseId
+        ? { ...current, status: "SELECTED" }
+        : current);
     }
   }, [p.mode, myJobs, providerOfferReview]);
 
