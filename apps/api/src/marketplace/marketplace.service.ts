@@ -850,7 +850,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async listMyJobs(providerId: string) {
     const jobs = await this.prisma.jobEngagement.findMany({
-      where: { providerId }, orderBy: { updatedAt: "desc" },
+      // A job is visible to its Provider only after the exact linked offer has
+      // been selected by the Seeker. This also prevents orphan/stale engagements
+      // from advancing the Provider from offer review into assessment.
+      where: { providerId, response: { is: { providerId, status: "SELECTED" } } }, orderBy: { updatedAt: "desc" },
       include: {
         seekerReview: true,
         request: {
