@@ -1484,11 +1484,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               const errorCode = payload.data.details?.error ?? "ExpoTicketRejected";
               const message = payload.data.message ?? "Expo did not accept this device notification.";
               if (errorCode === "DeviceNotRegistered") {
-                await this.prisma.pushDevice.deleteMany({ where: { id: device.id } });
+                // Mark the delivery before deleting the device: the device relation
+                // cascades on delete, so deleting first would remove this delivery row.
                 await this.prisma.notificationDeviceDelivery.update({
                   where: { id: delivery.id },
                   data: { status: "FAILED", lastError: errorCode },
                 });
+                await this.prisma.pushDevice.deleteMany({ where: { id: device.id } });
               } else {
                 throw new Error(`${errorCode}: ${message}`);
               }
@@ -1587,9 +1589,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               data: { receiptCheckedAt: new Date(), lastError: null },
             });
           } else if (receipt.status === "error") {
-            if (errorCode === "DeviceNotRegistered") {
-              await this.prisma.pushDevice.deleteMany({ where: { id: delivery.pushDeviceId } });
-            }
+            // Persist the receipt outcome before deleting a stale device registration.
+            // The FK cascades its delivery row when the device is removed.
             await this.prisma.notificationDeviceDelivery.update({
               where: { id: delivery.id },
               data: {
@@ -1598,6 +1599,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
                 lastError: `${errorCode ?? "ExpoReceiptError"}: ${receipt.message ?? "Push receipt reported an error"}`.slice(0, 1000),
               },
             });
+            if (errorCode === "DeviceNotRegistered") {
+              await this.prisma.pushDevice.deleteMany({ where: { id: delivery.pushDeviceId } });
+            }
             this.logger.warn(`Expo receipt failed for notification ${delivery.notificationId}, device ${delivery.pushDeviceId}: ${errorCode ?? "ExpoReceiptError"}`);
           }
         }
