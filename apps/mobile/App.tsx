@@ -20,21 +20,27 @@ import { ProfileScreen } from "./src/ProfileScreen";
 import { WelcomeScreen } from "./src/WelcomeScreen";
 import { stopProviderLocationUpdates } from "./src/provider-location";
 
-Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    const data = notification.request.content.data as { type?: string };
-    const matchedRequest = data.type === "MATCHED_REQUEST";
-    return {
-      shouldShowAlert: !matchedRequest,
-      shouldShowBanner: !matchedRequest,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    };
-  },
-});
+if (Platform.OS !== "web") {
+  Notifications.setNotificationHandler({
+    handleNotification: async (notification) => {
+      const data = notification.request.content.data as { type?: string };
+      const matchedRequest = data.type === "MATCHED_REQUEST";
+      return {
+        shouldShowAlert: !matchedRequest,
+        shouldShowBanner: !matchedRequest,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      };
+    },
+  });
+}
 
 async function configureIncomingRequestNotifications() {
+  // Expo notification categories are native-only; the browser uses the app
+  // without native notification actions.
+  if (Platform.OS === "web") return;
+
   await Notifications.setNotificationCategoryAsync("incoming_request", [
     {
       identifier: "ACCEPT_REQUEST",
@@ -162,6 +168,7 @@ export default function App() {
   );
 
   useEffect(() => {
+    if (Platform.OS === "web") return;
     void configureIncomingRequestNotifications().catch((e) => {
       console.warn("[AnySkill notifications] Could not configure incoming request presentation.", e);
     });
@@ -513,6 +520,9 @@ export default function App() {
 
 
   useEffect(() => {
+    // Push notification listeners are only available in native app runtimes.
+    if (Platform.OS === "web") return;
+
     const received = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as { type?: string; requestId?: string };
       if (data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
