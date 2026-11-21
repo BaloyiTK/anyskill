@@ -224,30 +224,49 @@ export function MarketplaceScreen(p: Props) {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    let refreshing = false;
     const refreshJobState = async () => {
+      if (refreshing) return;
+      refreshing = true;
       try {
         if (p.mode === "provider") {
           const requestStartedAt = Date.now();
           const result = await apiRequest<ProviderJob[]>("/marketplace/my-jobs", {}, true);
           const receivedAt = Date.now();
           const serverNow = result.find((item) => item.serverNow)?.serverNow;
-          if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
-          setMyJobs(result);
+          if (active) {
+            if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
+            setMyJobs(result);
+          }
         } else {
           const requestStartedAt = Date.now();
           const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
           const receivedAt = Date.now();
           const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
-          if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
-          setMyRequests(result);
+          if (active) {
+            if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
+            setMyRequests(result);
+          }
         }
       } catch {
         // Retain the last server-confirmed state during temporary network loss.
+      } finally {
+        refreshing = false;
       }
     };
-    const refresh = setInterval(() => { void refreshJobState(); }, 12000);
-    return () => clearInterval(refresh);
-  }, [p.mode]);
+    // While an offer is awaiting the Seeker's decision, check the authoritative
+    // engagement list promptly so the Provider moves into the correct job.
+    if (p.mode === "provider" && providerOfferReview?.status === "OFFERED") {
+      void refreshJobState();
+    }
+    const refreshMs = p.mode === "provider" && providerOfferReview?.status === "OFFERED" ? 3000 : 12000;
+    const refresh = setInterval(() => { void refreshJobState(); }, refreshMs);
+    return () => {
+      active = false;
+      clearInterval(refresh);
+    };
+  }, [p.mode, providerOfferReview?.status]);
 
   useEffect(() => {
     if (p.mode !== "provider") return;
@@ -269,18 +288,22 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerOfferReview) return;
-    // A job record alone must not promote an offer to accepted. Confirm that
-    // the job belongs to this exact offer before showing the accepted state.
+    // A selection is confirmed only by a job linked to this exact response.
+    // Open that exact job before dismissing the offer state; never fall through
+    // to an older active job for a different request.
     const selectedJob = myJobs.find((job) =>
       job.request.id === providerOfferReview.requestId
       && job.responseId === providerOfferReview.responseId,
     );
-    if (selectedJob && providerOfferReview.status !== "SELECTED") {
-      setProviderOfferReview((current) => current?.requestId === selectedJob.request.id
-        && current.responseId === selectedJob.responseId
-        ? { ...current, status: "SELECTED" }
-        : current);
-    }
+    if (!selectedJob) return;
+    setDismissedActiveJobIds((ids) => ids.filter((id) => id !== selectedJob.request.id));
+    setActiveProviderJobId(selectedJob.request.id);
+    setProviderOfferReview((current) =>
+      current?.requestId === selectedJob.request.id
+      && current.responseId === selectedJob.responseId
+        ? null
+        : current,
+    );
   }, [p.mode, myJobs, providerOfferReview]);
 
   useEffect(() => {
