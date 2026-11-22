@@ -1,12 +1,18 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { MarketplaceRoleStatus, Prisma, ProviderApplicationStatus, RegistrationMode } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
+import { MailService } from "../mail/mail.service";
 
 type SectionInput = { profile?: Record<string, unknown>; skills?: unknown[]; portfolio?: unknown[] };
 
 @Injectable()
 export class OnboardingService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(OnboardingService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mail: MailService,
+  ) {}
 
   private validatePayload(input: SectionInput) {
     const allowed = new Set([
@@ -148,8 +154,12 @@ export class OnboardingService {
   async submit(userId: string) {
     const [onboarding, user] = await Promise.all([
       this.get(userId),
-      this.prisma.user.findUnique({ where: { id: userId }, select: { initialMode: true } }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { initialMode: true, email: true },
+      }),
     ]);
+    const shouldSendWelcomeEmail = !onboarding.submittedAt;
     const profile =
       onboarding.profile && typeof onboarding.profile === "object" && !Array.isArray(onboarding.profile)
         ? (onboarding.profile as Record<string, unknown>)
@@ -336,8 +346,29 @@ export class OnboardingService {
       });
     });
 
+    // Send only after the database transaction commits. An SMTP outage must
+    // never roll back a completed profile submission or change marketplace access.
+    let welcomeEmailSent = false;
+    if (shouldSendWelcomeEmail && user?.email) {
+      try {
+        await this.mail.sendWelcomeEmail(
+          user.email,
+          publicName ?? "",
+          wantsProvider && onboarding.providerApplicationStatus !== ProviderApplicationStatus.APPROVED,
+        );
+        welcomeEmailSent = true;
+      } catch (error) {
+        const code =
+          typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+            ? error.code.slice(0, 64)
+            : "unknown";
+        this.logger.error(`Profile submission succeeded but welcome email delivery failed (code=${code}).`);
+      }
+    }
+
     return {
       submittedAt,
+      welcomeEmailSent,
       message: wantsProvider
         ? "Your profile has been submitted. Your Provider application is awaiting review."
         : "Your profile has been submitted successfully.",

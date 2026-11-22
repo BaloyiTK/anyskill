@@ -90,5 +90,8 @@ jobs:
       - name: Test incoming request actions
         run: pnpm --filter @anyskill/api test:marketplace-incoming-actions
 
+      - name: Test onboarding submission welcome email
+        run: pnpm --filter @anyskill/api test:onboarding-submission
+
       - name: Type-check all workspaces
         run: pnpm typecheck

@@ -87,4 +87,28 @@ export class MailService implements OnModuleInit {
       text: `Your AnySkill password reset code is ${otp}. It expires in 10 minutes. If you did not request it, ignore this email.`,
     });
   }
+
+  async sendWelcomeEmail(email: string, displayName: string, providerReviewPending: boolean): Promise<void> {
+    const greeting = displayName.trim() ? `Hello ${displayName.trim()},` : "Hello,";
+    const providerStatus = providerReviewPending
+      ? "Your submitted Provider skills are pending review. They will only become available for matching after approval."
+      : "If you also applied to become a Provider, your submitted skills are pending review and will only become available for matching after approval.";
+    await this.deliver("profile-submission-welcome", email, {
+      from: this.fromAddress,
+      to: email,
+      subject: "Welcome to AnySkill — profile submitted",
+      text: [
+        greeting,
+        "",
+        "Welcome to AnySkill. We have received your completed profile.",
+        "",
+        "Your identity verification is pending. We will notify you when its status changes.",
+        providerStatus,
+        "",
+        "You can continue using any marketplace role that is already active on your account.",
+        "",
+        "Thank you for joining AnySkill.",
+      ].join("\\n"),
+    });
+  }
 }

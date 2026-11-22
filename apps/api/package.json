@@ -12,7 +12,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "test:auth-concurrency": "node --test prisma/tests/auth-concurrency.integration.mjs",
-    "test:marketplace-incoming-actions": "node --test tests/marketplace-incoming-actions.test.mjs"
+    "test:marketplace-incoming-actions": "node --test tests/marketplace-incoming-actions.test.mjs",
+    "test:onboarding-submission": "node --test tests/onboarding-submission.test.mjs"
   },
   "dependencies": {
     "@anyskill/contracts": "workspace:*",
