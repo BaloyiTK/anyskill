@@ -441,6 +441,7 @@ model JobEngagement {
   seekerId              String?             @db.Uuid @map("seeker_id")
   providerId            String?             @db.Uuid @map("provider_id")
   status                JobEngagementStatus @default(ASSESSMENT_PENDING)
+  providerEnRouteAt     DateTime?           @map("provider_en_route_at")
   hourlyRate            Decimal             @map("hourly_rate") @db.Decimal(10, 2)
   assessmentFee         Decimal             @default(0) @map("assessment_fee") @db.Decimal(10, 2)
   estimatedHours       Decimal?            @map("estimated_hours") @db.Decimal(8, 2)
