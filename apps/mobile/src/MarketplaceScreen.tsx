@@ -1699,6 +1699,8 @@ export function MarketplaceScreen(p: Props) {
                   <Text style={{ color: "#8D4B46", fontSize: 11, marginTop: 4 }}>Closes the request and all pending offers</Text>
                 </Pressable>
                 <Pressable onPress={() => void selectProvider(matchingRequest.id, activeOffer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", marginTop: 10 }}>{selectingOfferId === activeOffer.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Accept offer</Text>}</Pressable>
+                {error ? <Text style={{ color: "#B42318", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 12, textAlign: "center" }}>{error}</Text> : null}
+                {notice ? <Text style={{ color: "#176B55", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 12, textAlign: "center" }}>{notice}</Text> : null}
               </>}
                 </ScrollView>
               </View>
