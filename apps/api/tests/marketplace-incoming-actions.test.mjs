@@ -210,7 +210,9 @@ test("matching skips busy Providers and requires an approved matching skill", as
         ? [{ category: "plumber" }]
         : [{ category: "plumber" }],
     },
-    providerResponse: { findFirst: async () => null },
+    providerResponse: {
+      findFirst: async (args) => { calls.push(["offer-check", args]); return null; },
+    },
     jobEngagement: { findFirst: async () => null },
     appNotification: { create: async (args) => { calls.push(["notification", args]); } },
   };
@@ -235,6 +237,17 @@ test("matching skips busy Providers and requires an approved matching skill", as
   assert.equal(calls.filter(([name]) => name === "lock").length, 4);
   assert.equal(calls.find(([name]) => name === "match-create")[1].data.providerId, "eligible-provider");
   assert.equal(calls.find(([name]) => name === "notification")[1].data.userId, "eligible-provider");
+  const eligibleOfferCheck = calls.find(([name, args]) =>
+    name === "offer-check" && args.where.providerId === "eligible-provider"
+  );
+  assert.deepEqual(eligibleOfferCheck[1], {
+    where: {
+      providerId: "eligible-provider",
+      status: "OFFERED",
+      request: { status: "OPEN" },
+    },
+    select: { id: true },
+  });
 });
 
 test("accept revalidates active Provider status and approved skill before creating an offer", async () => {
