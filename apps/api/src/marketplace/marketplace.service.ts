@@ -832,6 +832,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
       // Eligibility is mutable after an offer is submitted. Recheck it at the
       // Seeker's final selection point, not only when the Provider responds.
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${offer.providerId}::uuid FOR SHARE`);
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM provider_skills WHERE user_id = ${offer.providerId}::uuid AND category = ${normalise(request.skillCategory)} AND status = 'APPROVED' FOR SHARE`);
       const provider = await tx.user.findUnique({
         where: { id: offer.providerId },
         select: {
@@ -1377,6 +1379,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           throw new ConflictException("The response window has expired. AnySkill is finding the next available Provider.");
         }
 
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${providerId}::uuid FOR SHARE`);
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM provider_skills WHERE user_id = ${providerId}::uuid AND category = ${normalise(request.skillCategory)} AND status = 'APPROVED' FOR SHARE`);
         const provider = await tx.user.findUnique({
           where: { id: providerId },
           select: {
