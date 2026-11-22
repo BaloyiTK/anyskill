@@ -142,10 +142,13 @@ test("initial matching failure leaves the newly created request queued for worke
   let createArgs;
   const service = new MarketplaceService({
     user: { findUnique: async () => ({ identityVerification: "VERIFIED" }) },
-    serviceRequest: {
-      create: async (args) => {
-        createArgs = args;
-        return {
+    $transaction: async (callback) => callback({
+      $queryRaw: async () => [],
+      serviceRequest: {
+        findFirst: async () => null,
+        create: async (args) => {
+          createArgs = args;
+          return {
           id: "request-queued",
           title: args.data.title,
           skillCategory: args.data.skillCategory,
@@ -158,9 +161,10 @@ test("initial matching failure leaves the newly created request queued for worke
           instructions: args.data.instructions,
           status: "OPEN",
           createdAt: new Date(),
-        };
+          };
+        },
       },
-    },
+    }),
   }, {});
   service.dispatchNextWave = async () => { throw new Error("temporary matching outage"); };
 
