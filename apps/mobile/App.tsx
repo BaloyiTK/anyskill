@@ -440,6 +440,20 @@ export default function App() {
       if (oldest) handledNotificationResponses.current.delete(oldest);
     }
 
+    if (typeof data.requestId === "string" && data.type === "PROVIDER_OFFER_DECLINED") {
+      setActiveIncomingRequestId(null);
+      setPendingAcceptRequestId(null);
+      setPendingIncomingPushId(null);
+      setActiveTab("home");
+      setMode("provider");
+      setScreen("dashboard");
+      void apiRequest<MarketplaceRoleSummary>(" /marketplace/roles/active-mode".trim(), {
+        method: "PATCH",
+        body: JSON.stringify({ mode: "PROVIDER" }),
+      }, true).then(setRoleSummary).catch(() => undefined);
+      setMessage("The Skill Seeker declined your offer. You are back on Provider Home. Your availability setting has not changed.");
+      return;
+    }
     if (typeof data.requestId === "string" && data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
       setActiveTab("home");
       setMode("seeker");
@@ -555,6 +569,20 @@ export default function App() {
 
     const received = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as { type?: string; requestId?: string };
+      if (data.type === "PROVIDER_OFFER_DECLINED") {
+        setActiveIncomingRequestId(null);
+        setPendingAcceptRequestId(null);
+        setPendingIncomingPushId(null);
+        setActiveTab("home");
+        setMode("provider");
+        setScreen("dashboard");
+        void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
+          method: "PATCH",
+          body: JSON.stringify({ mode: "PROVIDER" }),
+        }, true).then(setRoleSummary).catch(() => undefined);
+        setMessage("The Skill Seeker declined your offer. You are back on Provider Home. Your availability setting has not changed.");
+        return;
+      }
       if (data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
         setActiveTab("home"); setMode("seeker"); setScreen("marketplace");
         setMessage("Your Provider cancelled the service. Find another Provider to continue.");
