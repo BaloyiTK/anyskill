@@ -640,6 +640,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: { status: "CANCELLED", matchingNextAt: null },
       });
       if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
+      const notifiedMatches = await tx.requestMatch.findMany({
+        where: { requestId, status: { in: ["NOTIFIED", "RESPONDED"] } },
+        select: { providerId: true },
+      });
       await tx.requestMatch.updateMany({
         where: { requestId, status: { in: ["NOTIFIED", "RESPONDED"] } },
         data: { status: "EXPIRED" },
@@ -652,13 +656,18 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { requestId, status: "OFFERED" },
         data: { status: "WITHDRAWN" },
       });
-      if (pendingOffers.length) await tx.appNotification.createMany({
-        data: pendingOffers.flatMap((offer) => offer.providerId ? [{
-          userId: offer.providerId,
+      const affectedProviders = new Map<string, { responseId?: string }>();
+      for (const match of notifiedMatches) affectedProviders.set(match.providerId, {});
+      for (const offer of pendingOffers) {
+        if (offer.providerId) affectedProviders.set(offer.providerId, { responseId: offer.id });
+      }
+      if (affectedProviders.size) await tx.appNotification.createMany({
+        data: [...affectedProviders.entries()].map(([providerId, offer]) => ({
+          userId: providerId,
           title: "Service request cancelled",
-          body: "The Skill Seeker cancelled this request. Your pending offer is now closed.",
-          data: { type: "REQUEST_CANCELLED", requestId, responseId: offer.id },
-        }] : []),
+          body: "The Skill Seeker cancelled this request. You have been returned to Provider Home.",
+          data: { type: "SERVICE_CANCELLED_BY_SEEKER", requestId, ...(offer.responseId ? { responseId: offer.responseId } : {}) },
+        })),
       });
       return { success: true, requestId, status: "CANCELLED" };
     });
@@ -1240,7 +1249,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async declineIncomingRequest(providerId: string, requestId: string) {
-    await this.prisma.$transaction(async (tx) => {
+    const matchingWave = await this.prisma.$transaction(async (tx) => {
+      const request = await tx.serviceRequest.findFirst({
+        where: { id: requestId, status: "OPEN" },
+        select: { matchingWave: true },
+      });
+      if (!request) throw new ConflictException("This incoming request is no longer awaiting your response.");
+
       const changed = await tx.requestMatch.updateMany({
         where: {
           requestId,
@@ -1255,15 +1270,19 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }
 
       await tx.providerResponse.create({
-        data: {
-          requestId,
-          providerId,
-          status: "DECLINED",
-        },
+        data: { requestId, providerId, status: "DECLINED" },
       });
+      await tx.serviceRequest.updateMany({
+        where: { id: requestId, status: "OPEN" },
+        data: { matchingNextAt: new Date() },
+      });
+      return request.matchingWave;
     });
 
-    return { success: true, requestId, status: "DECLINED" };
+    // An explicit decline should advance matching immediately, not wait for the
+    // standard response window to expire.
+    const matching = await this.dispatchNextWave(requestId, matchingWave + 1);
+    return { success: true, requestId, status: "DECLINED", matching };
   }
 
   async respondToRequest(providerId: string, requestId: string, input: ProviderResponseDto) {

@@ -424,6 +424,11 @@ export default function App() {
       return;
     }
     if (typeof data.requestId === "string" && data.type === "SERVICE_CANCELLED_BY_SEEKER") {
+      const cancelledRequestId = data.requestId;
+      setActiveIncomingRequestId((current) => current === cancelledRequestId ? null : current);
+      setPendingAcceptRequestId((current) => current === cancelledRequestId ? null : current);
+      setPendingIncomingPushId((current) => current === cancelledRequestId ? null : current);
+      dismissedIncomingRequestIds.current.add(cancelledRequestId);
       setActiveTab("home");
       setMode("provider");
       setScreen("dashboard");
@@ -531,6 +536,13 @@ export default function App() {
         return;
       }
       if (data.type === "SERVICE_CANCELLED_BY_SEEKER") {
+        if (typeof data.requestId === "string") {
+          const cancelledRequestId = data.requestId;
+          setActiveIncomingRequestId((current) => current === cancelledRequestId ? null : current);
+          setPendingAcceptRequestId((current) => current === cancelledRequestId ? null : current);
+          setPendingIncomingPushId((current) => current === cancelledRequestId ? null : current);
+          dismissedIncomingRequestIds.current.add(cancelledRequestId);
+        }
         setActiveTab("home"); setMode("provider"); setScreen("dashboard");
         setMessage("The Skill Seeker cancelled the service. You are back on Provider Home.");
         return;

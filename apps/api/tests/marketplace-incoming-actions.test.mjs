@@ -10,27 +10,36 @@ function serviceWith(transaction) {
   return new MarketplaceService(prisma, {});
 }
 
-test("decline records a DECLINED provider response and closes only the provider match", async () => {
+test("decline immediately advances matching after recording the Provider response", async () => {
   const calls = [];
   const tx = {
+    serviceRequest: {
+      findFirst: async () => ({ matchingWave: 2 }),
+      updateMany: async (args) => { calls.push(["request-next", args]); return { count: 1 }; },
+    },
     requestMatch: { updateMany: async (args) => { calls.push(["match", args]); return { count: 1 }; } },
     providerResponse: { create: async (args) => { calls.push(["response", args]); return { id: "response-1" }; } },
   };
-  const result = await serviceWith(tx).declineIncomingRequest("provider-1", "request-1");
+  const service = serviceWith(tx);
+  service.dispatchNextWave = async (...args) => { calls.push(["dispatch", args]); return { notified: 1, wave: 3 }; };
+  const result = await service.declineIncomingRequest("provider-1", "request-1");
 
-  assert.deepEqual(result, { success: true, requestId: "request-1", status: "DECLINED" });
-  assert.deepEqual(calls[0], ["match", {
+  assert.deepEqual(result, { success: true, requestId: "request-1", status: "DECLINED", matching: { notified: 1, wave: 3 } });
+  assert.deepEqual(calls.find(([name]) => name === "match")[1], {
     where: { requestId: "request-1", providerId: "provider-1", status: "NOTIFIED", request: { status: "OPEN" } },
     data: { status: "EXPIRED" },
-  }]);
-  assert.deepEqual(calls[1], ["response", {
+  });
+  assert.deepEqual(calls.find(([name]) => name === "response")[1], {
     data: { requestId: "request-1", providerId: "provider-1", status: "DECLINED" },
-  }]);
+  });
+  assert.ok(calls.findIndex(([name]) => name === "response") < calls.findIndex(([name]) => name === "dispatch"));
+  assert.deepEqual(calls.find(([name]) => name === "dispatch")[1], ["request-1", 3]);
 });
 
 test("decline rejects a request that is no longer awaiting this provider", async () => {
   let responseCreated = false;
   const tx = {
+    serviceRequest: { findFirst: async () => ({ matchingWave: 1 }) },
     requestMatch: { updateMany: async () => ({ count: 0 }) },
     providerResponse: { create: async () => { responseCreated = true; } },
   };
@@ -148,4 +157,30 @@ test("initial matching failure leaves the newly created request queued for worke
 
   assert.ok(createArgs.data.matchingNextAt instanceof Date);
   assert.deepEqual(result.matching, { notified: 0, wave: 0, queued: true });
+});
+
+
+test("cancelling an open request notifies all matched Providers and pending-offer Providers once", async () => {
+  const calls = [];
+  const tx = {
+    serviceRequest: {
+      findFirst: async () => ({ id: "request-1", title: "Fix a tap", status: "OPEN" }),
+      updateMany: async (args) => { calls.push(["request-update", args]); return { count: 1 }; },
+    },
+    requestMatch: {
+      findMany: async () => [{ providerId: "provider-1" }, { providerId: "provider-2" }],
+      updateMany: async (args) => { calls.push(["matches-expired", args]); return { count: 2 }; },
+    },
+    providerResponse: {
+      findMany: async () => [{ id: "offer-1", providerId: "provider-2" }, { id: "offer-2", providerId: "provider-3" }],
+      updateMany: async (args) => { calls.push(["offers-withdrawn", args]); return { count: 2 }; },
+    },
+    appNotification: { createMany: async (args) => { calls.push(["notifications", args]); } },
+  };
+  const result = await serviceWith(tx).cancelRequest("seeker-1", "request-1");
+  assert.deepEqual(result, { success: true, requestId: "request-1", status: "CANCELLED" });
+  const notifications = calls.find(([name]) => name === "notifications")[1].data;
+  assert.deepEqual(notifications.map((item) => item.userId).sort(), ["provider-1", "provider-2", "provider-3"]);
+  assert.equal(notifications.length, 3);
+  assert.ok(notifications.every((item) => item.data.type === "SERVICE_CANCELLED_BY_SEEKER"));
 });
