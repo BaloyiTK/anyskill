@@ -2035,10 +2035,19 @@ export function MarketplaceScreen(p: Props) {
         </View> : null}
         <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 15, marginTop: 12 }}>
           <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE PROGRESS</Text>
-          {["Provider selected","Assessment in progress","Estimate submitted","Your approval required","Work authorised"].map((step,index) => <View key={step} style={{ flexDirection: "row", alignItems: "center", marginTop: 11 }}>
-            <View style={{ width: 25, height: 25, borderRadius: 13, backgroundColor: index === 0 ? "#176B55" : "#EEF2EF", alignItems: "center", justifyContent: "center" }}><Text style={{ color: index === 0 ? "#FFFFFF" : "#829087", fontSize: 11, fontWeight: "900" }}>{index === 0 ? "✓" : String(index + 1)}</Text></View>
-            <Text style={{ color: index === 0 ? "#176B55" : "#66756D", fontSize: 12, fontWeight: index === 0 ? "900" : "600", marginLeft: 10 }}>{step}{index === 1 ? " · Current stage" : ""}</Text>
-          </View>)}
+          {["Provider selected","Assessment","Final estimate","Your approval","Work authorised"].map((step,index) => {
+            const status = journeyScreen?.engagementStatus ?? "ASSESSMENT_PENDING";
+            const assessmentDone = !!journeyScreen?.assessmentCompletedAt || ["ESTIMATE_SUBMITTED","ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(status);
+            const estimateSent = ["ESTIMATE_SUBMITTED","ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(status);
+            const approved = ["ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(status);
+            const done = index === 0 || (index === 1 && assessmentDone) || (index === 2 && estimateSent) || (index === 3 && approved);
+            const current = index === 0 ? !journeyScreen?.providerArrivedAt : index === 1 ? !!journeyScreen?.assessmentStartedAt && !assessmentDone : index === 2 ? assessmentDone && !estimateSent : index === 3 ? status === "ESTIMATE_SUBMITTED" : status === "ESTIMATE_APPROVED";
+            const label = index === 1 ? (assessmentDone ? "Assessment done" : journeyScreen?.assessmentStartedAt ? "Assessing" : "Assessment pending") : index === 2 ? (estimateSent ? "Final estimate submitted" : "Final estimate pending") : index === 3 ? (approved ? "Price approved" : status === "ESTIMATE_SUBMITTED" ? "Approve final price" : "Approval pending") : step;
+            return <View key={step} style={{ flexDirection: "row", alignItems: "center", marginTop: 11 }}>
+              <View style={{ width: 25, height: 25, borderRadius: 13, backgroundColor: done ? "#176B55" : "#EEF2EF", alignItems: "center", justifyContent: "center" }}><Text style={{ color: done ? "#FFFFFF" : "#829087", fontSize: 11, fontWeight: "900" }}>{done ? "✓" : String(index + 1)}</Text></View>
+              <Text style={{ color: done || current ? "#176B55" : "#66756D", fontSize: 12, fontWeight: done || current ? "900" : "600", marginLeft: 10 }}>{label}{current ? " · Current stage" : ""}</Text>
+            </View>;
+          })}
         </View>
         <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#E1E8E3", padding: 16, marginTop: 22 }}>
           <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE LOCATION</Text>
