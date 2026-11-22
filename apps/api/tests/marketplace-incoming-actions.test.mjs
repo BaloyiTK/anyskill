@@ -236,6 +236,42 @@ test("matching skips busy Providers and requires an approved matching skill", as
   assert.equal(calls.find(([name]) => name === "notification")[1].data.userId, "eligible-provider");
 });
 
+test("accept revalidates active Provider status and approved skill before creating an offer", async () => {
+  for (const provider of [
+    { identityVerification: "VERIFIED", providerRoleStatus: "PENDING", providerProfile: { hourlyRate: 250, assessmentFee: 0 } },
+    { identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { hourlyRate: 250, assessmentFee: 0 } },
+  ]) {
+    let responseCreated = false;
+    let skillLookup;
+    const tx = {
+      serviceRequest: {
+        findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", skillCategory: "Plumber", status: "OPEN" }),
+        update: async () => {},
+      },
+      requestMatch: {
+        findUnique: async () => ({ id: "match-1", status: "NOTIFIED", notifiedAt: new Date() }),
+        update: async () => {},
+      },
+      user: { findUnique: async () => provider },
+      providerSkill: {
+        findFirst: async (args) => { skillLookup = args; return provider.providerRoleStatus === "ACTIVE" ? null : { id: "skill-1" }; },
+      },
+      providerResponse: { create: async () => { responseCreated = true; } },
+      appNotification: { create: async () => {} },
+    };
+    await assert.rejects(
+      serviceWith(tx).respondToRequest("provider-1", "request-1", {}),
+      (error) => error.getStatus?.() === 403,
+    );
+    assert.equal(responseCreated, false);
+    if (provider.providerRoleStatus === "ACTIVE") {
+      assert.deepEqual(skillLookup.where, {
+        userId: "provider-1", category: "plumber", status: "APPROVED",
+      });
+    }
+  }
+});
+
 test("matching does not dispatch the same request wave twice", async () => {
   let transactionStarted = false;
   const request = {
