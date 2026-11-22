@@ -662,3 +662,40 @@ test("staff dispute resolution records the decision and keeps the timer paused f
   assert.equal(calls.some(([name])=>name==="request"),false);
   assert.equal(calls.find(([name])=>name==="audit")[1].data.action,"JOB_DISPUTE_RESOLVED");
 });
+
+test("matching uses approved ProviderSkill records even when the profile skill cache is stale", async () => {
+  const prisma = {
+    providerProfile: {
+      findMany: async () => [{
+        userId: "provider-1",
+        // Simulate a legacy/stale denormalized profile that omitted Plumbing.
+        skillCategories: [],
+        deliveryModes: ["REMOTE"],
+        maxTravelDistanceKm: 25,
+        liveLatitude: null,
+        liveLongitude: null,
+        liveAccuracyM: null,
+        liveLocationUpdatedAt: null,
+        user: {
+          onboardingDraft: null,
+          providerSkills: [{ category: "Plumbing" }],
+        },
+      }],
+    },
+    jobEngagement: { groupBy: async () => [] },
+    providerReview: { groupBy: async () => [] },
+  };
+  const service = new MarketplaceService(prisma, {});
+  const ranked = await service.rankedProviders({
+    id: "request-1",
+    seekerId: "seeker-1",
+    skillCategory: "plumber",
+    location: null,
+    latitude: null,
+    longitude: null,
+    searchRadiusKm: 10,
+    deliveryMode: "REMOTE",
+  });
+
+  assert.deepEqual(ranked, [{ userId: "provider-1", score: 6000 }]);
+});
