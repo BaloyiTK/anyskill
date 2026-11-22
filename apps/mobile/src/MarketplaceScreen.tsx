@@ -1969,7 +1969,7 @@ export function MarketplaceScreen(p: Props) {
         </View>
         {journeyScreen?.providerEnRouteAt ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#B9DCC8", padding: 15, marginTop: 12 }}>
           <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900" }}>LIVE PROVIDER LOCATION</Text>
-          <Text style={{ color: "#15251E", fontSize: 16, fontWeight: "900", marginTop: 6 }}{journeyScreen.providerArrivedAt ? "Your Provider has arrived" : "Your Provider is on the way"}</Text>
+          <Text style={{ color: "#15251E", fontSize: 16, fontWeight: "900", marginTop: 6 }}>{journeyScreen.providerArrivedAt ? "Your Provider has arrived" : "Your Provider is on the way"}</Text>
           {journeyScreen.latitude != null && journeyScreen.longitude != null && journeyScreen.liveLatitude != null && journeyScreen.liveLongitude != null
             ? <View style={{ marginTop: 12, borderRadius: 14, overflow: "hidden" }}>
                 <MapPinPicker latitude={journeyScreen.latitude} longitude={journeyScreen.longitude} selectedLatitude={journeyScreen.latitude} selectedLongitude={journeyScreen.longitude} onSelect={() => undefined} readOnly liveLatitude={journeyScreen.liveLatitude} liveLongitude={journeyScreen.liveLongitude} />
