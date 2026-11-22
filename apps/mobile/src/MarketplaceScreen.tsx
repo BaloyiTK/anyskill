@@ -86,7 +86,7 @@ export function MarketplaceScreen(p: Props) {
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [autoOpenedOfferIds, setAutoOpenedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
-  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null}|null>(null);
+  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;hourlyRate:number|null;assessmentFee:number|null}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
   // Keep tracking the exact offer after its review modal is dismissed. Selection can
   // happen later, and the selected job must still take priority over older jobs.
@@ -574,6 +574,8 @@ export function MarketplaceScreen(p: Props) {
         liveLatitude: selectedOffer?.provider.providerProfile?.liveLatitude ?? null,
         liveLongitude: selectedOffer?.provider.providerProfile?.liveLongitude ?? null,
         liveLocationUpdatedAt: selectedOffer?.provider.providerProfile?.liveLocationUpdatedAt ?? null,
+        hourlyRate: selectedOffer?.hourlyRateAtOffer == null ? null : Number(selectedOffer.hourlyRateAtOffer),
+        assessmentFee: selectedOffer?.assessmentFeeAtOffer == null ? null : Number(selectedOffer.assessmentFeeAtOffer),
       });
       setNotice("Provider selected. Your request is now closed to further offers.");
       setActiveOfferId(null);
@@ -1653,6 +1655,19 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900", marginTop: 6 }}>{job.request.title}</Text>
             <Text style={{ color: "#176B55", fontWeight: "800", fontSize: 12, marginTop: 4 }}>{job.status.replaceAll("_", " ")}</Text>
             <Text style={{ color: "#53645A", fontSize: 13, lineHeight: 20, marginTop: 10 }}>{job.request.description}</Text>
+            {["ASSESSMENT_PENDING","ESTIMATE_SUBMITTED","ESTIMATE_REJECTED","ESTIMATE_APPROVED"].includes(job.status) ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 13, marginTop: 13 }}>
+              <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900" }}>ASSESSMENT & APPROVAL</Text>
+              <Text style={{ color: "#15251E", fontSize: 14, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? "Complete the assessment" : job.status === "ESTIMATE_SUBMITTED" ? "Estimate sent to the Seeker" : job.status === "ESTIMATE_REJECTED" ? "Revise the estimate" : "Seeker approved the estimate"}</Text>
+              <Text style={{ color: "#40584B", fontSize: 11, lineHeight: 17, marginTop: 4 }}>{job.status === "ASSESSMENT_PENDING" ? "Assess the requested work, then submit realistic hours and a clear cost explanation. Do not begin the main work yet." : job.status === "ESTIMATE_SUBMITTED" ? "Wait for the Seeker's decision. Main work remains locked until approval." : job.status === "ESTIMATE_REJECTED" ? "Review the Seeker's feedback and submit a revised estimate." : "You may start only the work covered by the approved estimate."}</Text>
+              {job.status === "ASSESSMENT_PENDING" || job.status === "ESTIMATE_REJECTED" ? <>
+                <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>Estimated work hours</Text>
+                <TextInput value={estimateHours} onChangeText={setEstimateHours} keyboardType="decimal-pad" placeholder="e.g. 2" style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 11, minHeight: 48, paddingHorizontal: 12, color: "#15251E", marginTop: 6 }} />
+                <TextInput value={estimateNotes} onChangeText={setEstimateNotes} placeholder="Explain the assessment, work required and any assumptions..." multiline style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 11, minHeight: 92, padding: 12, color: "#15251E", textAlignVertical: "top", marginTop: 8 }} />
+                <Pressable onPress={() => void submitEstimate(job.request.id)} disabled={jobActionBusy || !(Number(estimateHours) > 0) || !Number.isFinite(Number(estimateHours)) || estimateNotes.trim().length < 10} style={{ backgroundColor: "#176B55", opacity: jobActionBusy || !(Number(estimateHours) > 0) || !Number.isFinite(Number(estimateHours)) || estimateNotes.trim().length < 10 ? 0.45 : 1, borderRadius: 12, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 10 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Submitting..." : "Submit assessment estimate"}</Text></Pressable>
+              </> : null}
+              {job.status === "ESTIMATE_SUBMITTED" ? <Text style={{ color: "#66756D", fontSize: 11, marginTop: 9 }}>Submitted estimate: {job.estimatedHours == null ? "—" : Number(job.estimatedHours).toFixed(2) + " hours"} · R {job.estimatedTotal == null ? "—" : Number(job.estimatedTotal).toFixed(2)}</Text> : null}
+              {job.estimateDecisionNote ? <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 8 }}>Seeker feedback: {job.estimateDecisionNote}</Text> : null}
+            </View> : null}
             {job.request.instructions ? <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 9 }}>Instructions: {job.request.instructions}</Text> : null}
             <Text style={{ color: "#66756D", fontSize: 12, marginTop: 12 }}>Agreed rate: R {Number(job.hourlyRate).toFixed(2)} / hour · Assessment fee: R {Number(job.assessmentFee).toFixed(2)}</Text>
           </View>
@@ -1689,7 +1704,25 @@ export function MarketplaceScreen(p: Props) {
         </View>
         <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, marginTop: 28 }}>PROVIDER SELECTED</Text>
         <Text style={{ color: "#15251E", fontSize: 28, lineHeight: 34, fontWeight: "900", marginTop: 8 }}>Your journey starts here</Text>
-        <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20, marginTop: 7 }}>You selected {journeyScreen?.providerName}. Review the destination and open navigation when you are ready.</Text>
+        <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20, marginTop: 7 }}>You selected {journeyScreen?.providerName}. Your engagement is confirmed and the Provider must complete the assessment before submitting the job estimate.</Text>
+        <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 16 }}>
+          <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>ENGAGEMENT STATUS</Text>
+          <Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900", marginTop: 6 }}>Assessment pending</Text>
+          <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>Your Provider has been selected. No additional work can begin until you review and approve the estimate in AnySkill.</Text>
+        </View>
+        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 15, marginTop: 12 }}>
+          <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>AGREED OFFER PRICING</Text>
+          <Text style={{ color: "#15251E", fontSize: 16, fontWeight: "900", marginTop: 7 }}>{journeyScreen?.hourlyRate == null ? "Hourly rate not available" : "R " + journeyScreen.hourlyRate.toFixed(2) + " / hour"}</Text>
+          <Text style={{ color: "#66756D", fontSize: 12, marginTop: 5 }}>{journeyScreen?.assessmentFee == null ? "Assessment fee not available" : journeyScreen.assessmentFee === 0 ? "No assessment / call-out fee" : "Assessment / call-out fee: R " + journeyScreen.assessmentFee.toFixed(2)}</Text>
+          <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 8 }}>These are the charges saved with the offer you selected. The final job estimate will be shown separately for your approval.</Text>
+        </View>
+        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 15, marginTop: 12 }}>
+          <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE PROGRESS</Text>
+          {["Provider selected","Assessment in progress","Estimate submitted","Your approval required","Work authorised"].map((step,index) => <View key={step} style={{ flexDirection: "row", alignItems: "center", marginTop: 11 }}>
+            <View style={{ width: 25, height: 25, borderRadius: 13, backgroundColor: index === 0 ? "#176B55" : "#EEF2EF", alignItems: "center", justifyContent: "center" }}><Text style={{ color: index === 0 ? "#FFFFFF" : "#829087", fontSize: 11, fontWeight: "900" }}>{index === 0 ? "✓" : String(index + 1)}</Text></View>
+            <Text style={{ color: index === 0 ? "#176B55" : "#66756D", fontSize: 12, fontWeight: index === 0 ? "900" : "600", marginLeft: 10 }}>{step}{index === 1 ? " · Current stage" : ""}</Text>
+          </View>)}
+        </View>
         <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#E1E8E3", padding: 16, marginTop: 22 }}>
           <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE LOCATION</Text>
           <Text style={{ color: "#15251E", fontSize: 17, fontWeight: "900", marginTop: 7 }}>{journeyScreen?.title}</Text>
