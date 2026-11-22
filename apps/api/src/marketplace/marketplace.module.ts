@@ -5,6 +5,7 @@ import { IdentityModule } from "../identity/identity.module";
 import { MarketplaceRolesModule } from "./marketplace-roles.module";
 import { MarketplaceRoleGuard } from "./marketplace-role.guard";
 import { DatabaseModule } from "../database/database.module";
+import { MailModule } from "../mail/mail.module";
 import { MarketplaceController, PublicProviderDiscoveryController } from "./marketplace.controller";
 import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
@@ -12,7 +13,7 @@ import { GooglePlacesService } from "./google-places.service";
 import { LiveProviderMapService } from "./live-provider-map.service";
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, MarketplaceRolesModule, PassportModule],
+  imports: [DatabaseModule, IdentityModule, MarketplaceRolesModule, PassportModule, MailModule],
   controllers: [MarketplaceController, PublicProviderDiscoveryController],
   providers: [MarketplaceService, MediaService, GooglePlacesService, LiveProviderMapService, JwtAuthGuard, MarketplaceRoleGuard],
   exports: [MediaService, MarketplaceService, LiveProviderMapService],
