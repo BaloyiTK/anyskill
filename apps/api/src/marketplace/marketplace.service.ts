@@ -836,7 +836,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
       // Eligibility is mutable after an offer is submitted. Recheck it at the
       // Seeker's final selection point, not only when the Provider responds.
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${offer.providerId}::uuid FOR SHARE`);
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${offer.providerId}::uuid FOR UPDATE`);
       await tx.$queryRaw(Prisma.sql`SELECT id FROM provider_skills WHERE user_id = ${offer.providerId}::uuid AND category = ${normalise(request.skillCategory)} AND status = 'APPROVED' FOR SHARE`);
       const provider = await tx.user.findUnique({
         where: { id: offer.providerId },
@@ -873,6 +873,19 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }
       if (offer.hourlyRateAtOffer == null) {
         throw new ConflictException("This Provider offer has no valid rate and cannot be selected.");
+      }
+
+      // A Provider may have only one selected, unfinished service at a time.
+      // The Provider row is locked above so concurrent Seeker selections serialize.
+      const activeJob = await tx.jobEngagement.findFirst({
+        where: {
+          providerId: offer.providerId,
+          status: { in: ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"] },
+        },
+        select: { id: true },
+      });
+      if (activeJob) {
+        throw new ConflictException("This Provider already has an active service and cannot be selected until it is completed or cancelled.");
       }
 
       const claimed = await tx.serviceRequest.updateMany({
@@ -1538,7 +1551,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           throw new ConflictException("The response window has expired. AnySkill is finding the next available Provider.");
         }
 
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${providerId}::uuid FOR SHARE`);
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${providerId}::uuid FOR UPDATE`);
         await tx.$queryRaw(Prisma.sql`SELECT id FROM provider_skills WHERE user_id = ${providerId}::uuid AND category = ${normalise(request.skillCategory)} AND status = 'APPROVED' FOR SHARE`);
         const provider = await tx.user.findUnique({
           where: { id: providerId },
@@ -1561,6 +1574,32 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             message: "Your Provider account must be approved and active before responding to requests.",
           });
         }
+        // Locking the Provider row serializes responses to different requests.
+        // Do not let a Provider accumulate another active service or outstanding offer.
+        const [activeJob, activeOffer, activeIncomingMatch] = await Promise.all([
+          tx.jobEngagement.findFirst({
+            where: {
+              providerId,
+              status: { in: ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"] },
+            },
+            select: { id: true },
+          }),
+          tx.providerResponse.findFirst({
+            where: { providerId, status: "OFFERED", request: { status: "OPEN" } },
+            select: { id: true },
+          }),
+          tx.requestMatch.findFirst({
+            where: { providerId, status: { in: ["NOTIFIED", "RESPONDED"] }, request: { status: "OPEN" }, requestId: { not: requestId } },
+            select: { id: true },
+          }),
+        ]);
+        if (activeJob) {
+          throw new ConflictException("You already have an active service. Complete or cancel it before accepting another request.");
+        }
+        if (activeOffer || activeIncomingMatch) {
+          throw new ConflictException("You already have another incoming request or pending offer. Respond to it before accepting another request.");
+        }
+
         if (!provider.providerProfile?.hourlyRate) {
           throw new ConflictException("Complete your Provider profile and set your hourly rate before sending an offer.");
         }
