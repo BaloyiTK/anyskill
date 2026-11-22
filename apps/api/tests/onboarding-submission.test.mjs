@@ -48,7 +48,17 @@ function makeService({ mailFailure = false, alreadySubmittedAt = null } = {}) {
     },
     $transaction: async (callback) => {
       const tx = {
-        onboardingDraft: { update: async () => { events.push("draft-updated"); } },
+        onboardingDraft: {
+          updateMany: async ({ where }) => {
+            if (where.submittedAt === null && draft.submittedAt === null) {
+              draft.submittedAt = new Date("2026-11-22T00:00:00.000Z");
+              events.push("first-submission-claimed");
+              return { count: 1 };
+            }
+            return { count: 0 };
+          },
+          update: async () => { events.push("draft-updated"); },
+        },
         user: {
           findUniqueOrThrow: async () => ({ seekerRoleStatus: "NOT_REQUESTED", providerRoleStatus: "PENDING" }),
           update: async () => { events.push("roles-updated"); },
