@@ -281,6 +281,10 @@ test("notification recovery uses the start time of the active delivery attempt",
     notificationDeviceDelivery: {
       updateMany: async (args) => { calls.push(["device", args]); return { count: 0 }; },
     },
+    welcomeEmailOutbox: {
+      updateMany: async (args) => { calls.push(["welcome", args]); return { count: 0 }; },
+      findMany: async () => [],
+    },
   };
   const service = new MarketplaceService(prisma, {});
   service.expandExpiredWaves = async () => {};
