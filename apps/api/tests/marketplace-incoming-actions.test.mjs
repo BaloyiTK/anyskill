@@ -272,6 +272,33 @@ test("accept revalidates active Provider status and approved skill before creati
   }
 });
 
+test("notification recovery uses the start time of the active delivery attempt", async () => {
+  const calls = [];
+  const prisma = {
+    appNotification: {
+      updateMany: async (args) => { calls.push(["notification", args]); return { count: 0 }; },
+    },
+    notificationDeviceDelivery: {
+      updateMany: async (args) => { calls.push(["device", args]); return { count: 0 }; },
+    },
+  };
+  const service = new MarketplaceService(prisma, {});
+  service.expandExpiredWaves = async () => {};
+  service.retryExhaustedRequests = async () => {};
+  service.dispatchPendingNotifications = async () => {};
+  service.pollExpoPushReceipts = async () => {};
+
+  await service.runWorkerCycle();
+
+  const recovery = calls.find(([name]) => name === "notification")[1];
+  assert.deepEqual(recovery.where, {
+    deliveryStatus: "SENDING",
+    deliveryStartedAt: { lt: recovery.where.deliveryStartedAt.lt },
+  });
+  assert.ok(recovery.where.deliveryStartedAt.lt instanceof Date);
+  assert.deepEqual(recovery.data, { deliveryStatus: "PENDING", deliveryStartedAt: null });
+});
+
 test("matching does not dispatch the same request wave twice", async () => {
   let transactionStarted = false;
   const request = {
