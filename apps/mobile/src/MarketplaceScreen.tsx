@@ -1118,7 +1118,7 @@ export function MarketplaceScreen(p: Props) {
     && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS"].includes(job.status));
 
   useEffect(() => {
-    if (p.mode !== "provider" || (!providerAvailable && !providerHasEnRouteJob)) return;
+    if (p.mode !== "provider" || Platform.OS !== "web" || (!providerAvailable && !providerHasEnRouteJob)) return;
 
     let active = true;
     let nativeSubscription: Location.LocationSubscription | null = null;
