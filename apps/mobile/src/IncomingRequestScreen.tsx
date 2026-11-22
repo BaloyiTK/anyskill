@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiRequest } from "./api";
 
@@ -20,22 +20,27 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
   const [error, setError] = useState("");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
+  const actionInProgressRef = useRef(false);
+  const pollInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!requestId) { setRequest(null); setError(""); return; }
     let active = true;
     const load = async (showSpinner: boolean) => {
+      if (actionInProgressRef.current || pollInFlightRef.current) return;
+      pollInFlightRef.current = true;
       if (showSpinner) setLoading(true);
       try {
         const result = await apiRequest<{ items: IncomingRequest[] }>("/marketplace/incoming-requests", {}, true);
-        if (!active) return;
+        if (!active || actionInProgressRef.current) return;
         const found = result.items.find((item) => item.id === requestId && item.status === "OPEN" && !item.alreadyResponded);
         setRequest(found ?? null);
         setError(found ? "" : "This request is no longer available. AnySkill has refreshed your incoming requests.");
       } catch (e) {
-        if (!active) return;
+        if (!active || actionInProgressRef.current) return;
         setError(e instanceof Error ? e.message : "Could not refresh this request. Please try again.");
       } finally {
+        pollInFlightRef.current = false;
         if (active && showSpinner) setLoading(false);
       }
     };
@@ -58,6 +63,7 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
   const expired = Boolean(request?.responseDeadlineAt && secondsRemaining <= 0);
   const respond = async (choice: "accept" | "decline") => {
     if (!requestId || action || expired) return;
+    actionInProgressRef.current = true;
     setAction(choice); setError("");
     try {
       if (choice === "accept") {
@@ -70,7 +76,10 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Your response could not be submitted. Please try again.");
       setRefreshTrigger((value) => value + 1);
-    } finally { setAction(null); }
+    } finally {
+      actionInProgressRef.current = false;
+      setAction(null);
+    }
   };
 
   return <Modal visible={Boolean(requestId)} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose} statusBarTranslucent>
