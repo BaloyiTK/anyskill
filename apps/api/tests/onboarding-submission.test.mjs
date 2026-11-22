@@ -22,6 +22,11 @@ function makeService({ mailFailure = false, alreadySubmittedAt = null } = {}) {
     submittedAt: alreadySubmittedAt,
   };
   const prisma = {
+    welcomeEmailOutbox: {
+      updateMany: async ({ where, data }) => { events.push(["outbox-claim", where, data]); return { count: 1 }; },
+      findUniqueOrThrow: async () => ({ recipientEmail: user.email, displayName: "Sam Example", providerReviewPending: true }),
+      update: async ({ data }) => { events.push(["outbox-update", data]); },
+    },
     onboardingDraft: {
       findUnique: async () => draft,
       updateMany: async ({ where }) => {
@@ -73,6 +78,9 @@ function makeService({ mailFailure = false, alreadySubmittedAt = null } = {}) {
           upsert: async () => {},
         },
         appNotification: { create: async () => {} },
+        welcomeEmailOutbox: {
+          create: async ({ data }) => { events.push(["outbox-created", data]); return { id: "welcome-1" }; },
+        },
       };
       const result = await callback(tx);
       events.push("transaction-committed");
@@ -96,6 +104,7 @@ test("welcome email is sent after successful full Provider profile submission", 
 
   assert.equal(result.welcomeEmailSent, true);
   assert.ok(events.includes("first-submission-claimed"));
+  assert.ok(events.some((event) => Array.isArray(event) && event[0] === "outbox-created"));
   assert.ok(events.indexOf("transaction-committed") < events.indexOf("welcome-email"));
   const mailCall = events.find((event) => Array.isArray(event) && event[0] === "mail-args");
   assert.deepEqual(mailCall, ["mail-args", "member@example.com", "Sam Example", true]);
@@ -108,6 +117,7 @@ test("SMTP failure does not undo a successfully submitted profile", async () => 
   assert.equal(result.welcomeEmailSent, false);
   assert.ok(events.includes("transaction-committed"));
   assert.ok(events.includes("welcome-email"));
+  assert.ok(events.some((event) => Array.isArray(event) && event[0] === "outbox-update" && event[1].status === "PENDING"));
 });
 
 test("repeat submission does not resend the initial welcome email", async () => {
