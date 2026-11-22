@@ -510,3 +510,47 @@ test("estimate decision is single-winner and cannot be reversed by a stale secon
   assert.deepEqual(calls[0].where, { id: "job-1", seekerId: "seeker-1", status: "ESTIMATE_SUBMITTED" });
   assert.equal(notifications, 0);
 });
+
+
+test("additional-hours decision cannot overwrite a decision committed by another client", async () => {
+  const calls = [];
+  let notifications = 0;
+  const tx = {
+    jobEngagement: { findUnique: async () => ({ id: "job-1", providerId: "provider-1", seekerId: "seeker-1", status: "IN_PROGRESS" }) },
+    jobCostAdjustment: {
+      findFirst: async () => ({ id: "adjustment-1", engagementId: "job-1", status: "PENDING" }),
+      updateMany: async (args) => { calls.push(args); return { count: 0 }; },
+    },
+    appNotification: { create: async () => { notifications += 1; } },
+  };
+  await assert.rejects(
+    serviceWith(tx).decideAdditionalHours("seeker-1", "request-1", "adjustment-1", { approved: true }),
+    (error) => error.getStatus?.() === 409,
+  );
+  assert.deepEqual(calls[0].where, { id: "adjustment-1", engagementId: "job-1", status: "PENDING" });
+  assert.equal(notifications, 0);
+});
+
+test("completion review cannot overwrite a completion decision already committed elsewhere", async () => {
+  const calls = [];
+  let jobChanged = false;
+  let notifications = 0;
+  const tx = {
+    jobEngagement: {
+      findUnique: async () => ({ id: "job-1", providerId: "provider-1", seekerId: "seeker-1", status: "COMPLETION_PENDING" }),
+      updateMany: async () => { jobChanged = true; return { count: 1 }; },
+    },
+    jobCompletionSubmission: {
+      findFirst: async () => ({ id: "submission-1", engagementId: "job-1", status: "PENDING" }),
+      updateMany: async (args) => { calls.push(args); return { count: 0 }; },
+    },
+    appNotification: { create: async () => { notifications += 1; } },
+  };
+  await assert.rejects(
+    serviceWith(tx).decideJobCompletion("seeker-1", "request-1", "submission-1", { approved: true }),
+    (error) => error.getStatus?.() === 409,
+  );
+  assert.deepEqual(calls[0].where, { id: "submission-1", engagementId: "job-1", status: "PENDING" });
+  assert.equal(jobChanged, false);
+  assert.equal(notifications, 0);
+});
