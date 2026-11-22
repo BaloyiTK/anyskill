@@ -50,7 +50,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     // instead. The default remains enabled for existing single-process installs.
     if (process.env.MARKETPLACE_WORKER_ENABLED?.trim().toLowerCase() === "false") return;
     this.worker = setInterval(() => { void this.runWorkerCycle(); }, 15_000);
-    this.worker.unref?.();
     void this.runWorkerCycle();
   }
 
