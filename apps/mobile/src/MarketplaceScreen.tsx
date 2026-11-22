@@ -36,7 +36,7 @@ type JobAdjustment = { id: string; requestedHours: string | number; requestedAmo
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
 type DisputeMessage = { id: string; author: { id: string }; body: string; createdAt: string; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}> };
 type JobDispute = { id: string; status: string; reason: string; resolutionNote: string | null; resolvedAt: string | null; messages: DisputeMessage[] };
-type JobEngagement = { id: string; providerId?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; providerArrivedAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
+type JobEngagement = { id: string; providerId?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; providerArrivedAt?: string | null; assessmentStartedAt?: string | null; assessmentCompletedAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
 type ProviderJob = JobEngagement & {
   responseId: string;
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
@@ -90,7 +90,7 @@ export function MarketplaceScreen(p: Props) {
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [autoOpenedOfferIds, setAutoOpenedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
-  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;providerEnRouteAt:string|null;providerArrivedAt:string|null;hourlyRate:number|null;assessmentFee:number|null}|null>(null);
+  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;providerEnRouteAt:string|null;providerArrivedAt:string|null;assessmentStartedAt:string|null;assessmentCompletedAt:string|null;engagementStatus:string;estimatedTotal:number|null;estimatedHours:number|null;estimateNotes:string|null;hourlyRate:number|null;assessmentFee:number|null}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
   // Keep tracking the exact offer after its review modal is dismissed. Selection can
   // happen later, and the selected job must still take priority over older jobs.
@@ -332,6 +332,12 @@ export function MarketplaceScreen(p: Props) {
                   liveLocationUpdatedAt: profile?.liveLocationUpdatedAt ?? null,
                   providerEnRouteAt: activeJourney.jobEngagement?.providerEnRouteAt ?? null,
                   providerArrivedAt: activeJourney.jobEngagement?.providerArrivedAt ?? null,
+                  assessmentStartedAt: activeJourney.jobEngagement?.assessmentStartedAt ?? null,
+                  assessmentCompletedAt: activeJourney.jobEngagement?.assessmentCompletedAt ?? null,
+                  engagementStatus: activeJourney.jobEngagement?.status ?? "ASSESSMENT_PENDING",
+                  estimatedTotal: activeJourney.jobEngagement?.estimatedTotal == null ? null : Number(activeJourney.jobEngagement.estimatedTotal),
+                  estimatedHours: activeJourney.jobEngagement?.estimatedHours == null ? null : Number(activeJourney.jobEngagement.estimatedHours),
+                  estimateNotes: activeJourney.jobEngagement?.estimateNotes ?? null,
                   hourlyRate: selectedOffer.hourlyRateAtOffer == null ? null : Number(selectedOffer.hourlyRateAtOffer),
                   assessmentFee: selectedOffer.assessmentFeeAtOffer == null ? null : Number(selectedOffer.assessmentFeeAtOffer),
                 });
@@ -523,10 +529,18 @@ export function MarketplaceScreen(p: Props) {
       const phone = offer?.provider.phone ?? profile?.phone ?? current.phone;
       const providerEnRouteAt = request?.jobEngagement?.providerEnRouteAt ?? current.providerEnRouteAt;
       const providerArrivedAt = request?.jobEngagement?.providerArrivedAt ?? current.providerArrivedAt;
+      const assessmentStartedAt = request?.jobEngagement?.assessmentStartedAt ?? current.assessmentStartedAt;
+      const assessmentCompletedAt = request?.jobEngagement?.assessmentCompletedAt ?? current.assessmentCompletedAt;
+      const engagementStatus = request?.jobEngagement?.status ?? current.engagementStatus;
+      const estimatedTotal = request?.jobEngagement?.estimatedTotal == null ? current.estimatedTotal : Number(request.jobEngagement.estimatedTotal);
+      const estimatedHours = request?.jobEngagement?.estimatedHours == null ? current.estimatedHours : Number(request.jobEngagement.estimatedHours);
+      const estimateNotes = request?.jobEngagement?.estimateNotes ?? current.estimateNotes;
       if (current.liveLatitude === liveLatitude && current.liveLongitude === liveLongitude
         && current.liveLocationUpdatedAt === (isFresh ? liveAt : null) && current.phone === phone
-        && current.providerEnRouteAt === providerEnRouteAt && current.providerArrivedAt === providerArrivedAt) return current;
-      return { ...current, liveLatitude, liveLongitude, liveLocationUpdatedAt: isFresh ? liveAt : null, phone, providerEnRouteAt, providerArrivedAt };
+        && current.providerEnRouteAt === providerEnRouteAt && current.providerArrivedAt === providerArrivedAt
+        && current.assessmentStartedAt === assessmentStartedAt && current.assessmentCompletedAt === assessmentCompletedAt
+        && current.engagementStatus === engagementStatus && current.estimatedTotal === estimatedTotal && current.estimatedHours === estimatedHours && current.estimateNotes === estimateNotes) return current;
+      return { ...current, liveLatitude, liveLongitude, liveLocationUpdatedAt: isFresh ? liveAt : null, phone, providerEnRouteAt, providerArrivedAt, assessmentStartedAt, assessmentCompletedAt, engagementStatus, estimatedTotal, estimatedHours, estimateNotes };
     });
   }, [myRequests, journeyScreen?.requestId, journeyScreen?.responseId]);
 
@@ -633,6 +647,13 @@ export function MarketplaceScreen(p: Props) {
         liveLongitude: selectedOffer?.provider.providerProfile?.liveLongitude ?? null,
         liveLocationUpdatedAt: selectedOffer?.provider.providerProfile?.liveLocationUpdatedAt ?? null,
         providerEnRouteAt: null,
+        providerArrivedAt: null,
+        assessmentStartedAt: null,
+        assessmentCompletedAt: null,
+        engagementStatus: result.status,
+        estimatedTotal: null,
+        estimatedHours: null,
+        estimateNotes: null,
         hourlyRate: selectedOffer?.hourlyRateAtOffer == null ? null : Number(selectedOffer.hourlyRateAtOffer),
         assessmentFee: selectedOffer?.assessmentFeeAtOffer == null ? null : Number(selectedOffer.assessmentFeeAtOffer),
       });
@@ -1031,6 +1052,31 @@ export function MarketplaceScreen(p: Props) {
       setNavigationOpenedRequestIds((ids) => ids.includes(requestId) ? ids : [...ids, requestId]);
     } catch {
       setError("Could not open your navigation application.");
+    }
+  };
+
+  const updateAssessmentStage = async (requestId: string, action: "start" | "complete") => {
+    if (jobActionBusy) return;
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      const result = await apiRequest<{success:boolean;requestId:string;assessmentStartedAt?:string;assessmentCompletedAt?:string}>(
+        "/marketplace/requests/" + requestId + "/assessment/" + action,
+        { method: "POST" }, true,
+      );
+      if (!result.success || result.requestId !== requestId || (action === "start" ? !result.assessmentStartedAt : !result.assessmentCompletedAt)) {
+        throw new Error("The assessment stage was not confirmed. Refresh and try again.");
+      }
+      setMyJobs((jobs) => jobs.map((job) => job.request.id !== requestId ? job : {
+        ...job,
+        ...(result.assessmentStartedAt ? { assessmentStartedAt: result.assessmentStartedAt } : {}),
+        ...(result.assessmentCompletedAt ? { assessmentCompletedAt: result.assessmentCompletedAt } : {}),
+      }));
+      setNotice(action === "start" ? "Assessment started. The Seeker has been notified." : "Assessment marked done. The Seeker has been notified. Submit the final estimate for approval.");
+      await loadMyJobs();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update the assessment.");
+    } finally {
+      setJobActionBusy(false);
     }
   };
 
@@ -1611,7 +1657,7 @@ export function MarketplaceScreen(p: Props) {
           {job.request.location ? <Text style={s.meta}>Job location: {job.request.location}</Text> : null}
           {job.request.latitude != null && job.request.longitude != null ? <Text style={s.meta}>Job pin: {job.request.latitude.toFixed(5)}, {job.request.longitude.toFixed(5)}</Text> : null}
           <Text style={s.meta}>Agreed rate: R {Number(job.hourlyRate).toFixed(2)} / hour · Assessment fee: R {Number(job.assessmentFee).toFixed(2)}</Text>
-          {job.status === "ASSESSMENT_PENDING" || job.status === "ESTIMATE_REJECTED" ? <>
+          {(job.status === "ASSESSMENT_PENDING" && !!job.assessmentCompletedAt) || job.status === "ESTIMATE_REJECTED" ? <>
             <Text style={s.helper}>Complete the assessment, then submit the estimated hours and a clear explanation. The Seeker must approve before work begins.</Text>
             <TextInput value={estimateHours} onChangeText={setEstimateHours} keyboardType="decimal-pad" placeholder="Estimated hours" style={s.input} />
             <TextInput value={estimateNotes} onChangeText={setEstimateNotes} placeholder="Explain the assessment and work required..." multiline style={[s.input, s.multiline]} />
@@ -1906,8 +1952,8 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#53645A", fontSize: 13, lineHeight: 20, marginTop: 10 }}>{job.request.description}</Text>
             {["ASSESSMENT_PENDING","ESTIMATE_SUBMITTED","ESTIMATE_REJECTED","ESTIMATE_APPROVED"].includes(job.status) ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 13, marginTop: 13 }}>
               <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900" }}>ASSESSMENT & APPROVAL</Text>
-              <Text style={{ color: "#15251E", fontSize: 14, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? "Complete the assessment" : job.status === "ESTIMATE_SUBMITTED" ? "Estimate sent to the Seeker" : job.status === "ESTIMATE_REJECTED" ? "Revise the estimate" : "Seeker approved the estimate"}</Text>
-              <Text style={{ color: "#40584B", fontSize: 11, lineHeight: 17, marginTop: 4 }}>{job.status === "ASSESSMENT_PENDING" ? "Assess the requested work, then submit realistic hours and a clear cost explanation. Do not begin the main work yet." : job.status === "ESTIMATE_SUBMITTED" ? "Wait for the Seeker's decision. Main work remains locked until approval." : job.status === "ESTIMATE_REJECTED" ? "Review the Seeker's feedback and submit a revised estimate." : "You may start only the work covered by the approved estimate."}</Text>
+              <Text style={{ color: "#15251E", fontSize: 14, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? (job.assessmentCompletedAt ? "Assessment done · submit final estimate" : job.assessmentStartedAt ? "Assessment in progress" : "Waiting to start assessment") : job.status === "ESTIMATE_SUBMITTED" ? "Estimate sent to the Seeker" : job.status === "ESTIMATE_REJECTED" ? "Revise the estimate" : "Seeker approved the estimate"}</Text>
+              <Text style={{ color: "#40584B", fontSize: 11, lineHeight: 17, marginTop: 4 }}>{job.status === "ASSESSMENT_PENDING" ? (job.assessmentCompletedAt ? "Assessment is complete. Submit the final hours and price for the Seeker to approve before work starts." : job.assessmentStartedAt ? "You are assessing the requested work. Mark Assessment Done when finished." : "Confirm arrival and start the assessment before preparing the estimate.") : job.status === "ESTIMATE_SUBMITTED" ? "Wait for the Seeker's decision. Main work remains locked until approval." : job.status === "ESTIMATE_REJECTED" ? "Review the Seeker's feedback and submit a revised estimate." : "You may start only the work covered by the approved estimate."}</Text>
               {job.status === "ASSESSMENT_PENDING" || job.status === "ESTIMATE_REJECTED" ? <>
                 <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>Estimated work hours</Text>
                 <TextInput value={estimateHours} onChangeText={setEstimateHours} keyboardType="decimal-pad" placeholder="e.g. 2" style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 11, minHeight: 48, paddingHorizontal: 12, color: "#15251E", marginTop: 6 }} />
@@ -1936,7 +1982,9 @@ export function MarketplaceScreen(p: Props) {
               <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17 }}>{providerRouteLoading ? "Calculating the full driving route from your current location..." : providerRoute?.requestId === job.request.id ? "The green line shows the full driving route from your current location to the Seeker's destination." : "The destination is pinned. The full route will appear when directions are available."}</Text>
               {job.status === "ASSESSMENT_PENDING" && !job.providerEnRouteAt ? <Pressable onPress={() => void markProviderEnRoute(job.request.id)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "I'm coming"}</Text></Pressable> : null}
               {job.providerEnRouteAt && !job.providerArrivedAt ? <Pressable onPress={() => navigationOpenedRequestIds.includes(job.request.id) ? void markProviderArrived(job.request.id) : void openProviderNavigation(job.request.id, job.request.latitude!, job.request.longitude!)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : navigationOpenedRequestIds.includes(job.request.id) ? "Arrived" : "Navigate to site"}</Text></Pressable> : null}
-              {job.providerArrivedAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>✓ Arrived</Text></View> : null}
+              {job.providerArrivedAt && !job.assessmentStartedAt ? <Pressable onPress={() => void updateAssessmentStage(job.request.id, "start")} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "Start assessing"}</Text></Pressable> : null}
+              {job.assessmentStartedAt && !job.assessmentCompletedAt ? <Pressable onPress={() => void updateAssessmentStage(job.request.id, "complete")} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "Assessing · Assessment Done"}</Text></Pressable> : null}
+              {job.assessmentCompletedAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>✓ Assessment Done</Text></View> : null}
             </> : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>This is a remote service or has no pinned physical destination. Navigation is not required.</Text>}
           </View>
           <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
