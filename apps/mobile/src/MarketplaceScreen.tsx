@@ -36,7 +36,7 @@ type JobAdjustment = { id: string; requestedHours: string | number; requestedAmo
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
 type DisputeMessage = { id: string; author: { id: string }; body: string; createdAt: string; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}> };
 type JobDispute = { id: string; status: string; reason: string; resolutionNote: string | null; resolvedAt: string | null; messages: DisputeMessage[] };
-type JobEngagement = { id: string; providerId?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
+type JobEngagement = { id: string; providerId?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
 type ProviderJob = JobEngagement & {
   responseId: string;
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
@@ -90,7 +90,7 @@ export function MarketplaceScreen(p: Props) {
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [autoOpenedOfferIds, setAutoOpenedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
-  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;hourlyRate:number|null;assessmentFee:number|null}|null>(null);
+  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;providerEnRouteAt:string|null;hourlyRate:number|null;assessmentFee:number|null}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
   // Keep tracking the exact offer after its review modal is dismissed. Selection can
   // happen later, and the selected job must still take priority over older jobs.
@@ -329,6 +329,7 @@ export function MarketplaceScreen(p: Props) {
                   liveLatitude: profile?.liveLatitude ?? null,
                   liveLongitude: profile?.liveLongitude ?? null,
                   liveLocationUpdatedAt: profile?.liveLocationUpdatedAt ?? null,
+                  providerEnRouteAt: activeJourney.jobEngagement.providerEnRouteAt ?? null,
                   hourlyRate: selectedOffer.hourlyRateAtOffer == null ? null : Number(selectedOffer.hourlyRateAtOffer),
                   assessmentFee: selectedOffer.assessmentFeeAtOffer == null ? null : Number(selectedOffer.assessmentFeeAtOffer),
                 });
@@ -518,9 +519,11 @@ export function MarketplaceScreen(p: Props) {
       const liveLatitude = isFresh ? profile?.liveLatitude ?? null : null;
       const liveLongitude = isFresh ? profile?.liveLongitude ?? null : null;
       const phone = offer?.provider.phone ?? profile?.phone ?? current.phone;
+      const providerEnRouteAt = request?.jobEngagement?.providerEnRouteAt ?? current.providerEnRouteAt;
       if (current.liveLatitude === liveLatitude && current.liveLongitude === liveLongitude
-        && current.liveLocationUpdatedAt === (isFresh ? liveAt : null) && current.phone === phone) return current;
-      return { ...current, liveLatitude, liveLongitude, liveLocationUpdatedAt: isFresh ? liveAt : null, phone };
+        && current.liveLocationUpdatedAt === (isFresh ? liveAt : null) && current.phone === phone
+        && current.providerEnRouteAt === providerEnRouteAt) return current;
+      return { ...current, liveLatitude, liveLongitude, liveLocationUpdatedAt: isFresh ? liveAt : null, phone, providerEnRouteAt };
     });
   }, [myRequests, journeyScreen?.requestId, journeyScreen?.responseId]);
 
@@ -626,6 +629,7 @@ export function MarketplaceScreen(p: Props) {
         liveLatitude: selectedOffer?.provider.providerProfile?.liveLatitude ?? null,
         liveLongitude: selectedOffer?.provider.providerProfile?.liveLongitude ?? null,
         liveLocationUpdatedAt: selectedOffer?.provider.providerProfile?.liveLocationUpdatedAt ?? null,
+        providerEnRouteAt: null,
         hourlyRate: selectedOffer?.hourlyRateAtOffer == null ? null : Number(selectedOffer.hourlyRateAtOffer),
         assessmentFee: selectedOffer?.assessmentFeeAtOffer == null ? null : Number(selectedOffer.assessmentFeeAtOffer),
       });
@@ -973,6 +977,28 @@ export function MarketplaceScreen(p: Props) {
     ]);
   };
 
+  const markProviderEnRoute = async (requestId: string) => {
+    if (jobActionBusy) return;
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      const result = await apiRequest<{success:boolean;requestId:string;providerEnRouteAt:string}>(
+        "/marketplace/requests/" + requestId + "/provider-en-route",
+        { method: "POST" }, true,
+      );
+      if (!result.success || result.requestId !== requestId || !result.providerEnRouteAt) {
+        throw new Error("AnySkill did not confirm your departure status. Refresh the service and try again.");
+      }
+      setMyJobs((jobs) => jobs.map((job) => job.request.id === requestId
+        ? { ...job, providerEnRouteAt: result.providerEnRouteAt }
+        : job));
+      setNotice("The Seeker has been notified. Live location sharing is now active for this service.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not confirm that you are coming.");
+    } finally {
+      setJobActionBusy(false);
+    }
+  };
+
   const cancelSeekerJourney = (requestId: string, title: string) => {
     Alert.alert("Cancel selected Provider?", `Are you sure you want to cancel "${title}"? The Provider will be notified and you can find another Provider.`, [
       { text: "Keep service", style: "cancel" },
@@ -1007,8 +1033,11 @@ export function MarketplaceScreen(p: Props) {
     p.onProviderJobOpened?.();
   }, [p.mode, p.initialProviderJobId, p.onProviderJobOpened, myJobs]);
 
+  const providerHasEnRouteJob = myJobs.some((job) => !!job.providerEnRouteAt
+    && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS"].includes(job.status));
+
   useEffect(() => {
-    if (p.mode !== "provider" || !providerAvailable) return;
+    if (p.mode !== "provider" || (!providerAvailable && !providerHasEnRouteJob)) return;
 
     let active = true;
     let nativeSubscription: Location.LocationSubscription | null = null;
@@ -1203,7 +1232,7 @@ export function MarketplaceScreen(p: Props) {
       }
       nativeSubscription?.remove();
     };
-  }, [p.mode, providerAvailable]);
+  }, [p.mode, providerAvailable, providerHasEnRouteJob]);
 
   const saveProviderProfile = async () => {
     setSavingProfile(true); setError(""); setNotice("");
@@ -1870,7 +1899,8 @@ export function MarketplaceScreen(p: Props) {
                 <MapPinPicker latitude={job.request.latitude!} longitude={job.request.longitude!} selectedLatitude={job.request.latitude} selectedLongitude={job.request.longitude} onSelect={() => undefined} readOnly {...(providerRoute?.requestId === job.request.id ? { routeCoordinates: providerRoute.coordinates } : {})} liveLatitude={providerRoute?.requestId === job.request.id ? providerRoute.origin.latitude : null} liveLongitude={providerRoute?.requestId === job.request.id ? providerRoute.origin.longitude : null} />
               </View>
               <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17 }}>{providerRouteLoading ? "Calculating the full driving route from your current location..." : providerRoute?.requestId === job.request.id ? "The green line shows the full driving route from your current location to the Seeker's destination." : "The destination is pinned. The full route will appear when directions are available."}</Text>
-              <Pressable onPress={() => { const url = "https://www.google.com/maps/dir/?api=1&destination=" + job.request.latitude + "," + job.request.longitude + "&travelmode=driving"; void Linking.openURL(url).catch(() => setError("Could not open your navigation application.")); }} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Start navigation</Text></Pressable>
+              {job.status === "ASSESSMENT_PENDING" && !job.providerEnRouteAt ? <Pressable onPress={() => void markProviderEnRoute(job.request.id)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "I'm coming"}</Text></Pressable> : null}
+              {job.providerEnRouteAt ? <Pressable onPress={() => { const url = "https://www.google.com/maps/dir/?api=1&destination=" + job.request.latitude + "," + job.request.longitude + "&travelmode=driving"; void Linking.openURL(url).catch(() => setError("Could not open your navigation application.")); }} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Navigate to site</Text></Pressable> : null}
             </> : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>This is a remote service or has no pinned physical destination. Navigation is not required.</Text>}
           </View>
           <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
@@ -1901,6 +1931,16 @@ export function MarketplaceScreen(p: Props) {
           <Text style={{ color: "#66756D", fontSize: 12, marginTop: 5 }}>{journeyScreen?.assessmentFee == null ? "Assessment fee not available" : journeyScreen.assessmentFee === 0 ? "No assessment / call-out fee" : "Assessment / call-out fee: R " + journeyScreen.assessmentFee.toFixed(2)}</Text>
           <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 8 }}>These are the charges saved with the offer you selected. The final job estimate will be shown separately for your approval.</Text>
         </View>
+        {journeyScreen?.providerEnRouteAt ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#B9DCC8", padding: 15, marginTop: 12 }}>
+          <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900" }}>LIVE PROVIDER LOCATION</Text>
+          <Text style={{ color: "#15251E", fontSize: 16, fontWeight: "900", marginTop: 6 }}>Your Provider is on the way</Text>
+          {journeyScreen.latitude != null && journeyScreen.longitude != null && journeyScreen.liveLatitude != null && journeyScreen.liveLongitude != null
+            ? <View style={{ marginTop: 12, borderRadius: 14, overflow: "hidden" }}>
+                <MapPinPicker latitude={journeyScreen.latitude} longitude={journeyScreen.longitude} selectedLatitude={journeyScreen.latitude} selectedLongitude={journeyScreen.longitude} onSelect={() => undefined} readOnly liveLatitude={journeyScreen.liveLatitude} liveLongitude={journeyScreen.liveLongitude} />
+              </View>
+            : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 18, marginTop: 7 }}>Waiting for the Provider's next GPS update. Their location will appear here as soon as a fresh position is received.</Text>}
+          <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 8 }}>{journeyScreen.liveLocationUpdatedAt ? "Location updates automatically while the Provider is travelling." : "Live location is awaiting a fresh GPS update."}</Text>
+        </View> : null}
         <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 15, marginTop: 12 }}>
           <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE PROGRESS</Text>
           {["Provider selected","Assessment in progress","Estimate submitted","Your approval required","Work authorised"].map((step,index) => <View key={step} style={{ flexDirection: "row", alignItems: "center", marginTop: 11 }}>
