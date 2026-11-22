@@ -329,7 +329,7 @@ export function MarketplaceScreen(p: Props) {
                   liveLatitude: profile?.liveLatitude ?? null,
                   liveLongitude: profile?.liveLongitude ?? null,
                   liveLocationUpdatedAt: profile?.liveLocationUpdatedAt ?? null,
-                  providerEnRouteAt: activeJourney.jobEngagement.providerEnRouteAt ?? null,
+                  providerEnRouteAt: activeJourney.jobEngagement?.providerEnRouteAt ?? null,
                   hourlyRate: selectedOffer.hourlyRateAtOffer == null ? null : Number(selectedOffer.hourlyRateAtOffer),
                   assessmentFee: selectedOffer.assessmentFeeAtOffer == null ? null : Number(selectedOffer.assessmentFeeAtOffer),
                 });
