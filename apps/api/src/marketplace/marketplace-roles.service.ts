@@ -283,13 +283,23 @@ export class MarketplaceRolesService {
           ? draft.profile as Record<string, unknown> : {};
         const fullName = [profile.firstName, profile.lastName].filter((value) => typeof value === "string" && value.trim()).join(" ");
         const publicName = [profile.businessName, fullName].find((value) => typeof value === "string" && value.trim()) as string | undefined;
-        if (publicName) {
-          await tx.providerProfile.upsert({
-            where: { userId: verificationCase.userId },
-            create: { userId: verificationCase.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
-            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category) },
-          });
-        }
+        // Keep the matcher's profile skill index in sync with the authoritative
+        // approved-skill records even when the user has not supplied a public name.
+        // A missing display name must never make an otherwise approved Provider
+        // invisible to matching.
+        await tx.providerProfile.upsert({
+          where: { userId: verificationCase.userId },
+          create: {
+            userId: verificationCase.userId,
+            ...(publicName ? { publicName: publicName.trim() } : {}),
+            skillCategories: approvedSkills.map((item) => item.category),
+            isAvailable: false,
+          },
+          update: {
+            ...(publicName ? { publicName: publicName.trim() } : {}),
+            skillCategories: approvedSkills.map((item) => item.category),
+          },
+        });
       }
       await tx.user.update({ where: { id: verificationCase.userId }, data: {
         identityVerification: identityStatus, identityVerifiedAt: decision === "APPROVED" ? now : null,
@@ -383,13 +393,22 @@ export class MarketplaceRolesService {
           .filter((value) => typeof value === "string" && value.trim()).join(" ");
         const publicName = [profile.businessName, fullName]
           .find((value) => typeof value === "string" && value.trim()) as string | undefined;
-        if (publicName) {
-          await tx.providerProfile.upsert({
-            where: { userId: skill.userId },
-            create: { userId: skill.userId, publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category), isAvailable: false },
-            update: { publicName: publicName.trim(), skillCategories: approvedSkills.map((item) => item.category) },
-          });
-        }
+        // Matching reads skillCategories from ProviderProfile and separately
+        // verifies ProviderSkill approval. Always synchronize both records;
+        // publicName is presentation data, not an eligibility requirement.
+        await tx.providerProfile.upsert({
+          where: { userId: skill.userId },
+          create: {
+            userId: skill.userId,
+            ...(publicName ? { publicName: publicName.trim() } : {}),
+            skillCategories: approvedSkills.map((item) => item.category),
+            isAvailable: false,
+          },
+          update: {
+            ...(publicName ? { publicName: publicName.trim() } : {}),
+            skillCategories: approvedSkills.map((item) => item.category),
+          },
+        });
       }
       await tx.user.update({ where: { id: skill.userId }, data: {
         providerRoleStatus: skill.user.providerRoleStatus === MarketplaceRoleStatus.SUSPENDED
