@@ -744,7 +744,7 @@ export function MarketplaceScreen(p: Props) {
       await apiRequest("/marketplace/requests/" + requestId + "/disputes", { method: "POST", body: JSON.stringify({ reason: disputeReasonDraft.trim(), evidenceAssetIds: disputeEvidenceAssets.map((asset) => asset.id) }) }, true);
       setDisputeReasonDraft(""); setDisputeEvidenceAssets([]);
       setNotice("Dispute opened. The job is paused while AnySkill reviews both parties' responses.");
-      await Promise.all([loadMyJobs(), loadMyRequests()]);
+      await (p.mode === "provider" ? loadMyJobs() : loadMyRequests());
     } catch (e) { setError(e instanceof Error ? e.message : "Could not open the dispute."); }
     finally { setJobActionBusy(false); }
   };
@@ -755,7 +755,7 @@ export function MarketplaceScreen(p: Props) {
     try {
       await apiRequest("/marketplace/requests/" + requestId + "/disputes/" + disputeId + "/messages", { method: "POST", body: JSON.stringify({ body: disputeReplyDraft.trim(), evidenceAssetIds: disputeEvidenceAssets.map((asset) => asset.id) }) }, true);
       setDisputeReplyDraft(""); setDisputeEvidenceAssets([]);
-      await Promise.all([loadMyJobs(), loadMyRequests()]);
+      await (p.mode === "provider" ? loadMyJobs() : loadMyRequests());
       setNotice("Your response and evidence have been added to the dispute.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not send your dispute response."); }
     finally { setJobActionBusy(false); }
