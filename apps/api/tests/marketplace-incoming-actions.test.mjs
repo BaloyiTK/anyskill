@@ -184,3 +184,81 @@ test("cancelling an open request notifies all matched Providers and pending-offe
   assert.equal(notifications.length, 3);
   assert.ok(notifications.every((item) => item.data.type === "SERVICE_CANCELLED_BY_SEEKER"));
 });
+
+test("matching skips busy Providers and requires an approved matching skill", async () => {
+  const calls = [];
+  const request = {
+    id: "request-1", seekerId: "seeker-1", skillCategory: "plumber",
+    location: null, latitude: null, longitude: null, searchRadiusKm: 10,
+    deliveryMode: "REMOTE", status: "OPEN", matchingStartedAt: new Date(),
+    matchingWave: 1,
+  };
+  const tx = {
+    $queryRaw: async (query) => { calls.push(["lock", String(query)]); return []; },
+    serviceRequest: {
+      findUnique: async () => request,
+      update: async (args) => { calls.push(["request-update", args]); },
+    },
+    requestMatch: {
+      findMany: async () => [],
+      findFirst: async ({ where }) => where.providerId === "busy-provider" ? { id: "active-match" } : null,
+      create: async (args) => { calls.push(["match-create", args]); },
+    },
+    providerSkill: {
+      findMany: async ({ where }) => where.userId === "pending-skill-provider"
+        ? [{ category: "plumber" }]
+        : [{ category: "plumber" }],
+    },
+    providerResponse: { findFirst: async () => null },
+    jobEngagement: { findFirst: async () => null },
+    appNotification: { create: async (args) => { calls.push(["notification", args]); } },
+  };
+  const prisma = {
+    serviceRequest: { findUnique: async () => request },
+    $transaction: async (callback) => callback(tx),
+  };
+  const service = new MarketplaceService(prisma, {});
+  service.rankedProviders = async () => [
+    { userId: "busy-provider", score: 9000 },
+    { userId: "pending-skill-provider", score: 8000 },
+    { userId: "eligible-provider", score: 7000 },
+  ];
+  tx.providerSkill.findMany = async ({ where }) => where.userId === "pending-skill-provider"
+    ? []
+    : [{ category: "plumber" }];
+
+  const result = await service.dispatchNextWave("request-1", 2);
+
+  assert.equal(result.notified, 1);
+  assert.equal(result.wave, 2);
+  assert.equal(calls.filter(([name]) => name === "lock").length, 4);
+  assert.equal(calls.find(([name]) => name === "match-create")[1].data.providerId, "eligible-provider");
+  assert.equal(calls.find(([name]) => name === "notification")[1].data.userId, "eligible-provider");
+});
+
+test("matching does not dispatch the same request wave twice", async () => {
+  let transactionStarted = false;
+  const request = {
+    id: "request-1", seekerId: "seeker-1", skillCategory: "plumber",
+    location: null, latitude: null, longitude: null, searchRadiusKm: 10,
+    deliveryMode: "REMOTE", status: "OPEN", matchingStartedAt: new Date(),
+    matchingWave: 3,
+  };
+  const prisma = {
+    serviceRequest: { findUnique: async () => request },
+    $transaction: async (callback) => {
+      transactionStarted = true;
+      return callback({
+        $queryRaw: async () => [],
+        serviceRequest: { findUnique: async () => request },
+      });
+    },
+  };
+  const service = new MarketplaceService(prisma, {});
+  service.rankedProviders = async () => { throw new Error("ranking should not run after a wave was already committed"); };
+
+  const result = await service.dispatchNextWave("request-1", 3);
+
+  assert.equal(transactionStarted, true);
+  assert.deepEqual(result, { notified: 0, wave: 3, alreadyDispatched: true });
+});
