@@ -1298,27 +1298,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async respondToRequest(providerId: string, requestId: string, input: ProviderResponseDto) {
-    const provider = await this.prisma.user.findUnique({
-      where: { id: providerId },
-      select: { identityVerification: true, providerProfile: { select: { hourlyRate: true, assessmentFee: true } } },
-    });
-    if (!provider || provider.identityVerification !== "VERIFIED") {
-      throw new ForbiddenException({
-        code: "IDENTITY_VERIFICATION_REQUIRED",
-        action: "PROVIDER_ACCEPT_REQUEST",
-        message: "You can view this request, but you must complete identity verification before accepting it. Your request will remain available if it has not been taken or closed.",
-      });
-    }
-
-    if (!provider.providerProfile?.hourlyRate) {
-      throw new ConflictException("Complete your Provider profile and set your hourly rate before sending an offer.");
-    }
-
     try {
       return await this.prisma.$transaction(async (tx) => {
         const request = await tx.serviceRequest.findUnique({
           where: { id: requestId },
-          select: { id: true, seekerId: true, status: true },
+          select: { id: true, seekerId: true, skillCategory: true, status: true },
         });
         if (!request) throw new NotFoundException("This service request could not be found.");
         if (!request.seekerId) throw new ConflictException("This request is no longer available.");
@@ -1337,17 +1321,59 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           throw new ConflictException("The response window has expired. AnySkill is finding the next available Provider.");
         }
 
+        // Revalidate mutable eligibility inside the same transaction as the
+        // offer. A Provider may have been suspended, unverified, or had this
+        // skill revoked after the matching wave was dispatched.
+        const provider = await tx.user.findUnique({
+          where: { id: providerId },
+          select: {
+            identityVerification: true,
+            providerRoleStatus: true,
+            providerProfile: { select: { hourlyRate: true, assessmentFee: true } },
+          },
+        });
+        if (!provider || provider.identityVerification !== "VERIFIED") {
+          throw new ForbiddenException({
+            code: "IDENTITY_VERIFICATION_REQUIRED",
+            action: "PROVIDER_ACCEPT_REQUEST",
+            message: "Complete identity verification before responding to this request.",
+          });
+        }
+        if (provider.providerRoleStatus !== "ACTIVE") {
+          throw new ForbiddenException({
+            code: "PROVIDER_APPROVAL_REQUIRED",
+            message: "Your Provider account must be approved and active before responding to requests.",
+          });
+        }
+        if (!provider.providerProfile?.hourlyRate) {
+          throw new ConflictException("Complete your Provider profile and set your hourly rate before sending an offer.");
+        }
+        const approvedSkill = await tx.providerSkill.findFirst({
+          where: {
+            userId: providerId,
+            category: normalise(request.skillCategory),
+            status: "APPROVED",
+          },
+          select: { id: true },
+        });
+        if (!approvedSkill) {
+          throw new ForbiddenException({
+            code: "APPROVED_SKILL_REQUIRED",
+            message: "Your requested skill is no longer approved. Update your skills or wait for approval before responding.",
+          });
+        }
+
         const response = await tx.providerResponse.create({
           data: {
             requestId, providerId, message: input.message?.trim() || null, status: "OFFERED",
-            hourlyRateAtOffer: provider.providerProfile!.hourlyRate!,
-            assessmentFeeAtOffer: provider.providerProfile!.assessmentFee,
+            hourlyRateAtOffer: provider.providerProfile.hourlyRate,
+            assessmentFeeAtOffer: provider.providerProfile.assessmentFee,
           },
           select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true },
         });
         await tx.requestMatch.update({ where: { id: match.id }, data: { status: "RESPONDED" } });
         await tx.serviceRequest.update({ where: { id: requestId }, data: { matchingNextAt: null } });
-        if (request.seekerId) await tx.appNotification.create({
+        await tx.appNotification.create({
           data: {
             userId: request.seekerId,
             title: "A Provider has responded",
