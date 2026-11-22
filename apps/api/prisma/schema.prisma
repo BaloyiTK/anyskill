@@ -462,7 +462,7 @@ model JobEngagement {
   completionSubmissions JobCompletionSubmission[]
   review                ProviderReview?
   seekerReview          SeekerReview?
-  dispute               JobDispute?
+  disputes              JobDispute[]
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@map("job_engagements")
@@ -487,7 +487,7 @@ model SeekerReview {
 
 model JobDispute {
   id             String           @id @default(uuid()) @db.Uuid
-  engagementId   String           @unique @db.Uuid @map("engagement_id")
+  engagementId   String           @db.Uuid @map("engagement_id")
   openedById     String           @db.Uuid @map("opened_by_id")
   resolvedById   String?          @db.Uuid @map("resolved_by_id")
   reason         String           @db.VarChar(2000)

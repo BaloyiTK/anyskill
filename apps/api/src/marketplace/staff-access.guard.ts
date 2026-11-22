@@ -31,7 +31,7 @@ export class StaffAccessGuard implements CanActivate {
       ? isSuperAdmin
       : isSuperAdmin || isAdmin || membership?.role === requiredRole;
     if (!membership?.isActive || !allowed) {
-      throw new ForbiddenException("You are not authorised to review Provider applications.");
+      throw new ForbiddenException("You are not authorised to perform this staff action.");
     }
     return true;
   }

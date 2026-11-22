@@ -8,7 +8,7 @@ CREATE TABLE "job_disputes" (
  CONSTRAINT "job_disputes_opened_by_id_fkey" FOREIGN KEY ("opened_by_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
  CONSTRAINT "job_disputes_resolved_by_id_fkey" FOREIGN KEY ("resolved_by_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
-CREATE UNIQUE INDEX "job_disputes_engagement_id_key" ON "job_disputes"("engagement_id");
+CREATE INDEX "job_disputes_engagement_id_created_at_idx" ON "job_disputes"("engagement_id","created_at");
 CREATE INDEX "job_disputes_status_created_at_idx" ON "job_disputes"("status","created_at");
 CREATE INDEX "job_disputes_opened_by_id_created_at_idx" ON "job_disputes"("opened_by_id","created_at");
 CREATE TABLE "job_dispute_messages" (

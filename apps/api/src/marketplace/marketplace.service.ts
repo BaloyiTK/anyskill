@@ -1143,9 +1143,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async openJobDispute(userId: string, requestId: string, input: OpenJobDisputeDto) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM job_engagements WHERE request_id = ${requestId}::uuid FOR UPDATE`);
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.seekerId !== userId && job.providerId !== userId) throw new ForbiddenException("Only the Seeker or selected Provider can open this dispute.");
+      const existingDispute = await tx.jobDispute.findFirst({ where: { engagementId: job.id, status: { in: ["OPEN", "UNDER_REVIEW"] } } });
+      if (existingDispute) throw new ConflictException("A dispute is already open for this job.");
       if (job.status !== "COMPLETION_PENDING") throw new ConflictException("A dispute can only be opened while completion is awaiting review.");
       const submission = await tx.jobCompletionSubmission.findFirst({ where: { engagementId: job.id, status: "PENDING" } });
       if (!submission) throw new ConflictException("There is no pending completion submission to dispute.");
@@ -1181,7 +1184,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more dispute evidence files are unavailable or do not belong to you.");
       }
       const message = await tx.jobDisputeMessage.create({
-        data: { disputeId, authorId: userId, body: input.body.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) } : {}) },
+        data: { disputeId, authorId: userId, body: input.body.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) } } : {}) },
         include: { evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } },
       });
       await tx.jobDispute.updateMany({ where: { id: disputeId, status: "OPEN" }, data: { status: "UNDER_REVIEW" } });
@@ -1197,6 +1200,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (job.seekerId !== userId && job.providerId !== userId) throw new ForbiddenException("Only the Seeker and selected Provider can view this dispute.");
     return this.prisma.jobDispute.findUnique({
       where: { engagementId: job.id },
+      orderBy: { createdAt: "desc" },
       include: { messages: { orderBy: { createdAt: "asc" }, include: { author: { select: { id: true } }, evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } }, resolvedBy: { select: { id: true } } },
     });
   }
@@ -1405,6 +1409,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async requestAdditionalHours(providerId: string, requestId: string, input: RequestAdditionalHoursDto) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM job_engagements WHERE request_id = ${requestId}::uuid FOR UPDATE`);
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");

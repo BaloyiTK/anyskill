@@ -16,6 +16,7 @@ import {
 } from "./dto/service-request.dto";
 import { MarketplaceService } from "./marketplace.service";
 import { StaffAccessGuard, RequireStaffRole } from "./staff-access.guard";
+import { StaffRole } from "@prisma/client";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
 import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
@@ -160,8 +161,6 @@ export class MarketplaceController {
 
 
   @Post("marketplace/requests/:requestId/disputes")
-  @UseGuards(MarketplaceAccessGuard)
-  @RequireIdentityFor("SEEKER_REVIEW_COMPLETION")
   openJobDispute(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: OpenJobDisputeDto) {
     return this.marketplace.openJobDispute(user.id, requestId, dto);
   }
@@ -178,7 +177,7 @@ export class MarketplaceController {
 
   @Get("admin/marketplace/disputes")
   @UseGuards(StaffAccessGuard)
-  @RequireStaffRole("SUPPORT_AGENT")
+  @RequireStaffRole(StaffRole.SUPPORT_AGENT)
   listOpenJobDisputes() { return this.marketplace.listOpenJobDisputes(); }
 
   @Post("admin/marketplace/disputes/:disputeId/resolve")
