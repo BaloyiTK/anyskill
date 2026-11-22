@@ -94,31 +94,72 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
-    const request = await this.prisma.serviceRequest.create({
-      data: {
-        seekerId,
-        title: input.title.trim(),
-        skillCategory: input.skillCategory.trim(),
-        description: input.description.trim(),
-        imageUrls: input.imageUrls ?? [],
-        location: input.location?.trim() || null,
-        // Remote-only requests must never retain a physical location, even if a
-        // client accidentally includes stale coordinates in its payload.
-        latitude: input.deliveryMode === "REMOTE" ? null : input.latitude ?? null,
-        longitude: input.deliveryMode === "REMOTE" ? null : input.longitude ?? null,
-        searchRadiusKm: input.deliveryMode === "REMOTE" ? 10 : input.searchRadiusKm ?? 10,
-        deliveryMode: input.deliveryMode,
-        preferredStartAt: input.preferredStartAt ? new Date(input.preferredStartAt) : null,
-        instructions: input.instructions?.trim() || null,
-        // Persist a due matching timestamp with the request itself so a failed
-        // immediate dispatch is recoverable by the matching worker.
-        matchingNextAt: new Date(),
-      },
-      select: {
-        id: true, title: true, skillCategory: true, description: true,
-        imageUrls: true, location: true, deliveryMode: true, matchingStartedAt: true,
-        preferredStartAt: true, instructions: true, status: true, createdAt: true,
-      },
+    const request = await this.prisma.$transaction(async (tx) => {
+      // Serialize request creation per Seeker so two rapid submissions cannot
+      // create multiple simultaneously active service requests.
+      await tx.$queryRaw`SELECT id FROM users WHERE id = ${seekerId}::uuid FOR UPDATE`;
+
+      const existingRequest = await tx.serviceRequest.findFirst({
+        where: {
+          seekerId,
+          OR: [
+            { status: "OPEN" },
+            {
+              jobEngagement: {
+                is: {
+                  status: {
+                    in: [
+                      "ASSESSMENT_PENDING",
+                      "ESTIMATE_SUBMITTED",
+                      "ESTIMATE_REJECTED",
+                      "ESTIMATE_APPROVED",
+                      "IN_PROGRESS",
+                      "COMPLETION_PENDING",
+                      "DISPUTED",
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        },
+        select: { id: true, title: true, status: true },
+        orderBy: { createdAt: "desc" },
+      });
+      if (existingRequest) {
+        throw new ConflictException({
+          code: "SEEKER_ACTIVE_REQUEST_EXISTS",
+          activeRequestId: existingRequest.id,
+          message: "You already have an active service request. Complete or cancel it before submitting another request.",
+        });
+      }
+
+      return tx.serviceRequest.create({
+        data: {
+          seekerId,
+          title: input.title.trim(),
+          skillCategory: input.skillCategory.trim(),
+          description: input.description.trim(),
+          imageUrls: input.imageUrls ?? [],
+          location: input.location?.trim() || null,
+          // Remote-only requests must never retain a physical location, even if a
+          // client accidentally includes stale coordinates in its payload.
+          latitude: input.deliveryMode === "REMOTE" ? null : input.latitude ?? null,
+          longitude: input.deliveryMode === "REMOTE" ? null : input.longitude ?? null,
+          searchRadiusKm: input.deliveryMode === "REMOTE" ? 10 : input.searchRadiusKm ?? 10,
+          deliveryMode: input.deliveryMode,
+          preferredStartAt: input.preferredStartAt ? new Date(input.preferredStartAt) : null,
+          instructions: input.instructions?.trim() || null,
+          // Persist a due matching timestamp with the request itself so a failed
+          // immediate dispatch is recoverable by the matching worker.
+          matchingNextAt: new Date(),
+        },
+        select: {
+          id: true, title: true, skillCategory: true, description: true,
+          imageUrls: true, location: true, deliveryMode: true, matchingStartedAt: true,
+          preferredStartAt: true, instructions: true, status: true, createdAt: true,
+        },
+      });
     });
 
     try {
