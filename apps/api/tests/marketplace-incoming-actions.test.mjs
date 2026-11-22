@@ -303,6 +303,32 @@ test("notification recovery uses the start time of the active delivery attempt",
   assert.deepEqual(recovery.data, { deliveryStatus: "PENDING", deliveryStartedAt: null });
 });
 
+test("welcome email worker retries a persisted outbox item after SMTP failure", async () => {
+  const updates = [];
+  const prisma = {
+    welcomeEmailOutbox: {
+      findMany: async () => [{
+        id: "welcome-1", recipientEmail: "member@example.com",
+        displayName: "Sam Example", providerReviewPending: true, attempts: 1,
+      }],
+      updateMany: async (args) => { updates.push(args); return { count: 1 }; },
+    },
+  };
+  const mail = {
+    sendWelcomeEmail: async () => { throw Object.assign(new Error("SMTP unavailable"), { code: "ECONNECTION" }); },
+  };
+  const service = new MarketplaceService(prisma, {}, mail);
+
+  await service.dispatchPendingWelcomeEmails();
+
+  assert.deepEqual(updates[0].where, { id: "welcome-1", status: "PENDING", attempts: 1 });
+  assert.deepEqual(updates[0].data, { status: "SENDING", attempts: { increment: 1 } });
+  assert.equal(updates[1].where.status, "SENDING");
+  assert.equal(updates[1].data.status, "PENDING");
+  assert.ok(updates[1].data.nextAttemptAt instanceof Date);
+  assert.equal(updates[1].data.lastError, "ECONNECTION");
+});
+
 test("matching does not dispatch the same request wave twice", async () => {
   let transactionStarted = false;
   const request = {
