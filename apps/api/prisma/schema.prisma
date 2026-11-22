@@ -160,6 +160,7 @@ model User {
   providerSkills           ProviderSkill[]
   pushDevices              PushDevice[]
   notifications            AppNotification[]
+  welcomeEmailOutbox       WelcomeEmailOutbox?
   serviceChatMessages      ServiceChatMessage[]
   mediaAssets              MediaAsset[]
   onboardingDraft           OnboardingDraft?
@@ -557,6 +558,26 @@ model OnboardingDraft {
   updatedAt DateTime @updatedAt @map("updated_at")
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@map("onboarding_drafts")
+}
+
+
+model WelcomeEmailOutbox {
+  id                    String   @id @default(uuid()) @db.Uuid
+  userId                String   @unique @db.Uuid @map("user_id")
+  recipientEmail        String   @map("recipient_email") @db.VarChar(320)
+  displayName           String   @default("") @map("display_name") @db.VarChar(200)
+  providerReviewPending Boolean  @default(false) @map("provider_review_pending")
+  status                String   @default("PENDING") @db.VarChar(20)
+  attempts              Int      @default(0)
+  nextAttemptAt         DateTime @default(now()) @map("next_attempt_at")
+  sentAt                DateTime? @map("sent_at")
+  lastError             String?  @map("last_error") @db.VarChar(1000)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@map("welcome_email_outbox")
 }
 
 model ProviderRoleApplication {
