@@ -108,7 +108,7 @@ export class MailService implements OnModuleInit {
         "You can continue using any marketplace role that is already active on your account.",
         "",
         "Thank you for joining AnySkill.",
-      ].join("\\n"),
+      ].join("\n"),
     });
   }
 }
