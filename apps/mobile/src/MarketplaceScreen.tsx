@@ -34,7 +34,9 @@ type RequestItem = {
 };
 type JobAdjustment = { id: string; requestedHours: string | number; requestedAmount: string | number; reason: string; status: string; decisionNote: string | null };
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
-type JobEngagement = { id: string; providerId?: string | null; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[] };
+type DisputeMessage = { id: string; author: { id: string }; body: string; createdAt: string; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}> };
+type JobDispute = { id: string; status: string; reason: string; resolutionNote: string | null; resolvedAt: string | null; messages: DisputeMessage[] };
+type JobEngagement = { id: string; providerId?: string | null; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
 type ProviderJob = JobEngagement & {
   responseId: string;
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
@@ -117,6 +119,10 @@ export function MarketplaceScreen(p: Props) {
   const [completionEvidenceAssets, setCompletionEvidenceAssets] = useState<Array<{id:string;name:string;uri:string;contentType:string;sizeBytes:number}>>([]);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [completionReviewNote, setCompletionReviewNote] = useState("");
+  const [disputeReasonDraft, setDisputeReasonDraft] = useState("");
+  const [disputeReplyDraft, setDisputeReplyDraft] = useState("");
+  const [disputeEvidenceAssets, setDisputeEvidenceAssets] = useState<Array<{id:string;name:string;uri:string;contentType:string;sizeBytes:number}>>([]);
+  const [uploadingDisputeEvidence, setUploadingDisputeEvidence] = useState(false);
   const [ratingDraft, setRatingDraft] = useState<{requestId:string;skillRating:number;platformRating:number;comment:string}|null>(null);
   const [seekerRatingDraft, setSeekerRatingDraft] = useState<{requestId:string;rating:number;comment:string}|null>(null);
   const [jobActionBusy, setJobActionBusy] = useState(false);
@@ -698,6 +704,61 @@ export function MarketplaceScreen(p: Props) {
       setNotice("Photo upload complete. Images are securely stored in Cloudinary.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not upload evidence photos."); }
     finally { setUploadingEvidence(false); }
+  };
+
+  const pickDisputeEvidence = async () => {
+    if (disputeEvidenceAssets.length >= 8) { setError("You can attach up to 8 dispute evidence photos."); return; }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) { setError("Allow photo-library access to attach dispute evidence."); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: 8 - disputeEvidenceAssets.length, quality: 0.85 });
+    if (result.canceled) return;
+    setUploadingDisputeEvidence(true); setError(""); setNotice("");
+    try {
+      for (const file of result.assets) {
+        const mime = file.mimeType ?? "image/jpeg";
+        if (!["image/jpeg", "image/png", "image/webp"].includes(mime)) throw new Error("Only JPEG, PNG and WebP photos are supported.");
+        const size = file.fileSize ?? 0;
+        if (!size || size > 10 * 1024 * 1024) throw new Error("Each photo must be no larger than 10 MB.");
+        const reservation = await apiRequest<{assetId:string;cloudName:string;apiKey:string;timestamp:number;signature:string;publicId:string;assetFolder:string}>("/marketplace/media/uploads", {
+          method: "POST", body: JSON.stringify({ fileName: file.fileName ?? "dispute-evidence", contentType: mime, sizeBytes: size, purpose: "JOB_DISPUTE_EVIDENCE" }),
+        }, true);
+        const body = new FormData();
+        body.append("file", { uri: file.uri, name: file.fileName ?? "dispute-evidence", type: mime } as unknown as Blob);
+        body.append("api_key", reservation.apiKey); body.append("timestamp", String(reservation.timestamp)); body.append("signature", reservation.signature);
+        body.append("public_id", reservation.publicId); body.append("asset_folder", reservation.assetFolder);
+        body.append("overwrite", "false"); body.append("unique_filename", "false"); body.append("use_filename", "false");
+        const uploaded = await fetch("https://api.cloudinary.com/v1_1/" + reservation.cloudName + "/image/authenticated", { method: "POST", body });
+        if (!uploaded.ok) { const detail = await uploaded.json().catch(() => ({})); throw new Error(detail.error?.message ?? "Cloudinary upload failed."); }
+        await apiRequest("/marketplace/media/uploads/confirm", { method: "POST", body: JSON.stringify({ assetId: reservation.assetId }) }, true);
+        setDisputeEvidenceAssets((current) => [...current, { id: reservation.assetId, name: file.fileName ?? "Dispute evidence", uri: file.uri, contentType: mime, sizeBytes: size }]);
+      }
+      setNotice("Dispute evidence uploaded securely.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not upload dispute evidence."); }
+    finally { setUploadingDisputeEvidence(false); }
+  };
+
+  const openJobDispute = async (requestId: string) => {
+    if (disputeReasonDraft.trim().length < 20) { setError("Explain the dispute in at least 20 characters."); return; }
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest("/marketplace/requests/" + requestId + "/disputes", { method: "POST", body: JSON.stringify({ reason: disputeReasonDraft.trim(), evidenceAssetIds: disputeEvidenceAssets.map((asset) => asset.id) }) }, true);
+      setDisputeReasonDraft(""); setDisputeEvidenceAssets([]);
+      setNotice("Dispute opened. The job is paused while AnySkill reviews both parties' responses.");
+      await Promise.all([loadMyJobs(), loadMyRequests()]);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not open the dispute."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const replyToJobDispute = async (requestId: string, disputeId: string) => {
+    if (disputeReplyDraft.trim().length < 10) { setError("Your dispute response must be at least 10 characters."); return; }
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest("/marketplace/requests/" + requestId + "/disputes/" + disputeId + "/messages", { method: "POST", body: JSON.stringify({ body: disputeReplyDraft.trim(), evidenceAssetIds: disputeEvidenceAssets.map((asset) => asset.id) }) }, true);
+      setDisputeReplyDraft(""); setDisputeEvidenceAssets([]);
+      await Promise.all([loadMyJobs(), loadMyRequests()]);
+      setNotice("Your response and evidence have been added to the dispute.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not send your dispute response."); }
+    finally { setJobActionBusy(false); }
   };
 
   const submitCompletion = async (requestId: string) => {
@@ -1317,9 +1378,9 @@ export function MarketplaceScreen(p: Props) {
             {request.jobEngagement ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Assessment and job-cost approval</Text>
               <Text style={s.meta}>Status: {request.jobEngagement.status.replaceAll("_", " ")}</Text>
-              {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(request.jobEngagement.status) ? <>
+              {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED", "DISPUTED"].includes(request.jobEngagement.status) ? <>
                 <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(request.jobEngagement, clockNow + clockOffsetMs))}</Text>
-                <Text style={s.meta}>{request.jobEngagement.workPausedAt ? "Provider is on a break" : request.jobEngagement.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting your review" : request.jobEngagement.status === "COMPLETED" ? "Final recorded working time" : "Work timer running"}</Text>
+                <Text style={s.meta}>{request.jobEngagement.workPausedAt ? "Provider is on a break" : request.jobEngagement.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting your review" : request.jobEngagement.status === "COMPLETED" ? "Final recorded working time" : request.jobEngagement.status === "DISPUTED" ? "Timer paused · under dispute review" : "Work timer running"}</Text>
               </> : null}
               <Text style={s.meta}>Agreed hourly rate: R {Number(request.jobEngagement.hourlyRate).toFixed(2)}</Text>
               <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee).toFixed(2)}</Text>
@@ -1335,6 +1396,27 @@ export function MarketplaceScreen(p: Props) {
                 </View>
               </> : null}
               {request.jobEngagement.status === "ESTIMATE_REJECTED" ? <Text style={s.meta}>You rejected the estimate. The Provider can submit a revised estimate.</Text> : null}
+              {request.jobEngagement.status === "COMPLETION_PENDING" ? <>
+                <Text style={s.helper}>Prefer formal platform review instead of approving or requesting corrections? Open a dispute. Work and the timer will remain paused.</Text>
+                <TextInput value={disputeReasonDraft} onChangeText={setDisputeReasonDraft} placeholder="Explain what is wrong with the completed work (minimum 20 characters)." multiline maxLength={2000} style={[s.input,s.multiline]} />
+                <Secondary label={uploadingDisputeEvidence ? "Uploading dispute evidence..." : "Attach dispute evidence"} onPress={() => void pickDisputeEvidence()} disabled={uploadingDisputeEvidence || jobActionBusy} />
+                {disputeEvidenceAssets.map((asset) => <Text key={asset.id} style={s.meta}>✓ {asset.name}</Text>)}
+                <Primary label="Open dispute with AnySkill" onPress={() => void openJobDispute(request.id)} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReasonDraft.trim().length < 20} />
+              </> : null}
+              {request.jobEngagement.disputes?.[0] ? <View style={s.offerCard}>
+                <Text style={s.offerTitle}>AnySkill dispute · {request.jobEngagement.disputes[0].status.replaceAll("_"," ")}</Text>
+                {request.jobEngagement.disputes[0].messages.map((message) => <View key={message.id} style={s.offerCard}>
+                  <Text style={s.meta}>{message.author.id === request.jobEngagement?.providerId ? "Provider response" : "Your response"} · {new Date(message.createdAt).toLocaleString()}</Text>
+                  <Text style={s.body}>{message.body}</Text>
+                  {message.evidenceAssets?.map((asset) => <Text key={asset.id} style={s.meta}>Evidence: {asset.originalName}</Text>)}
+                </View>)}
+                {request.jobEngagement.disputes[0].resolutionNote ? <Text style={s.body}>Resolution: {request.jobEngagement.disputes[0].resolutionNote}</Text> : null}
+                {["OPEN","UNDER_REVIEW"].includes(request.jobEngagement.disputes[0].status) ? <>
+                  <TextInput value={disputeReplyDraft} onChangeText={setDisputeReplyDraft} placeholder="Add your response (minimum 10 characters)." multiline maxLength={2000} style={[s.input,s.multiline]} />
+                  <Secondary label={uploadingDisputeEvidence ? "Uploading..." : "Attach response evidence"} onPress={() => void pickDisputeEvidence()} disabled={uploadingDisputeEvidence || jobActionBusy} />
+                  <Primary label="Send dispute response" onPress={() => void replyToJobDispute(request.id,request.jobEngagement!.disputes![0].id)} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReplyDraft.trim().length < 10} />
+                </> : null}
+              </View> : null}
               {request.jobEngagement.adjustments.map((adjustment) => <View key={adjustment.id} style={s.offerCard}>
                 <Text style={s.offerTitle}>Additional hours: {Number(adjustment.requestedHours).toFixed(2)}</Text>
                 <Text style={s.meta}>Additional cost: R {Number(adjustment.requestedAmount).toFixed(2)} · {adjustment.status}</Text>
@@ -1405,9 +1487,9 @@ export function MarketplaceScreen(p: Props) {
           </> : null}
           {job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
           {job.status === "ESTIMATE_APPROVED" ? <Primary label="Start approved work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
-          {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(job.status) ? <>
+          {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED", "DISPUTED"].includes(job.status) ? <>
             <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(job, clockNow + clockOffsetMs))}</Text>
-            <Text style={s.meta}>{job.workPausedAt ? "ON BREAK · timer paused" : job.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting Seeker review" : job.status === "COMPLETED" ? "Final recorded working time" : "Work timer running"}</Text>
+            <Text style={s.meta}>{job.workPausedAt ? "ON BREAK · timer paused" : job.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting Seeker review" : job.status === "COMPLETED" ? "Final recorded working time" : job.status === "DISPUTED" ? "Timer paused · under dispute review" : "Work timer running"}</Text>
           </> : null}
           {job.status === "IN_PROGRESS" ? <Secondary label={job.workPausedAt ? "Resume work" : "Take a break"} onPress={() => void changeWorkBreak(job.request.id, !job.workPausedAt)} disabled={jobActionBusy} /> : null}
           {job.status === "IN_PROGRESS" && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
@@ -1426,7 +1508,27 @@ export function MarketplaceScreen(p: Props) {
             {completionEvidenceAssets.map((asset) => <Text key={asset.id} style={s.meta}>✓ {asset.name} · {(asset.sizeBytes / 1024 / 1024).toFixed(1)} MB</Text>)}
             <Primary label="Submit job completion" onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 || completionEvidenceAssets.length < 1} />
           </> : null}
-          {job.status === "COMPLETION_PENDING" ? <Text style={s.helper}>Completion submitted. Wait for the Seeker to review it. Do not mark the job complete yourself.</Text> : null}
+          {job.status === "COMPLETION_PENDING" ? <>
+            <Text style={s.helper}>If you disagree with a completion review or need platform intervention, open a formal dispute. The job timer remains paused.</Text>
+            <TextInput value={disputeReasonDraft} onChangeText={setDisputeReasonDraft} placeholder="Explain the issue and the outcome you are requesting (minimum 20 characters)." multiline maxLength={2000} style={[s.input,s.multiline]} />
+            <Secondary label={uploadingDisputeEvidence ? "Uploading dispute evidence..." : "Attach dispute evidence"} onPress={() => void pickDisputeEvidence()} disabled={uploadingDisputeEvidence || jobActionBusy} />
+            {disputeEvidenceAssets.map((asset) => <Text key={asset.id} style={s.meta}>✓ {asset.name}</Text>)}
+            <Primary label="Open dispute with AnySkill" onPress={() => void openJobDispute(job.request.id)} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReasonDraft.trim().length < 20} />
+          </> : null}
+          {job.disputes?.[0] ? <View style={s.offerCard}>
+            <Text style={s.offerTitle}>AnySkill dispute · {job.disputes[0].status.replaceAll("_"," ")}</Text>
+            {job.disputes[0].messages.map((message) => <View key={message.id} style={s.offerCard}>
+              <Text style={s.meta}>{message.author.id === job.providerId ? "Your response" : "Seeker response"} · {new Date(message.createdAt).toLocaleString()}</Text>
+              <Text style={s.body}>{message.body}</Text>
+              {message.evidenceAssets?.map((asset) => <Text key={asset.id} style={s.meta}>Evidence: {asset.originalName}</Text>)}
+            </View>)}
+            {job.disputes[0].resolutionNote ? <Text style={s.body}>Resolution: {job.disputes[0].resolutionNote}</Text> : null}
+            {["OPEN","UNDER_REVIEW"].includes(job.disputes[0].status) ? <>
+              <TextInput value={disputeReplyDraft} onChangeText={setDisputeReplyDraft} placeholder="Add your response (minimum 10 characters)." multiline maxLength={2000} style={[s.input,s.multiline]} />
+              <Secondary label={uploadingDisputeEvidence ? "Uploading..." : "Attach response evidence"} onPress={() => void pickDisputeEvidence()} disabled={uploadingDisputeEvidence || jobActionBusy} />
+              <Primary label="Send dispute response" onPress={() => void replyToJobDispute(job.request.id,job.disputes![0].id)} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReplyDraft.trim().length < 10} />
+            </> : null}
+          </View> : null}
           {job.status === "COMPLETED" ? <>
             <Text style={s.response}>The Seeker approved this job's completion.</Text>
             {job.seekerReview ? <View style={s.offerCard}>
