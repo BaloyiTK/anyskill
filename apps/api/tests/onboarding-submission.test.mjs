@@ -117,7 +117,7 @@ test("SMTP failure does not undo a successfully submitted profile", async () => 
   assert.equal(result.welcomeEmailSent, false);
   assert.ok(events.includes("transaction-committed"));
   assert.ok(events.includes("welcome-email"));
-  assert.ok(events.some((event) => Array.isArray(event) && event[0] === "outbox-update" && event[1].status === "PENDING"));
+  assert.ok(events.some((event) => Array.isArray(event) && event[0] === "outbox-claim" && event[1].id === "welcome-1" && event[2].status === "PENDING"));
 });
 
 test("repeat submission does not resend the initial welcome email", async () => {
