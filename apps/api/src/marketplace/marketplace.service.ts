@@ -1866,7 +1866,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             select: { id: true },
           }),
           tx.providerResponse.findFirst({
-            where: { providerId: provider.userId, status: "OFFERED" },
+            // A legacy OFFERED row attached to a cancelled/closed request is
+            // not an outstanding commitment and must not block new matching.
+            where: {
+              providerId: provider.userId,
+              status: "OFFERED",
+              request: { status: "OPEN" },
+            },
             select: { id: true },
           }),
           tx.jobEngagement.findFirst({
