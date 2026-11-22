@@ -115,6 +115,13 @@ enum JobCompletionSubmissionStatus {
   APPROVED
   REJECTED
 }
+enum JobDisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED_PROVIDER
+  RESOLVED_SEEKER
+  RESOLVED_CANCELLED
+}
 
 enum MediaAssetStatus {
   PENDING
@@ -173,6 +180,9 @@ model User {
   providerReviewsGiven      ProviderReview[]             @relation("ProviderReviewsGiven")
   seekerReviewsReceived     SeekerReview[]                @relation("SeekerReviewsReceived")
   seekerReviewsGiven        SeekerReview[]                @relation("SeekerReviewsGiven")
+  disputesOpened            JobDispute[]                  @relation("JobDisputeOpenedBy")
+  disputesResolved          JobDispute[]                  @relation("JobDisputeResolvedBy")
+  disputeMessages           JobDisputeMessage[]
 
   @@index([identityVerification])
   @@map("users")
@@ -452,6 +462,7 @@ model JobEngagement {
   completionSubmissions JobCompletionSubmission[]
   review                ProviderReview?
   seekerReview          SeekerReview?
+  dispute               JobDispute?
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@map("job_engagements")
@@ -474,6 +485,38 @@ model SeekerReview {
   @@map("seeker_reviews")
 }
 
+model JobDispute {
+  id             String           @id @default(uuid()) @db.Uuid
+  engagementId   String           @unique @db.Uuid @map("engagement_id")
+  openedById     String           @db.Uuid @map("opened_by_id")
+  resolvedById   String?          @db.Uuid @map("resolved_by_id")
+  reason         String           @db.VarChar(2000)
+  status         JobDisputeStatus @default(OPEN)
+  resolutionNote String?          @map("resolution_note") @db.VarChar(2000)
+  resolvedAt     DateTime?        @map("resolved_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  engagement     JobEngagement    @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+  openedBy       User             @relation("JobDisputeOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
+  resolvedBy     User?            @relation("JobDisputeResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  messages       JobDisputeMessage[]
+  @@index([status, createdAt])
+  @@index([openedById, createdAt])
+  @@map("job_disputes")
+}
+model JobDisputeMessage {
+  id             String       @id @default(uuid()) @db.Uuid
+  disputeId      String       @db.Uuid @map("dispute_id")
+  authorId       String       @db.Uuid @map("author_id")
+  body           String       @db.VarChar(2000)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  dispute        JobDispute   @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  author         User         @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  evidenceAssets MediaAsset[]
+  @@index([disputeId, createdAt])
+  @@index([authorId, createdAt])
+  @@map("job_dispute_messages")
+}
 model JobCostAdjustment {
   id              String                @id @default(uuid()) @db.Uuid
   engagementId    String                @db.Uuid @map("engagement_id")
@@ -520,11 +563,14 @@ model MediaAsset {
   expiresAt               DateTime                     @map("expires_at")
   uploadedAt              DateTime?                    @map("uploaded_at")
   completionSubmissionId  String?                      @db.Uuid @map("completion_submission_id")
+  disputeMessageId        String?                      @db.Uuid @map("dispute_message_id")
   createdAt               DateTime                     @default(now()) @map("created_at")
   user                    User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
   completionSubmission    JobCompletionSubmission?     @relation(fields: [completionSubmissionId], references: [id], onDelete: SetNull)
+  disputeMessage          JobDisputeMessage?           @relation(fields: [disputeMessageId], references: [id], onDelete: SetNull)
   @@index([userId, status, expiresAt])
   @@index([completionSubmissionId])
+  @@index([disputeMessageId])
   @@map("media_assets")
 }
 

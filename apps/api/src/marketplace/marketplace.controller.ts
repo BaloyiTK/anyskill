@@ -12,9 +12,10 @@ import {
   UpdateHomeLocationDto, UpdateLiveLocationDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
-  SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, ScheduleServiceRequestDto, SubmitProviderReviewDto, SubmitSeekerReviewDto,
+  SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, ScheduleServiceRequestDto, SubmitProviderReviewDto, SubmitSeekerReviewDto, OpenJobDisputeDto, PostJobDisputeMessageDto, ResolveJobDisputeDto,
 } from "./dto/service-request.dto";
 import { MarketplaceService } from "./marketplace.service";
+import { StaffAccessGuard, RequireStaffRole } from "./staff-access.guard";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
 import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
@@ -22,7 +23,7 @@ import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
 class CreateMediaUploadDto {
   @IsString() @MaxLength(255) fileName!: string;
   @IsString() @MaxLength(100) contentType!: string;
-  @IsOptional() @IsString() purpose?: "JOB_COMPLETION_EVIDENCE";
+  @IsOptional() @IsString() purpose?: "JOB_COMPLETION_EVIDENCE" | "JOB_DISPUTE_EVIDENCE";
   @IsInt() @Min(1) @Max(10485760) sizeBytes!: number;
 }
 class ConfirmMediaUploadDto { @IsString() @MaxLength(64) assetId!: string; }
@@ -157,6 +158,35 @@ export class MarketplaceController {
   }
 
 
+
+  @Post("marketplace/requests/:requestId/disputes")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("SEEKER_REVIEW_COMPLETION")
+  openJobDispute(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: OpenJobDisputeDto) {
+    return this.marketplace.openJobDispute(user.id, requestId, dto);
+  }
+
+  @Get("marketplace/requests/:requestId/disputes")
+  getJobDispute(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.listJobDispute(user.id, requestId);
+  }
+
+  @Post("marketplace/requests/:requestId/disputes/:disputeId/messages")
+  postJobDisputeMessage(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Param("disputeId", new ParseUUIDPipe()) disputeId: string, @Body() dto: PostJobDisputeMessageDto) {
+    return this.marketplace.postJobDisputeMessage(user.id, requestId, disputeId, dto);
+  }
+
+  @Get("admin/marketplace/disputes")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole("SUPPORT_AGENT")
+  listOpenJobDisputes() { return this.marketplace.listOpenJobDisputes(); }
+
+  @Post("admin/marketplace/disputes/:disputeId/resolve")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole("SUPPORT_AGENT")
+  resolveJobDispute(@CurrentUser() user: AuthenticatedUser, @Param("disputeId", new ParseUUIDPipe()) disputeId: string, @Body() dto: ResolveJobDisputeDto) {
+    return this.marketplace.resolveJobDispute(user.id, disputeId, dto);
+  }
 
   @Post("marketplace/requests/:requestId/completion")
   @UseGuards(MarketplaceAccessGuard)

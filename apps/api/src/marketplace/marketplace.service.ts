@@ -539,7 +539,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }) : [];
     return requests.map((request) => ({
       ...request,
-      jobEngagement: request.jobEngagement ? { ...request.jobEngagement, serverNow } : null,
+      jobEngagement: request.jobEngagement ? (() => {
+        const approvedAdjustments = request.jobEngagement.adjustments.filter((item) => item.status === "APPROVED");
+        const approvedAdditionalHours = approvedAdjustments.reduce((sum, item) => sum + Number(item.requestedHours), 0);
+        const approvedAdditionalAmount = approvedAdjustments.reduce((sum, item) => sum + Number(item.requestedAmount), 0);
+        return { ...request.jobEngagement, approvedAdditionalHours, approvedAdditionalAmount: Number(approvedAdditionalAmount.toFixed(2)), agreedWorkTotal: Number((Number(request.jobEngagement.estimatedTotal ?? 0) + approvedAdditionalAmount).toFixed(2)), serverNow };
+      })() : null,
       providerResponses: request.providerResponses.map((response) => {
         const profile = response.provider?.providerProfile;
         if (!profile || !response.provider || !response.providerId) return response;
@@ -999,6 +1004,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const profilePhotoUrl = typeof seekerProfile.profilePhotoUrl === "string" ? seekerProfile.profilePhotoUrl.trim() : "";
       return {
         ...job,
+        approvedAdditionalHours: job.adjustments.filter((item) => item.status === "APPROVED").reduce((sum, item) => sum + Number(item.requestedHours), 0),
+        approvedAdditionalAmount: Number(job.adjustments.filter((item) => item.status === "APPROVED").reduce((sum, item) => sum + Number(item.requestedAmount), 0).toFixed(2)),
+        agreedWorkTotal: Number((Number(job.estimatedTotal ?? 0) + job.adjustments.filter((item) => item.status === "APPROVED").reduce((sum, item) => sum + Number(item.requestedAmount), 0)).toFixed(2)),
         request: { ...job.request, seeker: undefined },
         seeker: {
           firstName, lastName, profilePhotoUrl: profilePhotoUrl || null,
@@ -1115,7 +1123,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { id: job.id, status: "COMPLETION_PENDING" },
         data: input.approved
           ? { status: "COMPLETED", workSegmentStartedAt: null, workPausedAt: null }
-          : { status: "IN_PROGRESS", workSegmentStartedAt: reviewTime, workPausedAt: null, workEndedAt: null },
+          : { status: "IN_PROGRESS", workSegmentStartedAt: null, workPausedAt: reviewTime, workEndedAt: null },
       });
       if (jobUpdate.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
       if (input.approved) {
@@ -1125,11 +1133,110 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: {
           userId: job.providerId,
           title: input.approved ? "Job completion approved" : "Corrections requested",
-          body: input.approved ? "The Skill Seeker approved the completed job." : `The Skill Seeker requested corrections: ${input.note}`,
+          body: input.approved ? "The Skill Seeker approved the completed job." : `The Skill Seeker requested corrections: ${input.note}. The timer is paused; resume when ready to perform the corrections.`,
           data: { type: input.approved ? "JOB_COMPLETION_APPROVED" : "JOB_COMPLETION_REJECTED", requestId, submissionId },
         },
       });
       return { submission: updatedSubmission, jobStatus: input.approved ? "COMPLETED" : "IN_PROGRESS" };
+    });
+  }
+
+  async openJobDispute(userId: string, requestId: string, input: OpenJobDisputeDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.seekerId !== userId && job.providerId !== userId) throw new ForbiddenException("Only the Seeker or selected Provider can open this dispute.");
+      if (job.status !== "COMPLETION_PENDING") throw new ConflictException("A dispute can only be opened while completion is awaiting review.");
+      const submission = await tx.jobCompletionSubmission.findFirst({ where: { engagementId: job.id, status: "PENDING" } });
+      if (!submission) throw new ConflictException("There is no pending completion submission to dispute.");
+      const evidenceIds = [...new Set(input.evidenceAssetIds ?? [])];
+      if (evidenceIds.length !== (input.evidenceAssetIds ?? []).length) throw new ConflictException("Duplicate dispute evidence files are not allowed.");
+      if (evidenceIds.length) {
+        const assets = await tx.mediaAsset.findMany({ where: { id: { in: evidenceIds }, userId, status: "READY", purpose: "JOB_DISPUTE_EVIDENCE", disputeMessageId: null, expiresAt: { gt: new Date() } }, select: { id: true } });
+        if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more dispute evidence files are unavailable or do not belong to you.");
+      }
+      const dispute = await tx.jobDispute.create({
+        data: { engagementId: job.id, openedById: userId, reason: input.reason.trim(), status: "OPEN",
+          messages: { create: { authorId: userId, body: input.reason.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) } } : {}) } } },
+        include: { messages: { include: { evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } } },
+      });
+      const claimed = await tx.jobEngagement.updateMany({ where: { id: job.id, status: "COMPLETION_PENDING" }, data: { status: "DISPUTED", workSegmentStartedAt: null, workPausedAt: new Date() } });
+      if (claimed.count !== 1) throw new ConflictException("The job changed while the dispute was being opened. Refresh and try again.");
+      const otherPartyId = userId === job.seekerId ? job.providerId : job.seekerId;
+      if (otherPartyId) await tx.appNotification.create({ data: { userId: otherPartyId, title: "A job dispute was opened", body: "The other party opened a dispute. Submit your response and supporting evidence in AnySkill.", data: { type: "JOB_DISPUTE_OPENED", requestId, disputeId: dispute.id } } });
+      return dispute;
+    });
+  }
+
+  async postJobDisputeMessage(userId: string, requestId: string, disputeId: string, input: PostJobDisputeMessageDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const dispute = await tx.jobDispute.findFirst({ where: { id: disputeId, engagement: { requestId } }, include: { engagement: { select: { seekerId: true, providerId: true } } } });
+      if (!dispute) throw new NotFoundException("Dispute not found.");
+      if (dispute.engagement.seekerId !== userId && dispute.engagement.providerId !== userId) throw new ForbiddenException("Only the Seeker and selected Provider can respond to this dispute.");
+      if (!["OPEN", "UNDER_REVIEW"].includes(dispute.status)) throw new ConflictException("This dispute is no longer accepting responses.");
+      const evidenceIds = [...new Set(input.evidenceAssetIds ?? [])];
+      if (evidenceIds.length !== (input.evidenceAssetIds ?? []).length) throw new ConflictException("Duplicate dispute evidence files are not allowed.");
+      if (evidenceIds.length) {
+        const assets = await tx.mediaAsset.findMany({ where: { id: { in: evidenceIds }, userId, status: "READY", purpose: "JOB_DISPUTE_EVIDENCE", disputeMessageId: null, expiresAt: { gt: new Date() } }, select: { id: true } });
+        if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more dispute evidence files are unavailable or do not belong to you.");
+      }
+      const message = await tx.jobDisputeMessage.create({
+        data: { disputeId, authorId: userId, body: input.body.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) } : {}) },
+        include: { evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } },
+      });
+      await tx.jobDispute.updateMany({ where: { id: disputeId, status: "OPEN" }, data: { status: "UNDER_REVIEW" } });
+      const otherPartyId = userId === dispute.engagement.seekerId ? dispute.engagement.providerId : dispute.engagement.seekerId;
+      if (otherPartyId) await tx.appNotification.create({ data: { userId: otherPartyId, title: "New dispute response", body: "A new response or evidence was added to your job dispute.", data: { type: "JOB_DISPUTE_MESSAGE", requestId, disputeId } } });
+      return message;
+    });
+  }
+
+  async listJobDispute(userId: string, requestId: string) {
+    const job = await this.prisma.jobEngagement.findUnique({ where: { requestId }, select: { id: true, seekerId: true, providerId: true } });
+    if (!job) throw new NotFoundException("Selected job not found.");
+    if (job.seekerId !== userId && job.providerId !== userId) throw new ForbiddenException("Only the Seeker and selected Provider can view this dispute.");
+    return this.prisma.jobDispute.findUnique({
+      where: { engagementId: job.id },
+      include: { messages: { orderBy: { createdAt: "asc" }, include: { author: { select: { id: true } }, evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } }, resolvedBy: { select: { id: true } } },
+    });
+  }
+
+  async listOpenJobDisputes() {
+    return this.prisma.jobDispute.findMany({
+      where: { status: { in: ["OPEN", "UNDER_REVIEW"] } }, orderBy: { createdAt: "asc" },
+      include: {
+        engagement: { include: { request: { select: { id: true, title: true, description: true } }, completionSubmissions: { where: { status: "PENDING" }, include: { evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } } } },
+        messages: { orderBy: { createdAt: "asc" }, include: { author: { select: { id: true } }, evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } },
+      },
+    });
+  }
+
+  async resolveJobDispute(staffId: string, disputeId: string, input: ResolveJobDisputeDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const dispute = await tx.jobDispute.findUnique({ where: { id: disputeId }, include: { engagement: true } });
+      if (!dispute) throw new NotFoundException("Dispute not found.");
+      if (staffId === dispute.engagement.seekerId || staffId === dispute.engagement.providerId) throw new ForbiddenException("A party to the dispute cannot resolve it as staff.");
+      if (!["OPEN", "UNDER_REVIEW"].includes(dispute.status)) throw new ConflictException("This dispute has already been resolved.");
+      const resolutionStatus = input.outcome === "PROVIDER" ? "RESOLVED_PROVIDER" : input.outcome === "SEEKER" ? "RESOLVED_SEEKER" : "RESOLVED_CANCELLED";
+      const resolvedAt = new Date();
+      const claimed = await tx.jobDispute.updateMany({ where: { id: disputeId, status: { in: ["OPEN", "UNDER_REVIEW"] } }, data: { status: resolutionStatus, resolutionNote: input.note.trim(), resolvedById: staffId, resolvedAt } });
+      if (claimed.count !== 1) throw new ConflictException("This dispute was resolved by another staff member. Refresh to see the outcome.");
+      const pendingSubmission = await tx.jobCompletionSubmission.findFirst({ where: { engagementId: dispute.engagementId, status: "PENDING" } });
+      const nextJobStatus = input.outcome === "PROVIDER" ? "COMPLETED" : input.outcome === "SEEKER" ? "IN_PROGRESS" : "CANCELLED";
+      const jobUpdate = await tx.jobEngagement.updateMany({
+        where: { id: dispute.engagementId, status: "DISPUTED" },
+        data: input.outcome === "PROVIDER" ? { status: "COMPLETED", workSegmentStartedAt: null, workPausedAt: null }
+          : input.outcome === "SEEKER" ? { status: "IN_PROGRESS", workSegmentStartedAt: null, workPausedAt: resolvedAt, workEndedAt: null }
+          : { status: "CANCELLED", workSegmentStartedAt: null, workPausedAt: null, workEndedAt: resolvedAt },
+      });
+      if (jobUpdate.count !== 1) throw new ConflictException("The job is no longer in the disputed state.");
+      if (pendingSubmission) await tx.jobCompletionSubmission.updateMany({ where: { id: pendingSubmission.id, status: "PENDING" }, data: { status: input.outcome === "PROVIDER" ? "APPROVED" : "REJECTED", reviewNote: input.note.trim(), reviewedAt: resolvedAt } });
+      if (input.outcome !== "SEEKER") await tx.serviceRequest.updateMany({ where: { id: dispute.engagement.requestId, status: { not: "CANCELLED" } }, data: { status: input.outcome === "PROVIDER" ? "COMPLETED" : "CANCELLED" } });
+      const partyIds = [dispute.engagement.seekerId, dispute.engagement.providerId].filter((id): id is string => Boolean(id));
+      if (partyIds.length) await tx.appNotification.createMany({ data: partyIds.map((userId) => ({ userId, title: "Job dispute resolved", body: input.outcome === "PROVIDER" ? "AnySkill resolved the dispute in favour of the Provider. Completion is approved." : input.outcome === "SEEKER" ? "AnySkill resolved the dispute in your favour. The Provider must address the outstanding work; the timer remains paused." : "AnySkill resolved the dispute by cancelling the job.", data: { type: "JOB_DISPUTE_RESOLVED", requestId: dispute.engagement.requestId, disputeId, outcome: input.outcome } })) });
+      const auditTargetId = dispute.engagement.seekerId ?? dispute.engagement.providerId;
+      if (auditTargetId) await tx.staffAuditLog.create({ data: { actorId: staffId, targetUserId: auditTargetId, action: "JOB_DISPUTE_RESOLVED", metadata: { disputeId, engagementId: dispute.engagementId, outcome: input.outcome, note: input.note.trim() } } });
+      return { disputeId, status: resolutionStatus, jobStatus: nextJobStatus, resolvedAt };
     });
   }
 
@@ -1284,6 +1391,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can resume this job.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("Only an active job can be resumed.");
       if (!job.workPausedAt || job.workSegmentStartedAt) throw new ConflictException("The work timer is not paused.");
+      const pendingAdjustments = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
+      if (pendingAdjustments > 0) throw new ConflictException("Resolve the pending additional-hours request before resuming the work timer.");
       const now = new Date();
       const changed = await tx.jobEngagement.updateMany({
         where: { id: job.id, status: "IN_PROGRESS", workPausedAt: job.workPausedAt, workSegmentStartedAt: null },
@@ -1303,9 +1412,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Additional hours can only be requested while the work timer is running.");
       // Claim the active timer state before creating the request so a concurrent break cannot
       // make an additional-hours request slip through after the timer has been paused.
+      const requestedAt = new Date();
+      const accumulatedWorkMs = job.workAccumulatedMs + Math.max(0, requestedAt.getTime() - job.workSegmentStartedAt.getTime());
       const timerClaim = await tx.jobEngagement.updateMany({
         where: { id: job.id, status: "IN_PROGRESS", workSegmentStartedAt: job.workSegmentStartedAt, workPausedAt: null },
-        data: { workAccumulatedMs: job.workAccumulatedMs },
+        data: { workAccumulatedMs: accumulatedWorkMs, workSegmentStartedAt: null, workPausedAt: requestedAt },
       });
       if (timerClaim.count !== 1) throw new ConflictException("The work timer changed. Refresh and try again.");
       const pending = await tx.jobCostAdjustment.count({ where: { engagementId: job.id, status: "PENDING" } });
@@ -1323,6 +1434,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide additional hours.");
+      if (job.status !== "IN_PROGRESS" || !job.workPausedAt || job.workSegmentStartedAt) throw new ConflictException("The job must remain paused while the additional-hours decision is pending.");
       const adjustment = await tx.jobCostAdjustment.findFirst({ where: { id: adjustmentId, engagementId: job.id, status: "PENDING" } });
       if (!adjustment) throw new NotFoundException("Pending additional-hours request not found.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the additional hours.");
@@ -1332,8 +1444,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (claimed.count !== 1) throw new ConflictException("The additional-hours request has already been decided. Refresh to see the latest status.");
       const updated = await tx.jobCostAdjustment.findUniqueOrThrow({ where: { id: adjustment.id } });
-      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Additional hours approved" : "Additional hours rejected", body: input.approved ? "The Seeker approved the additional hours. You may proceed with the extra work." : `The Seeker rejected the additional hours: ${input.note}`, data: { type: input.approved ? "ADDITIONAL_HOURS_APPROVED" : "ADDITIONAL_HOURS_REJECTED", requestId, adjustmentId } } });
-      return updated;
+      if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Additional hours approved" : "Additional hours rejected", body: input.approved ? "The Seeker approved the additional hours. The timer remains paused; resume it when ready to continue." : `The Seeker rejected the additional hours: ${input.note}. The timer remains paused; resume to continue the previously approved scope.`, data: { type: input.approved ? "ADDITIONAL_HOURS_APPROVED" : "ADDITIONAL_HOURS_REJECTED", requestId, adjustmentId } } });
+      return { ...updated, workPaused: true, resumeRequired: true };
     });
   }
 

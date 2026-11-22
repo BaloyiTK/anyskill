@@ -221,6 +221,18 @@ export class DecideJobCompletionDto {
   note?: string;
 }
 
+export class OpenJobDisputeDto {
+  @IsString() @MinLength(20) @MaxLength(2000) reason!: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(8) @IsUUID("4", { each: true }) evidenceAssetIds?: string[];
+}
+export class PostJobDisputeMessageDto {
+  @IsString() @MinLength(10) @MaxLength(2000) body!: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(8) @IsUUID("4", { each: true }) evidenceAssetIds?: string[];
+}
+export class ResolveJobDisputeDto {
+  @IsIn(["PROVIDER", "SEEKER", "CANCELLED"]) outcome!: "PROVIDER" | "SEEKER" | "CANCELLED";
+  @IsString() @MinLength(20) @MaxLength(2000) note!: string;
+}
 export class UpdateHomeLocationDto {
   @IsString() @MinLength(3) @MaxLength(500) label!: string;
   @IsNumber({ maxDecimalPlaces: 7 }) @Min(-90) @Max(90) latitude!: number;
