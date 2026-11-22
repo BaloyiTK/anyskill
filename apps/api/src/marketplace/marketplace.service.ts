@@ -1104,10 +1104,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const submission = await tx.jobCompletionSubmission.findFirst({ where: { id: submissionId, engagementId: job.id, status: "PENDING" } });
       if (!submission) throw new NotFoundException("Pending completion submission not found.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain what needs to be corrected before rejecting completion.");
-      const updatedSubmission = await tx.jobCompletionSubmission.update({
-        where: { id: submission.id },
+      const submissionClaim = await tx.jobCompletionSubmission.updateMany({
+        where: { id: submission.id, engagementId: job.id, status: "PENDING" },
         data: { status: input.approved ? "APPROVED" : "REJECTED", reviewNote: input.note?.trim() || null, reviewedAt: new Date() },
       });
+      if (submissionClaim.count !== 1) throw new ConflictException("This completion submission has already been reviewed. Refresh to see the latest status.");
+      const updatedSubmission = await tx.jobCompletionSubmission.findUniqueOrThrow({ where: { id: submission.id } });
       const reviewTime = new Date();
       const jobUpdate = await tx.jobEngagement.updateMany({
         where: { id: job.id, status: "COMPLETION_PENDING" },
@@ -1324,7 +1326,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const adjustment = await tx.jobCostAdjustment.findFirst({ where: { id: adjustmentId, engagementId: job.id, status: "PENDING" } });
       if (!adjustment) throw new NotFoundException("Pending additional-hours request not found.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the additional hours.");
-      const updated = await tx.jobCostAdjustment.update({ where: { id: adjustment.id }, data: { status: input.approved ? "APPROVED" : "REJECTED", decisionNote: input.note?.trim() || null, decidedAt: new Date() } });
+      const claimed = await tx.jobCostAdjustment.updateMany({
+        where: { id: adjustment.id, engagementId: job.id, status: "PENDING" },
+        data: { status: input.approved ? "APPROVED" : "REJECTED", decisionNote: input.note?.trim() || null, decidedAt: new Date() },
+      });
+      if (claimed.count !== 1) throw new ConflictException("The additional-hours request has already been decided. Refresh to see the latest status.");
+      const updated = await tx.jobCostAdjustment.findUniqueOrThrow({ where: { id: adjustment.id } });
       if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Additional hours approved" : "Additional hours rejected", body: input.approved ? "The Seeker approved the additional hours. You may proceed with the extra work." : `The Seeker rejected the additional hours: ${input.note}`, data: { type: input.approved ? "ADDITIONAL_HOURS_APPROVED" : "ADDITIONAL_HOURS_REJECTED", requestId, adjustmentId } } });
       return updated;
     });
