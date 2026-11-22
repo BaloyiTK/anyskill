@@ -813,9 +813,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async selectProvider(seekerId: string, requestId: string, responseId: string) {
     return this.prisma.$transaction(async (tx) => {
+      // Lock the request first so cancellation, competing offer selections,
+      // and Provider responses serialize against the same authoritative state.
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM service_requests WHERE id = ${requestId}::uuid FOR UPDATE`);
       const request = await tx.serviceRequest.findUnique({
         where: { id: requestId },
-        select: { id: true, seekerId: true, status: true, title: true },
+        select: { id: true, seekerId: true, skillCategory: true, status: true, title: true },
       });
       if (!request) throw new NotFoundException("This service request could not be found.");
       if (request.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker who created this request can select a Provider.");
@@ -823,19 +826,55 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
       const offer = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId, status: "OFFERED" },
-        select: { id: true, providerId: true },
+        select: { id: true, providerId: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true },
       });
       if (!offer || !offer.providerId) throw new NotFoundException("This Provider offer is no longer available.");
 
-      // Conditional update is the final concurrency guard: only one selection can close an open request.
+      // Eligibility is mutable after an offer is submitted. Recheck it at the
+      // Seeker's final selection point, not only when the Provider responds.
+      const provider = await tx.user.findUnique({
+        where: { id: offer.providerId },
+        select: {
+          identityVerification: true,
+          providerRoleStatus: true,
+        },
+      });
+      if (!provider || provider.identityVerification !== "VERIFIED") {
+        throw new ForbiddenException({
+          code: "IDENTITY_VERIFICATION_REQUIRED",
+          message: "This Provider is no longer identity-verified and cannot be selected.",
+        });
+      }
+      if (provider.providerRoleStatus !== "ACTIVE") {
+        throw new ForbiddenException({
+          code: "PROVIDER_APPROVAL_REQUIRED",
+          message: "This Provider is no longer active and cannot be selected.",
+        });
+      }
+      const approvedSkill = await tx.providerSkill.findFirst({
+        where: {
+          userId: offer.providerId,
+          category: normalise(request.skillCategory),
+          status: "APPROVED",
+        },
+        select: { id: true },
+      });
+      if (!approvedSkill) {
+        throw new ForbiddenException({
+          code: "APPROVED_SKILL_REQUIRED",
+          message: "This Provider's approval for the requested skill is no longer valid.",
+        });
+      }
+      if (offer.hourlyRateAtOffer == null) {
+        throw new ConflictException("This Provider offer has no valid rate and cannot be selected.");
+      }
+
       const claimed = await tx.serviceRequest.updateMany({
         where: { id: requestId, seekerId, status: "OPEN" },
         data: { status: "CLOSED", matchingNextAt: null },
       });
       if (claimed.count !== 1) throw new ConflictException("Another selection or request update has already closed this request.");
 
-      // Compare-and-set the exact offer. If a decline/withdrawal won the
-      // race after the initial read, abort the transaction and reopen nothing.
       const selected = await tx.providerResponse.updateMany({
         where: { id: offer.id, requestId, providerId: offer.providerId, status: "OFFERED" },
         data: { status: "SELECTED" },
@@ -851,6 +890,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { requestId, providerId: offer.providerId },
         data: { status: "RESPONDED" },
       });
+      await tx.jobEngagement.create({
+        data: {
+          requestId, responseId: offer.id, seekerId, providerId: offer.providerId,
+          hourlyRate: offer.hourlyRateAtOffer,
+          assessmentFee: offer.assessmentFeeAtOffer ?? 0,
+        },
+      });
       await tx.appNotification.create({
         data: {
           userId: offer.providerId,
@@ -859,14 +905,17 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           data: { type: "PROVIDER_SELECTED", requestId, responseId: offer.id },
         },
       });
-      await tx.jobEngagement.create({
-        data: { requestId, responseId: offer.id, seekerId, providerId: offer.providerId, hourlyRate: (await tx.providerResponse.findUniqueOrThrow({ where: { id: offer.id }, select: { hourlyRateAtOffer: true } })).hourlyRateAtOffer!, assessmentFee: (await tx.providerResponse.findUniqueOrThrow({ where: { id: offer.id }, select: { assessmentFeeAtOffer: true } })).assessmentFeeAtOffer ?? 0 },
+      await tx.appNotification.create({
+        data: {
+          userId: offer.providerId,
+          title: "Assessment required",
+          body: `Your offer was selected for: ${request.title}. Complete the assessment and submit an estimate before starting work.`,
+          data: { type: "ASSESSMENT_REQUIRED", requestId },
+        },
       });
-      await tx.appNotification.create({ data: { userId: offer.providerId, title: "Assessment required", body: `Your offer was selected for: ${request.title}. Complete the assessment and submit an estimate before starting work.`, data: { type: "ASSESSMENT_REQUIRED", requestId } } });
       return { success: true, requestId, selectedResponseId: offer.id, selectedProviderId: offer.providerId, status: "ASSESSMENT_PENDING" };
     });
   }
-
 
 
   async getProviderRoute(providerId: string, requestId: string, originLatitudeValue: string, originLongitudeValue: string) {
