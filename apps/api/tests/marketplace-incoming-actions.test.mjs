@@ -9,7 +9,7 @@ function serviceWith(transaction) {
   const tx = { ...transaction };
   tx.jobEngagement = { findFirst: async () => null, ...transaction.jobEngagement };
   tx.providerResponse = { findFirst: async () => null, ...transaction.providerResponse };
-  tx.requestMatch = { findFirst: async () => null, ...transaction.requestMatch };
+  tx.requestMatch = { findFirst: async () => null, updateMany: async () => ({ count: 0 }), ...transaction.requestMatch };
 
   const prisma = {
     $transaction: async (callback) => callback(tx),
@@ -85,6 +85,9 @@ test("declining a Seeker offer atomically withdraws the exact offer and notifies
       updateMany: async (args) => { calls.push(["offer-update", args]); return { count: 1 }; },
       findFirst: async () => ({ providerId: "provider-1" }),
     },
+    requestMatch: {
+      updateMany: async (args) => { calls.push(["match-expire", args]); return { count: 1 }; },
+    },
     appNotification: { create: async (args) => { calls.push(["notification", args]); } },
   };
   const service = serviceWith(tx);
@@ -104,6 +107,10 @@ test("declining a Seeker offer atomically withdraws the exact offer and notifies
       request: { is: { id: "request-1", seekerId: "seeker-1", status: "OPEN" } },
     },
     data: { status: "WITHDRAWN" },
+  });
+  assert.deepEqual(calls.find(([name]) => name === "match-expire")[1], {
+    where: { requestId: "request-1", providerId: "provider-1", status: { in: ["NOTIFIED", "RESPONDED"] } },
+    data: { status: "EXPIRED" },
   });
   assert.equal(calls.find(([name]) => name === "notification")[1].data.userId, "provider-1");
   assert.ok(calls.findIndex(([name]) => name === "notification") < calls.findIndex(([name]) => name === "dispatch"));
