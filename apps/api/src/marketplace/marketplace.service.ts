@@ -1076,7 +1076,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (evidenceIds.length !== input.evidenceAssetIds.length) throw new ConflictException("Duplicate evidence files are not allowed.");
       const assets = await tx.mediaAsset.findMany({
         where: { id: { in: evidenceIds }, userId: providerId, status: "READY", purpose: "JOB_COMPLETION_EVIDENCE", completionSubmissionId: null, expiresAt: { gt: new Date() } },
-        select: { id: true },
+        select: { id: true, objectKey: true },
       });
       if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more evidence files are unavailable, expired, or do not belong to you. Upload them again.");
       const submission = await tx.jobCompletionSubmission.create({
@@ -1155,10 +1155,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!submission) throw new ConflictException("There is no pending completion submission to dispute.");
       const evidenceIds = [...new Set(input.evidenceAssetIds ?? [])];
       if (evidenceIds.length !== (input.evidenceAssetIds ?? []).length) throw new ConflictException("Duplicate dispute evidence files are not allowed.");
-      if (evidenceIds.length) {
-        const assets = await tx.mediaAsset.findMany({ where: { id: { in: evidenceIds }, userId, status: "READY", purpose: "JOB_DISPUTE_EVIDENCE", disputeMessageId: null, expiresAt: { gt: new Date() } }, select: { id: true } });
-        if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more dispute evidence files are unavailable or do not belong to you.");
-      }
+      const assets = evidenceIds.length ? await tx.mediaAsset.findMany({
+        where: { id: { in: evidenceIds }, userId, status: "READY", purpose: "JOB_DISPUTE_EVIDENCE", disputeMessageId: null, expiresAt: { gt: new Date() } },
+        select: { id: true, objectKey: true },
+      }) : [];
+      if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more dispute evidence files are unavailable or do not belong to you.");
       const dispute = await tx.jobDispute.create({
         data: { engagementId: job.id, openedById: userId, reason: input.reason.trim(), status: "OPEN",
           messages: { create: { authorId: userId, body: input.reason.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: assets.map((asset) => ({ id: asset.id, objectKey: asset.objectKey })) } } : {}) } } },
@@ -1180,10 +1181,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!["OPEN", "UNDER_REVIEW"].includes(dispute.status)) throw new ConflictException("This dispute is no longer accepting responses.");
       const evidenceIds = [...new Set(input.evidenceAssetIds ?? [])];
       if (evidenceIds.length !== (input.evidenceAssetIds ?? []).length) throw new ConflictException("Duplicate dispute evidence files are not allowed.");
-      if (evidenceIds.length) {
-        const assets = await tx.mediaAsset.findMany({ where: { id: { in: evidenceIds }, userId, status: "READY", purpose: "JOB_DISPUTE_EVIDENCE", disputeMessageId: null, expiresAt: { gt: new Date() } }, select: { id: true } });
-        if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more dispute evidence files are unavailable or do not belong to you.");
-      }
+      const assets = evidenceIds.length ? await tx.mediaAsset.findMany({
+        where: { id: { in: evidenceIds }, userId, status: "READY", purpose: "JOB_DISPUTE_EVIDENCE", disputeMessageId: null, expiresAt: { gt: new Date() } },
+        select: { id: true, objectKey: true },
+      }) : [];
+      if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more dispute evidence files are unavailable or do not belong to you.");
       const message = await tx.jobDisputeMessage.create({
         data: { disputeId, authorId: userId, body: input.body.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: assets.map((asset) => ({ id: asset.id, objectKey: asset.objectKey })) } } : {}) },
         include: { evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } },
