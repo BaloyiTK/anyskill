@@ -539,23 +539,16 @@ export function MarketplaceScreen(p: Props) {
 
 
   const selectProvider = (requestId: string, responseId: string) => {
-    // Selection must always be a deliberate Seeker decision. A single tap on
-    // an offer card or an incidental touch must never create a job engagement.
+    // The explicit "Accept offer" tap is the Seeker's selection decision.
+    // Start the API action immediately instead of depending on a native alert,
+    // which can fail to present on some Android navigation/modal states.
     const request = myRequests.find((item) => item.id === requestId);
     const offer = request?.providerResponses.find((item) => item.id === responseId);
     if (!request || request.status !== "OPEN" || !offer || offer.status !== "OFFERED") {
-      setError("This offer is no longer available for selection. Refresh your requests.");
+      setError("This offer is no longer available. Refresh your requests to see its latest status.");
       return;
     }
-    const providerName = offer.provider.providerProfile?.publicName || "this Provider";
-    Alert.alert(
-      "Confirm Provider selection",
-      `You are selecting ${providerName} for "${request.title}". This closes the request to other offers and starts the assessment stage. Continue?`,
-      [
-        { text: "Keep reviewing", style: "cancel" },
-        { text: "Confirm selection", style: "default", onPress: () => { void performSelectProvider(requestId, responseId); } },
-      ],
-    );
+    void performSelectProvider(requestId, responseId);
   };
 
   const performSelectProvider = async (requestId: string, responseId: string) => {
@@ -591,8 +584,10 @@ export function MarketplaceScreen(p: Props) {
       setMatchingRequest(null);
       await loadMyRequests();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not select this Provider.");
+      const message = e instanceof Error ? e.message : "Could not select this Provider.";
+      // Refresh first: loadMyRequests clears transient errors while loading.
       await loadMyRequests();
+      setError(message);
     } finally { setSelectingOfferId(null); }
   };
 
