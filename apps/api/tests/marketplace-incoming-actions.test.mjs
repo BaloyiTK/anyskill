@@ -300,7 +300,7 @@ test("Provider acceptance claims the live match before creating and notifying th
   });
   assert.equal(calls.findIndex((item) => Array.isArray(item) && item[0] === "match-claim")
     < calls.findIndex((item) => Array.isArray(item) && item[0] === "offer"), true);
-  assert.equal(calls.find((item) => Array.isArray(item) && item[0] === "seeker-notification")[1].data.data.responseId, undefined);
+  assert.equal(calls.find((item) => Array.isArray(item) && item[0] === "seeker-notification")[1].data.data.responseId, "offer-1");
 });
 
 test("Provider acceptance fails closed when the match compare-and-set loses a race", async () => {
