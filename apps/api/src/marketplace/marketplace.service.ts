@@ -793,6 +793,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: { providerId: true },
       });
       if (offer?.providerId) {
+        // A declined offer is no longer an active match. Expire its match
+        // record so a later whole-request cancellation cannot notify this
+        // Provider a second time as though they were still involved.
+        await tx.requestMatch.updateMany({
+          where: { requestId, providerId: offer.providerId, status: { in: ["NOTIFIED", "RESPONDED"] } },
+          data: { status: "EXPIRED" },
+        });
         await tx.appNotification.create({
           data: {
             userId: offer.providerId,
