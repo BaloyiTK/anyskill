@@ -1399,8 +1399,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       // bounded by a 12-second timeout, so a two-minute lease is conservative.
       const staleBefore = new Date(Date.now() - 2 * 60_000);
       await this.prisma.appNotification.updateMany({
-        where: { deliveryStatus: "SENDING", createdAt: { lt: staleBefore } },
-        data: { deliveryStatus: "PENDING" },
+        where: { deliveryStatus: "SENDING", deliveryStartedAt: { lt: staleBefore } },
+        data: { deliveryStatus: "PENDING", deliveryStartedAt: null },
       });
       await this.prisma.notificationDeviceDelivery.updateMany({
         where: { status: "SENDING", updatedAt: { lt: staleBefore }, attempts: { lt: 5 } },
@@ -1688,7 +1688,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     for (const notification of pending) {
       const claim = await this.prisma.appNotification.updateMany({
         where: { id: notification.id, deliveryStatus: "PENDING" },
-        data: { deliveryStatus: "SENDING" },
+        data: { deliveryStatus: "SENDING", deliveryStartedAt: new Date() },
       });
       if (claim.count === 0) continue;
 
