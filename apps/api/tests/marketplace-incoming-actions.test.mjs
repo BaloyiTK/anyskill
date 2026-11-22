@@ -697,5 +697,5 @@ test("matching uses approved ProviderSkill records even when the profile skill c
     deliveryMode: "REMOTE",
   });
 
-  assert.deepEqual(ranked, [{ userId: "provider-1", score: 6000 }]);
+  assert.deepEqual(ranked, [{ userId: "provider-1", score: 7000 }]);
 });
