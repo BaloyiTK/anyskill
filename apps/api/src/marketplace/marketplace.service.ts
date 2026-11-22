@@ -405,6 +405,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             where: { providerId },
             select: { id: true, status: true, createdAt: true },
           },
+          matches: {
+            where: { providerId },
+            select: { status: true, notifiedAt: true },
+          },
         },
       }),
       this.prisma.providerProfile.findUnique({
@@ -442,7 +446,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         + Math.cos(radians(latitude)) * Math.cos(radians(targetLatitude)) * Math.sin(dLon / 2) ** 2;
       return 6371.0088 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     };
-    const items = requests.slice(0, 20).map(({ providerResponses, seeker, ...request }) => {
+    const items = requests.slice(0, 20).map(({ providerResponses, seeker, matches, ...request }) => {
       const profile = seeker?.onboardingDraft?.profile;
       const seekerProfile = profile && typeof profile === "object" && !Array.isArray(profile)
         ? profile as Record<string, unknown>
@@ -475,6 +479,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         distanceKm,
         alreadyResponded: providerResponses.length > 0,
         myResponse: providerResponses[0] ?? null,
+        responseDeadlineAt: (() => {
+          const activeMatch = matches.find((match) => match.status === "NOTIFIED");
+          return activeMatch
+            ? new Date(activeMatch.notifiedAt.getTime() + RESPONSE_WINDOW_MS).toISOString()
+            : null;
+        })(),
       };
     });
     return { items, nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null };
@@ -1317,11 +1327,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
         const match = await tx.requestMatch.findUnique({
           where: { requestId_providerId: { requestId, providerId } },
-          select: { id: true, status: true },
+          select: { id: true, status: true, notifiedAt: true },
         });
         if (!match) throw new ForbiddenException("This request has not been matched to your Provider profile.");
         if (match.status !== "NOTIFIED") {
           throw new ConflictException("This incoming request is no longer awaiting your response.");
+        }
+        if (Date.now() >= match.notifiedAt.getTime() + RESPONSE_WINDOW_MS) {
+          throw new ConflictException("The response window has expired. AnySkill is finding the next available Provider.");
         }
 
         const response = await tx.providerResponse.create({
