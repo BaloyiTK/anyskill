@@ -1339,7 +1339,7 @@ export function MarketplaceScreen(p: Props) {
             <Text style={s.meta}>{request.skillCategory} · {request.status === "OPEN" ? "Open" : request.status}</Text>
             <Text style={s.body}>{request.description}</Text>
             {selected ? <Text style={s.response}>Selected Provider: {selected.providerId.slice(0, 8)} · {new Date(selected.createdAt).toLocaleString()}</Text> : null}
-            {request.jobEngagement?.status === "COMPLETION_PENDING" ? request.jobEngagement.completionSubmissions.filter((submission) => submission.status === "PENDING").map((submission) => <View key={submission.id} style={s.offerCard}>
+            {request.jobEngagement && request.jobEngagement.status === "COMPLETION_PENDING" ? request.jobEngagement.completionSubmissions.filter((submission) => submission.status === "PENDING").map((submission) => <View key={submission.id} style={s.offerCard}>
               <Text style={s.offerTitle}>Provider completion submitted</Text>
               <Text style={s.meta}>Submitted {new Date(submission.submittedAt).toLocaleString()}</Text>
               <Text style={s.body}>{submission.notes}</Text>
@@ -1395,7 +1395,7 @@ export function MarketplaceScreen(p: Props) {
               <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee).toFixed(2)}</Text>
               {request.jobEngagement.estimatedHours != null ? <Text style={s.meta}>Estimated hours: {Number(request.jobEngagement.estimatedHours).toFixed(2)}</Text> : null}
               {request.jobEngagement.estimatedTotal != null ? <Text style={s.cardTitle}>Estimated job cost: R {Number(request.jobEngagement.estimatedTotal).toFixed(2)}</Text> : null}
-              {request.jobEngagement.agreedWorkTotal != null && request.jobEngagement.approvedAdditionalAmount > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(request.jobEngagement.agreedWorkTotal).toFixed(2)}</Text> : null}
+              {request.jobEngagement.agreedWorkTotal != null && Number(request.jobEngagement.approvedAdditionalAmount ?? 0) > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(request.jobEngagement.agreedWorkTotal).toFixed(2)}</Text> : null}
               {request.jobEngagement.estimateNotes ? <Text style={s.body}>Provider explanation: {request.jobEngagement.estimateNotes}</Text> : null}
               {request.jobEngagement.status === "ESTIMATE_SUBMITTED" ? <>
                 <Text style={s.meta}>Review the Provider's hours, agreed hourly rate, assessment fee and written scope before deciding. Work cannot start until you approve.</Text>
@@ -1496,7 +1496,7 @@ export function MarketplaceScreen(p: Props) {
             <Primary label="Submit job estimate" onPress={() => void submitEstimate(job.request.id)} disabled={jobActionBusy || !(Number(estimateHours) > 0) || estimateNotes.trim().length < 10} />
           </> : null}
           {job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
-          {job.agreedWorkTotal != null && job.approvedAdditionalAmount > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(job.agreedWorkTotal).toFixed(2)}</Text> : null}
+          {job.agreedWorkTotal != null && Number(job.approvedAdditionalAmount ?? 0) > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(job.agreedWorkTotal).toFixed(2)}</Text> : null}
           {job.status === "ESTIMATE_APPROVED" ? <Primary label="Start approved work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
           {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED", "DISPUTED"].includes(job.status) ? <>
             <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(job, clockNow + clockOffsetMs))}</Text>
