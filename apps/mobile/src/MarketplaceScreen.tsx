@@ -1424,7 +1424,7 @@ export function MarketplaceScreen(p: Props) {
                 {["OPEN","UNDER_REVIEW"].includes(request.jobEngagement.disputes[0].status) ? <>
                   <TextInput value={disputeReplyDraft} onChangeText={setDisputeReplyDraft} placeholder="Add your response (minimum 10 characters)." multiline maxLength={2000} style={[s.input,s.multiline]} />
                   <Secondary label={uploadingDisputeEvidence ? "Uploading..." : "Attach response evidence"} onPress={() => void pickDisputeEvidence()} disabled={uploadingDisputeEvidence || jobActionBusy} />
-                  <Primary label="Send dispute response" onPress={() => void replyToJobDispute(request.id,request.jobEngagement.disputes?.[0]?.id ?? "")} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReplyDraft.trim().length < 10} />
+                  <Primary label="Send dispute response" onPress={() => void replyToJobDispute(request.id,request.jobEngagement?.disputes?.[0]?.id ?? "")} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReplyDraft.trim().length < 10} />
                 </> : null}
               </View> : null}
               {request.jobEngagement.adjustments.map((adjustment) => <View key={adjustment.id} style={s.offerCard}>

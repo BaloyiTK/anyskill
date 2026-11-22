@@ -1184,6 +1184,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async postJobDisputeMessage(userId: string, requestId: string, disputeId: string, input: PostJobDisputeMessageDto) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM job_disputes WHERE id = ${disputeId}::uuid FOR UPDATE`);
       const dispute = await tx.jobDispute.findFirst({ where: { id: disputeId, engagement: { requestId } }, include: { engagement: { select: { seekerId: true, providerId: true } } } });
       if (!dispute) throw new NotFoundException("Dispute not found.");
       if (dispute.engagement.seekerId !== userId && dispute.engagement.providerId !== userId) throw new ForbiddenException("Only the Seeker and selected Provider can respond to this dispute.");
@@ -1229,6 +1230,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async resolveJobDispute(staffId: string, disputeId: string, input: ResolveJobDisputeDto) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM job_disputes WHERE id = ${disputeId}::uuid FOR UPDATE`);
       const dispute = await tx.jobDispute.findUnique({ where: { id: disputeId }, include: { engagement: true } });
       if (!dispute) throw new NotFoundException("Dispute not found.");
       if (staffId === dispute.engagement.seekerId || staffId === dispute.engagement.providerId) throw new ForbiddenException("A party to the dispute cannot resolve it as staff.");

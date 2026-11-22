@@ -647,6 +647,7 @@ test("staff dispute resolution records the decision and keeps the timer paused f
   const calls = [];
   const dispute = {id:"dispute-1",engagementId:"job-1",status:"OPEN",engagement:{id:"job-1",requestId:"request-1",seekerId:"seeker-1",providerId:"provider-1"}};
   const tx = {
+    $queryRaw:async()=>[],
     jobDispute:{findUnique:async()=>dispute,updateMany:async(args)=>{calls.push(["dispute",args]);return {count:1};}},
     jobCompletionSubmission:{findFirst:async()=>({id:"submission-1"}),updateMany:async(args)=>calls.push(["submission",args])},
     jobEngagement:{updateMany:async(args)=>{calls.push(["job",args]);return {count:1};}},
