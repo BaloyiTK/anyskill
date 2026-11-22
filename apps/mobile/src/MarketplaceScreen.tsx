@@ -291,6 +291,14 @@ export function MarketplaceScreen(p: Props) {
           if (active) {
             if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
             setMyJobs(result);
+            // Restore the server-confirmed active stage after reload/remount.
+            const activeJob = result.find((job) =>
+              ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(job.status),
+            );
+            if (activeJob) {
+              setDismissedActiveJobIds((ids) => ids.filter((id) => id !== activeJob.request.id));
+              setActiveProviderJobId(activeJob.request.id);
+            }
           }
         } else {
           const requestStartedAt = Date.now();
@@ -300,6 +308,34 @@ export function MarketplaceScreen(p: Props) {
           if (active) {
             if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
             setMyRequests(result);
+            // Rebuild the Seeker's current journey from the persisted engagement.
+            const activeJourney = result.find((item) =>
+              item.jobEngagement
+              && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(item.jobEngagement.status),
+            );
+            if (activeJourney?.jobEngagement) {
+              const selectedOffer = activeJourney.providerResponses.find((offer) => offer.status === "SELECTED");
+              if (selectedOffer) {
+                const profile = selectedOffer.provider.providerProfile;
+                setJourneyScreen((current) => current?.requestId === activeJourney.id ? current : {
+                  requestId: activeJourney.id,
+                  responseId: selectedOffer.id,
+                  title: activeJourney.title,
+                  location: activeJourney.location,
+                  latitude: activeJourney.latitude,
+                  longitude: activeJourney.longitude,
+                  providerName: profile?.publicName ?? "Your selected Provider",
+                  phone: selectedOffer.provider.phone ?? profile?.phone ?? null,
+                  liveLatitude: profile?.liveLatitude ?? null,
+                  liveLongitude: profile?.liveLongitude ?? null,
+                  liveLocationUpdatedAt: profile?.liveLocationUpdatedAt ?? null,
+                  hourlyRate: selectedOffer.hourlyRateAtOffer == null ? null : Number(selectedOffer.hourlyRateAtOffer),
+                  assessmentFee: selectedOffer.assessmentFeeAtOffer == null ? null : Number(selectedOffer.assessmentFeeAtOffer),
+                });
+              }
+            } else {
+              setJourneyScreen(null);
+            }
             const active = result.find((item) => item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
             setMatchingRequest(active ? {
               id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
@@ -412,10 +448,8 @@ export function MarketplaceScreen(p: Props) {
       || dismissedActiveJobIds.includes(activeProviderJobId))) {
       setActiveProviderJobId(null);
     }
-    // Do not auto-open an arbitrary existing job. The only automatic transition
-    // into the workspace is the exact response currently being watched above,
-    // after the server returns its selected engagement. Older jobs stay in the
-    // Selected jobs list and cannot hijack a newly submitted offer.
+    // An active engagement always takes priority over the dashboard/list.
+    // Completed and cancelled jobs remain outside the restored workspace.
   }, [p.mode, myJobs, dismissedActiveJobIds, activeProviderJobId, providerSelectionWatch, providerOfferReview?.status]);
 
   const loadServiceChat = useCallback(async (requestId: string) => {
