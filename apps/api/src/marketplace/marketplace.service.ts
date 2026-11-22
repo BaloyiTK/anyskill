@@ -1081,7 +1081,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const submission = await tx.jobCompletionSubmission.create({
         data: {
           engagementId: job.id, providerId, notes: input.notes.trim(), evidenceUrls: [],
-          evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) },
+          evidenceAssets: { connect: assets.map((asset) => ({ id: asset.id, objectKey: asset.objectKey })) },
         },
         include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } },
       });
@@ -1160,7 +1160,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       }
       const dispute = await tx.jobDispute.create({
         data: { engagementId: job.id, openedById: userId, reason: input.reason.trim(), status: "OPEN",
-          messages: { create: { authorId: userId, body: input.reason.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) } } : {}) } } },
+          messages: { create: { authorId: userId, body: input.reason.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: assets.map((asset) => ({ id: asset.id, objectKey: asset.objectKey })) } } : {}) } } },
         include: { messages: { include: { evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } } },
       });
       const claimed = await tx.jobEngagement.updateMany({ where: { id: job.id, status: "COMPLETION_PENDING" }, data: { status: "DISPUTED", workSegmentStartedAt: null, workPausedAt: new Date() } });
@@ -1184,7 +1184,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         if (assets.length !== evidenceIds.length) throw new ForbiddenException("One or more dispute evidence files are unavailable or do not belong to you.");
       }
       const message = await tx.jobDisputeMessage.create({
-        data: { disputeId, authorId: userId, body: input.body.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: evidenceIds.map((id) => ({ id })) } } : {}) },
+        data: { disputeId, authorId: userId, body: input.body.trim(), ...(evidenceIds.length ? { evidenceAssets: { connect: assets.map((asset) => ({ id: asset.id, objectKey: asset.objectKey })) } } : {}) },
         include: { evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } },
       });
       await tx.jobDispute.updateMany({ where: { id: disputeId, status: "OPEN" }, data: { status: "UNDER_REVIEW" } });
