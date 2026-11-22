@@ -184,11 +184,24 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async updateProviderLiveLocation(userId: string, input: UpdateLiveLocationDto) {
     if (input.accuracyM > MAX_LIVE_LOCATION_ACCURACY_M) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix (50 m or better).");
+    const profile = await this.prisma.providerProfile.findUnique({ where: { userId }, select: { userId: true, isAvailable: true } });
+    if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
+    // A Provider may go offline for new matching while still sharing location
+    // for a service where they explicitly tapped "I'm coming".
+    if (!profile.isAvailable) {
+      const enRouteJob = await this.prisma.jobEngagement.findFirst({
+        where: {
+          providerId: userId,
+          providerEnRouteAt: { not: null },
+          status: { in: ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS"] },
+        },
+        select: { id: true },
+      });
+      if (!enRouteJob) throw new ConflictException("Set your Provider status to Available or start navigation for an active service before sharing your live location.");
+    }
     const updatedAt = new Date();
-    // Any online Provider shares a live map location, regardless of skill or
-    // delivery mode. Going offline clears the location and stops this heartbeat.
     const result = await this.prisma.providerProfile.updateMany({
-      where: { userId, isAvailable: true },
+      where: { userId },
       data: {
         liveLatitude: input.latitude,
         liveLongitude: input.longitude,
@@ -196,13 +209,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         liveLocationUpdatedAt: updatedAt,
       },
     });
-    if (result.count !== 1) {
-      const profile = await this.prisma.providerProfile.findUnique({ where: { userId }, select: { userId: true } });
-      if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
-      throw new ConflictException("Set your Provider status to Available before sharing your live location.");
-    }
+    if (result.count !== 1) throw new NotFoundException("Create your Provider profile before sharing live location.");
     this.liveProviderMap.notifyChanged();
-    return { isAvailable: true, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
+    return { isAvailable: profile.isAvailable, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
   }
 
   async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
@@ -730,6 +739,40 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         })),
       });
       return { success: true, requestId, status: "CANCELLED" };
+    });
+  }
+
+  async markProviderEnRoute(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({
+        where: { requestId },
+        select: {
+          id: true, providerId: true, seekerId: true, status: true,
+          providerEnRouteAt: true,
+          request: { select: { title: true, deliveryMode: true, latitude: true, longitude: true } },
+        },
+      });
+      if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
+      if (job.status !== "ASSESSMENT_PENDING") throw new ConflictException("You can only confirm that you are coming during the assessment stage.");
+      if (job.request.deliveryMode === "REMOTE" || job.request.latitude == null || job.request.longitude == null) {
+        throw new ConflictException("This service has no on-site destination to navigate to.");
+      }
+      if (job.providerEnRouteAt) return { success: true, requestId, providerEnRouteAt: job.providerEnRouteAt };
+      const providerEnRouteAt = new Date();
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, providerId, status: "ASSESSMENT_PENDING", providerEnRouteAt: null },
+        data: { providerEnRouteAt },
+      });
+      if (changed.count !== 1) throw new ConflictException("The service changed. Refresh and try again.");
+      await tx.appNotification.create({
+        data: {
+          userId: job.seekerId,
+          title: "Your Provider is on the way",
+          body: `Your Provider is coming to assess "${job.request.title}". You can now follow their live location in AnySkill.`,
+          data: { type: "PROVIDER_EN_ROUTE", requestId },
+        },
+      });
+      return { success: true, requestId, providerEnRouteAt };
     });
   }
 
