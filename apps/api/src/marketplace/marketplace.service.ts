@@ -657,7 +657,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: { status: "WITHDRAWN" },
       });
       const affectedProviders = new Map<string, { responseId?: string }>();
-      for (const match of notifiedMatches) affectedProviders.set(match.providerId, {});
+      for (const match of notifiedMatches) {
+        if (match.providerId) affectedProviders.set(match.providerId, {});
+      }
       for (const offer of pendingOffers) {
         if (offer.providerId) affectedProviders.set(offer.providerId, { responseId: offer.id });
       }
