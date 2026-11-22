@@ -112,3 +112,40 @@ test("declining an offer fails closed when selection or cancellation already cha
   assert.equal(notificationCreated, false);
   assert.equal(dispatched, false);
 });
+
+test("initial matching failure leaves the newly created request queued for worker recovery", async () => {
+  let createArgs;
+  const service = new MarketplaceService({
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED" }) },
+    serviceRequest: {
+      create: async (args) => {
+        createArgs = args;
+        return {
+          id: "request-queued",
+          title: args.data.title,
+          skillCategory: args.data.skillCategory,
+          description: args.data.description,
+          imageUrls: args.data.imageUrls,
+          location: args.data.location,
+          deliveryMode: args.data.deliveryMode,
+          matchingStartedAt: new Date(),
+          preferredStartAt: args.data.preferredStartAt,
+          instructions: args.data.instructions,
+          status: "OPEN",
+          createdAt: new Date(),
+        };
+      },
+    },
+  }, {});
+  service.dispatchNextWave = async () => { throw new Error("temporary matching outage"); };
+
+  const result = await service.createRequest("seeker-1", {
+    title: "Repair a leaking tap",
+    skillCategory: "plumber",
+    description: "Kitchen tap is leaking",
+    deliveryMode: "REMOTE",
+  });
+
+  assert.ok(createArgs.data.matchingNextAt instanceof Date);
+  assert.deepEqual(result.matching, { notified: 0, wave: 0, queued: true });
+});

@@ -107,3 +107,11 @@ test("repeat submission does not resend the initial welcome email", async () => 
   assert.equal(result.welcomeEmailSent, false);
   assert.equal(events.includes("welcome-email"), false);
 });
+
+test("concurrent first submissions send only one welcome email", async () => {
+  const { service, events } = makeService();
+  const results = await Promise.all([service.submit("user-1"), service.submit("user-1")]);
+
+  assert.equal(results.filter((result) => result.welcomeEmailSent).length, 1);
+  assert.equal(events.filter((event) => event === "welcome-email").length, 1);
+});
