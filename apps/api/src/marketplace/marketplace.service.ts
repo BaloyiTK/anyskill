@@ -1265,14 +1265,21 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       select: { id: true, senderId: true, body: true, createdAt: true },
     });
     const recipientId = job.seekerId === userId ? job.providerId : job.seekerId;
-    if (recipientId) await this.prisma.appNotification.create({
-      data: {
-        userId: recipientId,
-        title: "New service chat message",
-        body: message.length > 100 ? message.slice(0, 97) + "..." : message,
-        data: { type: "SERVICE_CHAT_MESSAGE", requestId, messageId: saved.id },
-      },
-    });
+    if (recipientId) {
+      await this.prisma.appNotification.create({
+        data: {
+          userId: recipientId,
+          title: "New service chat message",
+          body: message.length > 100 ? message.slice(0, 97) + "..." : message,
+          data: { type: "SERVICE_CHAT_MESSAGE", requestId, messageId: saved.id },
+        },
+      });
+      // Chat alerts should not wait for the next 15-second worker poll.
+      // The delivery claims keep this safe if the worker is processing at the same time.
+      void this.dispatchPendingNotifications().catch((error) => {
+        this.logger.error("Immediate service chat notification dispatch failed.", error);
+      });
+    }
     return saved;
   }
 
