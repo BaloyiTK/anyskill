@@ -160,6 +160,7 @@ export class OnboardingService {
       }),
     ]);
     let shouldSendWelcomeEmail = false;
+    let welcomeEmailOutboxId: string | null = null;
     const profile =
       onboarding.profile && typeof onboarding.profile === "object" && !Array.isArray(onboarding.profile)
         ? (onboarding.profile as Record<string, unknown>)
@@ -354,25 +355,61 @@ export class OnboardingService {
           activeMarketplaceMode,
         },
       });
+
+      if (firstSubmission.count === 1 && user?.email) {
+        const outbox = await tx.welcomeEmailOutbox.create({
+          data: {
+            userId,
+            recipientEmail: user.email,
+            displayName: publicName ?? "",
+            providerReviewPending: wantsProvider && onboarding.providerApplicationStatus !== ProviderApplicationStatus.APPROVED,
+          },
+          select: { id: true },
+        });
+        welcomeEmailOutboxId = outbox.id;
+      }
     });
 
-    // Send only after the database transaction commits. An SMTP outage must
-    // never roll back a completed profile submission or change marketplace access.
+    // The welcome message is durably queued in the same transaction as
+    // profile submission. Attempt immediate delivery for a fast experience;
+    // the marketplace worker retries any transient SMTP failure.
     let welcomeEmailSent = false;
-    if (shouldSendWelcomeEmail && user?.email) {
-      try {
-        await this.mail.sendWelcomeEmail(
-          user.email,
-          publicName ?? "",
-          wantsProvider && onboarding.providerApplicationStatus !== ProviderApplicationStatus.APPROVED,
-        );
-        welcomeEmailSent = true;
-      } catch (error) {
-        const code =
-          typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-            ? error.code.slice(0, 64)
-            : "unknown";
-        this.logger.error(`Profile submission succeeded but welcome email delivery failed (code=${code}).`);
+    if (shouldSendWelcomeEmail && welcomeEmailOutboxId) {
+      const claimed = await this.prisma.welcomeEmailOutbox.updateMany({
+        where: {
+          id: welcomeEmailOutboxId,
+          status: "PENDING",
+          nextAttemptAt: { lte: new Date() },
+        },
+        data: { status: "SENDING", attempts: { increment: 1 } },
+      });
+      if (claimed.count === 1) {
+        try {
+          const outbox = await this.prisma.welcomeEmailOutbox.findUniqueOrThrow({
+            where: { id: welcomeEmailOutboxId },
+            select: { recipientEmail: true, displayName: true, providerReviewPending: true },
+          });
+          await this.mail.sendWelcomeEmail(outbox.recipientEmail, outbox.displayName, outbox.providerReviewPending);
+          await this.prisma.welcomeEmailOutbox.update({
+            where: { id: welcomeEmailOutboxId },
+            data: { status: "SENT", sentAt: new Date(), lastError: null },
+          });
+          welcomeEmailSent = true;
+        } catch (error) {
+          const code =
+            typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+              ? error.code.slice(0, 64)
+              : "unknown";
+          await this.prisma.welcomeEmailOutbox.updateMany({
+            where: { id: welcomeEmailOutboxId, status: "SENDING" },
+            data: {
+              status: "PENDING",
+              nextAttemptAt: new Date(Date.now() + 15_000),
+              lastError: code,
+            },
+          });
+          this.logger.error(`Profile submission succeeded; welcome email queued for retry (code=${code}).`);
+        }
       }
     }
 
