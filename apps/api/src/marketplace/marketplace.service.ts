@@ -1547,6 +1547,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit this estimate.");
       if (!["ASSESSMENT_PENDING", "ESTIMATE_REJECTED"].includes(job.status)) throw new ConflictException("An estimate cannot be submitted at this stage.");
+      if (job.status === "ASSESSMENT_PENDING" && !job.assessmentCompletedAt) throw new ConflictException("Complete the assessment before submitting the final estimate.");
       const hours = new Prisma.Decimal(input.estimatedHours);
       const total = hours.mul(job.hourlyRate).toDecimalPlaces(2);
       // Claim the transition with a conditional write. Two simultaneous estimate
