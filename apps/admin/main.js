@@ -63,7 +63,7 @@ const moduleDefinitions = {
   "user-seekers": { group: "MARKETPLACE", title: "Seekers", description: "Seeker account register with All, Active and Suspended tabs.", items: ["Seeker profile and contact details", "Marketplace roles (including dual-role accounts)", "Account status and registration date", "Role-level suspension kept separate from whole-account suspension"], note: "The seeker register UI is scoped here; connect it to a protected, paginated user-management API before showing live accounts or changing access." },
   jobs: { group: "MARKETPLACE", title: "Jobs & requests", description: "Central register for service requests and job engagements.", items: ["All jobs", "Informal services (service category, not a lifecycle status)", "Pending and matching", "In progress and scheduled", "Cancelled and completed", "Disputes and escalations"], note: "Job records need a unified, paginated API joining requests, provider responses and engagements. The current schema does not yet contain a complete cancellation/dispute case workflow." },
   identity: { group: "TRUST & SAFETY", title: "Identity verification", description: "Review identity documents and the live selfie independently of skill decisions.", items: ["Identity documents and live selfie", "Separate identity decision and rejection reason", "Identity verification is required before skill approval"], note: "Identity verification is its own review queue. It does not approve or reject the user’s skills." },
-  disputes: { group: "TRUST & SAFETY", title: "Disputes", description: "Investigate disagreements between seekers and providers.", items: ["New and open disputes", "Awaiting seeker or provider response", "Under investigation", "Escalated and resolved", "Evidence and resolution history"], note: "The engagement status supports DISPUTED, but a full dispute case, evidence and resolution workflow still needs to be designed and implemented." },
+  disputes: { group: "TRUST & SAFETY", title: "Disputes", description: "Review evidence, hear both parties and record an auditable outcome for disputed jobs.", items: ["Open and under-review disputes", "Seeker and Provider responses", "Secure evidence access", "Resolve in favour of either party or cancel the engagement", "Recorded staff decision and audit history"], note: "Only active Support Agents, Administrators and the Super Administrator can resolve cases. All outcomes are recorded against the staff account." },
   fraud: { group: "TRUST & SAFETY", title: "Fraud & risk", description: "Review suspicious activity and reported accounts.", items: ["Reported users and jobs", "Suspicious account patterns", "Transaction risk flags", "Investigation notes and outcomes"], note: "Risk signals and investigation records are not yet implemented. Do not present automated fraud prevention as an existing capability." },
   reviews: { group: "TRUST & SAFETY", title: "Ratings & reviews", description: "Moderate feedback and reported content.", items: ["Provider ratings and seeker feedback", "Reported reviews", "Content moderation queue", "Moderation audit history"], note: "A review and moderation data model plus permission-checked endpoints are required before this module can display records." },
   transactions: { group: "FINANCIALS", title: "Transactions", description: "Monitor payment attempts and completed marketplace payments.", items: ["Successful, pending and failed payments", "Transaction references and linked jobs", "Refund and chargeback references", "Reconciliation status"], note: "Payment gateway transaction records and webhook reconciliation are not yet connected. No payment totals are fabricated in this portal." },
@@ -81,10 +81,56 @@ function renderModulePage(page) {
   $("#module-eyebrow").textContent = module.group;
   $("#module-title").textContent = module.title + ".";
   $("#module-description").textContent = module.description;
+  if (page === "disputes") { $("#module-status").textContent = "Live dispute queue"; $("#module-content").innerHTML = '<div class="panel"><p>Loading live dispute records…</p></div>'; void loadAdminDisputes(); return; }
   $("#module-status").textContent = "API integration required";
   $("#module-content").innerHTML = '<section class="panel module-detail-panel"><div class="module-detail-heading"><strong>Planned administration capabilities</strong><span class="module-state">Not connected to live records</span></div><ul>' +
     module.items.map((item) => '<li>' + escapeHtml(item) + '</li>').join("") +
     '</ul><div class="module-integration-note"><strong>Implementation note</strong><p>' + escapeHtml(module.note) + '</p></div></section>';
+}
+
+
+async function loadAdminDisputes() {
+  const root = $("#module-content");
+  try {
+    const disputes = await request("/admin/marketplace/disputes");
+    if (!Array.isArray(disputes) || disputes.length === 0) {
+      root.innerHTML = '<section class="panel"><div class="empty-state">No open job disputes. New cases will appear here when either party requests platform intervention.</div></section>';
+      return;
+    }
+    root.innerHTML = disputes.map((dispute) => {
+      const engagement = dispute.engagement || {};
+      const requestInfo = engagement.request || {};
+      const messages = (dispute.messages || []).map((message) => {
+        const files = (message.evidenceAssets || []).map((asset) => '<button class="button button-light" data-dispute-evidence="' + escapeHtml(asset.id) + '">View evidence · ' + escapeHtml(asset.originalName) + '</button>').join("");
+        return '<div class="dispute-message"><div class="muted">' + escapeHtml(message.author?.id || "Participant") + ' · ' + dateLabel(message.createdAt) + '</div><p>' + escapeHtml(message.body) + '</p><div class="dispute-evidence">' + files + '</div></div>';
+      }).join("");
+      const completion = (engagement.completionSubmissions || []).map((submission) => '<div class="dispute-message"><strong>Provider completion submission</strong><p>' + escapeHtml(submission.notes) + '</p>' + (submission.evidenceAssets || []).map((asset) => '<button class="button button-light" data-dispute-evidence="' + escapeHtml(asset.id) + '">View completion evidence · ' + escapeHtml(asset.originalName) + '</button>').join("") + '</div>').join("");
+      return '<article class="panel dispute-case" data-dispute-card="' + escapeHtml(dispute.id) + '">' +
+        '<div class="module-detail-heading"><strong>' + escapeHtml(requestInfo.title || "Job dispute") + '</strong><span class="status-pill">' + escapeHtml(dispute.status.replaceAll("_"," ")) + '</span></div>' +
+        '<p class="muted">Case ' + escapeHtml(dispute.id) + ' · Opened ' + dateLabel(dispute.createdAt) + '</p>' +
+        '<p>' + escapeHtml(dispute.reason) + '</p>' + completion + '<h3>Party responses and evidence</h3>' + messages +
+        '<div class="module-integration-note"><strong>Staff resolution</strong><p>Review the approved scope, completion evidence and both parties’ submissions before deciding. Your decision and explanation are recorded in the audit log.</p>' +
+        '<label>Outcome</label><select data-dispute-outcome><option value="PROVIDER">Provider’s completion is accepted</option><option value="SEEKER">Provider must correct the work</option><option value="CANCELLED">Cancel the engagement</option></select>' +
+        '<label>Resolution explanation (minimum 20 characters)</label><textarea data-dispute-note rows="4" maxlength="2000" placeholder="Explain the evidence considered and why this outcome is fair."></textarea>' +
+        '<button class="button button-primary" data-resolve-dispute="' + escapeHtml(dispute.id) + '">Record resolution</button></div></article>';
+    }).join("");
+  } catch (error) {
+    root.innerHTML = '<section class="panel"><div class="alert alert-error">' + escapeHtml(error.message || "Could not load disputes.") + '</div><button class="button button-light" id="disputes-retry">Retry</button></section>';
+    $("#disputes-retry")?.addEventListener("click", loadAdminDisputes);
+  }
+}
+
+async function resolveAdminDispute(disputeId, button) {
+  const card = button.closest("[data-dispute-card]");
+  const outcome = card.querySelector("[data-dispute-outcome]").value;
+  const note = card.querySelector("[data-dispute-note]").value.trim();
+  if (note.length < 20) { toast("Add a reasoned resolution of at least 20 characters."); return; }
+  button.disabled = true;
+  try {
+    await request("/admin/marketplace/disputes/" + encodeURIComponent(disputeId) + "/resolve", { method: "POST", body: JSON.stringify({ outcome, note }) });
+    toast("Dispute resolved. Both parties have been notified and the decision audited.");
+    await loadAdminDisputes();
+  } catch (error) { toast(error.message || "Could not resolve dispute."); button.disabled = false; }
 }
 
 function renderMetrics() {
@@ -233,6 +279,12 @@ $("#login-form").addEventListener("submit",login);
 $("#logout-button").addEventListener("click",()=>signOut());
 $("#refresh-button").addEventListener("click",async()=>{await loadDashboardMetrics();if(state.adminPermissions?.identity)await loadIdentityQueue();if(state.adminPermissions?.skills)await loadSkillQueue();toast("Dashboard data refreshed.");});
 document.querySelectorAll(".nav-item").forEach(item=>item.addEventListener("click",()=>setPage(item.dataset.page)));
+$("#module-content").addEventListener("click",event=>{
+ const resolve=event.target.closest("[data-resolve-dispute]");
+ if(resolve){void resolveAdminDispute(resolve.dataset.resolveDispute,resolve);return;}
+ const evidence=event.target.closest("[data-dispute-evidence]");
+ if(evidence){void request("/marketplace/media/"+encodeURIComponent(evidence.dataset.disputeEvidence)+"/url").then(result=>window.open(result.url,"_blank","noopener")).catch(error=>toast(error.message||"Could not open evidence."));}
+});
 document.querySelectorAll("[data-go]").forEach(item=>item.addEventListener("click",()=>setPage(item.dataset.go)));
 $("#identity-refresh").addEventListener("click",loadIdentityQueue);
 $("#skills-refresh").addEventListener("click",loadSkillQueue);

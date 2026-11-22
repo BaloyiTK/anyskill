@@ -290,13 +290,18 @@ export class MediaService {
   async getEvidenceUrl(userId: string, assetId: string) {
     this.ensureConfigured();
     const asset = await this.prisma.mediaAsset.findFirst({
-      where: { id: assetId, status: "READY", completionSubmissionId: { not: null } },
-      include: { completionSubmission: { include: { engagement: { select: { seekerId: true, providerId: true } } } } },
+      where: { id: assetId, status: "READY", OR: [{ completionSubmissionId: { not: null } }, { disputeMessageId: { not: null } }] },
+      include: {
+        completionSubmission: { include: { engagement: { select: { seekerId: true, providerId: true } } } },
+        disputeMessage: { include: { dispute: { include: { engagement: { select: { seekerId: true, providerId: true } } } } } },
+      },
     });
-    if (!asset || !asset.completionSubmission) throw new NotFoundException("Evidence image not found.");
-
-    const job = asset.completionSubmission.engagement;
-    if (job.seekerId !== userId && job.providerId !== userId) {
+    if (!asset) throw new NotFoundException("Evidence image not found.");
+    const job = asset.completionSubmission?.engagement ?? asset.disputeMessage?.dispute.engagement;
+    if (!job) throw new NotFoundException("Evidence image is not linked to an active job record.");
+    const staff = await this.prisma.staffMembership.findUnique({ where: { userId }, select: { role: true, isActive: true } });
+    const canReviewEvidence = Boolean(staff?.isActive && ["SUPPORT_AGENT", "ADMIN", "SUPER_ADMIN"].includes(staff.role));
+    if (job.seekerId !== userId && job.providerId !== userId && !canReviewEvidence) {
       throw new ForbiddenException("You are not allowed to view this evidence.");
     }
 
