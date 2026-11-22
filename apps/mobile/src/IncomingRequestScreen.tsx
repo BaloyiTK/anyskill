@@ -9,6 +9,7 @@ type IncomingRequest = {
   seeker: { firstName: string; lastName: string; identityVerified: boolean };
   distanceKm: number | null;
   alreadyResponded: boolean;
+  responseDeadlineAt: string | null;
 };
 type Props = { requestId: string | null; onClose: () => void; onAccepted: (requestId: string) => void };
 
@@ -17,27 +18,46 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
   const [loading, setLoading] = useState(false);
   const [action, setAction] = useState<"accept" | "decline" | null>(null);
   const [error, setError] = useState("");
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [secondsRemaining, setSecondsRemaining] = useState(0);
 
   useEffect(() => {
-    if (!requestId) { setRequest(null); return; }
+    if (!requestId) { setRequest(null); setError(""); return; }
     let active = true;
-    setRequest(null);
-    setAction(null);
-    setLoading(true); setError("");
-    apiRequest<{ items: IncomingRequest[] }>("/marketplace/incoming-requests", {}, true)
-      .then((result) => {
+    const load = async (showSpinner: boolean) => {
+      if (showSpinner) setLoading(true);
+      try {
+        const result = await apiRequest<{ items: IncomingRequest[] }>("/marketplace/incoming-requests", {}, true);
         if (!active) return;
         const found = result.items.find((item) => item.id === requestId && item.status === "OPEN" && !item.alreadyResponded);
         setRequest(found ?? null);
-        if (!found) setError("This request is no longer available. Your incoming requests have been refreshed.");
-      })
-      .catch((e) => { if (active) setError(e instanceof Error ? e.message : "Could not load this request."); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [requestId]);
+        setError(found ? "" : "This request is no longer available. AnySkill has refreshed your incoming requests.");
+      } catch (e) {
+        if (!active) return;
+        setError(e instanceof Error ? e.message : "Could not refresh this request. Please try again.");
+      } finally {
+        if (active && showSpinner) setLoading(false);
+      }
+    };
+    setRequest(null);
+    setAction(null);
+    setError("");
+    void load(true);
+    const poll = setInterval(() => { void load(false); }, 5000);
+    return () => { active = false; clearInterval(poll); };
+  }, [requestId, refreshTrigger]);
 
+  useEffect(() => {
+    if (!request?.responseDeadlineAt) { setSecondsRemaining(0); return; }
+    const update = () => setSecondsRemaining(Math.max(0, Math.ceil((new Date(request.responseDeadlineAt!).getTime() - Date.now()) / 1000)));
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [request?.responseDeadlineAt]);
+
+  const expired = Boolean(request?.responseDeadlineAt && secondsRemaining <= 0);
   const respond = async (choice: "accept" | "decline") => {
-    if (!requestId || action) return;
+    if (!requestId || action || expired) return;
     setAction(choice); setError("");
     try {
       if (choice === "accept") {
@@ -49,6 +69,7 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Your response could not be submitted. Please try again.");
+      setRefreshTrigger((value) => value + 1);
     } finally { setAction(null); }
   };
 
@@ -70,18 +91,19 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
           {request.location ? <Text style={styles.meta}>LOCATION  {request.location}</Text> : null}
           {request.distanceKm != null ? <Text style={styles.meta}>DISTANCE  {request.distanceKm} km</Text> : null}
           {request.preferredStartAt ? <Text style={styles.meta}>PREFERRED TIME  {new Date(request.preferredStartAt).toLocaleString()}</Text> : null}
+          {request.responseDeadlineAt ? <Text accessibilityLiveRegion="polite" style={[styles.countdown, expired && styles.expired]}>{expired ? "RESPONSE WINDOW EXPIRED" : `RESPOND WITHIN  ${Math.floor(secondsRemaining / 60)}:${String(secondsRemaining % 60).padStart(2, "0")}`}</Text> : null}
         </View>
         <View style={styles.actions}>
-          <Pressable accessibilityRole="button" disabled={Boolean(action)} onPress={() => void respond("accept")} style={[styles.accept, Boolean(action) && styles.disabled]}>
+          <Pressable accessibilityRole="button" disabled={Boolean(action) || expired} onPress={() => void respond("accept")} style={[styles.accept, (Boolean(action) || expired) && styles.disabled]}>
             <Text style={styles.acceptText}>{action === "accept" ? "ACCEPTING…" : "ACCEPT REQUEST"}</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" disabled={Boolean(action)} onPress={() => void respond("decline")} style={[styles.decline, Boolean(action) && styles.disabled]}>
+          <Pressable accessibilityRole="button" disabled={Boolean(action) || expired} onPress={() => void respond("decline")} style={[styles.decline, (Boolean(action) || expired) && styles.disabled]}>
             <Text style={styles.declineText}>{action === "decline" ? "DECLINING…" : "DECLINE"}</Text>
           </Pressable>
         </View>
       </>}
       {!loading && !request && <Pressable onPress={onClose} style={styles.decline}><Text style={styles.declineText}>CLOSE</Text></Pressable>}
-      {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+      {error ? <View style={styles.errorArea}><Text accessibilityRole="alert" style={styles.error}>{error}</Text><Pressable accessibilityRole="button" onPress={() => setRefreshTrigger((value) => value + 1)} style={styles.retry}><Text style={styles.retryText}>RETRY</Text></Pressable></View> : null}
       <Text style={styles.footnote}>Only accept if you are available and able to provide this service.</Text>
     </View>
   </Modal>;
@@ -100,12 +122,17 @@ const styles = StyleSheet.create({
   description:{color:"#53645B",fontSize:14,lineHeight:21,marginTop:10},
   rule:{height:1,backgroundColor:"#E1E8E3",marginVertical:16},
   meta:{color:"#526259",fontSize:11,fontWeight:"700",marginTop:7},
+  countdown:{color:"#176B55",fontSize:12,fontWeight:"900",letterSpacing:1,marginTop:18},
+  expired:{color:"#A12D2D"},
   actions:{gap:12,marginTop:20},
   accept:{minHeight:58,borderRadius:16,backgroundColor:"#65D69A",alignItems:"center",justifyContent:"center"},
   acceptText:{color:"#103B2B",fontSize:14,fontWeight:"900",letterSpacing:1},
   decline:{minHeight:54,borderRadius:16,borderWidth:1,borderColor:"#FFFFFF88",alignItems:"center",justifyContent:"center",marginTop:12},
   declineText:{color:"#FFFFFF",fontSize:13,fontWeight:"900",letterSpacing:1},
   disabled:{opacity:.5},
-  error:{color:"#FFD3D3",fontSize:12,lineHeight:18,textAlign:"center",marginTop:14},
+  errorArea:{alignItems:"center",marginTop:14},
+  error:{color:"#FFD3D3",fontSize:12,lineHeight:18,textAlign:"center"},
+  retry:{paddingHorizontal:24,paddingVertical:10,marginTop:8,borderRadius:12,borderWidth:1,borderColor:"#FFFFFF88"},
+  retryText:{color:"#FFFFFF",fontSize:11,fontWeight:"900",letterSpacing:1},
   footnote:{color:"#BFD9CA",fontSize:11,lineHeight:17,textAlign:"center",marginTop:24}
 });
