@@ -291,7 +291,45 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true, updatedAt: true },
     });
     this.liveProviderMap.notifyChanged();
+    if (input.isAvailable) {
+      try {
+        await this.rematchOpenRequestsForProvider(userId);
+      } catch (error) {
+        // Going online must succeed even if matching is temporarily unavailable.
+        // The normal worker will recover due/exhausted requests on its next cycle.
+        this.logger.error("Immediate rematch after Provider availability failed.", error);
+      }
+    }
     return updated;
+  }
+
+  private async rematchOpenRequestsForProvider(providerId: string) {
+    const approvedSkills = await this.prisma.providerSkill.findMany({
+      where: { userId: providerId, status: "APPROVED" },
+      select: { category: true },
+    });
+    const categories = [...new Set(approvedSkills.map((skill) => skill.category.trim()).filter(Boolean))];
+    if (categories.length === 0) return;
+
+    const now = new Date();
+    const requests = await this.prisma.serviceRequest.findMany({
+      where: {
+        status: "OPEN",
+        matchingStartedAt: { gt: new Date(now.getTime() - LIVE_MATCHING_WINDOW_MS) },
+        skillCategory: { in: categories, mode: "insensitive" },
+        OR: [
+          { matchingExhaustedAt: { not: null } },
+          { matchingNextAt: { lte: now } },
+        ],
+      },
+      select: { id: true, matchingWave: true },
+      orderBy: { createdAt: "asc" },
+      take: 50,
+    });
+
+    for (const request of requests) {
+      await this.dispatchNextWave(request.id, request.matchingWave + 1);
+    }
   }
 
   async getProviderAvailability(userId: string) {
