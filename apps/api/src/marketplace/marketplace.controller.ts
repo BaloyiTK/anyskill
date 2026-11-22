@@ -213,6 +213,14 @@ export class MarketplaceController {
     return this.marketplace.sendServiceChatMessage(user.id, requestId, dto.body);
   }
 
+  @Post("marketplace/requests/:requestId/provider-en-route")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_ACCEPT_REQUEST")
+  @RequireMarketplaceRole("PROVIDER")
+  markProviderEnRoute(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.markProviderEnRoute(user.id, requestId);
+  }
+
   @Get("marketplace/requests/:requestId/provider-route")
   @RequireMarketplaceRole("PROVIDER")
   getProviderRoute(
