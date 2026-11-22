@@ -108,6 +108,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         deliveryMode: input.deliveryMode,
         preferredStartAt: input.preferredStartAt ? new Date(input.preferredStartAt) : null,
         instructions: input.instructions?.trim() || null,
+        // Persist a due matching timestamp with the request itself so a failed
+        // immediate dispatch is recoverable by the matching worker.
+        matchingNextAt: new Date(),
       },
       select: {
         id: true, title: true, skillCategory: true, description: true,
@@ -116,8 +119,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    const matching = await this.dispatchNextWave(request.id, 1);
-    return { ...request, matching };
+    try {
+      const matching = await this.dispatchNextWave(request.id, 1);
+      return { ...request, matching };
+    } catch (error) {
+      // The request is already committed with matchingNextAt due now. Do not
+      // encourage a client retry that could create a duplicate service request.
+      this.logger.error("Initial request matching failed; queued for worker retry.", error);
+      return { ...request, matching: { notified: 0, wave: 0, queued: true } };
+    }
   }
 
 

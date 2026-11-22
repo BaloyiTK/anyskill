@@ -138,7 +138,7 @@ export class OnboardingService {
       ...(input.profile !== undefined ? { profile: input.profile as Prisma.InputJsonValue } : {}),
       ...(input.skills !== undefined ? { skills: input.skills as Prisma.InputJsonValue } : {}),
       ...(input.portfolio !== undefined ? { portfolio: input.portfolio as Prisma.InputJsonValue } : {}),
-      submittedAt: null,
+      // Preserve the original submission marker when editing a submitted profile.
     };
     await this.prisma.onboardingDraft.upsert({
       where: { userId },
@@ -159,7 +159,7 @@ export class OnboardingService {
         select: { initialMode: true, email: true },
       }),
     ]);
-    const shouldSendWelcomeEmail = !onboarding.submittedAt;
+    let shouldSendWelcomeEmail = false;
     const profile =
       onboarding.profile && typeof onboarding.profile === "object" && !Array.isArray(onboarding.profile)
         ? (onboarding.profile as Record<string, unknown>)
@@ -214,10 +214,20 @@ export class OnboardingService {
     const submittedAt = new Date();
     const wantsProvider = requestedRoles.has("PROVIDER");
     await this.prisma.$transaction(async (tx) => {
-      await tx.onboardingDraft.update({
-        where: { userId },
+      // Atomically claim the first submission so concurrent submit calls
+      // cannot send duplicate welcome emails. Later submissions still refresh
+      // the timestamp but do not claim the one-time welcome message.
+      const firstSubmission = await tx.onboardingDraft.updateMany({
+        where: { userId, submittedAt: null },
         data: { submittedAt },
       });
+      shouldSendWelcomeEmail = firstSubmission.count === 1;
+      if (firstSubmission.count === 0) {
+        await tx.onboardingDraft.update({
+          where: { userId },
+          data: { submittedAt },
+        });
+      }
 
       const currentUser = await tx.user.findUniqueOrThrow({
         where: { id: userId },

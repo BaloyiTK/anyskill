@@ -24,6 +24,14 @@ function makeService({ mailFailure = false, alreadySubmittedAt = null } = {}) {
   const prisma = {
     onboardingDraft: {
       findUnique: async () => draft,
+      updateMany: async ({ where }) => {
+        if (where.submittedAt === null && draft.submittedAt === null) {
+          draft.submittedAt = new Date("2026-11-22T00:00:00.000Z");
+          events.push("first-submission-claimed");
+          return { count: 1 };
+        }
+        return { count: 0 };
+      },
       update: async () => { events.push("draft-committed"); },
     },
     providerRoleApplication: {
@@ -77,6 +85,7 @@ test("welcome email is sent after successful full Provider profile submission", 
   const result = await service.submit("user-1");
 
   assert.equal(result.welcomeEmailSent, true);
+  assert.ok(events.includes("first-submission-claimed"));
   assert.ok(events.indexOf("transaction-committed") < events.indexOf("welcome-email"));
   const mailCall = events.find((event) => Array.isArray(event) && event[0] === "mail-args");
   assert.deepEqual(mailCall, ["mail-args", "member@example.com", "Sam Example", true]);
