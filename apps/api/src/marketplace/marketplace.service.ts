@@ -1303,6 +1303,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async respondToRequest(providerId: string, requestId: string, input: ProviderResponseDto) {
     try {
       return await this.prisma.$transaction(async (tx) => {
+        // Serialize acceptance with cancellation and Seeker selection. Those
+        // operations all update this request row, so the lock makes the
+        // subsequent status read authoritative rather than a stale snapshot.
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM service_requests WHERE id = ${requestId}::uuid FOR UPDATE`);
         const request = await tx.serviceRequest.findUnique({
           where: { id: requestId },
           select: { id: true, seekerId: true, skillCategory: true, status: true },
@@ -1324,9 +1328,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           throw new ConflictException("The response window has expired. AnySkill is finding the next available Provider.");
         }
 
-        // Revalidate mutable eligibility inside the same transaction as the
-        // offer. A Provider may have been suspended, unverified, or had this
-        // skill revoked after the matching wave was dispatched.
         const provider = await tx.user.findUnique({
           where: { id: providerId },
           select: {
@@ -1366,6 +1367,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           });
         }
 
+        // Compare-and-set the match before creating an offer. A stale or
+        // concurrently changed match cannot be revived as RESPONDED.
+        const claimed = await tx.requestMatch.updateMany({
+          where: { id: match.id, requestId, providerId, status: "NOTIFIED" },
+          data: { status: "RESPONDED" },
+        });
+        if (claimed.count !== 1) {
+          throw new ConflictException("This incoming request is no longer awaiting your response. Refresh and try again.");
+        }
         const response = await tx.providerResponse.create({
           data: {
             requestId, providerId, message: input.message?.trim() || null, status: "OFFERED",
@@ -1374,8 +1384,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           },
           select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true },
         });
-        await tx.requestMatch.update({ where: { id: match.id }, data: { status: "RESPONDED" } });
-        await tx.serviceRequest.update({ where: { id: requestId }, data: { matchingNextAt: null } });
+        const requestUpdated = await tx.serviceRequest.updateMany({
+          where: { id: requestId, seekerId: request.seekerId, status: "OPEN" },
+          data: { matchingNextAt: null },
+        });
+        if (requestUpdated.count !== 1) {
+          throw new ConflictException("This service request is no longer available. Refresh your requests.");
+        }
         await tx.appNotification.create({
           data: {
             userId: request.seekerId,
