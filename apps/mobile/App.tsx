@@ -399,8 +399,31 @@ export default function App() {
     return () => { cancelled = true; clearInterval(interval); };
   }, [account?.id, account?.initialMode, screen, activeTab]);
 
-  const openMatchedRequest = (requestId: string) => {
+  const openMatchedRequest = async (requestId: string) => {
     if (!requestId) return;
+
+    // Push delivery can be delayed or duplicated. Never reopen an incoming
+    // request after this Provider has already responded or the request closed.
+    // The persisted API state, not the notification payload, is authoritative.
+    try {
+      const result = await apiRequest<{ items: Array<{ id: string; status: string; alreadyResponded: boolean }> }>(
+        "/marketplace/incoming-requests",
+        {},
+        true,
+      );
+      const current = result.items.find((item) => item.id === requestId);
+      if (!current || current.status !== "OPEN" || current.alreadyResponded) {
+        setActiveIncomingRequestId((activeId) => activeId === requestId ? null : activeId);
+        setPendingAcceptRequestId((pendingId) => pendingId === requestId ? null : pendingId);
+        setPendingIncomingPushId((pendingId) => pendingId === requestId ? null : pendingId);
+        return;
+      }
+    } catch {
+      // Fail closed: an unverified or stale push must not interrupt the
+      // Provider's current offer-review or active-service workspace.
+      return;
+    }
+
     dismissedIncomingRequestIds.current.delete(requestId);
     setActiveIncomingRequestId(requestId);
     setPendingAcceptRequestId(requestId);
