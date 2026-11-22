@@ -53,6 +53,7 @@ test("decline rejects a request that is no longer awaiting this provider", async
 test("accept cannot create an offer after the provider match has expired or been declined", async () => {
   let responseCreated = false;
   const tx = {
+    $queryRaw: async () => [],
     serviceRequest: { findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", status: "OPEN" }) },
     requestMatch: { findUnique: async () => ({ id: "match-1", status: "EXPIRED" }) },
     providerResponse: { create: async () => { responseCreated = true; } },
@@ -244,13 +245,14 @@ test("accept revalidates active Provider status and approved skill before creati
     let responseCreated = false;
     let skillLookup;
     const tx = {
+      $queryRaw: async () => [],
       serviceRequest: {
         findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", skillCategory: "Plumber", status: "OPEN" }),
-        update: async () => {},
+        updateMany: async () => ({ count: 1 }),
       },
       requestMatch: {
         findUnique: async () => ({ id: "match-1", status: "NOTIFIED", notifiedAt: new Date() }),
-        update: async () => {},
+        updateMany: async () => ({ count: 1 }),
       },
       user: { findUnique: async () => provider },
       providerSkill: {
@@ -270,6 +272,124 @@ test("accept revalidates active Provider status and approved skill before creati
       });
     }
   }
+});
+
+test("Provider acceptance claims the live match before creating and notifying the Seeker offer", async () => {
+  const calls = [];
+  const tx = {
+    $queryRaw: async () => { calls.push("request-lock"); return []; },
+    serviceRequest: {
+      findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", skillCategory: "Plumber", status: "OPEN" }),
+      updateMany: async (args) => { calls.push(["request-update", args]); return { count: 1 }; },
+    },
+    requestMatch: {
+      findUnique: async () => ({ id: "match-1", status: "NOTIFIED", notifiedAt: new Date() }),
+      updateMany: async (args) => { calls.push(["match-claim", args]); return { count: 1 }; },
+    },
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { hourlyRate: 250, assessmentFee: 30 } }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1" }) },
+    providerResponse: { create: async (args) => { calls.push(["offer", args]); return { id: "offer-1", status: "OFFERED" }; } },
+    appNotification: { create: async (args) => { calls.push(["seeker-notification", args]); } },
+  };
+  const result = await serviceWith(tx).respondToRequest("provider-1", "request-1", { message: "Available" });
+  assert.deepEqual(result, { id: "offer-1", status: "OFFERED" });
+  assert.equal(calls[0], "request-lock");
+  assert.deepEqual(calls.find((item) => Array.isArray(item) && item[0] === "match-claim")[1], {
+    where: { id: "match-1", requestId: "request-1", providerId: "provider-1", status: "NOTIFIED" },
+    data: { status: "RESPONDED" },
+  });
+  assert.equal(calls.findIndex((item) => Array.isArray(item) && item[0] === "match-claim")
+    < calls.findIndex((item) => Array.isArray(item) && item[0] === "offer"), true);
+  assert.equal(calls.find((item) => Array.isArray(item) && item[0] === "seeker-notification")[1].data.data.responseId, undefined);
+});
+
+test("Provider acceptance fails closed when the match compare-and-set loses a race", async () => {
+  let offerCreated = false;
+  const tx = {
+    $queryRaw: async () => [],
+    serviceRequest: { findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", skillCategory: "Plumber", status: "OPEN" }) },
+    requestMatch: {
+      findUnique: async () => ({ id: "match-1", status: "NOTIFIED", notifiedAt: new Date() }),
+      updateMany: async () => ({ count: 0 }),
+    },
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { hourlyRate: 250 } }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1" }) },
+    providerResponse: { create: async () => { offerCreated = true; } },
+  };
+  await assert.rejects(
+    serviceWith(tx).respondToRequest("provider-1", "request-1", {}),
+    (error) => error.getStatus?.() === 409,
+  );
+  assert.equal(offerCreated, false);
+});
+
+test("Seeker selection rejects a Provider whose identity, account, or requested skill is no longer approved", async () => {
+  for (const provider of [
+    { identityVerification: "PENDING", providerRoleStatus: "ACTIVE" },
+    { identityVerification: "VERIFIED", providerRoleStatus: "SUSPENDED" },
+  ]) {
+    let requestClosed = false;
+    const tx = {
+      $queryRaw: async () => [],
+      serviceRequest: { findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", status: "OPEN", title: "Fix a tap", skillCategory: "Plumber" }), updateMany: async () => { requestClosed = true; return { count: 1 }; } },
+      providerResponse: { findFirst: async () => ({ id: "offer-1", providerId: "provider-1", hourlyRateAtOffer: 250, assessmentFeeAtOffer: 0 }) },
+      user: { findUnique: async () => provider },
+      providerSkill: { findFirst: async () => ({ id: "skill-1" }) },
+    };
+    await assert.rejects(
+      serviceWith(tx).selectProvider("seeker-1", "request-1", "offer-1"),
+      (error) => error.getStatus?.() === 403,
+    );
+    assert.equal(requestClosed, false);
+  }
+  let requestClosed = false;
+  const tx = {
+    $queryRaw: async () => [],
+    serviceRequest: { findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", status: "OPEN", title: "Fix a tap", skillCategory: "Plumber" }), updateMany: async () => { requestClosed = true; return { count: 1 }; } },
+    providerResponse: { findFirst: async () => ({ id: "offer-1", providerId: "provider-1", hourlyRateAtOffer: 250, assessmentFeeAtOffer: 0 }) },
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE" }) },
+    providerSkill: { findFirst: async () => null },
+  };
+  await assert.rejects(
+    serviceWith(tx).selectProvider("seeker-1", "request-1", "offer-1"),
+    (error) => error.getStatus?.() === 403,
+  );
+  assert.equal(requestClosed, false);
+});
+
+test("Seeker selection creates one engagement and notifies only after the exact offer is selected", async () => {
+  const calls = [];
+  const tx = {
+    $queryRaw: async () => { calls.push("request-lock"); return []; },
+    serviceRequest: {
+      findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", status: "OPEN", title: "Fix a tap", skillCategory: "Plumber" }),
+      updateMany: async () => { calls.push("request-close"); return { count: 1 }; },
+    },
+    providerResponse: {
+      findFirst: async () => ({ id: "offer-1", providerId: "provider-1", hourlyRateAtOffer: 250, assessmentFeeAtOffer: 30 }),
+      updateMany: async (args) => { calls.push(["offer-update", args]); return { count: 1 }; },
+    },
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE" }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1" }) },
+    requestMatch: { updateMany: async () => { calls.push("match-update"); return { count: 1 }; } },
+    jobEngagement: { create: async (args) => { calls.push(["job", args]); } },
+    appNotification: { create: async (args) => { calls.push(["notification", args]); } },
+  };
+  const result = await serviceWith(tx).selectProvider("seeker-1", "request-1", "offer-1");
+  assert.deepEqual(result, {
+    success: true, requestId: "request-1", selectedResponseId: "offer-1",
+    selectedProviderId: "provider-1", status: "ASSESSMENT_PENDING",
+  });
+  assert.deepEqual(calls.find((item) => Array.isArray(item) && item[0] === "offer-update")[1], {
+    where: { id: "offer-1", requestId: "request-1", providerId: "provider-1", status: "OFFERED" },
+    data: { status: "SELECTED" },
+  });
+  const jobIndex = calls.findIndex((item) => Array.isArray(item) && item[0] === "job");
+  const notificationIndices = calls.map((item, index) => Array.isArray(item) && item[0] === "notification" ? index : -1).filter((index) => index >= 0);
+  assert.equal(jobIndex > calls.indexOf("request-close"), true);
+  assert.equal(notificationIndices.length, 2);
+  assert.ok(notificationIndices.every((index) => index > jobIndex));
+  assert.equal(calls.find((item) => Array.isArray(item) && item[0] === "job")[1].data.hourlyRate, 250);
 });
 
 test("notification recovery uses the start time of the active delivery attempt", async () => {
