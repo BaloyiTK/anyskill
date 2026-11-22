@@ -1837,7 +1837,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: { providerId: true },
       });
       const seen = new Set(alreadyMatched.map((match) => match.providerId).filter((id): id is string => Boolean(id)));
-      const compact = (value: string) => normalise(value).replace(/[^\\p{L}\\p{N}]+/gu, "");
+      const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
       for (const provider of ranked) {
         if (seen.has(provider.userId)) continue;
         // Serialize all matching decisions for this Provider across different
