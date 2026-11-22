@@ -1669,8 +1669,8 @@ export function MarketplaceScreen(p: Props) {
           const rating = profile?.ratings;
           return activeOffer ? (
             <View style={{ flex: 1, justifyContent: "flex-end" }}>
-              <Pressable onPress={() => { setActiveOfferId(null); setShowProviderProfile(false); }} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10, 24, 18, 0.38)" }} />
-              <View style={{ maxHeight: "90%", backgroundColor: "#F6F8F6", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingTop: 10, paddingHorizontal: 20, paddingBottom: 18, borderWidth: 1, borderColor: "#DCE8E1" }}>
+              <Pressable onPress={() => { setActiveOfferId(null); setShowProviderProfile(false); }} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10, 24, 18, 0.38)", zIndex: 0 }} />
+              <View style={{ maxHeight: "90%", backgroundColor: "#F6F8F6", borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingTop: 10, paddingHorizontal: 20, paddingBottom: 18, borderWidth: 1, borderColor: "#DCE8E1", zIndex: 1, elevation: 20 }}>
                 <View style={{ width: 42, height: 5, borderRadius: 3, backgroundColor: "#C8D3CC", alignSelf: "center", marginBottom: 8 }} />
                 <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
                   <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>NEW PROVIDER OFFER</Text>
@@ -1714,7 +1714,7 @@ export function MarketplaceScreen(p: Props) {
                   <Text style={{ color: "#B42318", fontWeight: "900" }}>{jobActionBusy ? "Please wait..." : "Cancel entire service request"}</Text>
                   <Text style={{ color: "#8D4B46", fontSize: 11, marginTop: 4 }}>Closes the request and all pending offers</Text>
                 </Pressable>
-                <Pressable onPress={() => void selectProvider(matchingRequest.id, activeOffer.id)} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", marginTop: 10 }}>{selectingOfferId === activeOffer.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Accept offer</Text>}</Pressable>
+                <Pressable onPress={() => { console.log("[AnySkill] Accept offer tapped", { requestId: matchingRequest.id, responseId: activeOffer.id }); void selectProvider(matchingRequest.id, activeOffer.id); }} hitSlop={8} disabled={!!selectingOfferId || jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", justifyContent: "center", marginTop: 10, minHeight: 54, zIndex: 2, elevation: 5 }}>{selectingOfferId === activeOffer.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>Accept offer</Text>}</Pressable>
                 {error ? <Text style={{ color: "#B42318", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 12, textAlign: "center" }}>{error}</Text> : null}
                 {notice ? <Text style={{ color: "#176B55", fontSize: 13, lineHeight: 19, fontWeight: "700", marginTop: 12, textAlign: "center" }}>{notice}</Text> : null}
               </>}
