@@ -234,7 +234,42 @@ export default function App() {
       console.warn("[AnySkill profile] Could not refresh completion status.", e);
     }
     setActiveTab("home");
-    setScreen(profileIsComplete || !profileStatusAvailable ? "dashboard" : "onboarding");
+    if (!profileIsComplete && profileStatusAvailable) {
+      setScreen("onboarding");
+      return;
+    }
+
+    // Authentication must restore an active service workspace, not always
+    // route returning users to Home. Read persisted engagement state from the API.
+    try {
+      const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
+      const activeMode = (roles.activeMode ?? initialMode ?? account?.initialMode ?? "SEEKER").toLowerCase();
+      if (activeMode === "provider") {
+        const jobs = await apiRequest<Array<{ status: string }>>("/marketplace/my-jobs", {}, true);
+        const hasActiveJob = jobs.some((job) =>
+          ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(job.status),
+        );
+        if (hasActiveJob) {
+          setMode("provider");
+          setScreen("marketplace");
+          return;
+        }
+      } else {
+        const requests = await apiRequest<Array<{ jobEngagement?: { status?: string } | null }>>("/marketplace/my-requests", {}, true);
+        const hasActiveJourney = requests.some((request) =>
+          !!request.jobEngagement
+          && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(request.jobEngagement.status ?? ""),
+        );
+        if (hasActiveJourney) {
+          setMode("seeker");
+          setScreen("marketplace");
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("[AnySkill marketplace] Could not restore active service on startup.", e);
+    }
+    setScreen("dashboard");
   };
 
   const navigateHome = async () => {
