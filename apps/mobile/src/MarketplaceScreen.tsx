@@ -1350,7 +1350,7 @@ export function MarketplaceScreen(p: Props) {
                 <Text style={s.meta}>Approved estimate: R {Number(request.jobEngagement?.estimatedTotal ?? 0).toFixed(2)}</Text>
                 <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement?.assessmentFee ?? 0).toFixed(2)}</Text>
                 <Text style={s.meta}>Approved additional hours: R {Number(request.jobEngagement?.approvedAdditionalAmount ?? 0).toFixed(2)}</Text>
-                <Text style={s.response}>Total due after approval: R {(Number(request.jobEngagement?.assessmentFee ?? 0) + Number(request.jobEngagement.estimatedTotal ?? 0) + Number(request.jobEngagement?.approvedAdditionalAmount ?? 0)).toFixed(2)}</Text>
+                <Text style={s.response}>Total due after approval: R {(Number(request.jobEngagement?.assessmentFee ?? 0) + Number(request.jobEngagement?.estimatedTotal ?? 0) + Number(request.jobEngagement?.approvedAdditionalAmount ?? 0)).toFixed(2)}</Text>
                 <Text style={s.meta}>This confirms the agreed amount only. Payment is the next separate step; approving completion does not mark the payment as paid.</Text>
               </View>
                             <Text style={s.label}>If rejecting, explain what needs correction</Text>
