@@ -1386,6 +1386,7 @@ export function MarketplaceScreen(p: Props) {
               <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee).toFixed(2)}</Text>
               {request.jobEngagement.estimatedHours != null ? <Text style={s.meta}>Estimated hours: {Number(request.jobEngagement.estimatedHours).toFixed(2)}</Text> : null}
               {request.jobEngagement.estimatedTotal != null ? <Text style={s.cardTitle}>Estimated job cost: R {Number(request.jobEngagement.estimatedTotal).toFixed(2)}</Text> : null}
+              {request.jobEngagement.agreedWorkTotal != null && request.jobEngagement.approvedAdditionalAmount > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(request.jobEngagement.agreedWorkTotal).toFixed(2)}</Text> : null}
               {request.jobEngagement.estimateNotes ? <Text style={s.body}>Provider explanation: {request.jobEngagement.estimateNotes}</Text> : null}
               {request.jobEngagement.status === "ESTIMATE_SUBMITTED" ? <>
                 <Text style={s.meta}>Review the Provider's hours, agreed hourly rate, assessment fee and written scope before deciding. Work cannot start until you approve.</Text>
@@ -1408,7 +1409,7 @@ export function MarketplaceScreen(p: Props) {
                 {request.jobEngagement.disputes[0].messages.map((message) => <View key={message.id} style={s.offerCard}>
                   <Text style={s.meta}>{message.author.id === request.jobEngagement?.providerId ? "Provider response" : "Your response"} · {new Date(message.createdAt).toLocaleString()}</Text>
                   <Text style={s.body}>{message.body}</Text>
-                  {message.evidenceAssets?.map((asset) => <Text key={asset.id} style={s.meta}>Evidence: {asset.originalName}</Text>)}
+                  {message.evidenceAssets?.map((asset) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open dispute evidence."); } }}><Text style={s.response}>View evidence · {asset.originalName}</Text></Pressable>)}
                 </View>)}
                 {request.jobEngagement.disputes[0].resolutionNote ? <Text style={s.body}>Resolution: {request.jobEngagement.disputes[0].resolutionNote}</Text> : null}
                 {["OPEN","UNDER_REVIEW"].includes(request.jobEngagement.disputes[0].status) ? <>
@@ -1486,12 +1487,13 @@ export function MarketplaceScreen(p: Props) {
             <Primary label="Submit job estimate" onPress={() => void submitEstimate(job.request.id)} disabled={jobActionBusy || !(Number(estimateHours) > 0) || estimateNotes.trim().length < 10} />
           </> : null}
           {job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
+          {job.agreedWorkTotal != null && job.approvedAdditionalAmount > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(job.agreedWorkTotal).toFixed(2)}</Text> : null}
           {job.status === "ESTIMATE_APPROVED" ? <Primary label="Start approved work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
           {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED", "DISPUTED"].includes(job.status) ? <>
             <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(job, clockNow + clockOffsetMs))}</Text>
             <Text style={s.meta}>{job.workPausedAt ? "ON BREAK · timer paused" : job.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting Seeker review" : job.status === "COMPLETED" ? "Final recorded working time" : job.status === "DISPUTED" ? "Timer paused · under dispute review" : "Work timer running"}</Text>
           </> : null}
-          {job.status === "IN_PROGRESS" ? <Secondary label={job.workPausedAt ? "Resume work" : "Take a break"} onPress={() => void changeWorkBreak(job.request.id, !job.workPausedAt)} disabled={jobActionBusy} /> : null}
+          {job.status === "IN_PROGRESS" ? <Secondary label={job.adjustments.some((adjustment) => adjustment.status === "PENDING") ? "Awaiting extra-hours decision" : job.workPausedAt ? "Resume work" : "Take a break"} onPress={() => void changeWorkBreak(job.request.id, !job.workPausedAt)} disabled={jobActionBusy || job.adjustments.some((adjustment) => adjustment.status === "PENDING")} /> : null}
           {job.status === "IN_PROGRESS" && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
             <Text style={s.helper}>Need more time? Explain why and request approval before doing the extra work.</Text>
             <TextInput value={extraHours} onChangeText={setExtraHours} keyboardType="decimal-pad" placeholder="Additional hours" style={s.input} />
@@ -1520,7 +1522,7 @@ export function MarketplaceScreen(p: Props) {
             {job.disputes[0].messages.map((message) => <View key={message.id} style={s.offerCard}>
               <Text style={s.meta}>{message.author.id === job.providerId ? "Your response" : "Seeker response"} · {new Date(message.createdAt).toLocaleString()}</Text>
               <Text style={s.body}>{message.body}</Text>
-              {message.evidenceAssets?.map((asset) => <Text key={asset.id} style={s.meta}>Evidence: {asset.originalName}</Text>)}
+              {message.evidenceAssets?.map((asset) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open dispute evidence."); } }}><Text style={s.response}>View evidence · {asset.originalName}</Text></Pressable>)}
             </View>)}
             {job.disputes[0].resolutionNote ? <Text style={s.body}>Resolution: {job.disputes[0].resolutionNote}</Text> : null}
             {["OPEN","UNDER_REVIEW"].includes(job.disputes[0].status) ? <>
