@@ -3,8 +3,16 @@ import assert from "node:assert/strict";
 import { MarketplaceService } from "../dist/marketplace/marketplace.service.js";
 
 function serviceWith(transaction) {
+  // New Provider exclusivity checks query these delegates in the same
+  // transaction. Default them to "no existing commitment" unless a test
+  // explicitly supplies a matching row.
+  const tx = { ...transaction };
+  tx.jobEngagement = { findFirst: async () => null, ...transaction.jobEngagement };
+  tx.providerResponse = { findFirst: async () => null, ...transaction.providerResponse };
+  tx.requestMatch = { findFirst: async () => null, ...transaction.requestMatch };
+
   const prisma = {
-    $transaction: async (callback) => callback(transaction),
+    $transaction: async (callback) => callback(tx),
     user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerProfile: { hourlyRate: 250, assessmentFee: 0 } }) },
   };
   return new MarketplaceService(prisma, {});
