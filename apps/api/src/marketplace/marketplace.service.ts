@@ -672,7 +672,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           select: { id: true, providerId: true, status: true },
         });
         if (!job || !job.providerId) throw new NotFoundException("The selected service could not be found.");
-        if (!["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED"].includes(job.status)) {
+        if (!["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(job.status)) {
           throw new ConflictException("A service can only be cancelled before work starts.");
         }
         const changed = await tx.jobEngagement.updateMany({
@@ -740,7 +740,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: { id: true, providerId: true, seekerId: true, status: true, request: { select: { title: true, status: true } } },
       });
       if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
-      if (!["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED"].includes(job.status)) {
+      if (!["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(job.status)) {
         throw new ConflictException("A service can only be cancelled before work starts.");
       }
       const changed = await tx.jobEngagement.updateMany({
