@@ -561,15 +561,9 @@ export function MarketplaceScreen(p: Props) {
 
 
   const selectProvider = (requestId: string, responseId: string) => {
-    // The explicit "Accept offer" tap is the Seeker's selection decision.
-    // Start the API action immediately instead of depending on a native alert,
-    // which can fail to present on some Android navigation/modal states.
-    const request = myRequests.find((item) => item.id === requestId);
-    const offer = request?.providerResponses.find((item) => item.id === responseId);
-    if (!request || request.status !== "OPEN" || !offer || offer.status !== "OFFERED") {
-      setError("This offer is no longer available. Refresh your requests to see its latest status.");
-      return;
-    }
+    // Treat the API as the source of truth. The offer drawer can outlive a
+    // background refresh, so stale local request data must not silently block
+    // the explicit Seeker action. The server validates request and offer state.
     void performSelectProvider(requestId, responseId);
   };
 
