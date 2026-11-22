@@ -110,6 +110,7 @@ export function MarketplaceScreen(p: Props) {
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const [estimateHours, setEstimateHours] = useState("2");
   const [estimateNotes, setEstimateNotes] = useState("");
+  const [estimateDecisionNoteDraft, setEstimateDecisionNoteDraft] = useState("");
   const [extraHours, setExtraHours] = useState("1");
   const [extraReason, setExtraReason] = useState("");
   const [completionNotes, setCompletionNotes] = useState("");
@@ -642,12 +643,18 @@ export function MarketplaceScreen(p: Props) {
   };
 
   const decideEstimate = async (requestId: string, approved: boolean) => {
-    setJobActionBusy(true); setError("");
+    const note = estimateDecisionNoteDraft.trim();
+    if (!approved && note.length < 10) {
+      setError("Explain what needs to change (at least 10 characters) before requesting a revised estimate.");
+      return;
+    }
+    setJobActionBusy(true); setError(""); setNotice("");
     try {
-      await apiRequest(`/marketplace/requests/${requestId}/estimate-decision`, { method: "POST", body: JSON.stringify({ approved, note: approved ? undefined : "The estimate needs revision. Please review the hours and explanation." }) }, true);
-      setNotice(approved ? "Estimate approved. The Provider may now start work." : "Estimate rejected. The Provider must submit a revised estimate.");
+      await apiRequest(`/marketplace/requests/${requestId}/estimate-decision`, { method: "POST", body: JSON.stringify({ approved, note: approved ? undefined : note }) }, true);
+      setEstimateDecisionNoteDraft("");
+      setNotice(approved ? "Estimate approved. The Provider may now start work." : "Revision requested. The Provider can see your feedback and submit an updated estimate.");
       await loadMyRequests();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your decision."); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not submit your decision."); await loadMyRequests(); }
     finally { setJobActionBusy(false); }
   };
 
@@ -1319,10 +1326,14 @@ export function MarketplaceScreen(p: Props) {
               {request.jobEngagement.estimatedHours != null ? <Text style={s.meta}>Estimated hours: {Number(request.jobEngagement.estimatedHours).toFixed(2)}</Text> : null}
               {request.jobEngagement.estimatedTotal != null ? <Text style={s.cardTitle}>Estimated job cost: R {Number(request.jobEngagement.estimatedTotal).toFixed(2)}</Text> : null}
               {request.jobEngagement.estimateNotes ? <Text style={s.body}>Provider explanation: {request.jobEngagement.estimateNotes}</Text> : null}
-              {request.jobEngagement.status === "ESTIMATE_SUBMITTED" ? <View style={s.choiceRow}>
-                <Primary label="Approve estimate" onPress={() => void decideEstimate(request.id, true)} disabled={jobActionBusy} />
-                <Secondary label="Reject / request revision" onPress={() => void decideEstimate(request.id, false)} />
-              </View> : null}
+              {request.jobEngagement.status === "ESTIMATE_SUBMITTED" ? <>
+                <Text style={s.meta}>Review the Provider's hours, agreed hourly rate, assessment fee and written scope before deciding. Work cannot start until you approve.</Text>
+                <TextInput value={estimateDecisionNoteDraft} onChangeText={setEstimateDecisionNoteDraft} placeholder="If requesting a revision, explain what needs clarification or correction (minimum 10 characters)." multiline maxLength={1000} style={[s.input, s.multiline]} />
+                <View style={s.choiceRow}>
+                  <Primary label="Approve estimate" onPress={() => void decideEstimate(request.id, true)} disabled={jobActionBusy} />
+                  <Secondary label="Request revision" onPress={() => void decideEstimate(request.id, false)} />
+                </View>
+              </> : null}
               {request.jobEngagement.status === "ESTIMATE_REJECTED" ? <Text style={s.meta}>You rejected the estimate. The Provider can submit a revised estimate.</Text> : null}
               {request.jobEngagement.adjustments.map((adjustment) => <View key={adjustment.id} style={s.offerCard}>
                 <Text style={s.offerTitle}>Additional hours: {Number(adjustment.requestedHours).toFixed(2)}</Text>
