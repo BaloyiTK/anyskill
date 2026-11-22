@@ -1477,59 +1477,102 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async dispatchNextWave(requestId: string, wave: number, force = false) {
-    const request = await this.prisma.serviceRequest.findUnique({
+    const requestSnapshot = await this.prisma.serviceRequest.findUnique({
       where: { id: requestId },
       select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, searchRadiusKm: true, deliveryMode: true, status: true, matchingStartedAt: true },
     });
-    if (!request || request.status !== "OPEN") return { notified: 0, wave };
-    if (!force && Date.now() - request.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
+    if (!requestSnapshot || requestSnapshot.status !== "OPEN") return { notified: 0, wave };
+    if (!force && Date.now() - requestSnapshot.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
       await this.prisma.serviceRequest.updateMany({ where: { id: requestId, status: "OPEN" }, data: { matchingNextAt: null } });
       return { notified: 0, wave, timedOut: true };
     }
-    const seekerId = request.seekerId;
+    const seekerId = requestSnapshot.seekerId;
     if (!seekerId) return { notified: 0, wave };
 
-    const ranked = await this.rankedProviders({ ...request, seekerId });
-    const alreadyMatched = await this.prisma.requestMatch.findMany({
-      where: { requestId },
-      select: { providerId: true },
-    });
-    const seen = new Set(alreadyMatched.map((match) => match.providerId));
-    const next = ranked.filter((provider) => !seen.has(provider.userId)).slice(0, WAVE_SIZE);
-    if (next.length === 0) {
-      await this.prisma.serviceRequest.update({
+    // Ranking is read-only. The request and Provider rows are locked again below
+    // before a match is committed, so concurrent workers/requests cannot issue
+    // duplicate waves or occupy the same Provider simultaneously.
+    const ranked = await this.rankedProviders({ ...requestSnapshot, seekerId });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM service_requests WHERE id = ${requestId}::uuid FOR UPDATE`);
+      const request = await tx.serviceRequest.findUnique({
+        where: { id: requestId },
+        select: { id: true, seekerId: true, skillCategory: true, matchingWave: true, matchingStartedAt: true, status: true },
+      });
+      if (!request || request.status !== "OPEN" || !request.seekerId) return { notified: 0, wave };
+      // An immediate decline and the polling worker can race to advance the same
+      // request. Only the first caller may commit a given wave.
+      if (request.matchingWave >= wave) return { notified: 0, wave: request.matchingWave, alreadyDispatched: true };
+      if (!force && Date.now() - request.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
+        await tx.serviceRequest.updateMany({ where: { id: requestId, status: "OPEN" }, data: { matchingNextAt: null } });
+        return { notified: 0, wave, timedOut: true };
+      }
+
+      const alreadyMatched = await tx.requestMatch.findMany({
+        where: { requestId },
+        select: { providerId: true },
+      });
+      const seen = new Set(alreadyMatched.map((match) => match.providerId).filter((id): id is string => Boolean(id)));
+      const compact = (value: string) => normalise(value).replace(/[^\\p{L}\\p{N}]+/gu, "");
+      for (const provider of ranked) {
+        if (seen.has(provider.userId)) continue;
+        // Serialize all matching decisions for this Provider across different
+        // service requests, not merely within this request's worker cycle.
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM users WHERE id = ${provider.userId}::uuid FOR UPDATE`);
+
+        const [approvedSkills, activeMatch, pendingOffer, activeJob] = await Promise.all([
+          tx.providerSkill.findMany({
+            where: { userId: provider.userId, status: "APPROVED" },
+            select: { category: true },
+          }),
+          tx.requestMatch.findFirst({
+            where: { providerId: provider.userId, status: { in: ["NOTIFIED", "RESPONDED"] }, request: { status: "OPEN" } },
+            select: { id: true },
+          }),
+          tx.providerResponse.findFirst({
+            where: { providerId: provider.userId, status: "OFFERED" },
+            select: { id: true },
+          }),
+          tx.jobEngagement.findFirst({
+            where: {
+              providerId: provider.userId,
+              status: { in: ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"] },
+            },
+            select: { id: true },
+          }),
+        ]);
+        if (!approvedSkills.some((skill) => compact(skill.category) === compact(request.skillCategory))) continue;
+        if (activeMatch || pendingOffer || activeJob) continue;
+
+        await tx.requestMatch.create({
+          data: { requestId, providerId: provider.userId, score: provider.score, wave, status: "NOTIFIED" },
+        });
+        await tx.appNotification.create({
+          data: {
+            userId: provider.userId,
+            title: "Incoming AnySkill service request",
+            body: "A new " + request.skillCategory + " request is available. Open AnySkill to review details or choose Accept / Decline.",
+            data: { type: "MATCHED_REQUEST", requestId, wave },
+          },
+        });
+        const now = new Date();
+        await tx.serviceRequest.update({
+          where: { id: requestId },
+          data: {
+            matchingWave: wave,
+            matchingNextAt: new Date(now.getTime() + RESPONSE_WINDOW_MS),
+            matchingExhaustedAt: null,
+          },
+        });
+        return { notified: 1, wave, responseWindowSeconds: RESPONSE_WINDOW_MS / 1000 };
+      }
+
+      await tx.serviceRequest.update({
         where: { id: requestId },
         data: { matchingNextAt: null, matchingExhaustedAt: new Date() },
       });
       return { notified: 0, wave, exhausted: true };
-    }
-
-    const now = new Date();
-    await this.prisma.$transaction([
-      this.prisma.requestMatch.createMany({
-        data: next.map((provider) => ({
-          requestId, providerId: provider.userId, score: provider.score, wave, status: "NOTIFIED" as const,
-        })),
-        skipDuplicates: true,
-      }),
-      this.prisma.appNotification.createMany({
-        data: next.map((provider) => ({
-          userId: provider.userId,
-          title: "Incoming AnySkill service request",
-          body: "A new " + request.skillCategory + " request is available. Open AnySkill to review details or choose Accept / Decline.",
-          data: { type: "MATCHED_REQUEST", requestId, wave },
-        })),
-      }),
-      this.prisma.serviceRequest.update({
-        where: { id: requestId },
-        data: {
-          matchingWave: wave,
-          matchingNextAt: new Date(now.getTime() + RESPONSE_WINDOW_MS),
-          matchingExhaustedAt: null,
-        },
-      }),
-    ]);
-    return { notified: next.length, wave, responseWindowSeconds: RESPONSE_WINDOW_MS / 1000 };
+    });
   }
 
   private async expandExpiredWaves() {
