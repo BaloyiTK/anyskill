@@ -678,7 +678,7 @@ test("matching uses approved ProviderSkill records even when the profile skill c
         liveLocationUpdatedAt: null,
         user: {
           onboardingDraft: null,
-          providerSkills: [{ category: "Plumbing" }],
+          providerSkills: [{ category: "plumber" }],
         },
       }],
     },
