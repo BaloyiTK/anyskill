@@ -595,12 +595,35 @@ test("completion rejection leaves the timer paused until the Provider explicitly
   const tx = {
     jobEngagement:{findUnique:async()=>job,updateMany:async(args)=>{calls.push(args);return {count:1};}},
     jobCompletionSubmission:{findFirst:async()=>submission,updateMany:async()=>({count:1}),findUniqueOrThrow:async()=>({...submission,status:"REJECTED"})},
+    jobCostAdjustment:{aggregate:async()=>({_sum:{requestedAmount:null}})},
     appNotification:{create:async()=>{}},
   };
   const result = await serviceWith(tx).decideJobCompletion("seeker-1","request-1","submission-1",{approved:false,note:"The repair is incomplete and still leaking."});
   assert.equal(result.jobStatus,"IN_PROGRESS");
   assert.equal(calls[0].data.workSegmentStartedAt,null);
   assert.ok(calls[0].data.workPausedAt instanceof Date);
+});
+
+
+
+test("Seeker final approval snapshots estimate, assessment fee and approved extras exactly once", async () => {
+  const calls = [];
+  const job = {id:"job-1",seekerId:"seeker-1",providerId:"provider-1",status:"COMPLETION_PENDING",estimatedTotal:"500.00",assessmentFee:"75.00"};
+  const submission = {id:"submission-1",status:"PENDING"};
+  const tx = {
+    jobEngagement:{findUnique:async()=>job,updateMany:async(args)=>{calls.push(args);return {count:1};}},
+    jobCompletionSubmission:{findFirst:async()=>submission,updateMany:async()=>({count:1}),findUniqueOrThrow:async()=>({...submission,status:"APPROVED"})},
+    jobCostAdjustment:{aggregate:async()=>({_sum:{requestedAmount:"125.00"}})},
+    serviceRequest:{update:async()=>{}},
+    appNotification:{create:async()=>{}},
+  };
+  const result = await serviceWith(tx).decideJobCompletion("seeker-1","request-1","submission-1",{approved:true});
+  assert.equal(result.jobStatus,"COMPLETED");
+  assert.equal(result.finalAmountDue,"700.00");
+  assert.equal(result.nextStep,"PAYMENT");
+  assert.equal(calls[0].where.finalAmountDue,null);
+  assert.equal(calls[0].data.finalAmountDue.toFixed(2),"700.00");
+  assert.ok(calls[0].data.finalApprovedAt instanceof Date);
 });
 
 test("opening a dispute pauses the job and notifies the other party", async () => {

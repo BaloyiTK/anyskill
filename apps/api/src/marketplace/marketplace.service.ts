@@ -1120,10 +1120,19 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (submissionClaim.count !== 1) throw new ConflictException("This completion submission has already been reviewed. Refresh to see the latest status.");
       const updatedSubmission = await tx.jobCompletionSubmission.findUniqueOrThrow({ where: { id: submission.id } });
       const reviewTime = new Date();
+      let finalAmountDue: Prisma.Decimal | null = null;
+      if (input.approved) {
+        if (job.estimatedTotal === null) throw new ConflictException("The approved estimate is missing. Contact AnySkill support before approving completion.");
+        const approvedAdjustments = await tx.jobCostAdjustment.aggregate({
+          where: { engagementId: job.id, status: "APPROVED" },
+          _sum: { requestedAmount: true },
+        });
+        finalAmountDue = new Prisma.Decimal(job.assessmentFee).plus(job.estimatedTotal).plus(approvedAdjustments._sum.requestedAmount ?? 0).toDecimalPlaces(2);
+      }
       const jobUpdate = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: "COMPLETION_PENDING" },
+        where: { id: job.id, status: "COMPLETION_PENDING", finalAmountDue: null },
         data: input.approved
-          ? { status: "COMPLETED", workSegmentStartedAt: null, workPausedAt: null }
+          ? { status: "COMPLETED", workSegmentStartedAt: null, workPausedAt: null, finalAmountDue, finalApprovedAt: reviewTime }
           : { status: "IN_PROGRESS", workSegmentStartedAt: null, workPausedAt: reviewTime, workEndedAt: null },
       });
       if (jobUpdate.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
@@ -1138,7 +1147,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           data: { type: input.approved ? "JOB_COMPLETION_APPROVED" : "JOB_COMPLETION_REJECTED", requestId, submissionId },
         },
       });
-      return { submission: updatedSubmission, jobStatus: input.approved ? "COMPLETED" : "IN_PROGRESS" };
+      return { submission: updatedSubmission, jobStatus: input.approved ? "COMPLETED" : "IN_PROGRESS", finalAmountDue: finalAmountDue?.toFixed(2) ?? null, finalApprovedAt: input.approved ? reviewTime : null, nextStep: input.approved ? "PAYMENT" : "CORRECTIONS" };
     });
   }
 
@@ -1230,9 +1239,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (claimed.count !== 1) throw new ConflictException("This dispute was resolved by another staff member. Refresh to see the outcome.");
       const pendingSubmission = await tx.jobCompletionSubmission.findFirst({ where: { engagementId: dispute.engagementId, status: "PENDING" } });
       const nextJobStatus = input.outcome === "PROVIDER" ? "COMPLETED" : input.outcome === "SEEKER" ? "IN_PROGRESS" : "CANCELLED";
+      let finalAmountDue: Prisma.Decimal | null = null;
+      if (input.outcome === "PROVIDER") {
+        if (dispute.engagement.estimatedTotal === null) throw new ConflictException("The approved estimate is missing; the dispute cannot close as Provider-completed.");
+        const approvedAdjustments = await tx.jobCostAdjustment.aggregate({ where: { engagementId: dispute.engagementId, status: "APPROVED" }, _sum: { requestedAmount: true } });
+        finalAmountDue = new Prisma.Decimal(dispute.engagement.assessmentFee).plus(dispute.engagement.estimatedTotal).plus(approvedAdjustments._sum.requestedAmount ?? 0).toDecimalPlaces(2);
+      }
       const jobUpdate = await tx.jobEngagement.updateMany({
-        where: { id: dispute.engagementId, status: "DISPUTED" },
-        data: input.outcome === "PROVIDER" ? { status: "COMPLETED", workSegmentStartedAt: null, workPausedAt: null }
+        where: { id: dispute.engagementId, status: "DISPUTED", finalAmountDue: null },
+        data: input.outcome === "PROVIDER" ? { status: "COMPLETED", workSegmentStartedAt: null, workPausedAt: null, finalAmountDue, finalApprovedAt: resolvedAt }
           : input.outcome === "SEEKER" ? { status: "IN_PROGRESS", workSegmentStartedAt: null, workPausedAt: resolvedAt, workEndedAt: null }
           : { status: "CANCELLED", workSegmentStartedAt: null, workPausedAt: null, workEndedAt: resolvedAt },
       });
@@ -1243,7 +1258,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (partyIds.length) await tx.appNotification.createMany({ data: partyIds.map((userId) => ({ userId, title: "Job dispute resolved", body: input.outcome === "PROVIDER" ? "AnySkill resolved the dispute in favour of the Provider. Completion is approved." : input.outcome === "SEEKER" ? "AnySkill resolved the dispute in your favour. The Provider must address the outstanding work; the timer remains paused." : "AnySkill resolved the dispute by cancelling the job.", data: { type: "JOB_DISPUTE_RESOLVED", requestId: dispute.engagement.requestId, disputeId, outcome: input.outcome } })) });
       const auditTargetId = dispute.engagement.seekerId ?? dispute.engagement.providerId;
       if (auditTargetId) await tx.staffAuditLog.create({ data: { actorId: staffId, targetUserId: auditTargetId, action: "JOB_DISPUTE_RESOLVED", metadata: { disputeId, engagementId: dispute.engagementId, outcome: input.outcome, note: input.note.trim() } } });
-      return { disputeId, status: resolutionStatus, jobStatus: nextJobStatus, resolvedAt };
+      return { disputeId, status: resolutionStatus, jobStatus: nextJobStatus, resolvedAt, finalAmountDue: finalAmountDue?.toFixed(2) ?? null, nextStep: input.outcome === "PROVIDER" ? "PAYMENT" : input.outcome === "SEEKER" ? "CORRECTIVE_WORK" : "CLOSED" };
     });
   }
 

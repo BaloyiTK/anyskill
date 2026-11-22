@@ -445,6 +445,8 @@ model JobEngagement {
   assessmentFee         Decimal             @default(0) @map("assessment_fee") @db.Decimal(10, 2)
   estimatedHours       Decimal?            @map("estimated_hours") @db.Decimal(8, 2)
   estimatedTotal       Decimal?            @map("estimated_total") @db.Decimal(10, 2)
+  finalAmountDue       Decimal?            @map("final_amount_due") @db.Decimal(10, 2)
+  finalApprovedAt      DateTime?           @map("final_approved_at")
   estimateNotes        String?             @map("estimate_notes") @db.VarChar(2000)
   estimateDecisionNote String?             @map("estimate_decision_note") @db.VarChar(1000)
   estimateSubmittedAt DateTime?            @map("estimate_submitted_at")

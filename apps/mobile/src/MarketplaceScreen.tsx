@@ -36,7 +36,7 @@ type JobAdjustment = { id: string; requestedHours: string | number; requestedAmo
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
 type DisputeMessage = { id: string; author: { id: string }; body: string; createdAt: string; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}> };
 type JobDispute = { id: string; status: string; reason: string; resolutionNote: string | null; resolvedAt: string | null; messages: DisputeMessage[] };
-type JobEngagement = { id: string; providerId?: string | null; status: string; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
+type JobEngagement = { id: string; providerId?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
 type ProviderJob = JobEngagement & {
   responseId: string;
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
@@ -1345,7 +1345,15 @@ export function MarketplaceScreen(p: Props) {
               <Text style={s.body}>{submission.notes}</Text>
               {submission.evidenceAssets?.map((asset, index) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); const { Linking } = await import("react-native"); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open evidence photo."); } }}><Text style={s.response}>View photo evidence {index + 1} · {asset.originalName}</Text></Pressable>)}
               {submission.evidenceUrls.map((url, index) => <Text key={url} style={s.meta}>Legacy evidence link {index + 1}: {url}</Text>)}
-              <Text style={s.label}>If rejecting, explain what needs correction</Text>
+              <View style={s.offerCard}>
+                <Text style={s.offerTitle}>Final amount for your approval</Text>
+                <Text style={s.meta}>Approved estimate: R {Number(request.jobEngagement.estimatedTotal ?? 0).toFixed(2)}</Text>
+                <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee ?? 0).toFixed(2)}</Text>
+                <Text style={s.meta}>Approved additional hours: R {Number(request.jobEngagement.approvedAdditionalAmount ?? 0).toFixed(2)}</Text>
+                <Text style={s.response}>Total due after approval: R {(Number(request.jobEngagement.assessmentFee ?? 0) + Number(request.jobEngagement.estimatedTotal ?? 0) + Number(request.jobEngagement.approvedAdditionalAmount ?? 0)).toFixed(2)}</Text>
+                <Text style={s.meta}>This confirms the agreed amount only. Payment is the next separate step; approving completion does not mark the payment as paid.</Text>
+              </View>
+                            <Text style={s.label}>If rejecting, explain what needs correction</Text>
               <TextInput value={completionReviewNote} onChangeText={setCompletionReviewNote} placeholder="Describe the work that still needs attention..." multiline style={[s.input, s.multiline]} />
               <View style={s.choiceRow}>
                 <Primary label="Approve completion" onPress={() => void reviewCompletion(request.id, submission.id, true)} disabled={jobActionBusy} />
@@ -1353,7 +1361,8 @@ export function MarketplaceScreen(p: Props) {
               </View>
             </View>) : null}
             {request.jobEngagement?.status === "COMPLETED" ? <>
-              <Text style={s.response}>Completion approved by you. Job marked completed.</Text>
+              <Text style={s.response}>Completion approved by you. Job marked completed; payment is the next separate step.</Text>
+              <Text style={s.offerTitle}>Final approved amount: R {Number(request.jobEngagement.finalAmountDue ?? 0).toFixed(2)}</Text>
               {request.jobEngagement.review ? <View style={s.offerCard}>
                 <Text style={s.offerTitle}>Your submitted ratings</Text>
                 <Text style={s.meta}>{request.skillCategory}: {request.jobEngagement.review.skillRating}.0 ★ · Overall AnySkill: {request.jobEngagement.review.platformRating}.0 ★</Text>
@@ -1532,7 +1541,8 @@ export function MarketplaceScreen(p: Props) {
             </> : null}
           </View> : null}
           {job.status === "COMPLETED" ? <>
-            <Text style={s.response}>The Seeker approved this job's completion.</Text>
+            <Text style={s.response}>The Seeker approved this job's completion. Payment is handled as a separate next step.</Text>
+            <Text style={s.offerTitle}>Final approved amount: R {Number(job.finalAmountDue ?? 0).toFixed(2)}</Text>
             {job.seekerReview ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Your submitted rating of the Skill Seeker</Text>
               <Text style={s.meta}>{job.seekerReview.rating}.0 ★</Text>
