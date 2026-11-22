@@ -513,7 +513,7 @@ test("estimate submission uses a conditional state transition and rejects a stal
   const calls = [];
   const tx = {
     jobEngagement: {
-      findUnique: async () => ({ id: "job-1", requestId: "request-1", providerId: "provider-1", seekerId: "seeker-1", status: "ASSESSMENT_PENDING", hourlyRate: 250 }),
+      findUnique: async () => ({ id: "job-1", requestId: "request-1", providerId: "provider-1", seekerId: "seeker-1", status: "ASSESSMENT_PENDING", hourlyRate: 250, assessmentCompletedAt: new Date() }),
       updateMany: async (args) => { calls.push(args); return { count: 0 }; },
     },
     appNotification: { create: async () => { throw new Error("must not notify after a failed claim"); } },
