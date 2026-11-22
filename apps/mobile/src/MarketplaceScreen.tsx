@@ -61,6 +61,8 @@ type Props = {
   onBack: () => void;
   onIdentityRequired: (requestId: string) => void;
   onStartVerification: () => void;
+  initialProviderJobId?: string | null;
+  onProviderJobOpened?: () => void;
 };
 const C = { ink: "#15251E", muted: "#66756D", primary: "#176B55", border: "#E1E8E3", surface: "#FFFFFF", warning: "#FFF6E4", warningInk: "#78551A", bg: "#F5F7F5" };
 
@@ -949,6 +951,17 @@ export function MarketplaceScreen(p: Props) {
     return () => clearInterval(refreshIncoming);
   }, [p.mode, loadRequests, loadProviderProfile, loadMyJobs]);
 
+  // Activities can reopen any server-confirmed active engagement. This is a
+  // navigation action only; dismissing the modal never changes job status.
+  useEffect(() => {
+    if (p.mode !== "provider" || !p.initialProviderJobId) return;
+    const selectedJob = myJobs.find((job) => job.request.id === p.initialProviderJobId);
+    if (!selectedJob) return;
+    setDismissedActiveJobIds((ids) => ids.filter((id) => id !== selectedJob.request.id));
+    setActiveProviderJobId(selectedJob.request.id);
+    p.onProviderJobOpened?.();
+  }, [p.mode, p.initialProviderJobId, p.onProviderJobOpened, myJobs]);
+
   useEffect(() => {
     if (p.mode !== "provider" || !providerAvailable) return;
 
@@ -1773,7 +1786,7 @@ export function MarketplaceScreen(p: Props) {
         return <ScrollView style={{ flex: 1, backgroundColor: "#F5F7F5" }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>ANYSKILL · SERVICE WORKSPACE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? "Assessment required" : job.status === "ESTIMATE_SUBMITTED" ? "Estimate awaiting review" : job.status === "ESTIMATE_REJECTED" ? "Estimate revision required" : job.status === "ESTIMATE_APPROVED" ? "Ready to start work" : job.status === "IN_PROGRESS" ? "Service in progress" : job.status === "COMPLETION_PENDING" ? "Completion awaiting review" : job.status === "COMPLETED" ? "Service completed" : job.status === "CANCELLED" ? "Service cancelled" : "Selected service"}</Text></View>
-            <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
+            <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Minimise</Text></Pressable>
           </View>
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 18 }}>
             <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE REQUEST</Text>
