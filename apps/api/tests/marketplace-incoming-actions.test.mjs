@@ -554,3 +554,86 @@ test("completion review cannot overwrite a completion decision already committed
   assert.equal(jobChanged, false);
   assert.equal(notifications, 0);
 });
+
+
+test("additional-hours request atomically stops billable time while awaiting Seeker approval", async () => {
+  const startedAt = new Date(Date.now() - 5_000);
+  const calls = [];
+  const job = { id: "job-1", requestId: "request-1", providerId: "provider-1", seekerId: "seeker-1", status: "IN_PROGRESS", workAccumulatedMs: 2_000, workSegmentStartedAt: startedAt, workPausedAt: null, hourlyRate: 250 };
+  const tx = {
+    jobEngagement: { findUnique: async () => job, updateMany: async (args) => { calls.push(args); return { count: 1 }; } },
+    jobCostAdjustment: { count: async () => 0, create: async ({data}) => ({id:"adjustment-1",...data}) },
+    appNotification: { create: async () => {} },
+  };
+  const result = await serviceWith(tx).requestAdditionalHours("provider-1", "request-1", {additionalHours:1,reason:"Unexpected extra work discovered"});
+  assert.equal(calls[0].data.workSegmentStartedAt, null);
+  assert.ok(calls[0].data.workPausedAt instanceof Date);
+  assert.ok(calls[0].data.workAccumulatedMs >= 7_000);
+  assert.equal(result.status, "PENDING");
+});
+
+test("additional-hours decision does not restart the timer automatically", async () => {
+  const calls = [];
+  const job = {id:"job-1",providerId:"provider-1",seekerId:"seeker-1",status:"IN_PROGRESS",workPausedAt:new Date(),workSegmentStartedAt:null};
+  const adjustment = {id:"adjustment-1",engagementId:"job-1",status:"PENDING"};
+  const tx = {
+    jobEngagement: {findUnique:async()=>job},
+    jobCostAdjustment: {findFirst:async()=>adjustment,updateMany:async(args)=>{calls.push(args);return {count:1};},findUniqueOrThrow:async()=>({...adjustment,status:"APPROVED"})},
+    appNotification:{create:async()=>{}},
+  };
+  const result = await serviceWith(tx).decideAdditionalHours("seeker-1","request-1","adjustment-1",{approved:true});
+  assert.equal(result.resumeRequired,true);
+  assert.equal(result.workPaused,true);
+  assert.equal(calls.length,1);
+});
+
+test("completion rejection leaves the timer paused until the Provider explicitly resumes", async () => {
+  const job = {id:"job-1",seekerId:"seeker-1",providerId:"provider-1",status:"COMPLETION_PENDING"};
+  const submission = {id:"submission-1",status:"PENDING"};
+  const calls = [];
+  const tx = {
+    jobEngagement:{findUnique:async()=>job,updateMany:async(args)=>{calls.push(args);return {count:1};}},
+    jobCompletionSubmission:{findFirst:async()=>submission,updateMany:async()=>({count:1}),findUniqueOrThrow:async()=>({...submission,status:"REJECTED"})},
+    appNotification:{create:async()=>{}},
+  };
+  const result = await serviceWith(tx).decideJobCompletion("seeker-1","request-1","submission-1",{approved:false,note:"The repair is incomplete and still leaking."});
+  assert.equal(result.jobStatus,"IN_PROGRESS");
+  assert.equal(calls[0].data.workSegmentStartedAt,null);
+  assert.ok(calls[0].data.workPausedAt instanceof Date);
+});
+
+test("opening a dispute pauses the job and notifies the other party", async () => {
+  const calls = [];
+  const job = {id:"job-1",seekerId:"seeker-1",providerId:"provider-1",status:"COMPLETION_PENDING",requestId:"request-1"};
+  const tx = {
+    $queryRaw:async()=>[],
+    jobEngagement:{findUnique:async()=>job,updateMany:async(args)=>{calls.push(["job",args]);return {count:1};}},
+    jobCompletionSubmission:{findFirst:async()=>({id:"submission-1"})},
+    jobDispute:{findFirst:async()=>null,create:async({data})=>({id:"dispute-1",...data})},
+    appNotification:{create:async(args)=>calls.push(["notification",args])},
+  };
+  const result = await serviceWith(tx).openJobDispute("seeker-1","request-1",{reason:"The completed work does not match the approved estimate or agreed scope."});
+  assert.equal(result.id,"dispute-1");
+  assert.equal(calls[0][1].data.status,"DISPUTED");
+  assert.equal(calls[0][1].data.workSegmentStartedAt,null);
+  assert.equal(calls[1][1].data.userId,"provider-1");
+});
+
+test("staff dispute resolution records the decision and keeps the timer paused for corrective work", async () => {
+  const calls = [];
+  const dispute = {id:"dispute-1",engagementId:"job-1",status:"OPEN",engagement:{id:"job-1",requestId:"request-1",seekerId:"seeker-1",providerId:"provider-1"}};
+  const tx = {
+    jobDispute:{findUnique:async()=>dispute,updateMany:async(args)=>{calls.push(["dispute",args]);return {count:1};}},
+    jobCompletionSubmission:{findFirst:async()=>({id:"submission-1"}),updateMany:async(args)=>calls.push(["submission",args])},
+    jobEngagement:{updateMany:async(args)=>{calls.push(["job",args]);return {count:1};}},
+    serviceRequest:{updateMany:async(args)=>calls.push(["request",args])},
+    appNotification:{createMany:async(args)=>calls.push(["notifications",args])},
+    staffAuditLog:{create:async(args)=>calls.push(["audit",args])},
+  };
+  const result = await serviceWith(tx).resolveJobDispute("staff-1","dispute-1",{outcome:"SEEKER",note:"Provider must return and correct the incomplete repair before closure."});
+  assert.equal(result.jobStatus,"IN_PROGRESS");
+  assert.equal(calls.find(([name])=>name==="job")[1].data.workSegmentStartedAt,null);
+  assert.ok(calls.find(([name])=>name==="job")[1].data.workPausedAt instanceof Date);
+  assert.equal(calls.some(([name])=>name==="request"),false);
+  assert.equal(calls.find(([name])=>name==="audit")[1].data.action,"JOB_DISPUTE_RESOLVED");
+});

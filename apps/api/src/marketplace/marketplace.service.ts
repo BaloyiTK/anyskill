@@ -19,7 +19,7 @@ import {
   ProviderResponseDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
-  SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto,
+  SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, OpenJobDisputeDto, PostJobDisputeMessageDto, ResolveJobDisputeDto,
   UpdateHomeLocationDto, UpdateLiveLocationDto, ScheduleServiceRequestDto, SubmitProviderReviewDto, SubmitSeekerReviewDto,
 } from "./dto/service-request.dto";
 
