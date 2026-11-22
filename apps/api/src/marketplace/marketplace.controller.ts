@@ -229,6 +229,22 @@ export class MarketplaceController {
     return this.marketplace.markProviderArrived(user.id, requestId);
   }
 
+  @Post("marketplace/requests/:requestId/assessment/start")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_ACCEPT_REQUEST")
+  @RequireMarketplaceRole("PROVIDER")
+  startAssessment(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.startAssessment(user.id, requestId);
+  }
+
+  @Post("marketplace/requests/:requestId/assessment/complete")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_ACCEPT_REQUEST")
+  @RequireMarketplaceRole("PROVIDER")
+  completeAssessment(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.completeAssessment(user.id, requestId);
+  }
+
   @Get("marketplace/requests/:requestId/provider-route")
   @RequireMarketplaceRole("PROVIDER")
   getProviderRoute(
