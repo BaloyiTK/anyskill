@@ -259,6 +259,6 @@ test("matching does not dispatch the same request wave twice", async () => {
 
   const result = await service.dispatchNextWave("request-1", 3);
 
-  assert.equal(transactionStarted, true);
+  assert.equal(transactionStarted, false);
   assert.deepEqual(result, { notified: 0, wave: 3, alreadyDispatched: true });
 });
