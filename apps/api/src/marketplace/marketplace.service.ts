@@ -1198,7 +1198,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const job = await this.prisma.jobEngagement.findUnique({ where: { requestId }, select: { id: true, seekerId: true, providerId: true } });
     if (!job) throw new NotFoundException("Selected job not found.");
     if (job.seekerId !== userId && job.providerId !== userId) throw new ForbiddenException("Only the Seeker and selected Provider can view this dispute.");
-    return this.prisma.jobDispute.findUnique({
+    return this.prisma.jobDispute.findFirst({
       where: { engagementId: job.id },
       orderBy: { createdAt: "desc" },
       include: { messages: { orderBy: { createdAt: "asc" }, include: { author: { select: { id: true } }, evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } }, resolvedBy: { select: { id: true } } },
