@@ -475,3 +475,38 @@ test("matching does not dispatch the same request wave twice", async () => {
   assert.equal(transactionStarted, false);
   assert.deepEqual(result, { notified: 0, wave: 3, alreadyDispatched: true });
 });
+
+
+test("estimate submission uses a conditional state transition and rejects a stale concurrent submit", async () => {
+  const calls = [];
+  const tx = {
+    jobEngagement: {
+      findUnique: async () => ({ id: "job-1", requestId: "request-1", providerId: "provider-1", seekerId: "seeker-1", status: "ASSESSMENT_PENDING", hourlyRate: 250 }),
+      updateMany: async (args) => { calls.push(args); return { count: 0 }; },
+    },
+    appNotification: { create: async () => { throw new Error("must not notify after a failed claim"); } },
+  };
+  await assert.rejects(
+    serviceWith(tx).submitEstimate("provider-1", "request-1", { estimatedHours: 2, notes: "Two hours to complete the repair." }),
+    (error) => error.getStatus?.() === 409,
+  );
+  assert.deepEqual(calls[0].where, { id: "job-1", providerId: "provider-1", status: "ASSESSMENT_PENDING" });
+});
+
+test("estimate decision is single-winner and cannot be reversed by a stale second decision", async () => {
+  const calls = [];
+  let notifications = 0;
+  const tx = {
+    jobEngagement: {
+      findUnique: async () => ({ id: "job-1", requestId: "request-1", providerId: "provider-1", seekerId: "seeker-1", status: "ESTIMATE_SUBMITTED" }),
+      updateMany: async (args) => { calls.push(args); return { count: 0 }; },
+    },
+    appNotification: { create: async () => { notifications += 1; } },
+  };
+  await assert.rejects(
+    serviceWith(tx).decideEstimate("seeker-1", "request-1", { approved: false, note: "Please clarify the materials and labour." }),
+    (error) => error.getStatus?.() === 409,
+  );
+  assert.deepEqual(calls[0].where, { id: "job-1", seekerId: "seeker-1", status: "ESTIMATE_SUBMITTED" });
+  assert.equal(notifications, 0);
+});
