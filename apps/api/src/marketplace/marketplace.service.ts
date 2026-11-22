@@ -814,6 +814,39 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async markProviderArrived(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({
+        where: { requestId },
+        select: {
+          id: true, providerId: true, seekerId: true, status: true,
+          providerEnRouteAt: true, providerArrivedAt: true,
+          request: { select: { title: true } },
+        },
+      });
+      if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
+      if (job.status !== "ASSESSMENT_PENDING" || !job.providerEnRouteAt) {
+        throw new ConflictException("You can only confirm arrival after starting your journey to the service location.");
+      }
+      if (job.providerArrivedAt) return { success: true, requestId, providerArrivedAt: job.providerArrivedAt };
+      const providerArrivedAt = new Date();
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, providerId, status: "ASSESSMENT_PENDING", providerArrivedAt: null },
+        data: { providerArrivedAt },
+      });
+      if (changed.count !== 1) throw new ConflictException("The service changed. Refresh and try again.");
+      await tx.appNotification.create({
+        data: {
+          userId: job.seekerId,
+          title: "Your Provider has arrived",
+          body: `Your Provider has arrived at the service location for "${job.request.title}".`,
+          data: { type: "PROVIDER_ARRIVED", requestId },
+        },
+      });
+      return { success: true, requestId, providerArrivedAt };
+    });
+  }
+
   async cancelSelectedJob(providerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({
