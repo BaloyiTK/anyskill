@@ -235,19 +235,41 @@ export function MarketplaceScreen(p: Props) {
   // Seeker's refreshed request data contains it. One-at-a-time matching is
   // enforced by the API; this is the immediate presentation layer.
   useEffect(() => {
-    if (p.mode !== "seeker" || !matchingRequest || activeOfferId) return;
-    const request = myRequests.find((item) => item.id === matchingRequest.id);
-    if (!request || request.status !== "OPEN") return;
-    const nextOffer = request.providerResponses.find((offer) =>
+    if (p.mode !== "seeker" || activeOfferId) return;
+
+    // Offers can arrive while the Seeker is viewing a different open request
+    // or while the matching request summary is being refreshed. Search all
+    // currently open requests so a new offer always opens its review drawer.
+    const nextRequest = myRequests.find((request) =>
+      request.status === "OPEN"
+      && request.providerResponses.some((offer) =>
+        offer.status === "OFFERED"
+        && !dismissedOfferIds.includes(offer.id)
+        && !autoOpenedOfferIds.includes(offer.id),
+      ),
+    );
+    if (!nextRequest) return;
+    const nextOffer = nextRequest.providerResponses.find((offer) =>
       offer.status === "OFFERED"
       && !dismissedOfferIds.includes(offer.id)
       && !autoOpenedOfferIds.includes(offer.id),
     );
     if (!nextOffer) return;
+
+    setMatchingRequest((current) => current?.id === nextRequest.id ? current : {
+      id: nextRequest.id,
+      title: nextRequest.title,
+      skillCategory: nextRequest.skillCategory,
+      location: nextRequest.location,
+      createdAt: nextRequest.matchingStartedAt,
+      notified: nextRequest._count?.matches ?? 0,
+      wave: nextRequest.matchingWave ?? 1,
+      exhausted: !!nextRequest.matchingExhaustedAt,
+    });
     setAutoOpenedOfferIds((ids) => [...ids, nextOffer.id]);
     setActiveOfferId(nextOffer.id);
     setShowProviderProfile(false);
-  }, [p.mode, matchingRequest?.id, myRequests, activeOfferId, dismissedOfferIds, autoOpenedOfferIds]);
+  }, [p.mode, myRequests, activeOfferId, dismissedOfferIds, autoOpenedOfferIds]);
 
   useEffect(() => {
     const clock = setInterval(() => setClockNow(Date.now()), 1000);
