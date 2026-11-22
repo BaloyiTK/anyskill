@@ -1716,12 +1716,24 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       select: {
         userId: true, skillCategories: true, deliveryModes: true, maxTravelDistanceKm: true,
         liveLatitude: true, liveLongitude: true, liveAccuracyM: true, liveLocationUpdatedAt: true,
-        user: { select: { onboardingDraft: { select: { skills: true } } } },
+        user: {
+          select: {
+            onboardingDraft: { select: { skills: true } },
+            // ProviderSkill is the authoritative approval record. Do not rely
+            // on the denormalized profile skill list for match eligibility.
+            providerSkills: {
+              where: { status: "APPROVED" },
+              select: { category: true },
+            },
+          },
+        },
       },
     });
     const compact = (value: string) => normalise(value).replace(/[^\p{L}\p{N}]+/gu, "");
     const requestedSkill = compact(request.skillCategory);
-    const matchingProfiles = profiles.filter((profile) => profile.skillCategories.some((skill) => compact(skill) === requestedSkill));
+    const matchingProfiles = profiles.filter((profile) =>
+      profile.user.providerSkills.some((skill) => compact(skill.category) === requestedSkill),
+    );
     if (!matchingProfiles.length) return [];
     const providerIds = matchingProfiles.map((profile) => profile.userId);
     const [completedCounts, skillRatingGroups, overallRatingGroups] = await Promise.all([
