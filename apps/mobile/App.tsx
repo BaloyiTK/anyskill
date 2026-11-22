@@ -15,6 +15,7 @@ import {
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
 import { IncomingRequestScreen } from "./src/IncomingRequestScreen";
 import { ProviderHomeScreen } from "./src/ProviderHomeScreen";
+import { ProviderActivitiesScreen } from "./src/ProviderActivitiesScreen";
 import { OnboardingScreen } from "./src/OnboardingScreen";
 import { ProfileScreen } from "./src/ProfileScreen";
 import { WelcomeScreen } from "./src/WelcomeScreen";
@@ -133,6 +134,7 @@ export default function App() {
   const [pendingAcceptRequestId, setPendingAcceptRequestId] = useState<string | null>(null);
   const [pendingIncomingPushId, setPendingIncomingPushId] = useState<string | null>(null);
   const [activeIncomingRequestId, setActiveIncomingRequestId] = useState<string | null>(null);
+  const [pendingProviderJobId, setPendingProviderJobId] = useState<string | null>(null);
   const dismissedIncomingRequestIds = useRef<Set<string>>(new Set());
   const handledNotificationResponses = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -1377,6 +1379,8 @@ export default function App() {
           setScreen("dashboard");
         }}
         onStartVerification={() => { void startIdentityVerification(); }}
+        initialProviderJobId={pendingProviderJobId}
+        onProviderJobOpened={() => setPendingProviderJobId(null)}
       />}
 
       {screen === "dashboard" && account && activeTab === "home" && mode === "provider" && (
@@ -1422,24 +1426,30 @@ export default function App() {
         onGoogle={() => {}}
       />}
 
-          {screen === "dashboard" && account && activeTab === "activities" && <View style={s.form}>
-            <Text style={s.kicker}>YOUR WORK</Text>
-            <Text style={s.formTitle}>Activities</Text>
-            <Text style={s.subtitle}>Your service requests, accepted jobs and completed activity will appear here.</Text>
-            <View style={s.emptyState}>
-              <Text style={s.emptyStateIcon}>▤</Text>
-              <Text style={s.emptyStateTitle}>No activities yet</Text>
-              <Text style={s.emptyStateText}>{mode === "seeker" ? "When you request a service, you will be able to follow its progress here." : "When you receive or accept a service request, it will appear here."}</Text>
-            </View>
-            <Primary
-              label={mode === "seeker" ? "Explore services" : "View available requests"}
-              onPress={() => {
-                const active = mode === "seeker" ? roleSummary?.seekerStatus === "ACTIVE" : roleSummary?.providerStatus === "ACTIVE";
-                if (active) goTo("marketplace");
-                else { setActiveTab("account"); setScreen("dashboard"); setMessage("Activate or apply for this marketplace role before opening its workspace."); }
-              }}
-            />
-          </View>}
+          {screen === "dashboard" && account && activeTab === "activities" && mode === "provider" && roleSummary?.providerStatus === "ACTIVE"
+            ? <ProviderActivitiesScreen onOpenJob={(requestId) => {
+                setPendingProviderJobId(requestId);
+                setMode("provider");
+                setScreen("marketplace");
+                feedback();
+              }} />
+            : screen === "dashboard" && account && activeTab === "activities" ? <View style={s.form}>
+                <Text style={s.kicker}>YOUR WORK</Text>
+                <Text style={s.formTitle}>Activities</Text>
+                <Text style={s.subtitle}>Your service requests and accepted jobs will appear here.</Text>
+                <View style={s.emptyState}>
+                  <Text style={s.emptyStateIcon}>▤</Text>
+                  <Text style={s.emptyStateTitle}>No activities yet</Text>
+                  <Text style={s.emptyStateText}>When you request a service, you will be able to follow its progress here.</Text>
+                </View>
+                <Primary
+                  label="Explore services"
+                  onPress={() => {
+                    if (roleSummary?.seekerStatus === "ACTIVE") goTo("marketplace");
+                    else { setActiveTab("account"); setScreen("dashboard"); setMessage("Activate your Seeker role before opening its workspace."); }
+                  }}
+                />
+              </View> : null}
 
           {screen === "dashboard" && account && activeTab === "notifications" && <View style={s.form}>
             <Text style={s.kicker}>UPDATES</Text>
