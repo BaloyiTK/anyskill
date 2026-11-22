@@ -522,10 +522,11 @@ export function MarketplaceScreen(p: Props) {
       const liveLongitude = isFresh ? profile?.liveLongitude ?? null : null;
       const phone = offer?.provider.phone ?? profile?.phone ?? current.phone;
       const providerEnRouteAt = request?.jobEngagement?.providerEnRouteAt ?? current.providerEnRouteAt;
+      const providerArrivedAt = request?.jobEngagement?.providerArrivedAt ?? current.providerArrivedAt;
       if (current.liveLatitude === liveLatitude && current.liveLongitude === liveLongitude
         && current.liveLocationUpdatedAt === (isFresh ? liveAt : null) && current.phone === phone
-        && current.providerEnRouteAt === providerEnRouteAt) return current;
-      return { ...current, liveLatitude, liveLongitude, liveLocationUpdatedAt: isFresh ? liveAt : null, phone, providerEnRouteAt };
+        && current.providerEnRouteAt === providerEnRouteAt && current.providerArrivedAt === providerArrivedAt) return current;
+      return { ...current, liveLatitude, liveLongitude, liveLocationUpdatedAt: isFresh ? liveAt : null, phone, providerEnRouteAt, providerArrivedAt };
     });
   }, [myRequests, journeyScreen?.requestId, journeyScreen?.responseId]);
 
