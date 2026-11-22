@@ -489,15 +489,19 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
     }
     if (active === "Verification") {
       // Attempt submission when the documents are ready, but a verification
-      // service error must never trap the user in onboarding.
+      // service error must never trap the user in onboarding or be hidden.
       let identitySent = identitySubmitted;
+      let identityAttemptFailed = false;
       if (identityRequirementsComplete && !identitySubmitted) {
         identitySent = await submitIdentityVerification();
+        identityAttemptFailed = !identitySent;
       }
-      setError("");
+      if (!identityAttemptFailed) setError("");
       setMessage(identitySent
         ? "Identity verification is submitted and may remain pending while you continue."
-        : "Identity verification can be completed separately. Continue with your profile setup.");
+        : identityAttemptFailed
+          ? "Your identity submission could not be completed. You can continue setup, but retry identity submission before using protected marketplace actions."
+          : "Identity verification can be completed separately. Continue with your profile setup.");
       setActive(isProvider ? "Skills" : "Submit");
       return;
     }
@@ -689,7 +693,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       </>}
       {active === "Verification" && <>
         <Text style={st.heading}>Identity verification</Text>
-        <Text style={st.help}>Identity verification is a separate review from your profile and skills. Upload the required ID images and take a live selfie when ready. You can continue with profile setup while verification is pending, but protected marketplace actions remain restricted until approval.</Text>
+        <Text style={st.help}>Identity verification is a separate review from your profile and skills. Upload the required ID images and take a live selfie when ready. You can continue with profile setup while verification is pending, but protected marketplace actions remain restricted until approval. Skill Seekers cannot create service requests until identity is approved. Providers cannot accept incoming requests until identity is approved, their Provider account is active, and the requested skill is approved.</Text>
         <View style={st.card}>
           <Text style={st.label}>Current identity status</Text>
           <Text style={st.statusValue}>{identityStatus.toLowerCase().includes("pending") || ["submitted", "in_review", "under_review"].includes(identityStatus.toLowerCase()) ? "Pending review" : identityStatus.replace(/_/g, " ")}</Text>
@@ -846,6 +850,8 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
           <Text style={st.status}>Profile: {status("profile")}</Text>
           <Text style={st.status}>Identity: {identityApproved ? "Verified" : verificationPending ? "Pending review" : identityStatus.replace(/_/g, " ")}</Text>
           {isProvider ? <Text style={st.status}>Skill reviews: {allSkillsApproved ? "All submitted skills approved" : skillsPending ? "One or more skills pending review" : data.skillReviewStatuses?.some((skill) => skill.status === "REJECTED") ? "Changes requested on one or more skills" : status("skills")}</Text> : null}
+          <Text style={st.status}>{identityApproved ? "Identity gate: passed" : "Identity gate: pending — service requests and request acceptance remain locked"}</Text>
+          {isProvider ? <Text style={st.status}>{allSkillsApproved ? "Provider skill gate: passed" : "Provider skill gate: pending — incoming requests cannot be accepted until the requested skill is approved and the Provider account is active"}</Text> : <Text style={st.status}>Seeker access: service requests become available after identity approval and account activation.</Text>}
         </View>
 
       </>}
