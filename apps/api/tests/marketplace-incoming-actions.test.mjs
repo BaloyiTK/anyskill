@@ -731,3 +731,61 @@ test("matching uses approved ProviderSkill records even when the profile skill c
 
   assert.deepEqual(ranked, [{ userId: "provider-1", score: 7000 }]);
 });
+
+
+test("Provider going online immediately retries recent open requests for an approved skill", async () => {
+  const calls = [];
+  const prisma = {
+    user: {
+      findUnique: async () => ({
+        providerRoleStatus: "ACTIVE",
+        identityVerification: "VERIFIED",
+      }),
+    },
+    providerProfile: {
+      upsert: async () => ({ isAvailable: true }),
+    },
+    providerSkill: {
+      findMany: async (args) => {
+        calls.push(["approved-skills", args]);
+        return [{ category: "Plumber" }];
+      },
+    },
+    serviceRequest: {
+      findMany: async (args) => {
+        calls.push(["open-requests", args]);
+        return [{ id: "request-1", matchingWave: 0 }];
+      },
+    },
+  };
+  const service = new MarketplaceService(prisma, { notifyChanged() {} });
+  service.dispatchNextWave = async (...args) => {
+    calls.push(["dispatch", args]);
+    return { notified: 1, wave: 1 };
+  };
+
+  await service.updateProviderProfile("provider-1", {
+    publicName: "Available Plumber",
+    hourlyRate: 250,
+    assessmentFee: 0,
+    skillCategories: ["Plumber"],
+    serviceAreas: ["Johannesburg"],
+    deliveryModes: ["REMOTE"],
+    isAvailable: true,
+    latitude: -26.2,
+    longitude: 28.0,
+    accuracyM: 10,
+  });
+
+  const skillQuery = calls.find(([name]) => name === "approved-skills")[1];
+  assert.deepEqual(skillQuery.where, { userId: "provider-1", status: "APPROVED" });
+  const requestQuery = calls.find(([name]) => name === "open-requests")[1];
+  assert.equal(requestQuery.where.status, "OPEN");
+  assert.deepEqual(requestQuery.where.skillCategory, { in: ["Plumber"], mode: "insensitive" });
+  assert.equal(requestQuery.where.matchingStartedAt.gt instanceof Date, true);
+  assert.deepEqual(requestQuery.where.OR, [
+    { matchingExhaustedAt: { not: null } },
+    { matchingNextAt: { lte: requestQuery.where.OR[1].matchingNextAt.lte } },
+  ]);
+  assert.deepEqual(calls.find(([name]) => name === "dispatch")[1], ["request-1", 1]);
+});
