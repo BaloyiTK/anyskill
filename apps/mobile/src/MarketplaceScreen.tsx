@@ -1347,10 +1347,10 @@ export function MarketplaceScreen(p: Props) {
               {submission.evidenceUrls.map((url, index) => <Text key={url} style={s.meta}>Legacy evidence link {index + 1}: {url}</Text>)}
               <View style={s.offerCard}>
                 <Text style={s.offerTitle}>Final amount for your approval</Text>
-                <Text style={s.meta}>Approved estimate: R {Number(request.jobEngagement.estimatedTotal ?? 0).toFixed(2)}</Text>
-                <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee ?? 0).toFixed(2)}</Text>
-                <Text style={s.meta}>Approved additional hours: R {Number(request.jobEngagement.approvedAdditionalAmount ?? 0).toFixed(2)}</Text>
-                <Text style={s.response}>Total due after approval: R {(Number(request.jobEngagement.assessmentFee ?? 0) + Number(request.jobEngagement.estimatedTotal ?? 0) + Number(request.jobEngagement.approvedAdditionalAmount ?? 0)).toFixed(2)}</Text>
+                <Text style={s.meta}>Approved estimate: R {Number(request.jobEngagement?.estimatedTotal ?? 0).toFixed(2)}</Text>
+                <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement?.assessmentFee ?? 0).toFixed(2)}</Text>
+                <Text style={s.meta}>Approved additional hours: R {Number(request.jobEngagement?.approvedAdditionalAmount ?? 0).toFixed(2)}</Text>
+                <Text style={s.response}>Total due after approval: R {(Number(request.jobEngagement?.assessmentFee ?? 0) + Number(request.jobEngagement.estimatedTotal ?? 0) + Number(request.jobEngagement?.approvedAdditionalAmount ?? 0)).toFixed(2)}</Text>
                 <Text style={s.meta}>This confirms the agreed amount only. Payment is the next separate step; approving completion does not mark the payment as paid.</Text>
               </View>
                             <Text style={s.label}>If rejecting, explain what needs correction</Text>
@@ -1395,7 +1395,7 @@ export function MarketplaceScreen(p: Props) {
               <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee).toFixed(2)}</Text>
               {request.jobEngagement.estimatedHours != null ? <Text style={s.meta}>Estimated hours: {Number(request.jobEngagement.estimatedHours).toFixed(2)}</Text> : null}
               {request.jobEngagement.estimatedTotal != null ? <Text style={s.cardTitle}>Estimated job cost: R {Number(request.jobEngagement.estimatedTotal).toFixed(2)}</Text> : null}
-              {request.jobEngagement.agreedWorkTotal != null && Number(request.jobEngagement.approvedAdditionalAmount ?? 0) > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(request.jobEngagement.agreedWorkTotal).toFixed(2)}</Text> : null}
+              {request.jobEngagement.agreedWorkTotal != null && Number(request.jobEngagement?.approvedAdditionalAmount ?? 0) > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(request.jobEngagement.agreedWorkTotal).toFixed(2)}</Text> : null}
               {request.jobEngagement.estimateNotes ? <Text style={s.body}>Provider explanation: {request.jobEngagement.estimateNotes}</Text> : null}
               {request.jobEngagement.status === "ESTIMATE_SUBMITTED" ? <>
                 <Text style={s.meta}>Review the Provider's hours, agreed hourly rate, assessment fee and written scope before deciding. Work cannot start until you approve.</Text>
