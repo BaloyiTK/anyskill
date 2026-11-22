@@ -1492,9 +1492,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   private async dispatchNextWave(requestId: string, wave: number, force = false) {
     const requestSnapshot = await this.prisma.serviceRequest.findUnique({
       where: { id: requestId },
-      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, searchRadiusKm: true, deliveryMode: true, status: true, matchingStartedAt: true },
+      select: { id: true, seekerId: true, skillCategory: true, location: true, latitude: true, longitude: true, searchRadiusKm: true, deliveryMode: true, status: true, matchingStartedAt: true, matchingWave: true },
     });
     if (!requestSnapshot || requestSnapshot.status !== "OPEN") return { notified: 0, wave };
+    if (requestSnapshot.matchingWave >= wave) {
+      return { notified: 0, wave: requestSnapshot.matchingWave, alreadyDispatched: true };
+    }
     if (!force && Date.now() - requestSnapshot.matchingStartedAt.getTime() >= LIVE_MATCHING_WINDOW_MS) {
       await this.prisma.serviceRequest.updateMany({ where: { id: requestId, status: "OPEN" }, data: { matchingNextAt: null } });
       return { notified: 0, wave, timedOut: true };
