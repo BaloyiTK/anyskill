@@ -46,11 +46,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    // Matching deadlines and notification retries are persisted in PostgreSQL.
-    // This lightweight poller is a development/single-instance worker; production
-    // should run the same methods in a dedicated queue worker.
+    // API replicas can disable the poller and run the dedicated worker entrypoint
+    // instead. The default remains enabled for existing single-process installs.
+    if (process.env.MARKETPLACE_WORKER_ENABLED?.trim().toLowerCase() === "false") return;
     this.worker = setInterval(() => { void this.runWorkerCycle(); }, 15_000);
     this.worker.unref?.();
+    void this.runWorkerCycle();
   }
 
   onModuleDestroy() {
