@@ -1198,7 +1198,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!["ASSESSMENT_PENDING", "ESTIMATE_REJECTED"].includes(job.status)) throw new ConflictException("An estimate cannot be submitted at this stage.");
       const hours = new Prisma.Decimal(input.estimatedHours);
       const total = hours.mul(job.hourlyRate).toDecimalPlaces(2);
-      const updated = await tx.jobEngagement.update({ where: { id: job.id }, data: { estimatedHours: hours, estimatedTotal: total, estimateNotes: input.notes.trim(), estimateSubmittedAt: new Date(), estimateDecisionNote: null, status: "ESTIMATE_SUBMITTED" } });
+      // Claim the transition with a conditional write. Two simultaneous estimate
+      // submissions must not overwrite one another after both read the same status.
+      const submittedAt = new Date();
+      const claimed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, providerId, status: job.status },
+        data: { estimatedHours: hours, estimatedTotal: total, estimateNotes: input.notes.trim(), estimateSubmittedAt: submittedAt, estimateDecisionNote: null, status: "ESTIMATE_SUBMITTED" },
+      });
+      if (claimed.count !== 1) throw new ConflictException("The engagement changed while you were submitting the estimate. Refresh and try again.");
+      const updated = await tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
       if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, title: "Job estimate ready", body: `Your Provider submitted an estimate of R ${total.toFixed(2)} for ${hours.toString()} hours. Review and approve before work starts.`, data: { type: "ESTIMATE_SUBMITTED", requestId } } });
       return updated;
     });
@@ -1211,7 +1219,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can decide this estimate.");
       if (job.status !== "ESTIMATE_SUBMITTED") throw new ConflictException("There is no estimate awaiting your decision.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain why you are rejecting the estimate.");
-      const updated = await tx.jobEngagement.update({ where: { id: job.id }, data: { status: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", estimateDecisionNote: input.note?.trim() || null, estimateDecidedAt: new Date() } });
+      // Only one Seeker decision may win. A second device/tap must not reverse
+      // an approval or rejection that has already committed.
+      const decidedAt = new Date();
+      const claimed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, seekerId, status: "ESTIMATE_SUBMITTED" },
+        data: { status: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", estimateDecisionNote: input.note?.trim() || null, estimateDecidedAt: decidedAt },
+      });
+      if (claimed.count !== 1) throw new ConflictException("The estimate has already been decided or changed. Refresh to see the latest status.");
+      const updated = await tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
       if (job.providerId) await tx.appNotification.create({ data: { userId: job.providerId, title: input.approved ? "Estimate approved" : "Estimate needs revision", body: input.approved ? "The Seeker approved your estimate. You may now start the agreed work." : `The Seeker rejected the estimate: ${input.note}`, data: { type: input.approved ? "ESTIMATE_APPROVED" : "ESTIMATE_REJECTED", requestId } } });
       return updated;
     });
