@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
+import { MailService } from "../mail/mail.service";
 import { LiveProviderMapService } from "./live-provider-map.service";
 import {
   CreateServiceRequestDto,
@@ -41,6 +42,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly liveProviderMap: LiveProviderMapService,
+    private readonly mail: MailService,
   ) {}
 
   onModuleInit() {
@@ -1410,14 +1412,66 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { status: "SENDING", updatedAt: { lt: staleBefore }, attempts: { gte: 5 } },
         data: { status: "FAILED", lastError: "Delivery worker stopped before completing this attempt." },
       });
+      await this.prisma.welcomeEmailOutbox.updateMany({
+        where: { status: "SENDING", updatedAt: { lt: staleBefore }, attempts: { lt: 5 } },
+        data: { status: "PENDING", nextAttemptAt: new Date(), lastError: "Email worker stopped before completing this attempt." },
+      });
+      await this.prisma.welcomeEmailOutbox.updateMany({
+        where: { status: "SENDING", updatedAt: { lt: staleBefore }, attempts: { gte: 5 } },
+        data: { status: "FAILED", lastError: "Email worker stopped after the maximum number of attempts." },
+      });
       await this.expandExpiredWaves();
       await this.retryExhaustedRequests();
       await this.dispatchPendingNotifications();
+      await this.dispatchPendingWelcomeEmails();
       await this.pollExpoPushReceipts();
     } catch (error) {
       this.logger.error("Marketplace worker cycle failed.", error);
     } finally {
       this.workerRunning = false;
+    }
+  }
+
+  private async dispatchPendingWelcomeEmails() {
+    const pending = await this.prisma.welcomeEmailOutbox.findMany({
+      where: { status: "PENDING", nextAttemptAt: { lte: new Date() } },
+      take: 20,
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true, recipientEmail: true, displayName: true,
+        providerReviewPending: true, attempts: true,
+      },
+    });
+
+    for (const email of pending) {
+      const claim = await this.prisma.welcomeEmailOutbox.updateMany({
+        where: { id: email.id, status: "PENDING", attempts: email.attempts },
+        data: { status: "SENDING", attempts: { increment: 1 } },
+      });
+      if (claim.count !== 1) continue;
+
+      const attempts = email.attempts + 1;
+      try {
+        await this.mail.sendWelcomeEmail(email.recipientEmail, email.displayName, email.providerReviewPending);
+        await this.prisma.welcomeEmailOutbox.updateMany({
+          where: { id: email.id, status: "SENDING" },
+          data: { status: "SENT", sentAt: new Date(), lastError: null },
+        });
+      } catch (error) {
+        const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+          ? error.code.slice(0, 64)
+          : "unknown";
+        const delayMs = Math.min(60 * 60_000, 15_000 * (2 ** Math.max(0, attempts - 1)));
+        await this.prisma.welcomeEmailOutbox.updateMany({
+          where: { id: email.id, status: "SENDING" },
+          data: {
+            status: attempts >= 5 ? "FAILED" : "PENDING",
+            nextAttemptAt: new Date(Date.now() + delayMs),
+            lastError: code,
+          },
+        });
+        this.logger.warn(`Welcome email delivery failed for outbox ${email.id} on attempt ${attempts}/5 (code=${code}).`);
+      }
     }
   }
 
