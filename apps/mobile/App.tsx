@@ -447,7 +447,7 @@ export default function App() {
       setActiveTab("home");
       setMode("provider");
       setScreen("dashboard");
-      void apiRequest<MarketplaceRoleSummary>(" /marketplace/roles/active-mode".trim(), {
+      void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
         method: "PATCH",
         body: JSON.stringify({ mode: "PROVIDER" }),
       }, true).then(setRoleSummary).catch(() => undefined);
