@@ -516,7 +516,7 @@ test("additional-hours decision cannot overwrite a decision committed by another
   const calls = [];
   let notifications = 0;
   const tx = {
-    jobEngagement: { findUnique: async () => ({ id: "job-1", providerId: "provider-1", seekerId: "seeker-1", status: "IN_PROGRESS" }) },
+    jobEngagement: { findUnique: async () => ({ id: "job-1", providerId: "provider-1", seekerId: "seeker-1", status: "IN_PROGRESS", workPausedAt: new Date(), workSegmentStartedAt: null }) },
     jobCostAdjustment: {
       findFirst: async () => ({ id: "adjustment-1", engagementId: "job-1", status: "PENDING" }),
       updateMany: async (args) => { calls.push(args); return { count: 0 }; },
@@ -561,8 +561,9 @@ test("additional-hours request atomically stops billable time while awaiting See
   const calls = [];
   const job = { id: "job-1", requestId: "request-1", providerId: "provider-1", seekerId: "seeker-1", status: "IN_PROGRESS", workAccumulatedMs: 2_000, workSegmentStartedAt: startedAt, workPausedAt: null, hourlyRate: 250 };
   const tx = {
+    $queryRaw: async () => [],
     jobEngagement: { findUnique: async () => job, updateMany: async (args) => { calls.push(args); return { count: 1 }; } },
-    jobCostAdjustment: { count: async () => 0, create: async ({data}) => ({id:"adjustment-1",...data}) },
+    jobCostAdjustment: { count: async () => 0, create: async ({data}) => ({id:"adjustment-1",status:"PENDING",...data}) },
     appNotification: { create: async () => {} },
   };
   const result = await serviceWith(tx).requestAdditionalHours("provider-1", "request-1", {additionalHours:1,reason:"Unexpected extra work discovered"});
