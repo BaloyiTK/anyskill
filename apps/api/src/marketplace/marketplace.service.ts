@@ -847,6 +847,50 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async startAssessment(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({
+        where: { requestId },
+        select: { id: true, providerId: true, seekerId: true, status: true, providerArrivedAt: true, assessmentStartedAt: true, request: { select: { title: true } } },
+      });
+      if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
+      if (job.status !== "ASSESSMENT_PENDING" || !job.providerArrivedAt) throw new ConflictException("Confirm arrival before starting the assessment.");
+      if (job.assessmentStartedAt) return { success: true, requestId, assessmentStartedAt: job.assessmentStartedAt };
+      const assessmentStartedAt = new Date();
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, providerId, status: "ASSESSMENT_PENDING", providerArrivedAt: { not: null }, assessmentStartedAt: null },
+        data: { assessmentStartedAt },
+      });
+      if (changed.count !== 1) throw new ConflictException("The assessment stage changed. Refresh and try again.");
+      await tx.appNotification.create({
+        data: { userId: job.seekerId, title: "Provider started the assessment", body: `Your Provider has started assessing "${job.request.title}". They will send the final estimate when complete.`, data: { type: "ASSESSMENT_STARTED", requestId } },
+      });
+      return { success: true, requestId, assessmentStartedAt };
+    });
+  }
+
+  async completeAssessment(providerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({
+        where: { requestId },
+        select: { id: true, providerId: true, seekerId: true, status: true, assessmentStartedAt: true, assessmentCompletedAt: true, request: { select: { title: true } } },
+      });
+      if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
+      if (job.status !== "ASSESSMENT_PENDING" || !job.assessmentStartedAt) throw new ConflictException("Start the assessment before marking it done.");
+      if (job.assessmentCompletedAt) return { success: true, requestId, assessmentCompletedAt: job.assessmentCompletedAt };
+      const assessmentCompletedAt = new Date();
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, providerId, status: "ASSESSMENT_PENDING", assessmentStartedAt: { not: null }, assessmentCompletedAt: null },
+        data: { assessmentCompletedAt },
+      });
+      if (changed.count !== 1) throw new ConflictException("The assessment stage changed. Refresh and try again.");
+      await tx.appNotification.create({
+        data: { userId: job.seekerId, title: "Assessment completed", body: `Your Provider completed the assessment for "${job.request.title}" and is preparing the final estimate for your approval.`, data: { type: "ASSESSMENT_COMPLETED", requestId } },
+      });
+      return { success: true, requestId, assessmentCompletedAt };
+    });
+  }
+
   async cancelSelectedJob(providerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({
