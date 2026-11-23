@@ -115,6 +115,7 @@ export class PayFastService {
     if (job.status !== "COMPLETED" || job.finalAmountDue === null) {
       throw new ConflictException("The Provider's completion must be approved before payment.");
     }
+    if (!job.providerId) throw new ConflictException("This completed job has no assigned Provider and cannot be paid.");
     if (job.paymentStatus !== "UNPAID" && job.paymentStatus !== "PAYFAST_PENDING") {
       throw new ConflictException("This job already has a payment recorded or is being processed.");
     }
@@ -386,6 +387,32 @@ export class PayFastService {
       await tx.payFastCheckout.update({
         where: { id: checkout.id },
         data: { status: "COMPLETE", externalPaymentId: pfPaymentId, completedAt },
+      });
+      await tx.jobFinancialTransaction.upsert({
+        where: { engagementId_transactionType: { engagementId: checkout.engagementId, transactionType: "PROVIDER_PAYOUT" } },
+        create: {
+          engagementId: checkout.engagementId,
+          transactionType: "PROVIDER_PAYOUT",
+          mode: "PAYFAST_SANDBOX",
+          status: "PENDING",
+          amount: checkout.amount,
+          currency: "ZAR",
+          externalProvider: "PAYFAST",
+          externalReference: pfPaymentId,
+          idempotencyKey: `${checkout.engagementId}:PROVIDER_PAYOUT`,
+          initiatedAt: completedAt,
+        },
+        update: {
+          mode: "PAYFAST_SANDBOX",
+          status: "PENDING",
+          amount: checkout.amount,
+          externalProvider: "PAYFAST",
+          externalReference: pfPaymentId,
+          initiatedAt: completedAt,
+          completedAt: null,
+          failedAt: null,
+          failureReason: null,
+        },
       });
       await tx.jobFinancialTransaction.upsert({
         where: { engagementId_transactionType: { engagementId: checkout.engagementId, transactionType: "SEEKER_PAYMENT" } },
