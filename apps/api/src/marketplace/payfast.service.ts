@@ -189,8 +189,8 @@ export class PayFastService {
     const fields: Record<string, string> = {
       merchant_id: config.merchantId,
       merchant_key: config.merchantKey,
-      return_url: config.returnUrl,
-      cancel_url: config.cancelUrl,
+      return_url: this.withPaymentReference(config.returnUrl, checkout.merchantPaymentId),
+      cancel_url: this.withPaymentReference(config.cancelUrl, checkout.merchantPaymentId),
       notify_url: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/itn`,
       email_address: checkout.user.email,
       m_payment_id: checkout.merchantPaymentId,
@@ -204,6 +204,12 @@ export class PayFastService {
       .map(([name, value]) => `<input type="hidden" name="${this.escapeHtml(name)}" value="${this.escapeHtml(value)}">`)
       .join("");
     return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Secure PayFast checkout</title></head><body><main><p>Redirecting securely to PayFast…</p><form id="payfast" action="${config.sandboxHost}/eng/process" method="post">${inputs}<button type="submit">Continue to PayFast</button></form></main><script>document.getElementById("payfast").submit();</script></body></html>`;
+  }
+
+  private withPaymentReference(url: string, merchantPaymentId: string): string {
+    const target = new URL(url);
+    target.searchParams.set("m_payment_id", merchantPaymentId);
+    return target.toString();
   }
 
   private escapeHtml(value: string): string {
