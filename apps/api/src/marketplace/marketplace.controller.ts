@@ -252,7 +252,7 @@ export class MarketplaceController {
     return this.marketplace.saveAssessmentDraft(user.id, requestId, dto);
   }
 
-  @Post("marketplace/requests/:requestId/assessment/complete")  @Post("marketplace/requests/:requestId/assessment/complete")
+  @Post("marketplace/requests/:requestId/assessment/complete")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("PROVIDER_ACCEPT_REQUEST")
   @RequireMarketplaceRole("PROVIDER")
