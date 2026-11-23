@@ -918,6 +918,16 @@ export function MarketplaceScreen(p: Props) {
     finally { setJobActionBusy(false); }
   };
 
+  const removeSavedCard = async (paymentMethodId: string) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest("/marketplace/payment-methods/" + paymentMethodId, { method: "DELETE" }, true);
+      await loadSavedPaymentMethods();
+      setNotice("Saved card removed from AnySkill and its PayFast token cancellation was requested.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not remove the saved card."); }
+    finally { setJobActionBusy(false); }
+  };
+
   const refreshPaymentStatus = async () => {
     await Promise.all([loadMyRequests(), loadSavedPaymentMethods()]);
     setNotice("Payment status refreshed.");
@@ -1642,7 +1652,11 @@ export function MarketplaceScreen(p: Props) {
               {!isPaymentConfirmed(request.jobEngagement.paymentStatus) ? <View style={s.offerCard}>
                 <Text style={s.offerTitle}>PayFast sandbox payment</Text>
                 <Text style={s.meta}>Test environment only. No real money will be charged or transferred.</Text>
-                {savedPaymentMethods.filter((method) => method.status === "ACTIVE").map((method) => <Primary key={method.id} label={jobActionBusy ? "Processing..." : "Pay with saved card" + (method.cardBrand ? " · " + method.cardBrand : "") + (method.lastFour ? " •••• " + method.lastFour : "")} onPress={() => void payWithSavedCard(request.id, method.id)} disabled={jobActionBusy || request.jobEngagement?.paymentStatus === "PAYFAST_PENDING"} />)}
+                {savedPaymentMethods.filter((method) => method.status === "ACTIVE").map((method) => <View key={method.id} style={s.offerCard}>
+                  <Text style={s.meta}>{method.cardBrand ?? "Saved card"}{method.lastFour ? " •••• " + method.lastFour : ""}{method.isDefault ? " · Default" : ""}</Text>
+                  <Primary label={jobActionBusy ? "Processing..." : "Pay with saved card"} onPress={() => void payWithSavedCard(request.id, method.id)} disabled={jobActionBusy || request.jobEngagement?.paymentStatus === "PAYFAST_PENDING"} />
+                  <Secondary label="Remove saved card" onPress={() => void removeSavedCard(method.id)} disabled={jobActionBusy} />
+                </View>)}
                 <Pressable onPress={() => setSaveCardForNextTime((value) => !value)} style={s.choiceRow}>
                   <Text style={s.meta}>{saveCardForNextTime ? "☑" : "☐"} Save this card for future AnySkill payments</Text>
                 </Pressable>
