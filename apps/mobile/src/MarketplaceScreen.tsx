@@ -1073,7 +1073,7 @@ export function MarketplaceScreen(p: Props) {
     setAssessmentDraftSaveStatus("Saved");
   };
 
-  const updateAssessmentStage = async (requestId: string, action: "start" | "complete") => {  const updateAssessmentStage = async (requestId: string, action: "start" | "complete") => {
+  const updateAssessmentStage = async (requestId: string, action: "start" | "complete") => {
     if (jobActionBusy) return;
     setJobActionBusy(true); setError(""); setNotice("");
     try {
