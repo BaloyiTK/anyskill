@@ -42,7 +42,6 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [locationStatus, setLocationStatus] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -65,22 +64,10 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // Resume the OS-managed location task when an already-online Provider
-  // returns to the app. The task itself is registered at application startup.
+  // Resume OS-managed location updates for Providers who are already online.
   useEffect(() => {
-    if (!profile?.isAvailable) {
-      setLocationStatus("");
-      return;
-    }
-    let active = true;
-    void startProviderLocationUpdates()
-      .then(() => {
-        if (active) setLocationStatus("Live location sharing is active in the background.");
-      })
-      .catch((e) => {
-        if (active) setLocationStatus(e instanceof Error ? e.message : "Background location tracking could not resume.");
-      });
-    return () => { active = false; };
+    if (!profile?.isAvailable) return;
+    void startProviderLocationUpdates().catch(() => undefined);
   }, [profile?.isAvailable]);
 
   const setAvailability = async (next: boolean) => {
@@ -113,7 +100,6 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
       if (next) {
         try {
           await startProviderLocationUpdates();
-          setLocationStatus("Live location sharing is active in the background.");
         } catch (startError) {
           // Never leave the Provider marked online if the OS tracking task
           // could not be started after the initial GPS fix was accepted.
@@ -134,7 +120,6 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
       } else {
         setProfile(updated);
         await stopProviderLocationUpdates();
-        setLocationStatus("");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not update your availability.");
@@ -213,8 +198,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
       <View style={styles.skillsSection}>
         <View>
-          <Text style={styles.sectionTitle}>Your skills</Text>
-          <Text style={styles.sectionSubtitle}>Skills currently active on your profile</Text>
+          <Text style={styles.sectionTitle}>Active Skills</Text>
         </View>
 
         {loading ? (
@@ -227,7 +211,6 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
                   <Text style={styles.skillInitial}>{skill.trim().charAt(0).toUpperCase()}</Text>
                 </View>
                 <Text style={styles.skillName}>{skill}</Text>
-                <Text style={styles.activeLabel}>ACTIVE</Text>
               </View>
             ))}
           </View>
@@ -241,24 +224,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
         ) : null}
       </View>
 
-      <View style={styles.serviceArea}>
-        <View style={styles.locationIcon}>
-          <Text style={styles.locationGlyph}>⌖</Text>
-        </View>
-        <View style={styles.locationCopy}>
-          <Text style={styles.locationTitle}>Your service area</Text>
-          <Text style={styles.locationSubtitle}>
-            {isOnline
-              ? locationStatus || "Updating your location while you're online"
-              : "Location sharing is paused while offline"}
-          </Text>
-        </View>
-      </View>
-
       {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-      <Pressable accessibilityRole="button" onPress={() => { void refresh(); }} style={styles.refresh}>
-        <Text style={styles.refreshText}>Refresh</Text>
-      </Pressable>
     </View>
   );
 }
@@ -274,12 +240,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3,
     paddingTop: 4,
     paddingBottom: 22,
-  },
-  eyebrow: {
-    color: C.muted,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1.4,
   },
   title: {
     color: C.ink,
@@ -371,17 +331,8 @@ const styles = StyleSheet.create({
   setupLink: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   setupLinkText: { color: C.primary, fontSize: 12, fontWeight: "800" },
   setupArrow: { color: C.primary, fontSize: 23 },
-  ratingSection: { marginTop: 25, borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 15, backgroundColor: "#FBFCFB" },
-  overallRating: { flexDirection: "row", alignItems: "center", gap: 13, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: C.border },
-  overallValue: { color: C.primary, fontSize: 25, fontWeight: "900" },
-  ratingLabel: { color: C.ink, fontSize: 12, fontWeight: "800" },
-  ratingHint: { color: C.muted, fontSize: 10, marginTop: 3 },
-  ratingSkillRow: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: "#EDF1EE" },
-  ratingSkillName: { flex: 1, color: C.ink, fontSize: 11, fontWeight: "600" },
-  ratingSkillValue: { color: C.primary, fontSize: 12, fontWeight: "800" },
   skillsSection: { marginTop: 31 },
   sectionTitle: { color: C.ink, fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
-  sectionSubtitle: { color: C.muted, fontSize: 11, marginTop: 4 },
   skillsLoader: { marginTop: 18 },
   skillList: { marginTop: 10 },
   skillRow: {
@@ -402,18 +353,8 @@ const styles = StyleSheet.create({
   },
   skillInitial: { color: C.primary, fontSize: 15, fontWeight: "800" },
   skillName: { flex: 1, color: C.ink, fontSize: 13, fontWeight: "600" },
-  activeLabel: { color: C.online, fontSize: 9, fontWeight: "900", letterSpacing: 0.7 },
   emptySkills: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 14 },
   swipeHint: { color: C.muted, fontSize: 10, marginTop: 11, textAlign: "center" },
-  serviceArea: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: C.border,
-    marginTop: 25,
-    paddingTop: 18,
-  },
   locationIcon: {
     width: 38,
     height: 38,
