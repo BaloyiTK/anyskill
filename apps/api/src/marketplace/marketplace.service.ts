@@ -1324,8 +1324,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (pendingAdjustments > 0) throw new ConflictException("Resolve pending additional-hours approvals before submitting completion.");
       const pendingSubmission = await tx.jobCompletionSubmission.count({ where: { engagementId: job.id, status: "PENDING" } });
       if (pendingSubmission > 0) throw new ConflictException("A completion submission is already awaiting the Seeker's review.");
-      const evidenceIds = [...new Set(input.evidenceAssetIds)];
-      if (evidenceIds.length !== input.evidenceAssetIds.length) throw new ConflictException("Duplicate evidence files are not allowed.");
+      const submittedEvidenceIds = input.evidenceAssetIds ?? [];
+      const evidenceIds = [...new Set(submittedEvidenceIds)];
+      if (evidenceIds.length !== submittedEvidenceIds.length) throw new ConflictException("Duplicate evidence files are not allowed.");
       const assets = await tx.mediaAsset.findMany({
         where: { id: { in: evidenceIds }, userId: providerId, status: "READY", purpose: "JOB_COMPLETION_EVIDENCE", completionSubmissionId: null, expiresAt: { gt: new Date() } },
         select: { id: true, objectKey: true },
@@ -1350,7 +1351,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
       if (job.seekerId) await tx.appNotification.create({
-        data: { userId: job.seekerId, title: "Job completion submitted", body: "Your Provider submitted completion notes and photo evidence. Review the work in AnySkill.", data: { type: "JOB_COMPLETION_SUBMITTED", requestId, submissionId: submission.id } },
+        data: { userId: job.seekerId, title: "Job completion submitted", body: evidenceIds.length > 0 ? "Your Provider submitted completion notes and photo evidence. Review the work in AnySkill." : "Your Provider submitted completion notes. No photos were attached. Review the work in AnySkill.", data: { type: "JOB_COMPLETION_SUBMITTED", requestId, submissionId: submission.id } },
       });
       return submission;
     });
