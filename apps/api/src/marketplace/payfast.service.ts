@@ -134,11 +134,14 @@ export class PayFastService {
       orderBy: { createdAt: "desc" },
     });
     if (existing) {
+      const reusable = saveCard && !existing.saveCard
+        ? await this.prisma.payFastCheckout.update({ where: { id: existing.id }, data: { saveCard: true } })
+        : existing;
       return {
-        checkoutUrl: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/checkout/${existing.merchantPaymentId}`,
-        merchantPaymentId: existing.merchantPaymentId,
-        amount: existing.amount.toFixed(2),
-        saveCard: existing.saveCard,
+        checkoutUrl: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/checkout/${reusable.merchantPaymentId}`,
+        merchantPaymentId: reusable.merchantPaymentId,
+        amount: reusable.amount.toFixed(2),
+        saveCard: reusable.saveCard,
         mode: "PAYFAST_SANDBOX",
       };
     }
