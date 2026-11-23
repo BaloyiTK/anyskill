@@ -100,7 +100,7 @@ export class PayFastService {
   }
 
   private apiSignature(values: Record<string, string>, passphrase: string): string {
-    const fields = { ...values, passphrase };
+    const fields: Record<string, string> = { ...values, passphrase };
     const encoded = Object.keys(fields).sort().map((key) => `${key}=${this.phpUrlEncode(fields[key])}`).join("&");
     return createHash("md5").update(encoded, "utf8").digest("hex");
   }
@@ -318,6 +318,7 @@ export class PayFastService {
     if (ip === null) return false;
     return PAYFAST_IP_RANGES.some((range) => {
       const [network, prefixText] = range.split("/");
+      if (!network || !prefixText) return false;
       const prefix = Number(prefixText);
       const networkIp = this.ipv4Number(network);
       if (networkIp === null) return false;
