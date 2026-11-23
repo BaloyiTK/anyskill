@@ -2058,13 +2058,18 @@ export function MarketplaceScreen(p: Props) {
               <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 13, marginTop: 14 }}>
                 <Text style={{ color: "#176B55", fontWeight: "900" }}>✓ Work has started</Text>
               </View>
-              <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 14 }}>When the agreed work is finished, submit completion notes and photo evidence. The Seeker must approve before payment can be recorded.</Text>
+              <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 14 }}>When the agreed work is finished, submit completion notes. Photos are optional, but you can capture or upload up to 8 photos if useful. The Seeker must approve before payment can be recorded.</Text>
               <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>Completion notes</Text>
               <TextInput value={completionNotes} onChangeText={setCompletionNotes} placeholder="Summarise the work completed, tests performed and any handover details..." multiline style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 11, minHeight: 100, padding: 12, color: "#15251E", textAlignVertical: "top", marginTop: 6 }} />
-              <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>Photo evidence (at least 1 photo, up to 8)</Text>
-              <Pressable onPress={() => void pickCompletionEvidence()} disabled={uploadingEvidence || jobActionBusy} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#176B55", borderRadius: 12, minHeight: 48, alignItems: "center", justifyContent: "center", marginTop: 7, opacity: uploadingEvidence || jobActionBusy ? 0.55 : 1 }}>
-                <Text style={{ color: "#176B55", fontWeight: "900" }}>{uploadingEvidence ? "Uploading photos..." : "Choose photos"}</Text>
-              </Pressable>
+              <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>Photo evidence (optional · up to 8)</Text>
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 7 }}>
+                <Pressable onPress={() => void pickCompletionEvidence("camera")} disabled={uploadingEvidence || jobActionBusy} style={{ flex: 1, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#176B55", borderRadius: 12, minHeight: 48, alignItems: "center", justifyContent: "center", opacity: uploadingEvidence || jobActionBusy ? 0.55 : 1 }}>
+                  <Text style={{ color: "#176B55", fontWeight: "900" }}>Capture photo</Text>
+                </Pressable>
+                <Pressable onPress={() => void pickCompletionEvidence("library")} disabled={uploadingEvidence || jobActionBusy} style={{ flex: 1, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#176B55", borderRadius: 12, minHeight: 48, alignItems: "center", justifyContent: "center", opacity: uploadingEvidence || jobActionBusy ? 0.55 : 1 }}>
+                  <Text style={{ color: "#176B55", fontWeight: "900" }}>{uploadingEvidence ? "Uploading..." : "Upload photos"}</Text>
+                </Pressable>
+              </View>
               {completionEvidenceAssets.map((asset) => <Text key={asset.id} style={{ color: "#53645A", fontSize: 11, marginTop: 6 }}>✓ {asset.name} · {(asset.sizeBytes / 1024 / 1024).toFixed(1)} MB</Text>)}
               <Pressable onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 ? 0.45 : 1 }}>
                 <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{jobActionBusy ? "Submitting..." : "Work completed · Submit for review"}</Text>
