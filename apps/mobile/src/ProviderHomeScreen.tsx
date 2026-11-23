@@ -205,14 +205,31 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
           <ActivityIndicator color={C.primary} style={styles.skillsLoader} />
         ) : activeSkills.length ? (
           <View style={styles.skillList}>
-            {activeSkills.map((skill, index) => (
-              <View key={skill + index} style={styles.skillRow}>
-                <View style={styles.skillIcon}>
-                  <Text style={styles.skillInitial}>{skill.trim().charAt(0).toUpperCase()}</Text>
+            {activeSkills.map((skill, index) => {
+              const skillRating = profile?.ratings?.skills?.find(
+                (item) => item.category.trim().toLowerCase() === skill.trim().toLowerCase(),
+              );
+              return (
+                <View key={skill + index} style={styles.skillRow}>
+                  <View style={styles.skillIcon}>
+                    <Text style={styles.skillInitial}>{skill.trim().charAt(0).toUpperCase()}</Text>
+                  </View>
+                  <Text style={styles.skillName}>{skill}</Text>
+                  <View style={styles.skillRating}>
+                    {skillRating?.isRated ? (
+                      <>
+                        <Text style={styles.skillRatingValue}>{skillRating.displayRating.toFixed(1)} ★</Text>
+                        <Text style={styles.skillRatingCount}>
+                          {skillRating.reviewCount} {skillRating.reviewCount === 1 ? "review" : "reviews"}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={styles.skillNotRated}>Not yet rated</Text>
+                    )}
+                  </View>
                 </View>
-                <Text style={styles.skillName}>{skill}</Text>
-              </View>
-            ))}
+              );
+            })}
           </View>
         ) : (
           <Text style={styles.emptySkills}>
@@ -353,6 +370,10 @@ const styles = StyleSheet.create({
   },
   skillInitial: { color: C.primary, fontSize: 15, fontWeight: "800" },
   skillName: { flex: 1, color: C.ink, fontSize: 13, fontWeight: "600" },
+  skillRating: { alignItems: "flex-end", justifyContent: "center", minWidth: 78, gap: 2 },
+  skillRatingValue: { color: C.primary, fontSize: 11, fontWeight: "800" },
+  skillRatingCount: { color: C.muted, fontSize: 9 },
+  skillNotRated: { color: C.muted, fontSize: 9, fontWeight: "600" },
   emptySkills: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 14 },
   swipeHint: { color: C.muted, fontSize: 10, marginTop: 11, textAlign: "center" },
   locationIcon: {
