@@ -1646,7 +1646,7 @@ export function MarketplaceScreen(p: Props) {
                 <Pressable onPress={() => setSaveCardForNextTime((value) => !value)} style={s.choiceRow}>
                   <Text style={s.meta}>{saveCardForNextTime ? "☑" : "☐"} Save this card for future AnySkill payments</Text>
                 </Pressable>
-                <Primary label={jobActionBusy ? "Opening PayFast..." : "Continue to PayFast sandbox"} onPress={() => void startPayFastPayment(request.id)} disabled={jobActionBusy || request.jobEngagement?.paymentStatus === "PAYFAST_PENDING"} />
+                <Primary label={jobActionBusy ? "Opening PayFast..." : request.jobEngagement?.paymentStatus === "PAYFAST_PENDING" ? "Resume PayFast checkout" : "Continue to PayFast sandbox"} onPress={() => void startPayFastPayment(request.id)} disabled={jobActionBusy} />
                 {request.jobEngagement.paymentStatus === "PAYFAST_PENDING" ? <Text style={s.meta}>Payment started. Complete the PayFast checkout, return here and refresh the status.</Text> : null}
                 <Secondary label="Refresh payment status" onPress={() => void refreshPaymentStatus()} />
               </View> : <View style={s.offerCard}>
