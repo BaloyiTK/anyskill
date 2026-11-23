@@ -1656,11 +1656,11 @@ export function MarketplaceScreen(p: Props) {
                 <Secondary label="Refresh payment status" onPress={() => void refreshPaymentStatus()} />
               </View>}
               {isPaymentConfirmed(request.jobEngagement.paymentStatus) && request.jobEngagement.review && request.jobEngagement.seekerReview ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
-              {request.jobEngagement.paymentStatus === "SIMULATED_PAID" && request.jobEngagement.review ? <View style={s.offerCard}>
+              {isPaymentConfirmed(request.jobEngagement.paymentStatus) && request.jobEngagement.review ? <View style={s.offerCard}>
                 <Text style={s.offerTitle}>Your submitted ratings</Text>
                 <Text style={s.meta}>{request.skillCategory}: {request.jobEngagement.review.skillRating}.0 ★ · Overall AnySkill: {request.jobEngagement.review.platformRating}.0 ★</Text>
                 {request.jobEngagement.review.comment ? <Text style={s.body}>{request.jobEngagement.review.comment}</Text> : null}
-              </View> : request.jobEngagement.paymentStatus === "SIMULATED_PAID" ? <View style={s.offerCard}>
+              </View> : isPaymentConfirmed(request.jobEngagement.paymentStatus) ? <View style={s.offerCard}>
                 <Text style={s.offerTitle}>Rate your Provider</Text>
                 <Text style={s.meta}>Rate the service skill and the Provider's overall experience on AnySkill separately.</Text>
                 {ratingDraft?.requestId !== request.id ? <Primary label="Rate this Provider" onPress={() => setRatingDraft({requestId:request.id,skillRating:5,platformRating:5,comment:""})} /> : <>
@@ -1842,12 +1842,12 @@ export function MarketplaceScreen(p: Props) {
             </View> : <View style={s.offerCard}>
               <Text style={s.meta}>Awaiting the Seeker's payment simulation. Ratings unlock after payment is recorded.</Text>
             </View>}
-            {job.paymentStatus === "SIMULATED_PAID" && job.seekerReview && job.review ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
-            {job.paymentStatus === "SIMULATED_PAID" && job.seekerReview ? <View style={s.offerCard}>
+            {isPaymentConfirmed(job.paymentStatus) && job.seekerReview && job.review ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
+            {isPaymentConfirmed(job.paymentStatus) && job.seekerReview ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Your submitted rating of the Skill Seeker</Text>
               <Text style={s.meta}>{job.seekerReview.rating}.0 ★</Text>
               {job.seekerReview.comment ? <Text style={s.body}>{job.seekerReview.comment}</Text> : null}
-            </View> : job.paymentStatus === "SIMULATED_PAID" ? <View style={s.offerCard}>
+            </View> : isPaymentConfirmed(job.paymentStatus) ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Rate your Skill Seeker</Text>
               <Text style={s.meta}>Rate communication, cooperation, professionalism and reliability.</Text>
               {seekerRatingDraft?.requestId !== job.request.id ? <Primary label="Rate this Skill Seeker" onPress={() => setSeekerRatingDraft({requestId:job.request.id,rating:5,comment:""})} /> : <>
