@@ -341,8 +341,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getProviderDailyEarnings(providerId: string) {
-    // Earnings are counted when the simulated Provider payout is sent, using
-    // South African local-day boundaries rather than the server's timezone.
+    // Count a job as earnings as soon as its simulated payment is recorded,
+    // using South African local-day boundaries rather than the server's timezone.
     const now = new Date();
     const localDate = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Africa/Johannesburg",
@@ -357,8 +357,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         providerId,
         status: "COMPLETED",
         paymentStatus: "SIMULATED_PAID",
-        providerPayoutStatus: "SIMULATED_SENT",
-        providerPayoutSimulatedAt: { gte: startOfDay, lt: endOfDay },
+        paymentSimulatedAt: { gte: startOfDay, lt: endOfDay },
       },
       select: { finalAmountDue: true },
     });
