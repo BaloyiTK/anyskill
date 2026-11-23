@@ -1148,8 +1148,6 @@ export function MarketplaceScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode !== "provider") return;
-    hasLoadedIncomingRequestsRef.current = false;  useEffect(() => {
-    if (p.mode !== "provider") return;
     hasLoadedIncomingRequestsRef.current = false;
     void loadRequests(); void loadProviderProfile(); void loadMyJobs();
     const refreshIncoming = setInterval(() => { void loadRequests(); }, 8000);
