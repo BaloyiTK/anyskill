@@ -16,6 +16,7 @@ Add these values to the API's local .env file. Do not commit .env or send mercha
 
 ```dotenv
 PAYFAST_MODE="sandbox"
+TRUST_PROXY_HOPS="1" # for one HTTPS tunnel/proxy hop; otherwise set the actual trusted hop count
 PAYFAST_MERCHANT_ID="your-8-digit-sandbox-merchant-id"
 PAYFAST_MERCHANT_KEY="your-sandbox-merchant-key"
 PAYFAST_PASSPHRASE="your-sandbox-passphrase"
