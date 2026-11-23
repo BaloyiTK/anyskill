@@ -218,11 +218,28 @@ export class PayFastService {
   }
 
   async removeSavedPaymentMethod(userId: string, methodId: string) {
-    const result = await this.prisma.savedPaymentMethod.updateMany({
+    const config = this.config();
+    const method = await this.prisma.savedPaymentMethod.findFirst({
       where: { id: methodId, userId, status: "ACTIVE" },
+    });
+    if (!method) throw new NotFoundException("Saved payment method not found.");
+    const token = this.decryptToken(method);
+    const timestamp = new Date().toISOString().replace(/\\.\\d{3}Z$/, "+00:00");
+    const signedValues = { "merchant-id": config.merchantId, version: "v1", timestamp };
+    const signature = this.apiSignature(signedValues, config.passphrase);
+    const response = await fetch(`https://api.payfast.co.za/subscriptions/${encodeURIComponent(token)}/cancel?testing=true`, {
+      method: "PUT",
+      headers: { "merchant-id": config.merchantId, version: "v1", timestamp, signature },
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => ({})) as { data?: { response?: boolean } } | undefined;
+    if (!response?.ok || payload?.data?.response !== true) {
+      throw new BadGatewayException("PayFast could not revoke this saved card. It remains available until PayFast confirms cancellation.");
+    }
+    await this.prisma.savedPaymentMethod.update({
+      where: { id: method.id },
       data: { status: "REVOKED", isDefault: false },
     });
-    if (result.count !== 1) throw new NotFoundException("Saved payment method not found.");
     return { success: true };
   }
 
