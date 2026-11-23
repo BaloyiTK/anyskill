@@ -1660,6 +1660,7 @@ export function MarketplaceScreen(p: Props) {
                 <Pressable onPress={() => setSaveCardForNextTime((value) => !value)} style={s.choiceRow}>
                   <Text style={s.meta}>{saveCardForNextTime ? "☑" : "☐"} Save this card for future AnySkill payments</Text>
                 </Pressable>
+                <Text style={s.meta}>If selected, PayFast securely stores your card and returns a payment token. AnySkill never stores your full card number or CVV. A future service charge is only initiated after you approve the final amount.</Text>
                 <Primary label={jobActionBusy ? "Opening PayFast..." : request.jobEngagement?.paymentStatus === "PAYFAST_PENDING" ? "Resume PayFast checkout" : "Continue to PayFast sandbox"} onPress={() => void startPayFastPayment(request.id)} disabled={jobActionBusy} />
                 {request.jobEngagement.paymentStatus === "PAYFAST_PENDING" ? <Text style={s.meta}>Payment started. Complete the PayFast checkout, return here and refresh the status.</Text> : null}
                 <Secondary label="Refresh payment status" onPress={() => void refreshPaymentStatus()} />
