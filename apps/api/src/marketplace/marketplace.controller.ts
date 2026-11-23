@@ -22,7 +22,14 @@ import { GooglePlacesService } from "./google-places.service";
 import { PayFastService } from "./payfast.service";
 import { IsInt, IsNumber, IsString, Max, MaxLength, Min } from "class-validator";
 
-class StartPayFastCheckoutDto {\n  @IsOptional() @IsBoolean() saveCard?: boolean;\n}\nclass ChargeSavedCardDto {\n  @IsString() @MaxLength(64) paymentMethodId!: string;\n}\n\nclass CreateMediaUploadDto {
+class StartPayFastCheckoutDto {
+  @IsOptional() @IsBoolean() saveCard?: boolean;
+}
+class ChargeSavedCardDto {
+  @IsString() @MaxLength(64) paymentMethodId!: string;
+}
+
+class CreateMediaUploadDto {
   @IsString() @MaxLength(255) fileName!: string;
   @IsString() @MaxLength(100) contentType!: string;
   @IsOptional() @IsString() purpose?: "JOB_COMPLETION_EVIDENCE" | "JOB_DISPUTE_EVIDENCE";
