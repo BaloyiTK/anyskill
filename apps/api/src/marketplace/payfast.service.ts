@@ -101,7 +101,7 @@ export class PayFastService {
 
   private apiSignature(values: Record<string, string>, passphrase: string): string {
     const fields: Record<string, string> = { ...values, passphrase };
-    const encoded = Object.keys(fields).sort().map((key) => `${key}=${this.phpUrlEncode(fields[key])}`).join("&");
+    const encoded = Object.keys(fields).sort().map((key) => `${key}=${this.phpUrlEncode(fields[key] ?? "")}`).join("&");
     return createHash("md5").update(encoded, "utf8").digest("hex");
   }
 
