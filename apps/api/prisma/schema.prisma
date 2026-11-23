@@ -479,6 +479,7 @@ model JobEngagement {
   financialTransactions JobFinancialTransaction[]
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
+  @@index([providerId, paymentStatus, paymentSimulatedAt])
   @@map("job_engagements")
 }
 
