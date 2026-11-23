@@ -1665,7 +1665,6 @@ export default function App() {
           {message ? <View style={s.successNotice}><Text style={s.successText}>{message}</Text></View> : null}
           {error ? <View style={s.errorNotice}><Text style={s.errorText}>{error}</Text></View> : null}
           {busy ? <ActivityIndicator color={C.primary} style={s.loader} /> : null}
-          <Text style={s.footer}>Connecting individuals and businesses through skills.</Text>
         </ScrollView>
       </KeyboardAvoidingView>
       {account && <View style={s.bottomTabBar}>
