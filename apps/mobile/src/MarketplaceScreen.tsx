@@ -116,6 +116,7 @@ export function MarketplaceScreen(p: Props) {
   const [estimateHours, setEstimateHours] = useState("2");
   const [estimateNotes, setEstimateNotes] = useState("");
   const [assessmentDraftSaveStatus, setAssessmentDraftSaveStatus] = useState("Not saved yet");
+  const [assessmentDraftAutosaveEnabled, setAssessmentDraftAutosaveEnabled] = useState(false);
   const assessmentDraftHydratedRequestIdRef = useRef<string | null>(null);
   const [estimateDecisionNoteDraft, setEstimateDecisionNoteDraft] = useState("");
   const [extraHours, setExtraHours] = useState("1");
@@ -1089,6 +1090,7 @@ export function MarketplaceScreen(p: Props) {
         ...(result.assessmentStartedAt ? { assessmentStartedAt: result.assessmentStartedAt } : {}),
         ...(result.assessmentCompletedAt ? { assessmentCompletedAt: result.assessmentCompletedAt } : {}),
       }));
+      if (action === "complete") setAssessmentDraftAutosaveEnabled(false);
       setNotice(action === "start" ? "Assessment started. The Seeker has been notified." : "Assessment marked done. The Seeker has been notified. Submit the final estimate for approval.");
       await loadMyJobs();
     } catch (e) {
@@ -1124,12 +1126,11 @@ export function MarketplaceScreen(p: Props) {
     setEstimateHours(activeJob.assessmentDraftHours == null ? "2" : String(activeJob.assessmentDraftHours));
     setEstimateNotes(activeJob.assessmentDraftNotes ?? "");
     setAssessmentDraftSaveStatus(activeJob.assessmentDraftUpdatedAt ? "Draft restored" : "Not saved yet");
+    setAssessmentDraftAutosaveEnabled(activeJob.status === "ASSESSMENT_PENDING" && !!activeJob.assessmentStartedAt && !activeJob.assessmentCompletedAt);
   }, [p.mode, myJobs, activeProviderJobId]);
 
   useEffect(() => {
-    if (p.mode !== "provider" || !activeProviderJobId) return;
-    const activeJob = myJobs.find((job) => job.request.id === activeProviderJobId);
-    if (!activeJob || activeJob.status !== "ASSESSMENT_PENDING" || !activeJob.assessmentStartedAt || activeJob.assessmentCompletedAt) return;
+    if (p.mode !== "provider" || !activeProviderJobId || !assessmentDraftAutosaveEnabled) return;
     const timer = setTimeout(() => {
       const hours = Number(estimateHours);
       const estimatedHours = Number.isFinite(hours) && hours >= 0.25 ? hours : null;
@@ -1143,7 +1144,7 @@ export function MarketplaceScreen(p: Props) {
       }).catch(() => setAssessmentDraftSaveStatus("Save failed — check your connection"));
     }, 700);
     return () => clearTimeout(timer);
-  }, [p.mode, activeProviderJobId, myJobs, estimateHours, estimateNotes]);
+  }, [p.mode, activeProviderJobId, assessmentDraftAutosaveEnabled, estimateHours, estimateNotes]);
 
   useEffect(() => {
     if (p.mode !== "provider") return;
