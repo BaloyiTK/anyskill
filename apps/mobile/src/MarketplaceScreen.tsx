@@ -1601,6 +1601,7 @@ export function MarketplaceScreen(p: Props) {
                 <Text style={s.meta}>Simulated Provider payout: {request.jobEngagement.providerPayoutStatus === "SIMULATED_SENT" ? "Marked as sent" : "Pending"}</Text>
                 <Text style={s.meta}>No real money moved. Both parties can now submit their ratings.</Text>
               </View>}
+              {request.jobEngagement.paymentStatus === "SIMULATED_PAID" && request.jobEngagement.review && request.jobEngagement.seekerReview ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
               {request.jobEngagement.paymentStatus === "SIMULATED_PAID" && request.jobEngagement.review ? <View style={s.offerCard}>
                 <Text style={s.offerTitle}>Your submitted ratings</Text>
                 <Text style={s.meta}>{request.skillCategory}: {request.jobEngagement.review.skillRating}.0 ★ · Overall AnySkill: {request.jobEngagement.review.platformRating}.0 ★</Text>
@@ -1787,6 +1788,7 @@ export function MarketplaceScreen(p: Props) {
             </View> : <View style={s.offerCard}>
               <Text style={s.meta}>Awaiting the Seeker's payment simulation. Ratings unlock after payment is recorded.</Text>
             </View>}
+            {job.paymentStatus === "SIMULATED_PAID" && job.seekerReview && job.review ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
             {job.paymentStatus === "SIMULATED_PAID" && job.seekerReview ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Your submitted rating of the Skill Seeker</Text>
               <Text style={s.meta}>{job.seekerReview.rating}.0 ★</Text>
