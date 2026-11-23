@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentRef } from "react";
+import type { ComponentRef, ReactNode } from "react";
 import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
 import * as Notifications from "expo-notifications";
@@ -1224,37 +1224,40 @@ export default function App() {
   const verified = identityStatus.toLowerCase() === "verified" || identityCaseStatus === "verified" || identityCaseStatus === "approved";
   const identityAwaitingReview = ["pending", "pending_review", "submitted", "in_review", "under_review"].includes(identityCaseStatus);
   const canRequestSkill = profileComplete && verified && roleSummary?.seekerStatus === "ACTIVE";
+  // One shared platform header is reused by the app shell and full-screen workflows.
+  const platformHeader: ReactNode = (
+    <View style={s.brandRow}>
+      <Image source={require("./assets/branding/anyskill-logo.png")} style={s.brandLogo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
+      {account ? <View style={s.headerAvatarWrap}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open account"
+          onPress={() => {
+            setActiveTab("account");
+            setShowAccountSettings(false);
+            setScreen("dashboard");
+            feedback();
+          }}
+          style={s.headerAvatar}
+        >
+          {avatarImageSource
+            ? <Image source={avatarImageSource} style={s.headerAvatarImage} resizeMode="cover" accessibilityLabel="Your profile photo" />
+            : <Text style={s.headerAvatarText}>{(account.email?.trim()?.[0] ?? "U").toUpperCase()}</Text>}
+        </Pressable>
+        <View pointerEvents="none" accessibilityLabel={verified ? "Identity verified" : "Identity not verified"} style={[s.identityAvatarBadge, verified ? s.identityAvatarBadgeVerified : s.identityAvatarBadgeUnverified]}>
+          <Text style={s.identityAvatarBadgeText}>{verified ? "✓" : "×"}</Text>
+        </View>
+      </View> : null}
+    </View>
+  );
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={s.safe}>
       <StatusBar barStyle="dark-content" />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        {platformHeader}
         <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-          <View style={s.brandRow}>
-            <Image source={require("./assets/branding/anyskill-logo.png")} style={s.brandLogo} resizeMode="contain" accessibilityLabel="AnySkill logo" />
-            {account ? <View style={s.headerAvatarWrap}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Open account"
-                onPress={() => {
-                  setActiveTab("account");
-                  setShowAccountSettings(false);
-                  setScreen("dashboard");
-                  feedback();
-                }}
-                style={s.headerAvatar}
-              >
-                {avatarImageSource
-                  ? <Image source={avatarImageSource} style={s.headerAvatarImage} resizeMode="cover" accessibilityLabel="Your profile photo" />
-                  : <Text style={s.headerAvatarText}>{(account.email?.trim()?.[0] ?? "U").toUpperCase()}</Text>}
-              </Pressable>
-              <View pointerEvents="none" accessibilityLabel={verified ? "Identity verified" : "Identity not verified"} style={[s.identityAvatarBadge, verified ? s.identityAvatarBadgeVerified : s.identityAvatarBadgeUnverified]}>
-                <Text style={s.identityAvatarBadgeText}>{verified ? "✓" : "×"}</Text>
-              </View>
-            </View> : null}
-          </View>
-
           {screen === "profile-check" && <View style={s.form}>
             <Text style={s.kicker}>ACCOUNT CHECK</Text>
             <Text style={s.formTitle}>Checking your profile</Text>
@@ -1671,6 +1674,7 @@ export default function App() {
         <BottomTab label="Profile" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setShowAccountSettings(false); setScreen("dashboard"); feedback(); }} />
       </View>}
       <IncomingRequestScreen
+        platformHeader={platformHeader}
         requestId={activeIncomingRequestId}
         onClose={() => {
           if (activeIncomingRequestId) dismissedIncomingRequestIds.current.add(activeIncomingRequestId);
