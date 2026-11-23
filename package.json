@@ -20,6 +20,12 @@
     "check:security": "pnpm audit --prod --audit-level high"
   },
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "argon2",
+      "prisma"
+    ],
     "overrides": {
       "deepmerge-ts": "8.0.2"
     }
