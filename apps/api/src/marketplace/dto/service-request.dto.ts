@@ -204,11 +204,11 @@ export class SubmitJobCompletionDto {
   @MaxLength(3000)
   notes!: string;
 
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(8)
-  @ArrayMinSize(1)
   @IsUUID("4", { each: true })
-  evidenceAssetIds!: string[];
+  evidenceAssetIds?: string[];
 }
 
 export class DecideJobCompletionDto {
