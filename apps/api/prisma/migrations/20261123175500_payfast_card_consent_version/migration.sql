@@ -1,0 +1,2 @@
+ALTER TABLE "saved_payment_methods"
+ADD COLUMN "consent_version" VARCHAR(40) NOT NULL DEFAULT 'ANY_SKILL_CARD_ON_FILE_V1';
