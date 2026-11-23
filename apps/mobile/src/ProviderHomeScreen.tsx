@@ -152,7 +152,6 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   return (
     <View style={styles.root}>
       <View style={styles.intro}>
-        <Text style={styles.eyebrow}>PROVIDER HOME</Text>
         <Text style={styles.title}>{isOnline ? "You're online" : "You're offline"}</Text>
         <Text style={styles.subtitle}>
           {isOnline
@@ -211,22 +210,6 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
           </View>
         )}
       </View>
-
-      {profile ? <View style={styles.ratingSection}>
-        <Text style={styles.sectionTitle}>Your AnySkill ratings</Text>
-        <View style={styles.overallRating}>
-          <Text style={styles.overallValue}>{(profile.ratings?.overall ?? 5).toFixed(1)} ★</Text>
-          <View style={{flex:1}}>
-            <Text style={styles.ratingLabel}>Overall platform rating</Text>
-            <Text style={styles.ratingHint}>{profile.ratings?.overallIsRated ? profile.ratings.overallReviewCount + " customer reviews" : "5.0 starting display · Not yet rated"}</Text>
-          </View>
-        </View>
-        {(profile.ratings?.skills ?? profile.skillCategories.map((category) => ({category,rating:null,reviewCount:0,displayRating:5,isRated:false}))).map((item) => <View key={item.category} style={styles.ratingSkillRow}>
-          <Text style={styles.ratingSkillName}>{item.category}</Text>
-          <Text style={styles.ratingSkillValue}>{item.displayRating.toFixed(1)} ★</Text>
-          <Text style={styles.ratingHint}>{item.isRated ? item.reviewCount + " reviews" : "Not yet rated"}</Text>
-        </View>)}
-      </View> : null}
 
       <View style={styles.skillsSection}>
         <View>
