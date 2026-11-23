@@ -340,6 +340,38 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { isAvailable: profile?.isAvailable === true };
   }
 
+  async getProviderDailyEarnings(providerId: string) {
+    // Earnings are counted when the simulated Provider payout is sent, using
+    // South African local-day boundaries rather than the server's timezone.
+    const now = new Date();
+    const localDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Johannesburg",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(now);
+    const startOfDay = new Date(`${localDate}T00:00:00+02:00`);
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+    const paidJobs = await this.prisma.jobEngagement.findMany({
+      where: {
+        providerId,
+        status: "COMPLETED",
+        paymentStatus: "SIMULATED_PAID",
+        providerPayoutStatus: "SIMULATED_SENT",
+        providerPayoutSimulatedAt: { gte: startOfDay, lt: endOfDay },
+      },
+      select: { finalAmountDue: true },
+    });
+    const total = paidJobs.reduce((sum, job) => sum + Number(job.finalAmountDue ?? 0), 0);
+    return {
+      date: localDate,
+      currency: "ZAR",
+      amount: Number(total.toFixed(2)),
+      completedPaidJobs: paidJobs.length,
+      paymentMode: "SIMULATED",
+    };
+  }
+
   async getProviderProfile(userId: string) {
     const profile = await this.prisma.providerProfile.findUnique({
       where: { userId },
