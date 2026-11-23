@@ -630,7 +630,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const approvedAdjustments = request.jobEngagement.adjustments.filter((item) => item.status === "APPROVED");
         const approvedAdditionalHours = approvedAdjustments.reduce((sum, item) => sum + Number(item.requestedHours), 0);
         const approvedAdditionalAmount = approvedAdjustments.reduce((sum, item) => sum + Number(item.requestedAmount), 0);
-        return { ...request.jobEngagement, approvedAdditionalHours, approvedAdditionalAmount: Number(approvedAdditionalAmount.toFixed(2)), agreedWorkTotal: Number((Number(request.jobEngagement.estimatedTotal ?? 0) + approvedAdditionalAmount).toFixed(2)), serverNow };
+        return { ...request.jobEngagement, assessmentDraftHours: undefined, assessmentDraftNotes: undefined, assessmentDraftUpdatedAt: undefined, approvedAdditionalHours, approvedAdditionalAmount: Number(approvedAdditionalAmount.toFixed(2)), agreedWorkTotal: Number((Number(request.jobEngagement.estimatedTotal ?? 0) + approvedAdditionalAmount).toFixed(2)), serverNow };
       })() : null,
       providerResponses: request.providerResponses.map((response) => {
         const profile = response.provider?.providerProfile;
