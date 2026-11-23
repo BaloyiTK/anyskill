@@ -1387,9 +1387,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           : { status: "IN_PROGRESS", workSegmentStartedAt: null, workPausedAt: reviewTime, workEndedAt: null },
       });
       if (jobUpdate.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
-      if (input.approved) {
-        await tx.serviceRequest.update({ where: { id: requestId }, data: { status: "COMPLETED" } });
-      }
       if (job.providerId) await tx.appNotification.create({
         data: {
           userId: job.providerId,
@@ -1515,63 +1512,80 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async submitProviderReview(seekerId: string, requestId: string, input: SubmitProviderReviewDto) {
-    const job = await this.prisma.jobEngagement.findUnique({
-      where: { requestId },
-      include: { request: { select: { skillCategory: true } } },
+  async simulateJobPayment(seekerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM job_engagements WHERE request_id = ${requestId}::uuid FOR UPDATE`);
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can make this payment.");
+      if (job.status !== "COMPLETED" || job.finalAmountDue === null) throw new ConflictException("Approve the Provider's completion before making payment.");
+      if (job.paymentStatus === "SIMULATED_PAID") throw new ConflictException("Simulated payment has already been completed.");
+      const paidAt = new Date();
+      const changed = await tx.jobEngagement.updateMany({
+        where: { id: job.id, status: "COMPLETED", paymentStatus: "UNPAID" },
+        data: { paymentStatus: "SIMULATED_PAID", paymentSimulatedAt: paidAt, providerPayoutStatus: "SIMULATED_SENT", providerPayoutSimulatedAt: paidAt },
+      });
+      if (changed.count !== 1) throw new ConflictException("Payment status changed. Refresh and try again.");
+      if (job.providerId) await tx.appNotification.create({
+        data: { userId: job.providerId, title: "Simulated payment sent", body: "The Seeker completed the simulated payment and the simulated Provider payout is marked as sent.", data: { type: "SIMULATED_PAYMENT_SENT", requestId } },
+      });
+      return { success: true, paymentStatus: "SIMULATED_PAID", providerPayoutStatus: "SIMULATED_SENT", amount: job.finalAmountDue.toFixed(2), simulatedAt: paidAt };
     });
-    if (!job) throw new NotFoundException("Selected job not found.");
-    if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker who paid for this job can rate the Provider.");
-    if (job.status !== "COMPLETED") throw new ConflictException("You can rate a Provider only after approving job completion.");
-    if (!job.providerId) throw new ConflictException("This job has no Provider available to rate.");
-    try {
-      const review = await this.prisma.providerReview.create({
+  }
+
+  async submitProviderReview(seekerId: string, requestId: string, input: SubmitProviderReviewDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({
+        where: { requestId },
+        include: { request: { select: { skillCategory: true } } },
+      });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker who paid for this job can rate the Provider.");
+      if (job.status !== "COMPLETED" || job.paymentStatus !== "SIMULATED_PAID") throw new ConflictException("Complete payment before rating the Provider.");
+      if (!job.providerId) throw new ConflictException("This job has no Provider available to rate.");
+      const review = await tx.providerReview.create({
         data: {
-          engagementId: job.id,
-          seekerId,
-          providerId: job.providerId,
-          skillCategory: job.request.skillCategory,
-          skillRating: input.skillRating,
-          platformRating: input.platformRating,
-          comment: input.comment?.trim() || null,
+          engagementId: job.id, seekerId, providerId: job.providerId,
+          skillCategory: job.request.skillCategory, skillRating: input.skillRating,
+          platformRating: input.platformRating, comment: input.comment?.trim() || null,
         },
       });
-      return { success: true, review };
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        throw new ConflictException("You have already rated this completed job.");
+      const [providerReview, seekerReview] = await Promise.all([
+        tx.providerReview.count({ where: { engagementId: job.id } }),
+        tx.seekerReview.count({ where: { engagementId: job.id } }),
+      ]);
+      if (providerReview > 0 && seekerReview > 0) {
+        await tx.serviceRequest.updateMany({ where: { id: requestId, status: "CLOSED" }, data: { status: "COMPLETED" } });
       }
+      return { success: true, review, requestClosed: providerReview > 0 && seekerReview > 0 };
+    }).catch((error) => {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new ConflictException("You have already rated this completed job.");
       throw error;
-    }
+    });
   }
 
   async submitSeekerReview(providerId: string, requestId: string, input: SubmitSeekerReviewDto) {
-    const job = await this.prisma.jobEngagement.findUnique({
-      where: { requestId },
-      select: { id: true, seekerId: true, providerId: true, status: true },
-    });
-    if (!job) throw new NotFoundException("Selected job not found.");
-    if (job.providerId !== providerId) throw new ForbiddenException("Only the Provider assigned to this job can rate the Skill Seeker.");
-    if (job.status !== "COMPLETED") throw new ConflictException("You can rate a Skill Seeker only after the job is approved as completed.");
-    if (!job.seekerId) throw new ConflictException("This job has no Skill Seeker available to rate.");
-
-    try {
-      const review = await this.prisma.seekerReview.create({
-        data: {
-          engagementId: job.id,
-          providerId,
-          seekerId: job.seekerId,
-          rating: input.rating,
-          comment: input.comment?.trim() || null,
-        },
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({ where: { requestId } });
+      if (!job) throw new NotFoundException("Selected job not found.");
+      if (job.providerId !== providerId) throw new ForbiddenException("Only the Provider assigned to this job can rate the Skill Seeker.");
+      if (job.status !== "COMPLETED" || job.paymentStatus !== "SIMULATED_PAID") throw new ConflictException("Wait until payment is completed before rating the Skill Seeker.");
+      if (!job.seekerId) throw new ConflictException("This job has no Skill Seeker available to rate.");
+      const review = await tx.seekerReview.create({
+        data: { engagementId: job.id, providerId, seekerId: job.seekerId, rating: input.rating, comment: input.comment?.trim() || null },
       });
-      return { success: true, review };
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        throw new ConflictException("You have already rated this Skill Seeker for this completed job.");
+      const [providerReview, seekerReview] = await Promise.all([
+        tx.providerReview.count({ where: { engagementId: job.id } }),
+        tx.seekerReview.count({ where: { engagementId: job.id } }),
+      ]);
+      if (providerReview > 0 && seekerReview > 0) {
+        await tx.serviceRequest.updateMany({ where: { id: requestId, status: "CLOSED" }, data: { status: "COMPLETED" } });
       }
+      return { success: true, review, requestClosed: providerReview > 0 && seekerReview > 0 };
+    }).catch((error) => {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw new ConflictException("You have already rated this Skill Seeker for this completed job.");
       throw error;
-    }
+    });
   }
 
   async submitEstimate(providerId: string, requestId: string, input: SubmitEstimateDto) {
