@@ -351,6 +351,12 @@ export class MarketplaceController {
     return this.marketplace.decideAdditionalHours(user.id, requestId, adjustmentId, dto);
   }
 
+  @Get("marketplace/provider-earnings/today")
+  @RequireMarketplaceRole("PROVIDER")
+  getProviderDailyEarnings(@CurrentUser() user: AuthenticatedUser) {
+    return this.marketplace.getProviderDailyEarnings(user.id);
+  }
+
   @Get("marketplace/provider-profile")
   @RequireMarketplaceRole("PROVIDER")
   getProviderProfile(@CurrentUser() user: AuthenticatedUser) {
