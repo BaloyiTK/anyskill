@@ -360,16 +360,19 @@ export function MarketplaceScreen(p: Props) {
     };
     // While an offer is awaiting the Seeker's decision, check the authoritative
     // engagement list promptly so the Provider moves into the correct job.
-    if (p.mode === "provider" && providerSelectionWatch) {
+    if ((p.mode === "provider" && providerSelectionWatch) || (p.mode === "seeker" && journeyScreen)) {
       void refreshJobState();
     }
-    const refreshMs = p.mode === "provider" && providerSelectionWatch && providerOfferReview?.status === "OFFERED" ? 3000 : 12000;
+    // Keep an active Seeker journey responsive while the Provider progresses
+    // through arrival, assessment and estimate stages.
+    const refreshMs = (p.mode === "provider" && providerSelectionWatch && providerOfferReview?.status === "OFFERED")
+      || (p.mode === "seeker" && journeyScreen) ? 3000 : 12000;
     const refresh = setInterval(() => { void refreshJobState(); }, refreshMs);
     return () => {
       active = false;
       clearInterval(refresh);
     };
-  }, [p.mode, providerOfferReview?.status, providerSelectionWatch?.responseId]);
+  }, [p.mode, providerOfferReview?.status, providerSelectionWatch?.responseId, journeyScreen?.requestId]);
 
   useEffect(() => {
     if (p.mode !== "provider") return;
@@ -2006,8 +2009,8 @@ export function MarketplaceScreen(p: Props) {
         <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20, marginTop: 7 }}>You selected {journeyScreen?.providerName}. Your engagement is confirmed and the Provider must complete the assessment before submitting the job estimate.</Text>
         <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 16 }}>
           <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>ENGAGEMENT STATUS</Text>
-          <Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900", marginTop: 6 }}>Assessment pending</Text>
-          <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>Your Provider has been selected. No additional work can begin until you review and approve the estimate in AnySkill.</Text>
+          <Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900", marginTop: 6 }}>{journeyScreen?.assessmentCompletedAt ? "Assessment completed" : journeyScreen?.assessmentStartedAt ? "Assessment in progress" : journeyScreen?.providerArrivedAt ? "Provider has arrived" : journeyScreen?.providerEnRouteAt ? "Provider is on the way" : "Assessment pending"}</Text>
+          <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{journeyScreen?.assessmentCompletedAt ? "Your Provider has completed the assessment and is preparing the final estimate for your approval." : journeyScreen?.assessmentStartedAt ? "Your Provider has started assessing the requested work. The final estimate will appear here when the assessment is complete." : journeyScreen?.providerArrivedAt ? "Your Provider has arrived and can now start the assessment." : journeyScreen?.providerEnRouteAt ? "Your Provider is travelling to your location. You will see the assessment status update here." : "Your Provider has been selected. The assessment will begin after arrival."} No additional work can begin until you review and approve the estimate in AnySkill.</Text>
         </View>
         <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 15, marginTop: 12 }}>
           <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>AGREED OFFER PRICING</Text>
