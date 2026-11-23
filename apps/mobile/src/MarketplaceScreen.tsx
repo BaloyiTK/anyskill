@@ -1837,10 +1837,10 @@ export function MarketplaceScreen(p: Props) {
             <Text style={s.response}>The Seeker approved this job's completion.</Text>
             <Text style={s.offerTitle}>Final approved amount: R {Number(job.finalAmountDue ?? 0).toFixed(2)}</Text>
             {isPaymentConfirmed(job.paymentStatus) ? <View style={s.offerCard}>
-              <Text style={s.offerTitle}>Payment successful · SIMULATED</Text>
-              <Text style={s.meta}>The Seeker recorded payment and your simulated payout is marked as sent. No real money moved.</Text>
+              <Text style={s.offerTitle}>Payment confirmed · {job.paymentStatus === "PAYFAST_PAID" ? "PAYFAST SANDBOX" : "SIMULATED"}</Text>
+              <Text style={s.meta}>{job.paymentStatus === "PAYFAST_PAID" ? "PayFast confirmed the Seeker payment. Your Provider payout is pending; AnySkill has not recorded a bank transfer." : "The simulated payment and payout were recorded for testing only. No real money moved."}</Text>
             </View> : <View style={s.offerCard}>
-              <Text style={s.meta}>Awaiting the Seeker's payment simulation. Ratings unlock after payment is recorded.</Text>
+              <Text style={s.meta}>{job.paymentStatus === "PAYFAST_PENDING" ? "The Seeker has started PayFast checkout. Waiting for verified payment confirmation." : "Awaiting the Seeker's payment. Ratings unlock after payment is recorded."}</Text>
             </View>}
             {isPaymentConfirmed(job.paymentStatus) && job.seekerReview && job.review ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
             {isPaymentConfirmed(job.paymentStatus) && job.seekerReview ? <View style={s.offerCard}>
