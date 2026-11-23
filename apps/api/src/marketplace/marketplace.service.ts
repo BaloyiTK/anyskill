@@ -585,7 +585,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       where: { seekerId },
       orderBy: { createdAt: "desc" },
       include: {
-        jobEngagement: { include: { review: true, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } }, disputes: { orderBy: { createdAt: "desc" }, take: 1, include: { messages: { orderBy: { createdAt: "asc" }, include: { author: { select: { id: true } }, evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } } } } } },
+        jobEngagement: { include: { review: true, seekerReview: true, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } }, disputes: { orderBy: { createdAt: "desc" }, take: 1, include: { messages: { orderBy: { createdAt: "asc" }, include: { author: { select: { id: true } }, evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } } } } } },
         _count: { select: { matches: true } },
         providerResponses: {
           orderBy: { createdAt: "asc" },
@@ -1226,6 +1226,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       // from advancing the Provider from offer review into assessment.
       where: { providerId, response: { is: { providerId, status: "SELECTED" } } }, orderBy: { updatedAt: "desc" },
       include: {
+        review: true,
         seekerReview: true,
         request: {
           select: {
