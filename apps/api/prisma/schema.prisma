@@ -549,6 +549,7 @@ model SavedPaymentMethod {
   status             String   @default("ACTIVE") @db.VarChar(20)
   isDefault          Boolean  @default(false) @map("is_default")
   consentAt          DateTime @map("consent_at")
+  consentVersion     String   @default("ANY_SKILL_CARD_ON_FILE_V1") @map("consent_version") @db.VarChar(40)
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
   user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
