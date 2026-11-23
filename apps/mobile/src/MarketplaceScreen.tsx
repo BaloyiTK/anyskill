@@ -2019,6 +2019,8 @@ export function MarketplaceScreen(p: Props) {
             </View> : null}
             {job.request.instructions ? <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 9 }}>Instructions: {job.request.instructions}</Text> : null}
             <Text style={{ color: "#66756D", fontSize: 12, marginTop: 12 }}>Agreed rate: R {Number(job.hourlyRate).toFixed(2)} / hour · Assessment fee: R {Number(job.assessmentFee).toFixed(2)}</Text>
+            {job.status === "ESTIMATE_APPROVED" ? <Pressable onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 16, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{jobActionBusy ? "Starting work..." : "Start work"}</Text></Pressable> : null}
+            {job.status === "IN_PROGRESS" ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 13, marginTop: 14 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>✓ Work has started</Text></View> : null}
           </View>
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
             <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SKILL SEEKER</Text>
