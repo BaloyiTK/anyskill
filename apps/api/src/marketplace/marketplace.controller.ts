@@ -202,6 +202,12 @@ export class MarketplaceController {
     return this.marketplace.submitJobCompletion(user.id, requestId, dto);
   }
 
+  @Post("marketplace/requests/:requestId/payment/simulate")
+  @RequireMarketplaceRole("SEEKER")
+  simulateJobPayment(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.simulateJobPayment(user.id, requestId);
+  }
+
   @Post("marketplace/requests/:requestId/completion/:submissionId/decision")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("SEEKER_REVIEW_COMPLETION")
