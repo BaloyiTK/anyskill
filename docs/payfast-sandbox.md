@@ -20,8 +20,8 @@ PAYFAST_MERCHANT_ID="your-8-digit-sandbox-merchant-id"
 PAYFAST_MERCHANT_KEY="your-sandbox-merchant-key"
 PAYFAST_PASSPHRASE="your-sandbox-passphrase"
 PAYFAST_PUBLIC_API_URL="https://your-public-https-api-host"
-PAYFAST_RETURN_URL="https://your-public-app-host/payments/payfast/return"
-PAYFAST_CANCEL_URL="https://your-public-app-host/payments/payfast/cancel"
+PAYFAST_RETURN_URL="https://your-public-https-api-host/api/v1/marketplace/payments/payfast/return"
+PAYFAST_CANCEL_URL="https://your-public-https-api-host/api/v1/marketplace/payments/payfast/cancel"
 PAYFAST_TOKEN_ENCRYPTION_KEY="a-random-secret-of-at-least-32-characters"
 ```
 
