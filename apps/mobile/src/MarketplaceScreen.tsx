@@ -13,6 +13,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
 
 type Mode = "seeker" | "provider";
+type SavedPaymentMethod = { id: string; provider: string; cardBrand: string | null; lastFour: string | null; status: string; isDefault: boolean; createdAt: string };
+const isPaymentConfirmed = (status?: string) => status === "SIMULATED_PAID" || status === "PAYFAST_PAID";
 type RequestItem = {
   id: string;
   title: string;
@@ -134,6 +136,8 @@ export function MarketplaceScreen(p: Props) {
   const [ratingDraft, setRatingDraft] = useState<{requestId:string;skillRating:number;platformRating:number;comment:string}|null>(null);
   const [seekerRatingDraft, setSeekerRatingDraft] = useState<{requestId:string;rating:number;comment:string}|null>(null);
   const [jobActionBusy, setJobActionBusy] = useState(false);
+  const [savedPaymentMethods, setSavedPaymentMethods] = useState<SavedPaymentMethod[]>([]);
+  const [saveCardForNextTime, setSaveCardForNextTime] = useState(false);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [skillSuggestions, setSkillSuggestions] = useState<Array<{name:string;providerCount:number}>>([]);
@@ -227,9 +231,18 @@ export function MarketplaceScreen(p: Props) {
     finally { setBusy(false); }
   }, []);
 
+  const loadSavedPaymentMethods = useCallback(async () => {
+    try {
+      const methods = await apiRequest<SavedPaymentMethod[]>("/marketplace/payment-methods", {}, true);
+      setSavedPaymentMethods(methods);
+    } catch {
+      setSavedPaymentMethods([]);
+    }
+  }, []);
+
   useEffect(() => {
-    if (p.mode === "seeker") { void loadMyRequests(); void loadHomeLocation(); void searchSkills(""); }
-  }, [p.mode, loadMyRequests, searchSkills]);
+    if (p.mode === "seeker") { void loadMyRequests(); void loadHomeLocation(); void searchSkills(""); void loadSavedPaymentMethods(); }
+  }, [p.mode, loadMyRequests, loadSavedPaymentMethods, searchSkills]);
 
   useEffect(() => {
     if (p.mode !== "seeker") return;
@@ -877,14 +890,37 @@ export function MarketplaceScreen(p: Props) {
     finally { setJobActionBusy(false); }
   };
 
-  const simulateJobPayment = async (requestId: string) => {
+  const startPayFastPayment = async (requestId: string) => {
     setJobActionBusy(true); setError(""); setNotice("");
     try {
-      const result = await apiRequest<{amount:string;paymentStatus:string;providerPayoutStatus:string}>("/marketplace/requests/" + requestId + "/payment/simulate", { method: "POST" }, true);
-      setNotice("SIMULATED PAYMENT SUCCESSFUL. R " + Number(result.amount).toFixed(2) + " recorded as paid and the simulated Provider payout marked as sent. No real money moved.");
-      await loadMyRequests();
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not simulate payment."); }
+      const result = await apiRequest<{checkoutUrl:string;amount:string;mode:string}>(
+        "/marketplace/requests/" + requestId + "/payment/payfast",
+        { method: "POST", body: JSON.stringify({ saveCard: saveCardForNextTime }) },
+        true,
+      );
+      setNotice("Opening PayFast sandbox checkout for R " + Number(result.amount).toFixed(2) + ". No real money will be charged.");
+      await Linking.openURL(result.checkoutUrl);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not start PayFast sandbox checkout."); }
     finally { setJobActionBusy(false); }
+  };
+
+  const payWithSavedCard = async (requestId: string, paymentMethodId: string) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      const result = await apiRequest<{status:string;amount:string}>(
+        "/marketplace/requests/" + requestId + "/payment/payfast/saved-card",
+        { method: "POST", body: JSON.stringify({ paymentMethodId }) },
+        true,
+      );
+      setNotice("PayFast sandbox charge submitted for R " + Number(result.amount).toFixed(2) + ". Waiting for PayFast's verified confirmation.");
+      await loadMyRequests();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not charge the saved card."); }
+    finally { setJobActionBusy(false); }
+  };
+
+  const refreshPaymentStatus = async () => {
+    await Promise.all([loadMyRequests(), loadSavedPaymentMethods()]);
+    setNotice("Payment status refreshed.");
   };
 
   const submitProviderRating = async (requestId: string) => {
@@ -1601,18 +1637,25 @@ export function MarketplaceScreen(p: Props) {
               </View>
             </View>) : null}
             {request.jobEngagement?.status === "COMPLETED" ? <>
-              <Text style={s.response}>Completion approved by you. The job is awaiting simulated payment before ratings.</Text>
+              <Text style={s.response}>Completion approved. Payment is the next step.</Text>
               <Text style={s.offerTitle}>Final approved amount: R {Number(request.jobEngagement.finalAmountDue ?? 0).toFixed(2)}</Text>
-              {request.jobEngagement.paymentStatus !== "SIMULATED_PAID" ? <View style={s.offerCard}>
-                <Text style={s.offerTitle}>Payment simulation</Text>
-                <Text style={s.meta}>This is a test-only payment. No real money will be charged or transferred.</Text>
-                <Primary label={jobActionBusy ? "Processing simulation..." : "Simulate payment & send Provider payout"} onPress={() => void simulateJobPayment(request.id)} disabled={jobActionBusy} />
+              {!isPaymentConfirmed(request.jobEngagement.paymentStatus) ? <View style={s.offerCard}>
+                <Text style={s.offerTitle}>PayFast sandbox payment</Text>
+                <Text style={s.meta}>Test environment only. No real money will be charged or transferred.</Text>
+                {savedPaymentMethods.filter((method) => method.status === "ACTIVE").map((method) => <Primary key={method.id} label={jobActionBusy ? "Processing..." : "Pay with saved card" + (method.cardBrand ? " · " + method.cardBrand : "") + (method.lastFour ? " •••• " + method.lastFour : "")} onPress={() => void payWithSavedCard(request.id, method.id)} disabled={jobActionBusy || request.jobEngagement?.paymentStatus === "PAYFAST_PENDING"} />)}
+                <Pressable onPress={() => setSaveCardForNextTime((value) => !value)} style={s.choiceRow}>
+                  <Text style={s.meta}>{saveCardForNextTime ? "☑" : "☐"} Save this card for future AnySkill payments</Text>
+                </Pressable>
+                <Primary label={jobActionBusy ? "Opening PayFast..." : "Continue to PayFast sandbox"} onPress={() => void startPayFastPayment(request.id)} disabled={jobActionBusy || request.jobEngagement?.paymentStatus === "PAYFAST_PENDING"} />
+                {request.jobEngagement.paymentStatus === "PAYFAST_PENDING" ? <Text style={s.meta}>Payment started. Complete the PayFast checkout, return here and refresh the status.</Text> : null}
+                <Secondary label="Refresh payment status" onPress={() => void refreshPaymentStatus()} />
               </View> : <View style={s.offerCard}>
-                <Text style={s.offerTitle}>Payment successful · SIMULATED</Text>
-                <Text style={s.meta}>Simulated Provider payout: {request.jobEngagement.providerPayoutStatus === "SIMULATED_SENT" ? "Marked as sent" : "Pending"}</Text>
-                <Text style={s.meta}>No real money moved. Both parties can now submit their ratings.</Text>
+                <Text style={s.offerTitle}>Payment confirmed · {request.jobEngagement.paymentStatus === "PAYFAST_PAID" ? "PAYFAST SANDBOX" : "SIMULATED"}</Text>
+                <Text style={s.meta}>Provider payout: {request.jobEngagement.providerPayoutStatus === "SIMULATED_SENT" ? "Simulated only" : "Pending. AnySkill has not marked a bank transfer as sent."}</Text>
+                <Text style={s.meta}>Both parties can now submit their ratings.</Text>
+                <Secondary label="Refresh payment status" onPress={() => void refreshPaymentStatus()} />
               </View>}
-              {request.jobEngagement.paymentStatus === "SIMULATED_PAID" && request.jobEngagement.review && request.jobEngagement.seekerReview ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
+              {isPaymentConfirmed(request.jobEngagement.paymentStatus) && request.jobEngagement.review && request.jobEngagement.seekerReview ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
               {request.jobEngagement.paymentStatus === "SIMULATED_PAID" && request.jobEngagement.review ? <View style={s.offerCard}>
                 <Text style={s.offerTitle}>Your submitted ratings</Text>
                 <Text style={s.meta}>{request.skillCategory}: {request.jobEngagement.review.skillRating}.0 ★ · Overall AnySkill: {request.jobEngagement.review.platformRating}.0 ★</Text>
@@ -1793,7 +1836,7 @@ export function MarketplaceScreen(p: Props) {
           {job.status === "COMPLETED" ? <>
             <Text style={s.response}>The Seeker approved this job's completion.</Text>
             <Text style={s.offerTitle}>Final approved amount: R {Number(job.finalAmountDue ?? 0).toFixed(2)}</Text>
-            {job.paymentStatus === "SIMULATED_PAID" ? <View style={s.offerCard}>
+            {isPaymentConfirmed(job.paymentStatus) ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Payment successful · SIMULATED</Text>
               <Text style={s.meta}>The Seeker recorded payment and your simulated payout is marked as sent. No real money moved.</Text>
             </View> : <View style={s.offerCard}>
