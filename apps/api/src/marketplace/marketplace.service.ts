@@ -1592,7 +1592,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (claimed.count !== 1) throw new ConflictException("The engagement changed while you were submitting the estimate. Refresh and try again.");
       const updated = await tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });
-      if (job.seekerId) await tx.appNotification.create({ data: { userId: job.seekerId, title: "Job estimate ready", body: `Your Provider submitted an estimate of R ${total.toFixed(2)} for ${hours.toString()} hours. Review and approve before work starts.`, data: { type: "ESTIMATE_SUBMITTED", requestId } } });
+      if (job.seekerId) {
+        const finalEstimateTotal = total.plus(job.assessmentFee).toDecimalPlaces(2);
+        await tx.appNotification.create({ data: { userId: job.seekerId, title: "Final price ready for approval", body: `Your Provider submitted a final price of R ${finalEstimateTotal.toFixed(2)}: R ${total.toFixed(2)} labour at your agreed rate of R ${job.hourlyRate.toFixed(2)}/hour, plus R ${job.assessmentFee.toFixed(2)} assessment fee. Review and approve before work starts.`, data: { type: "ESTIMATE_SUBMITTED", requestId } } });
+      }
       return updated;
     });
   }
