@@ -213,7 +213,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
             <Text style={styles.earningsAmount}>
               {dailyEarnings
                 ? new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(dailyEarnings.amount)
-                : "R0.00"}
+                : "—"}
             </Text>
           </View>
           <View style={styles.earningsIcon}>
@@ -222,7 +222,9 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
         </View>
         <View style={styles.earningsFooter}>
           <Text style={styles.earningsJobs}>
-            {dailyEarnings?.completedPaidJobs ?? 0} paid {dailyEarnings?.completedPaidJobs === 1 ? "job" : "jobs"} today
+            {dailyEarnings
+              ? `${dailyEarnings.completedPaidJobs} paid ${dailyEarnings.completedPaidJobs === 1 ? "job" : "jobs"} today`
+              : loading ? "Loading today's earnings…" : "Earnings unavailable"}
           </Text>
           <Text style={styles.earningsMode}>Simulated payouts</Text>
         </View>
