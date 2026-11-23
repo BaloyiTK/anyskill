@@ -341,31 +341,49 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getProviderDailyEarnings(providerId: string) {
-    // Count a job as earnings as soon as its simulated payment is recorded,
-    // using South African local-day boundaries rather than the server's timezone.
-    const now = new Date();
+    // South African local-day boundaries are independent of the API host timezone.
     const localDate = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Africa/Johannesburg",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
-    }).format(now);
+    }).format(new Date());
     const startOfDay = new Date(`${localDate}T00:00:00+02:00`);
     const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
-    const paidJobs = await this.prisma.jobEngagement.findMany({
-      where: {
-        providerId,
-        paymentStatus: "SIMULATED_PAID",
-        paymentSimulatedAt: { gte: startOfDay, lt: endOfDay },
-      },
-      select: { finalAmountDue: true },
-    });
-    const total = paidJobs.reduce((sum, job) => sum + Number(job.finalAmountDue ?? 0), 0);
+
+    // New records use the separate payout ledger. The legacy query keeps already-paid
+    // jobs visible until all existing data has naturally moved to ledger-backed payments.
+    const [payouts, legacyPaidJobs] = await Promise.all([
+      this.prisma.jobFinancialTransaction.findMany({
+        where: {
+          transactionType: "PROVIDER_PAYOUT",
+          mode: "SIMULATED",
+          status: "COMPLETED",
+          completedAt: { gte: startOfDay, lt: endOfDay },
+          engagement: { providerId },
+        },
+        select: { amount: true },
+      }),
+      this.prisma.jobEngagement.findMany({
+        where: {
+          providerId,
+          paymentStatus: "SIMULATED_PAID",
+          OR: [
+            { paymentSimulatedAt: { gte: startOfDay, lt: endOfDay } },
+            { paymentSimulatedAt: null, updatedAt: { gte: startOfDay, lt: endOfDay } },
+          ],
+          financialTransactions: { none: { transactionType: "PROVIDER_PAYOUT" } },
+        },
+        select: { finalAmountDue: true },
+      }),
+    ]);
+    const total = payouts.reduce((sum, payout) => sum + Number(payout.amount), 0)
+      + legacyPaidJobs.reduce((sum, job) => sum + Number(job.finalAmountDue ?? 0), 0);
     return {
       date: localDate,
       currency: "ZAR",
       amount: Number(total.toFixed(2)),
-      completedPaidJobs: paidJobs.length,
+      completedPaidJobs: payouts.length + legacyPaidJobs.length,
       paymentMode: "SIMULATED",
     };
   }
@@ -1551,6 +1569,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can make this payment.");
       if (job.status !== "COMPLETED" || job.finalAmountDue === null) throw new ConflictException("Approve the Provider's completion before making payment.");
+      if (!job.providerId) throw new ConflictException("This completed job has no assigned Provider and cannot be paid.");
       if (job.paymentStatus === "SIMULATED_PAID") throw new ConflictException("Simulated payment has already been completed.");
       const paidAt = new Date();
       const changed = await tx.jobEngagement.updateMany({
@@ -1558,10 +1577,42 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: { paymentStatus: "SIMULATED_PAID", paymentSimulatedAt: paidAt, providerPayoutStatus: "SIMULATED_SENT", providerPayoutSimulatedAt: paidAt },
       });
       if (changed.count !== 1) throw new ConflictException("Payment status changed. Refresh and try again.");
-      if (job.providerId) await tx.appNotification.create({
-        data: { userId: job.providerId, title: "Simulated payment sent", body: "The Seeker completed the simulated payment and the simulated Provider payout is marked as sent.", data: { type: "SIMULATED_PAYMENT_SENT", requestId } },
+
+      // Keep Seeker payment and Provider payout as separate, auditable financial events.
+      // SIMULATED mode is explicit: these records do not represent a real gateway transfer.
+      await tx.jobFinancialTransaction.createMany({
+        data: [
+          {
+            engagementId: job.id, transactionType: "SEEKER_PAYMENT", mode: "SIMULATED", status: "COMPLETED",
+            amount: job.finalAmountDue, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
+            idempotencyKey: `${job.id}:SEEKER_PAYMENT`, initiatedAt: paidAt, simulatedAt: paidAt, completedAt: paidAt,
+          },
+          {
+            engagementId: job.id, transactionType: "PROVIDER_PAYOUT", mode: "SIMULATED", status: "COMPLETED",
+            amount: job.finalAmountDue, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
+            idempotencyKey: `${job.id}:PROVIDER_PAYOUT`, initiatedAt: paidAt, simulatedAt: paidAt, completedAt: paidAt,
+          },
+        ],
       });
-      return { success: true, paymentStatus: "SIMULATED_PAID", providerPayoutStatus: "SIMULATED_SENT", amount: job.finalAmountDue.toFixed(2), simulatedAt: paidAt };
+      await tx.appNotification.create({
+        data: {
+          userId: job.providerId,
+          title: "Simulated payment recorded",
+          body: "The Seeker's simulated payment and your simulated payout have both been recorded in AnySkill.",
+          data: { type: "SIMULATED_PAYMENT_SENT", requestId },
+        },
+      });
+      return {
+        success: true,
+        paymentStatus: "SIMULATED_PAID",
+        providerPayoutStatus: "SIMULATED_SENT",
+        amount: job.finalAmountDue.toFixed(2),
+        simulatedAt: paidAt,
+        transactions: {
+          seekerPayment: { mode: "SIMULATED", status: "COMPLETED", amount: job.finalAmountDue.toFixed(2), completedAt: paidAt },
+          providerPayout: { mode: "SIMULATED", status: "COMPLETED", amount: job.finalAmountDue.toFixed(2), completedAt: paidAt },
+        },
+      };
     });
   }
 
