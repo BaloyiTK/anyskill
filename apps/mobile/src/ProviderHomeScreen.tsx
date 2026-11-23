@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiRequest } from "./api";
 import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
 
@@ -56,13 +56,11 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
     setLoading(true);
     setError("");
     try {
-      const [providerProfile, onboarding, earnings] = await Promise.all([
+      const [providerProfile, onboarding] = await Promise.all([
         apiRequest<ProviderProfile | null>("/marketplace/provider-profile", {}, true),
         apiRequest<{ skills?: Array<{ category?: string }> }>("/profile/onboarding", {}, true),
-        apiRequest<DailyEarnings>("/marketplace/provider-earnings/today", {}, true).catch(() => null),
       ]);
       setProfile(providerProfile);
-      setDailyEarnings(earnings);
       setOnboardingSkills((onboarding.skills ?? [])
         .map((item) => item.category?.trim() ?? "")
         .filter(Boolean));
@@ -74,6 +72,28 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const refreshEarnings = useCallback(async () => {
+    try {
+      const earnings = await apiRequest<DailyEarnings>("/marketplace/provider-earnings/today", {}, true);
+      setDailyEarnings(earnings);
+    } catch {
+      // Keep the last successful total visible if a temporary network error occurs.
+    }
+  }, []);
+
+  // Keep earnings current when a Seeker pays while the Provider Home is open.
+  useEffect(() => {
+    void refreshEarnings();
+    const interval = setInterval(() => { void refreshEarnings(); }, 30_000);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refreshEarnings();
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [refreshEarnings]);
 
   // Resume OS-managed location updates for Providers who are already online.
   useEffect(() => {
