@@ -29,3 +29,6 @@ CREATE INDEX "job_financial_transactions_transaction_type_status_completed_at_id
   ON "job_financial_transactions"("transaction_type", "status", "completed_at");
 CREATE INDEX "job_financial_transactions_engagement_id_created_at_idx"
   ON "job_financial_transactions"("engagement_id", "created_at");
+
+CREATE INDEX "job_engagements_provider_payment_simulated_at_idx"
+  ON "job_engagements"("provider_id", "payment_status", "payment_simulated_at");
