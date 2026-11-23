@@ -12,11 +12,13 @@ import { MarketplaceService } from "./marketplace.service";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
 import { LiveProviderMapService } from "./live-provider-map.service";
+import { PayFastService } from "./payfast.service";
+import { PayFastPublicController } from "./payfast-public.controller";
 
 @Module({
   imports: [DatabaseModule, IdentityModule, MarketplaceRolesModule, PassportModule, MailModule],
-  controllers: [MarketplaceController, PublicProviderDiscoveryController],
-  providers: [MarketplaceService, MediaService, GooglePlacesService, LiveProviderMapService, JwtAuthGuard, MarketplaceRoleGuard, StaffAccessGuard],
+  controllers: [MarketplaceController, PublicProviderDiscoveryController, PayFastPublicController],
+  providers: [MarketplaceService, MediaService, GooglePlacesService, LiveProviderMapService, PayFastService, JwtAuthGuard, MarketplaceRoleGuard, StaffAccessGuard],
   exports: [MediaService, MarketplaceService, LiveProviderMapService],
 })
 export class MarketplaceModule {}
