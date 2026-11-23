@@ -756,11 +756,18 @@ export function MarketplaceScreen(p: Props) {
   };
 
 
-  const pickCompletionEvidence = async () => {
+  const pickCompletionEvidence = async (source: "camera" | "library" = "library") => {
     if (completionEvidenceAssets.length >= 8) { setError("You can attach up to 8 photos."); return; }
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) { setError("Allow photo-library access to attach completion evidence."); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: 8 - completionEvidenceAssets.length, quality: 0.85 });
+    if (source === "camera") {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) { setError("Allow camera access to capture completion evidence."); return; }
+    } else {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) { setError("Allow photo-library access to attach completion evidence."); return; }
+    }
+    const result = source === "camera"
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.85 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsMultipleSelection: true, selectionLimit: 8 - completionEvidenceAssets.length, quality: 0.85 });
     if (result.canceled) return;
     setUploadingEvidence(true); setError(""); setNotice("");
     try {
@@ -848,7 +855,7 @@ export function MarketplaceScreen(p: Props) {
       await apiRequest("/marketplace/requests/" + requestId + "/completion", {
         method: "POST", body: JSON.stringify({ notes: completionNotes.trim(), evidenceAssetIds: completionEvidenceAssets.map((asset) => asset.id) }),
       }, true);
-      setNotice("Completion submitted with uploaded photo evidence. The Seeker must review and approve it.");
+      setNotice("Completion submitted. The Seeker must review and approve it.");
       setCompletionNotes(""); setCompletionEvidenceAssets([]); await loadMyJobs();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not submit job completion."); }
     finally { setJobActionBusy(false); }
@@ -1754,9 +1761,9 @@ export function MarketplaceScreen(p: Props) {
             <Text style={s.label}>Completion notes</Text>
             <TextInput value={completionNotes} onChangeText={setCompletionNotes} placeholder="Summarise the work completed, tests performed and any handover details..." multiline style={[s.input, s.multiline]} />
             <Text style={s.label}>Photo evidence (up to 8 photos, 10 MB each)</Text>
-            <Secondary label={uploadingEvidence ? "Uploading photos..." : "Choose photos"} onPress={() => void pickCompletionEvidence()} />
+            <View style={{ flexDirection: "row", gap: 8 }}><View style={{ flex: 1 }}><Secondary label="Capture photo" onPress={() => void pickCompletionEvidence("camera")} disabled={uploadingEvidence} /></View><View style={{ flex: 1 }}><Secondary label="Upload photos" onPress={() => void pickCompletionEvidence("library")} disabled={uploadingEvidence} /></View></View>
             {completionEvidenceAssets.map((asset) => <Text key={asset.id} style={s.meta}>✓ {asset.name} · {(asset.sizeBytes / 1024 / 1024).toFixed(1)} MB</Text>)}
-            <Primary label="Submit job completion" onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 || completionEvidenceAssets.length < 1} />
+            <Primary label="Submit job completion" onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20} />
           </> : null}
           {job.status === "COMPLETION_PENDING" ? <>
             <Text style={s.helper}>If you disagree with a completion review or need platform intervention, open a formal dispute. The job timer remains paused.</Text>
@@ -2059,7 +2066,7 @@ export function MarketplaceScreen(p: Props) {
                 <Text style={{ color: "#176B55", fontWeight: "900" }}>{uploadingEvidence ? "Uploading photos..." : "Choose photos"}</Text>
               </Pressable>
               {completionEvidenceAssets.map((asset) => <Text key={asset.id} style={{ color: "#53645A", fontSize: 11, marginTop: 6 }}>✓ {asset.name} · {(asset.sizeBytes / 1024 / 1024).toFixed(1)} MB</Text>)}
-              <Pressable onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 || completionEvidenceAssets.length < 1} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 || completionEvidenceAssets.length < 1 ? 0.45 : 1 }}>
+              <Pressable onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 || completionEvidenceAssets.length < 1} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 ? 0.45 : 1 }}>
                 <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{jobActionBusy ? "Submitting..." : "Work completed · Submit for review"}</Text>
               </Pressable>
             </> : null}
