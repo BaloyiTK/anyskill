@@ -866,6 +866,16 @@ export function MarketplaceScreen(p: Props) {
     finally { setJobActionBusy(false); }
   };
 
+  const simulateJobPayment = async (requestId: string) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      const result = await apiRequest<{amount:string;paymentStatus:string;providerPayoutStatus:string}>("/marketplace/requests/" + requestId + "/payment/simulate", { method: "POST" }, true);
+      setNotice("SIMULATED PAYMENT SUCCESSFUL. R " + Number(result.amount).toFixed(2) + " recorded as paid and the simulated Provider payout marked as sent. No real money moved.");
+      await loadMyRequests();
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not simulate payment."); }
+    finally { setJobActionBusy(false); }
+  };
+
   const submitProviderRating = async (requestId: string) => {
     if (!ratingDraft || ratingDraft.requestId !== requestId) return;
     setJobActionBusy(true); setError(""); setNotice("");
@@ -1580,13 +1590,22 @@ export function MarketplaceScreen(p: Props) {
               </View>
             </View>) : null}
             {request.jobEngagement?.status === "COMPLETED" ? <>
-              <Text style={s.response}>Completion approved by you. Job marked completed; payment is the next separate step.</Text>
+              <Text style={s.response}>Completion approved by you. The job is awaiting simulated payment before ratings.</Text>
               <Text style={s.offerTitle}>Final approved amount: R {Number(request.jobEngagement.finalAmountDue ?? 0).toFixed(2)}</Text>
-              {request.jobEngagement.review ? <View style={s.offerCard}>
+              {request.jobEngagement.paymentStatus !== "SIMULATED_PAID" ? <View style={s.offerCard}>
+                <Text style={s.offerTitle}>Payment simulation</Text>
+                <Text style={s.meta}>This is a test-only payment. No real money will be charged or transferred.</Text>
+                <Primary label={jobActionBusy ? "Processing simulation..." : "Simulate payment & send Provider payout"} onPress={() => void simulateJobPayment(request.id)} disabled={jobActionBusy} />
+              </View> : <View style={s.offerCard}>
+                <Text style={s.offerTitle}>Payment successful · SIMULATED</Text>
+                <Text style={s.meta}>Simulated Provider payout: {request.jobEngagement.providerPayoutStatus === "SIMULATED_SENT" ? "Marked as sent" : "Pending"}</Text>
+                <Text style={s.meta}>No real money moved. Both parties can now submit their ratings.</Text>
+              </View>}
+              {request.jobEngagement.paymentStatus === "SIMULATED_PAID" && request.jobEngagement.review ? <View style={s.offerCard}>
                 <Text style={s.offerTitle}>Your submitted ratings</Text>
                 <Text style={s.meta}>{request.skillCategory}: {request.jobEngagement.review.skillRating}.0 ★ · Overall AnySkill: {request.jobEngagement.review.platformRating}.0 ★</Text>
                 {request.jobEngagement.review.comment ? <Text style={s.body}>{request.jobEngagement.review.comment}</Text> : null}
-              </View> : <View style={s.offerCard}>
+              </View> : request.jobEngagement.paymentStatus === "SIMULATED_PAID" ? <View style={s.offerCard}>
                 <Text style={s.offerTitle}>Rate your Provider</Text>
                 <Text style={s.meta}>Rate the service skill and the Provider's overall experience on AnySkill separately.</Text>
                 {ratingDraft?.requestId !== request.id ? <Primary label="Rate this Provider" onPress={() => setRatingDraft({requestId:request.id,skillRating:5,platformRating:5,comment:""})} /> : <>
@@ -1597,7 +1616,7 @@ export function MarketplaceScreen(p: Props) {
                   <TextInput value={ratingDraft.comment} onChangeText={(comment) => setRatingDraft((draft) => draft ? {...draft,comment} : draft)} placeholder="Optional feedback about your experience..." multiline style={[s.input,s.multiline]} />
                   <Primary label="Submit ratings" onPress={() => void submitProviderRating(request.id)} disabled={jobActionBusy} />
                 </>}
-              </View>}
+              </View> : null}
             </> : null}
             {request.jobEngagement?.completionSubmissions.filter((submission) => submission.status === "REJECTED").map((submission) => <View key={submission.id} style={s.offerCard}>
               <Text style={s.meta}>Previous completion review: corrections requested</Text>
@@ -1760,13 +1779,19 @@ export function MarketplaceScreen(p: Props) {
             </> : null}
           </View> : null}
           {job.status === "COMPLETED" ? <>
-            <Text style={s.response}>The Seeker approved this job's completion. Payment is handled as a separate next step.</Text>
+            <Text style={s.response}>The Seeker approved this job's completion.</Text>
             <Text style={s.offerTitle}>Final approved amount: R {Number(job.finalAmountDue ?? 0).toFixed(2)}</Text>
-            {job.seekerReview ? <View style={s.offerCard}>
+            {job.paymentStatus === "SIMULATED_PAID" ? <View style={s.offerCard}>
+              <Text style={s.offerTitle}>Payment successful · SIMULATED</Text>
+              <Text style={s.meta}>The Seeker recorded payment and your simulated payout is marked as sent. No real money moved.</Text>
+            </View> : <View style={s.offerCard}>
+              <Text style={s.meta}>Awaiting the Seeker's payment simulation. Ratings unlock after payment is recorded.</Text>
+            </View>}
+            {job.paymentStatus === "SIMULATED_PAID" && job.seekerReview ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Your submitted rating of the Skill Seeker</Text>
               <Text style={s.meta}>{job.seekerReview.rating}.0 ★</Text>
               {job.seekerReview.comment ? <Text style={s.body}>{job.seekerReview.comment}</Text> : null}
-            </View> : <View style={s.offerCard}>
+            </View> : job.paymentStatus === "SIMULATED_PAID" ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Rate your Skill Seeker</Text>
               <Text style={s.meta}>Rate communication, cooperation, professionalism and reliability.</Text>
               {seekerRatingDraft?.requestId !== job.request.id ? <Primary label="Rate this Skill Seeker" onPress={() => setSeekerRatingDraft({requestId:job.request.id,rating:5,comment:""})} /> : <>
@@ -1775,7 +1800,7 @@ export function MarketplaceScreen(p: Props) {
                 <TextInput value={seekerRatingDraft.comment} onChangeText={(comment) => setSeekerRatingDraft((draft) => draft ? {...draft,comment} : draft)} placeholder="Optional feedback about working with this Seeker..." multiline style={[s.input,s.multiline]} />
                 <Primary label="Submit Seeker rating" onPress={() => void submitSeekerRating(job.request.id)} disabled={jobActionBusy} />
               </>}
-            </View>}
+            </View> : null}
           </> : null}
           {job.completionSubmissions.map((submission) => <View key={submission.id} style={s.offerCard}>
             <Text style={s.meta}>Completion submission · {submission.status} · {new Date(submission.submittedAt).toLocaleString()}</Text>
