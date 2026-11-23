@@ -357,12 +357,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       this.prisma.jobFinancialTransaction.findMany({
         where: {
           transactionType: "PROVIDER_PAYOUT",
-          mode: "SIMULATED",
-          status: "COMPLETED",
-          completedAt: { gte: startOfDay, lt: endOfDay },
           engagement: { providerId },
+          OR: [
+            { mode: "SIMULATED", status: "COMPLETED", completedAt: { gte: startOfDay, lt: endOfDay } },
+            { mode: "PAYFAST_SANDBOX", status: "PENDING", initiatedAt: { gte: startOfDay, lt: endOfDay } },
+          ],
         },
-        select: { amount: true },
+        select: { amount: true, mode: true },
       }),
       this.prisma.jobEngagement.findMany({
         where: {
@@ -384,7 +385,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       currency: "ZAR",
       amount: Number(total.toFixed(2)),
       completedPaidJobs: payouts.length + legacyPaidJobs.length,
-      paymentMode: "SIMULATED",
+      paymentMode: payouts.some((payout) => payout.mode === "PAYFAST_SANDBOX")
+        ? (payouts.some((payout) => payout.mode === "SIMULATED") || legacyPaidJobs.length > 0 ? "MIXED" : "PAYFAST_SANDBOX")
+        : "SIMULATED",
     };
   }
 
