@@ -355,7 +355,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const paidJobs = await this.prisma.jobEngagement.findMany({
       where: {
         providerId,
-        status: "COMPLETED",
         paymentStatus: "SIMULATED_PAID",
         paymentSimulatedAt: { gte: startOfDay, lt: endOfDay },
       },
