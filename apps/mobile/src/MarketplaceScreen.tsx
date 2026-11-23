@@ -36,7 +36,7 @@ type JobAdjustment = { id: string; requestedHours: string | number; requestedAmo
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
 type DisputeMessage = { id: string; author: { id: string }; body: string; createdAt: string; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}> };
 type JobDispute = { id: string; status: string; reason: string; resolutionNote: string | null; resolvedAt: string | null; messages: DisputeMessage[] };
-type JobEngagement = { id: string; providerId?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; providerArrivedAt?: string | null; assessmentStartedAt?: string | null; assessmentCompletedAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
+type JobEngagement = { id: string; providerId?: string | null; assessmentDraftHours?: string | number | null; assessmentDraftNotes?: string | null; assessmentDraftUpdatedAt?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; providerArrivedAt?: string | null; assessmentStartedAt?: string | null; assessmentCompletedAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
 type ProviderJob = JobEngagement & {
   responseId: string;
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
@@ -115,6 +115,8 @@ export function MarketplaceScreen(p: Props) {
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const [estimateHours, setEstimateHours] = useState("2");
   const [estimateNotes, setEstimateNotes] = useState("");
+  const [assessmentDraftSaveStatus, setAssessmentDraftSaveStatus] = useState("Not saved yet");
+  const assessmentDraftHydratedRequestIdRef = useRef<string | null>(null);
   const [estimateDecisionNoteDraft, setEstimateDecisionNoteDraft] = useState("");
   const [extraHours, setExtraHours] = useState("1");
   const [extraReason, setExtraReason] = useState("");
@@ -1058,10 +1060,23 @@ export function MarketplaceScreen(p: Props) {
     }
   };
 
-  const updateAssessmentStage = async (requestId: string, action: "start" | "complete") => {
+  const persistAssessmentDraft = async (requestId: string) => {
+    const hours = Number(estimateHours);
+    const estimatedHours = Number.isFinite(hours) && hours >= 0.25 ? hours : null;
+    const result = await apiRequest<{success:boolean;requestId:string}>(
+      "/marketplace/requests/" + requestId + "/assessment/draft",
+      { method: "PATCH", body: JSON.stringify({ estimatedHours, notes: estimateNotes }) },
+      true,
+    );
+    if (!result.success || result.requestId !== requestId) throw new Error("Assessment draft could not be saved. Please try again.");
+    setAssessmentDraftSaveStatus("Saved");
+  };
+
+  const updateAssessmentStage = async (requestId: string, action: "start" | "complete") => {  const updateAssessmentStage = async (requestId: string, action: "start" | "complete") => {
     if (jobActionBusy) return;
     setJobActionBusy(true); setError(""); setNotice("");
     try {
+      if (action === "complete") await persistAssessmentDraft(requestId);
       const result = await apiRequest<{success:boolean;requestId:string;assessmentStartedAt?:string;assessmentCompletedAt?:string}>(
         "/marketplace/requests/" + requestId + "/assessment/" + action,
         { method: "POST" }, true,
@@ -1099,6 +1114,40 @@ export function MarketplaceScreen(p: Props) {
   };
 
   useEffect(() => {
+    if (p.mode !== "provider") {
+      assessmentDraftHydratedRequestIdRef.current = null;
+      return;
+    }
+    const activeJob = myJobs.find((job) => job.request.id === activeProviderJobId);
+    if (!activeJob || assessmentDraftHydratedRequestIdRef.current === activeJob.request.id) return;
+    assessmentDraftHydratedRequestIdRef.current = activeJob.request.id;
+    setEstimateHours(activeJob.assessmentDraftHours == null ? "2" : String(activeJob.assessmentDraftHours));
+    setEstimateNotes(activeJob.assessmentDraftNotes ?? "");
+    setAssessmentDraftSaveStatus(activeJob.assessmentDraftUpdatedAt ? "Draft restored" : "Not saved yet");
+  }, [p.mode, myJobs, activeProviderJobId]);
+
+  useEffect(() => {
+    if (p.mode !== "provider" || !activeProviderJobId) return;
+    const activeJob = myJobs.find((job) => job.request.id === activeProviderJobId);
+    if (!activeJob || activeJob.status !== "ASSESSMENT_PENDING" || !activeJob.assessmentStartedAt || activeJob.assessmentCompletedAt) return;
+    const timer = setTimeout(() => {
+      const hours = Number(estimateHours);
+      const estimatedHours = Number.isFinite(hours) && hours >= 0.25 ? hours : null;
+      setAssessmentDraftSaveStatus("Saving…");
+      void apiRequest<{success:boolean;assessmentDraftUpdatedAt:string}>(
+        "/marketplace/requests/" + activeProviderJobId + "/assessment/draft",
+        { method: "PATCH", body: JSON.stringify({ estimatedHours, notes: estimateNotes }) },
+        true,
+      ).then((result) => {
+        if (result.success) setAssessmentDraftSaveStatus("Saved " + new Date(result.assessmentDraftUpdatedAt).toLocaleTimeString());
+      }).catch(() => setAssessmentDraftSaveStatus("Save failed — check your connection"));
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [p.mode, activeProviderJobId, myJobs, estimateHours, estimateNotes]);
+
+  useEffect(() => {
+    if (p.mode !== "provider") return;
+    hasLoadedIncomingRequestsRef.current = false;  useEffect(() => {
     if (p.mode !== "provider") return;
     hasLoadedIncomingRequestsRef.current = false;
     void loadRequests(); void loadProviderProfile(); void loadMyJobs();
@@ -1963,6 +2012,7 @@ export function MarketplaceScreen(p: Props) {
                 <Text style={{ color: "#66756D", fontSize: 11, marginTop: 6 }}>Estimated labour total: R {Number(estimateHours) > 0 && Number.isFinite(Number(estimateHours)) ? (Number(estimateHours) * Number(job.hourlyRate)).toFixed(2) : "—"} at R {Number(job.hourlyRate).toFixed(2)} per hour</Text>
                 <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>Assessment findings and work required</Text>
                 <TextInput value={estimateNotes} onChangeText={setEstimateNotes} placeholder="Describe what you found, the work required, materials or parts needed, and any assumptions..." multiline style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 11, minHeight: 110, padding: 12, color: "#15251E", textAlignVertical: "top", marginTop: 6 }} />
+                {job.status === "ASSESSMENT_PENDING" && !!job.assessmentStartedAt && !job.assessmentCompletedAt ? <Text style={{ color: assessmentDraftSaveStatus.startsWith("Save failed") ? "#B42318" : "#66756D", fontSize: 11, marginTop: 7 }}>Assessment draft: {assessmentDraftSaveStatus}. Hours and notes save automatically and are restored when you reopen the app.</Text> : null}
                 {job.status === "ASSESSMENT_PENDING" && !job.assessmentCompletedAt ? <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 8 }}>Record your findings and estimated hours while assessing. When you are finished, tap Assessment Done below; you can then submit the estimate for the Seeker's approval.</Text> : <Pressable onPress={() => void submitEstimate(job.request.id)} disabled={jobActionBusy || !(Number(estimateHours) > 0) || !Number.isFinite(Number(estimateHours)) || estimateNotes.trim().length < 10} style={{ backgroundColor: "#176B55", opacity: jobActionBusy || !(Number(estimateHours) > 0) || !Number.isFinite(Number(estimateHours)) || estimateNotes.trim().length < 10 ? 0.45 : 1, borderRadius: 12, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 10 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Submitting..." : "Submit assessment estimate"}</Text></Pressable>}
               </> : null}
               {job.status === "ESTIMATE_SUBMITTED" ? <Text style={{ color: "#66756D", fontSize: 11, marginTop: 9 }}>Submitted estimate: {job.estimatedHours == null ? "—" : Number(job.estimatedHours).toFixed(2) + " hours"} · R {job.estimatedTotal == null ? "—" : Number(job.estimatedTotal).toFixed(2)}</Text> : null}

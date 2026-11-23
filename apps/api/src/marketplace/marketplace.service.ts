@@ -869,6 +869,32 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async saveAssessmentDraft(providerId: string, requestId: string, input: { estimatedHours?: number | null; notes?: string }) {
+    const job = await this.prisma.jobEngagement.findUnique({
+      where: { requestId },
+      select: { id: true, providerId: true, status: true, assessmentStartedAt: true },
+    });
+    if (!job) throw new NotFoundException("Selected job not found.");
+    if (job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can edit this assessment.");
+    if (job.status !== "ASSESSMENT_PENDING" || !job.assessmentStartedAt) {
+      throw new ConflictException("Assessment drafts can only be saved while an assessment is in progress.");
+    }
+    if (input.estimatedHours !== undefined && input.estimatedHours !== null && (!Number.isFinite(input.estimatedHours) || input.estimatedHours < 0.25 || input.estimatedHours > 10000)) {
+      throw new BadRequestException("Estimated hours must be between 0.25 and 10000.");
+    }
+    const updatedAt = new Date();
+    const changed = await this.prisma.jobEngagement.updateMany({
+      where: { id: job.id, providerId, status: "ASSESSMENT_PENDING", assessmentStartedAt: { not: null }, assessmentCompletedAt: null },
+      data: {
+        ...(input.estimatedHours !== undefined ? { assessmentDraftHours: input.estimatedHours === null ? null : new Prisma.Decimal(input.estimatedHours) } : {}),
+        ...(input.notes !== undefined ? { assessmentDraftNotes: input.notes.trim() || null } : {}),
+        assessmentDraftUpdatedAt: updatedAt,
+      },
+    });
+    if (changed.count !== 1) throw new ConflictException("The assessment changed while saving. Refresh and try again.");
+    return { success: true, requestId, assessmentDraftHours: input.estimatedHours, assessmentDraftNotes: input.notes?.trim() || null, assessmentDraftUpdatedAt: updatedAt };
+  }
+
   async completeAssessment(providerId: string, requestId: string) {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({
@@ -1562,7 +1588,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const submittedAt = new Date();
       const claimed = await tx.jobEngagement.updateMany({
         where: { id: job.id, providerId, status: job.status },
-        data: { estimatedHours: hours, estimatedTotal: total, estimateNotes: input.notes.trim(), estimateSubmittedAt: submittedAt, estimateDecisionNote: null, status: "ESTIMATE_SUBMITTED" },
+        data: { estimatedHours: hours, estimatedTotal: total, estimateNotes: input.notes.trim(), assessmentDraftHours: null, assessmentDraftNotes: null, assessmentDraftUpdatedAt: null, estimateSubmittedAt: submittedAt, estimateDecisionNote: null, status: "ESTIMATE_SUBMITTED" },
       });
       if (claimed.count !== 1) throw new ConflictException("The engagement changed while you were submitting the estimate. Refresh and try again.");
       const updated = await tx.jobEngagement.findUniqueOrThrow({ where: { id: job.id } });

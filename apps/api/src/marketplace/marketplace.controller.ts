@@ -19,7 +19,7 @@ import { StaffAccessGuard, RequireStaffRole } from "./staff-access.guard";
 import { StaffRole } from "@prisma/client";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
-import { IsInt, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsInt, IsNumber, IsString, Max, MaxLength, Min } from "class-validator";
 
 class CreateMediaUploadDto {
   @IsString() @MaxLength(255) fileName!: string;
@@ -29,6 +29,13 @@ class CreateMediaUploadDto {
 }
 class ConfirmMediaUploadDto { @IsString() @MaxLength(64) assetId!: string; }
 class SendServiceChatMessageDto { @IsString() @MaxLength(2000) body!: string; }
+class SaveAssessmentDraftDto {
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.25) @Max(10000)
+  estimatedHours?: number | null;
+
+  @IsOptional() @IsString() @MaxLength(2000)
+  notes?: string;
+}
 
 class CursorQuery {
   @IsOptional()
@@ -237,7 +244,15 @@ export class MarketplaceController {
     return this.marketplace.startAssessment(user.id, requestId);
   }
 
-  @Post("marketplace/requests/:requestId/assessment/complete")
+  @Patch("marketplace/requests/:requestId/assessment/draft")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireIdentityFor("PROVIDER_ACCEPT_REQUEST")
+  @RequireMarketplaceRole("PROVIDER")
+  saveAssessmentDraft(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: SaveAssessmentDraftDto) {
+    return this.marketplace.saveAssessmentDraft(user.id, requestId, dto);
+  }
+
+  @Post("marketplace/requests/:requestId/assessment/complete")  @Post("marketplace/requests/:requestId/assessment/complete")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("PROVIDER_ACCEPT_REQUEST")
   @RequireMarketplaceRole("PROVIDER")
