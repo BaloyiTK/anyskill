@@ -1457,6 +1457,7 @@ export default function App() {
           />}
 
           {screen === "marketplace" && account && <MarketplaceScreen
+        platformHeader={platformHeader}
         mode={mode}
         verified={verified}
         pendingRequestId={pendingAcceptRequestId}
