@@ -2099,7 +2099,8 @@ export function MarketplaceScreen(p: Props) {
             const assessmentDone = !!journeyScreen?.assessmentCompletedAt || ["ESTIMATE_SUBMITTED","ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(status);
             const estimateSent = ["ESTIMATE_SUBMITTED","ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(status);
             const approved = ["ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(status);
-            const workStarted = ["IN_PROGRESS","COMPLETION_PENDING","COMPLETED","DISPUTED"].includes(status);\n            const done = index === 0 || (index === 1 && assessmentDone) || (index === 2 && estimateSent) || (index === 3 && approved) || (index === 4 && workStarted);
+            const workStarted = ["IN_PROGRESS","COMPLETION_PENDING","COMPLETED","DISPUTED"].includes(status);
+            const done = index === 0 || (index === 1 && assessmentDone) || (index === 2 && estimateSent) || (index === 3 && approved) || (index === 4 && workStarted);
             const current = index === 0 ? !journeyScreen?.providerArrivedAt : index === 1 ? !!journeyScreen?.assessmentStartedAt && !assessmentDone : index === 2 ? assessmentDone && !estimateSent : index === 3 ? status === "ESTIMATE_SUBMITTED" : status === "ESTIMATE_APPROVED";
             const label = index === 1 ? (assessmentDone ? "Assessment done" : journeyScreen?.assessmentStartedAt ? "Assessing" : "Assessment pending") : index === 2 ? (estimateSent ? "Final estimate submitted" : "Final estimate pending") : index === 3 ? (approved ? "Price approved" : status === "ESTIMATE_SUBMITTED" ? "Approve final price" : "Approval pending") : index === 4 && workStarted ? "Work started" : step;
             return <View key={step} style={{ flexDirection: "row", alignItems: "center", marginTop: 11 }}>
