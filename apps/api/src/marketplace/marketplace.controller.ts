@@ -1,7 +1,7 @@
 import {
-  BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
+  BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards,
 } from "@nestjs/common";
-import { IsOptional, IsUUID } from "class-validator";
+import { IsBoolean, IsOptional, IsUUID } from "class-validator";
 import { CurrentUser, AuthenticatedUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MarketplaceAccessGuard, RequireIdentityFor } from "../identity/marketplace-access.guard";
@@ -19,9 +19,10 @@ import { StaffAccessGuard, RequireStaffRole } from "./staff-access.guard";
 import { StaffRole } from "@prisma/client";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
+import { PayFastService } from "./payfast.service";
 import { IsInt, IsNumber, IsString, Max, MaxLength, Min } from "class-validator";
 
-class CreateMediaUploadDto {
+class StartPayFastCheckoutDto {\n  @IsOptional() @IsBoolean() saveCard?: boolean;\n}\nclass ChargeSavedCardDto {\n  @IsString() @MaxLength(64) paymentMethodId!: string;\n}\n\nclass CreateMediaUploadDto {
   @IsString() @MaxLength(255) fileName!: string;
   @IsString() @MaxLength(100) contentType!: string;
   @IsOptional() @IsString() purpose?: "JOB_COMPLETION_EVIDENCE" | "JOB_DISPUTE_EVIDENCE";
@@ -46,7 +47,7 @@ class CursorQuery {
 @Controller()
 @UseGuards(JwtAuthGuard, MarketplaceRoleGuard)
 export class MarketplaceController {
-  constructor(private readonly marketplace: MarketplaceService, private readonly media: MediaService) {}
+  constructor(private readonly marketplace: MarketplaceService, private readonly media: MediaService, private readonly payfast: PayFastService) {}
 
   @Get("profile/location/home")
   getHomeLocation(@CurrentUser() user: AuthenticatedUser) { return this.marketplace.getHomeLocation(user.id); }
@@ -200,6 +201,41 @@ export class MarketplaceController {
   @RequireMarketplaceRole("PROVIDER")
   submitJobCompletion(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Body() dto: SubmitJobCompletionDto) {
     return this.marketplace.submitJobCompletion(user.id, requestId, dto);
+  }
+
+  @Post("marketplace/requests/:requestId/payment/payfast")
+  @RequireMarketplaceRole("SEEKER")
+  startPayFastCheckout(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Body() dto: StartPayFastCheckoutDto,
+  ) {
+    return this.payfast.createJobCheckout(user.id, requestId, dto.saveCard === true);
+  }
+
+  @Post("marketplace/requests/:requestId/payment/payfast/saved-card")
+  @RequireMarketplaceRole("SEEKER")
+  chargeSavedPayFastCard(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Body() dto: ChargeSavedCardDto,
+  ) {
+    return this.payfast.chargeSavedCard(user.id, requestId, dto.paymentMethodId);
+  }
+
+  @Get("marketplace/payment-methods")
+  @RequireMarketplaceRole("SEEKER")
+  listSavedPaymentMethods(@CurrentUser() user: AuthenticatedUser) {
+    return this.payfast.listSavedPaymentMethods(user.id);
+  }
+
+  @Delete("marketplace/payment-methods/:paymentMethodId")
+  @RequireMarketplaceRole("SEEKER")
+  removeSavedPaymentMethod(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("paymentMethodId", new ParseUUIDPipe()) paymentMethodId: string,
+  ) {
+    return this.payfast.removeSavedPaymentMethod(user.id, paymentMethodId);
   }
 
   @Post("marketplace/requests/:requestId/payment/simulate")
