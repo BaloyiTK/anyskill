@@ -2071,6 +2071,8 @@ export function MarketplaceScreen(p: Props) {
                 </Pressable>
               </View>
               {completionEvidenceAssets.map((asset) => <Text key={asset.id} style={{ color: "#53645A", fontSize: 11, marginTop: 6 }}>✓ {asset.name} · {(asset.sizeBytes / 1024 / 1024).toFixed(1)} MB</Text>)}
+              {error ? <Text accessibilityRole="alert" style={{ color: "#B42318", backgroundColor: "#FEF3F2", borderRadius: 10, padding: 11, fontSize: 12, lineHeight: 18, marginTop: 10 }}>{error}</Text> : null}
+              {notice ? <Text style={{ color: "#176B55", backgroundColor: "#EAF4EE", borderRadius: 10, padding: 11, fontSize: 12, lineHeight: 18, marginTop: 10 }}>{notice}</Text> : null}
               <Pressable onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20 ? 0.45 : 1 }}>
                 <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{jobActionBusy ? "Submitting..." : "Work completed · Submit for review"}</Text>
               </Pressable>
