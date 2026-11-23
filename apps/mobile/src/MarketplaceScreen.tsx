@@ -1749,7 +1749,7 @@ export function MarketplaceScreen(p: Props) {
             <Primary label="Request additional hours" onPress={() => void requestExtraHours(job.request.id)} disabled={jobActionBusy || !(Number(extraHours) > 0) || extraReason.trim().length < 10} />
           </> : null}
           {job.adjustments.map((adjustment) => <Text key={adjustment.id} style={s.meta}>Extra hours request: {Number(adjustment.requestedHours).toFixed(2)} · R {Number(adjustment.requestedAmount).toFixed(2)} · {adjustment.status}</Text>)}
-{job.status === "IN_PROGRESS" && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
+{job.status === "IN_PROGRESS" ? <>
             <Text style={s.helper}>When the agreed work is finished, submit completion notes and photo evidence. The Seeker must approve before the job is marked completed.</Text>
             <Text style={s.label}>Completion notes</Text>
             <TextInput value={completionNotes} onChangeText={setCompletionNotes} placeholder="Summarise the work completed, tests performed and any handover details..." multiline style={[s.input, s.multiline]} />
