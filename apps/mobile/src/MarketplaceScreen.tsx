@@ -90,7 +90,7 @@ export function MarketplaceScreen(p: Props) {
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [autoOpenedOfferIds, setAutoOpenedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
-  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;providerEnRouteAt:string|null;providerArrivedAt:string|null;assessmentStartedAt:string|null;assessmentCompletedAt:string|null;engagementStatus:string;estimatedTotal:number|null;estimatedHours:number|null;estimateNotes:string|null;hourlyRate:number|null;assessmentFee:number|null}|null>(null);
+  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;providerEnRouteAt:string|null;providerArrivedAt:string|null;assessmentStartedAt:string|null;assessmentCompletedAt:string|null;engagementStatus:string;estimatedTotal:number|null;estimatedHours:number|null;estimateNotes:string|null;hourlyRate:number|null;assessmentFee:number|null;completionSubmissions:CompletionSubmission[]}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
   // Keep tracking the exact offer after its review modal is dismissed. Selection can
   // happen later, and the selected job must still take priority over older jobs.
@@ -337,6 +337,7 @@ export function MarketplaceScreen(p: Props) {
                   providerArrivedAt: activeJourney.jobEngagement?.providerArrivedAt ?? null,
                   assessmentStartedAt: activeJourney.jobEngagement?.assessmentStartedAt ?? null,
                   assessmentCompletedAt: activeJourney.jobEngagement?.assessmentCompletedAt ?? null,
+                  completionSubmissions: activeJourney.jobEngagement?.completionSubmissions ?? [],
                   engagementStatus: activeJourney.jobEngagement?.status ?? "ASSESSMENT_PENDING",
                   estimatedTotal: activeJourney.jobEngagement?.estimatedTotal == null ? null : Number(activeJourney.jobEngagement.estimatedTotal),
                   estimatedHours: activeJourney.jobEngagement?.estimatedHours == null ? null : Number(activeJourney.jobEngagement.estimatedHours),
@@ -656,6 +657,7 @@ export function MarketplaceScreen(p: Props) {
         providerArrivedAt: null,
         assessmentStartedAt: null,
         assessmentCompletedAt: null,
+        completionSubmissions: [],
         engagementStatus: result.status,
         estimatedTotal: null,
         estimatedHours: null,
@@ -2149,6 +2151,21 @@ export function MarketplaceScreen(p: Props) {
           <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 18, marginTop: 8 }}>You already accepted the Provider's hourly rate and assessment fee when selecting the offer. This approval confirms the assessed hours, scope and resulting total price. The Provider cannot start the main work until you approve it.</Text>
           <Primary label="Approve final price" onPress={() => void decideEstimate(journeyScreen.requestId, true)} disabled={jobActionBusy} />
         </View> : null}
+        {journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? journeyScreen.completionSubmissions.filter((submission) => submission.status === "PENDING").map((submission) => <View key={submission.id} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#B9DCC8", borderRadius: 16, padding: 15, marginTop: 12 }}>
+          <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>WORK COMPLETION REVIEW</Text>
+          <Text style={{ color: "#15251E", fontSize: 18, fontWeight: "900", marginTop: 7 }}>Provider says the work is complete</Text>
+          <Text style={{ color: "#66756D", fontSize: 11, marginTop: 5 }}>Submitted {new Date(submission.submittedAt).toLocaleString()}</Text>
+          <Text style={{ color: "#15251E", fontSize: 14, lineHeight: 21, marginTop: 12 }}>{submission.notes}</Text>
+          {submission.evidenceAssets?.map((asset, index) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open evidence photo."); } }} style={{ marginTop: 10 }}><Text style={{ color: "#176B55", fontWeight: "800" }}>View photo evidence {index + 1} · {asset.originalName}</Text></Pressable>)}
+          {submission.evidenceUrls.map((url, index) => <Text key={url} style={{ color: "#66756D", fontSize: 11, marginTop: 6 }}>Legacy evidence link {index + 1}: {url}</Text>)}
+          <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 18, marginTop: 12 }}>Review the Provider's notes and any photos. Approving confirms the work is satisfactory. Payment remains a separate step.</Text>
+          <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>If requesting corrections, explain what still needs attention.</Text>
+          <TextInput value={completionReviewNote} onChangeText={setCompletionReviewNote} placeholder="Describe the work that needs correction (at least 10 characters)..." multiline style={{ borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 12, padding: 12, minHeight: 82, textAlignVertical: "top", marginTop: 7, color: "#15251E" }} />
+          <View style={{ gap: 10, marginTop: 12 }}>
+            <Primary label={jobActionBusy ? "Processing..." : "Approve work"} onPress={() => void reviewCompletion(journeyScreen.requestId, submission.id, true)} disabled={jobActionBusy} />
+            <Secondary label="Request corrections" onPress={() => { if (!jobActionBusy && completionReviewNote.trim().length >= 10) void reviewCompletion(journeyScreen.requestId, submission.id, false); }} />
+          </View>
+        </View>) : null}
         <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 15, marginTop: 12 }}>
           <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE PROGRESS</Text>
           {["Provider selected","Assessment","Final estimate","Your approval","Work authorised"].map((step,index) => {
