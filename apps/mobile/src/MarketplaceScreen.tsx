@@ -321,7 +321,7 @@ export function MarketplaceScreen(p: Props) {
               const selectedOffer = activeJourney.providerResponses.find((offer) => offer.status === "SELECTED");
               if (selectedOffer) {
                 const profile = selectedOffer.provider.providerProfile;
-                setJourneyScreen((current) => current?.requestId === activeJourney.id ? { ...current,
+                setJourneyScreen((current) => ({ ...(current?.requestId === activeJourney.id ? current : {}),
                   requestId: activeJourney.id,
                   responseId: selectedOffer.id,
                   title: activeJourney.title,
@@ -343,7 +343,7 @@ export function MarketplaceScreen(p: Props) {
                   estimateNotes: activeJourney.jobEngagement?.estimateNotes ?? null,
                   hourlyRate: selectedOffer.hourlyRateAtOffer == null ? null : Number(selectedOffer.hourlyRateAtOffer),
                   assessmentFee: selectedOffer.assessmentFeeAtOffer == null ? null : Number(selectedOffer.assessmentFeeAtOffer),
-                });
+                }));
               }
             } else {
               setJourneyScreen(null);
