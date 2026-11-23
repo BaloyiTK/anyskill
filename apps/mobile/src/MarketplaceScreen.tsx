@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import * as Notifications from "expo-notifications";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -54,6 +55,7 @@ type SeekerRequest = {
   }>;
 };
 type Props = {
+  platformHeader: ReactNode;
   mode: Mode;
   verified: boolean;
   pendingRequestId: string | null;
@@ -1886,8 +1888,8 @@ export function MarketplaceScreen(p: Props) {
     </ScrollView>
     <Modal visible={p.mode === "seeker" && matchingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => undefined}>
       <View style={{ flex: 1, backgroundColor: "#F6F8FA", paddingHorizontal: 22, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ color: "#0B2545", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
+        {p.platformHeader}
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }}>
           <Text style={{ color: "#1B5E20", fontSize: 11, fontWeight: "900" }}>REQUEST SUBMITTED</Text>
         </View>
         {matchingRequest ? (() => {
@@ -1989,6 +1991,7 @@ export function MarketplaceScreen(p: Props) {
     </Modal>
     <Modal visible={p.mode === "provider" && providerOfferReview !== null && providerOfferReview.status !== "SELECTED"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
       <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 24, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12, justifyContent: "center" }}>
+        {p.platformHeader}
         <View style={{ alignItems: "center" }}>
           <View style={{ width: 82, height: 82, borderRadius: 41, backgroundColor: providerOfferReview?.status === "SELECTED" ? "#DDF3E5" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "#FCE8E6" : "#E5F1EC", alignItems: "center", justifyContent: "center" }}>
             {providerOfferReview?.status === "OFFERED" ? <ActivityIndicator size="large" color="#176B55" /> : <Text style={{ color: "#176B55", fontSize: 34, fontWeight: "900" }}>{providerOfferReview?.status === "SELECTED" ? "✓" : "!"}</Text>}
@@ -2027,9 +2030,10 @@ export function MarketplaceScreen(p: Props) {
         if (!job) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F5F7F5" }}><ActivityIndicator color="#176B55" /><Text style={{ color: "#66756D", marginTop: 12 }}>Loading your accepted service...</Text></View>;
         const seekerName = [job.seeker?.firstName, job.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
         const destinationReady = job.request.latitude != null && job.request.longitude != null;
-        return <ScrollView style={{ flex: 1, backgroundColor: "#F5F7F5" }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }}>
+        return <ScrollView style={{ flex: 1, backgroundColor: "#F5F7F5" }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + 16 }}>
+          {p.platformHeader}
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>ANYSKILL · SERVICE WORKSPACE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? "Assessment required" : job.status === "ESTIMATE_SUBMITTED" ? "Estimate awaiting review" : job.status === "ESTIMATE_REJECTED" ? "Estimate revision required" : job.status === "ESTIMATE_APPROVED" ? "Ready to start work" : job.status === "IN_PROGRESS" ? "Service in progress" : job.status === "COMPLETION_PENDING" ? "Completion awaiting review" : job.status === "COMPLETED" ? "Service completed" : job.status === "CANCELLED" ? "Service cancelled" : "Selected service"}</Text></View>
+            <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>SERVICE WORKSPACE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? "Assessment required" : job.status === "ESTIMATE_SUBMITTED" ? "Estimate awaiting review" : job.status === "ESTIMATE_REJECTED" ? "Estimate revision required" : job.status === "ESTIMATE_APPROVED" ? "Ready to start work" : job.status === "IN_PROGRESS" ? "Service in progress" : job.status === "COMPLETION_PENDING" ? "Completion awaiting review" : job.status === "COMPLETED" ? "Service completed" : job.status === "CANCELLED" ? "Service cancelled" : "Selected service"}</Text></View>
             <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Minimise</Text></Pressable>
           </View>
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 18 }}>
@@ -2112,8 +2116,8 @@ export function MarketplaceScreen(p: Props) {
     </Modal>
     <Modal visible={journeyScreen !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setJourneyScreen(null)}>
       <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 22, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}>
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Text style={{ color: "#15251E", fontSize: 22, fontWeight: "900" }}>AnySkill</Text>
+        {p.platformHeader}
+        <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }}>
           <Pressable onPress={() => setJourneyScreen(null)}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
         </View>
         <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, marginTop: 28 }}>PROVIDER SELECTED</Text>
