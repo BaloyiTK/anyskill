@@ -45,7 +45,8 @@ const C = {
 };
 
 export function ProviderHomeScreen({ onManageProfile }: Props) {
-  const [profile, setProfile] = useState<ProviderProfile | null>(null);\n  const [dailyEarnings, setDailyEarnings] = useState<DailyEarnings | null>(null);
+  const [profile, setProfile] = useState<ProviderProfile | null>(null);
+  const [dailyEarnings, setDailyEarnings] = useState<DailyEarnings | null>(null);
   const [onboardingSkills, setOnboardingSkills] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
