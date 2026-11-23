@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiRequest } from "./api";
 
@@ -11,9 +12,9 @@ type IncomingRequest = {
   alreadyResponded: boolean;
   responseDeadlineAt: string | null;
 };
-type Props = { requestId: string | null; onClose: () => void; onAccepted: (requestId: string) => void };
+type Props = { platformHeader: ReactNode; requestId: string | null; onClose: () => void; onAccepted: (requestId: string) => void };
 
-export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props) {
+export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAccepted }: Props) {
   const [request, setRequest] = useState<IncomingRequest | null>(null);
   const [loading, setLoading] = useState(false);
   const [action, setAction] = useState<"accept" | "decline" | null>(null);
@@ -84,6 +85,7 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
 
   return <Modal visible={Boolean(requestId)} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose} statusBarTranslucent>
     <View style={styles.screen}>
+      {platformHeader}
       <Text style={styles.eyebrow}>ANYSKILL • INCOMING REQUEST</Text>
       <View style={styles.pulse}><Text style={styles.pulseIcon}>✦</Text></View>
       <Text style={styles.heading}>A service request is waiting</Text>
@@ -119,7 +121,7 @@ export function IncomingRequestScreen({ requestId, onClose, onAccepted }: Props)
 }
 
 const styles = StyleSheet.create({
-  screen:{flex:1,backgroundColor:"#123F32",paddingHorizontal:24,paddingTop:70,paddingBottom:34,justifyContent:"center"},
+  screen:{flex:1,backgroundColor:"#123F32",paddingHorizontal:24,paddingTop:12,paddingBottom:34,justifyContent:"center"},
   eyebrow:{color:"#BFE8D0",fontSize:11,fontWeight:"900",letterSpacing:2,textAlign:"center"},
   pulse:{width:86,height:86,borderRadius:43,backgroundColor:"#FFFFFF1C",alignSelf:"center",alignItems:"center",justifyContent:"center",marginTop:28,marginBottom:24,borderWidth:1,borderColor:"#FFFFFF55"},
   pulseIcon:{color:"#FFFFFF",fontSize:40,fontWeight:"800"},
