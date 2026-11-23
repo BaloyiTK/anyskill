@@ -105,6 +105,12 @@ async function bootstrap(): Promise<void> {
   mkdirSync(LOG_DIRECTORY, { recursive: true });
   appendFileSync(ERROR_LOG_FILE, "", { encoding: "utf8", mode: 0o600 });
   const app = await NestFactory.create(AppModule);
+  // Configure Express proxy trust explicitly so request.ip resolves the original
+  // PayFast ITN sender when the API is behind a known reverse-proxy/tunnel hop.
+  const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
+  if (Number.isInteger(trustProxyHops) && trustProxyHops >= 0) {
+    app.getHttpAdapter().getInstance().set("trust proxy", trustProxyHops);
+  }
 
   app.use((
     request: { method: string; originalUrl?: string; url: string; requestId?: string },
