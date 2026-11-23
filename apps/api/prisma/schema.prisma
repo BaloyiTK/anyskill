@@ -183,6 +183,8 @@ model User {
   disputesOpened            JobDispute[]                  @relation("JobDisputeOpenedBy")
   disputesResolved          JobDispute[]                  @relation("JobDisputeResolvedBy")
   disputeMessages           JobDisputeMessage[]
+  payfastCheckouts           PayFastCheckout[]
+  savedPaymentMethods        SavedPaymentMethod[]
 
   @@index([identityVerification])
   @@map("users")
@@ -477,6 +479,7 @@ model JobEngagement {
   seekerReview          SeekerReview?
   disputes              JobDispute[]
   financialTransactions JobFinancialTransaction[]
+  payfastCheckouts       PayFastCheckout[]
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@index([providerId, paymentStatus, paymentSimulatedAt])
@@ -507,6 +510,51 @@ model JobFinancialTransaction {
   @@index([transactionType, status, completedAt])
   @@index([engagementId, createdAt])
   @@map("job_financial_transactions")
+}
+
+
+model PayFastCheckout {
+  id                String        @id @default(uuid()) @db.Uuid
+  userId             String        @db.Uuid @map("user_id")
+  engagementId       String        @db.Uuid @map("engagement_id")
+  merchantPaymentId  String        @unique @map("merchant_payment_id") @db.VarChar(100)
+  mode               String        @default("SANDBOX") @db.VarChar(20)
+  amount             Decimal       @db.Decimal(10, 2)
+  currency           String        @default("ZAR") @db.VarChar(3)
+  status             String        @default("PENDING") @db.VarChar(30)
+  saveCard           Boolean       @default(false) @map("save_card")
+  externalPaymentId  String?       @map("external_payment_id") @db.VarChar(100)
+  createdAt          DateTime      @default(now()) @map("created_at")
+  completedAt        DateTime?     @map("completed_at")
+  failedAt           DateTime?     @map("failed_at")
+  failureReason      String?       @map("failure_reason") @db.VarChar(1000)
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  engagement         JobEngagement @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@index([engagementId, status, createdAt])
+  @@map("payfast_checkouts")
+}
+
+model SavedPaymentMethod {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @db.Uuid @map("user_id")
+  provider           String   @default("PAYFAST") @db.VarChar(30)
+  tokenHash          String   @unique @map("token_hash") @db.VarChar(64)
+  encryptedToken     String   @map("encrypted_token") @db.Text
+  tokenIv            String   @map("token_iv") @db.VarChar(32)
+  tokenAuthTag       String   @map("token_auth_tag") @db.VarChar(32)
+  cardBrand          String?  @map("card_brand") @db.VarChar(40)
+  lastFour           String?  @map("last_four") @db.VarChar(4)
+  status             String   @default("ACTIVE") @db.VarChar(20)
+  isDefault          Boolean  @default(false) @map("is_default")
+  consentAt          DateTime @map("consent_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("saved_payment_methods")
 }
 
 model SeekerReview {
