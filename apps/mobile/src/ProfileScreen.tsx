@@ -14,6 +14,13 @@ type ProviderProfile = {
   assessmentFee?: string | number | null;
   serviceAreas?: string[];
   isAvailable?: boolean;
+  skillCategories?: string[];
+  ratings?: {
+    overall: number;
+    overallReviewCount: number;
+    overallIsRated: boolean;
+    skills: Array<{ category: string; rating: number | null; reviewCount: number; displayRating: number; isRated: boolean }>;
+  };
 };
 
 type Props = {
@@ -107,6 +114,28 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
         </Pressable>
       </View>
 
+      {mode === "provider" && provider ? <View style={styles.ratingsCard}>
+        <Text style={styles.ratingsTitle}>Your AnySkill ratings</Text>
+        <View style={styles.overallRating}>
+          <Text style={styles.overallValue}>{(provider.ratings?.overall ?? 5).toFixed(1)} ★</Text>
+          <View style={styles.overallCopy}>
+            <Text style={styles.ratingLabel}>Overall platform rating</Text>
+            <Text style={styles.ratingHint}>
+              {provider.ratings?.overallIsRated
+                ? `${provider.ratings.overallReviewCount} customer reviews`
+                : "5.0 starting display · Not yet rated"}
+            </Text>
+          </View>
+        </View>
+        {(provider.ratings?.skills ?? (provider.skillCategories ?? skillNames).map((category) => ({
+          category, rating: null, reviewCount: 0, displayRating: 5, isRated: false,
+        }))).map((item) => <View key={item.category} style={styles.ratingSkillRow}>
+          <Text style={styles.ratingSkillName}>{item.category}</Text>
+          <Text style={styles.ratingSkillValue}>{item.displayRating.toFixed(1)} ★</Text>
+          <Text style={styles.ratingHint}>{item.isRated ? `${item.reviewCount} reviews` : "Not yet rated"}</Text>
+        </View>)}
+      </View> : null}
+
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Profile information</Text>
         <Text style={styles.sectionHint}>Select a section to view its details</Text>
@@ -162,6 +191,16 @@ const styles = StyleSheet.create({
   modeSelected: { backgroundColor: colors.surface, shadowColor: "#12313A", shadowOpacity: 0.08, shadowRadius: 5, elevation: 1 },
   modeText: { color: colors.muted, fontSize: 12, fontWeight: "800" },
   modeTextSelected: { color: colors.primary },
+  ratingsCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: 16, padding: 15, gap: 3 },
+  ratingsTitle: { color: colors.ink, fontSize: 14, fontWeight: "900", marginBottom: 5 },
+  overallRating: { flexDirection: "row", alignItems: "center", gap: 13, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: colors.border },
+  overallValue: { color: colors.primary, fontSize: 25, fontWeight: "900" },
+  overallCopy: { flex: 1, gap: 3 },
+  ratingLabel: { color: colors.ink, fontSize: 11, fontWeight: "800" },
+  ratingHint: { color: colors.muted, fontSize: 9, marginTop: 2 },
+  ratingSkillRow: { minHeight: 40, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: "#EDF1EE" },
+  ratingSkillName: { flex: 1, color: colors.ink, fontSize: 10, fontWeight: "600" },
+  ratingSkillValue: { color: colors.primary, fontSize: 11, fontWeight: "800" },
   sectionHeader: { marginTop: 9, gap: 3 },
   sectionTitle: { color: colors.ink, fontSize: 17, fontWeight: "900" },
   sectionHint: { color: colors.muted, fontSize: 11 },
