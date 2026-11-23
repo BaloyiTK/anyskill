@@ -20,6 +20,14 @@ type ProviderProfile = {
   };
 };
 
+type DailyEarnings = {
+  date: string;
+  currency: "ZAR";
+  amount: number;
+  completedPaidJobs: number;
+  paymentMode: "SIMULATED" | string;
+};
+
 type Props = { onManageProfile: () => void };
 
 const C = {
@@ -37,7 +45,7 @@ const C = {
 };
 
 export function ProviderHomeScreen({ onManageProfile }: Props) {
-  const [profile, setProfile] = useState<ProviderProfile | null>(null);
+  const [profile, setProfile] = useState<ProviderProfile | null>(null);\n  const [dailyEarnings, setDailyEarnings] = useState<DailyEarnings | null>(null);
   const [onboardingSkills, setOnboardingSkills] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,11 +55,13 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
     setLoading(true);
     setError("");
     try {
-      const [providerProfile, onboarding] = await Promise.all([
+      const [providerProfile, onboarding, earnings] = await Promise.all([
         apiRequest<ProviderProfile | null>("/marketplace/provider-profile", {}, true),
         apiRequest<{ skills?: Array<{ category?: string }> }>("/profile/onboarding", {}, true),
+        apiRequest<DailyEarnings>("/marketplace/provider-earnings/today", {}, true).catch(() => null),
       ]);
       setProfile(providerProfile);
+      setDailyEarnings(earnings);
       setOnboardingSkills((onboarding.skills ?? [])
         .map((item) => item.category?.trim() ?? "")
         .filter(Boolean));
@@ -194,6 +204,28 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
             </Pressable>
           </View>
         )}
+      </View>
+
+      <View style={styles.earningsCard}>
+        <View style={styles.earningsTop}>
+          <View>
+            <Text style={styles.earningsLabel}>Today's earnings</Text>
+            <Text style={styles.earningsAmount}>
+              {dailyEarnings
+                ? new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(dailyEarnings.amount)
+                : "R0.00"}
+            </Text>
+          </View>
+          <View style={styles.earningsIcon}>
+            <Text style={styles.earningsIconText}>R</Text>
+          </View>
+        </View>
+        <View style={styles.earningsFooter}>
+          <Text style={styles.earningsJobs}>
+            {dailyEarnings?.completedPaidJobs ?? 0} paid {dailyEarnings?.completedPaidJobs === 1 ? "job" : "jobs"} today
+          </Text>
+          <Text style={styles.earningsMode}>Simulated payouts</Text>
+        </View>
       </View>
 
       <View style={styles.skillsSection}>
@@ -348,7 +380,24 @@ const styles = StyleSheet.create({
   setupLink: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   setupLinkText: { color: C.primary, fontSize: 12, fontWeight: "800" },
   setupArrow: { color: C.primary, fontSize: 23 },
-  skillsSection: { marginTop: 31 },
+  earningsCard: {
+    marginTop: 22,
+    padding: 17,
+    borderRadius: 18,
+    backgroundColor: "#F1F7F3",
+    borderWidth: 1,
+    borderColor: "#DCEBE1",
+    gap: 13,
+  },
+  earningsTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  earningsLabel: { color: C.muted, fontSize: 11, fontWeight: "700" },
+  earningsAmount: { color: C.ink, fontSize: 28, fontWeight: "900", marginTop: 5, letterSpacing: -0.7 },
+  earningsIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#DCEFE3", alignItems: "center", justifyContent: "center" },
+  earningsIconText: { color: C.online, fontSize: 20, fontWeight: "900" },
+  earningsFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "#DCEBE1", paddingTop: 11 },
+  earningsJobs: { color: C.ink, fontSize: 10, fontWeight: "700" },
+  earningsMode: { color: C.muted, fontSize: 9 },
+    skillsSection: { marginTop: 31 },
   sectionTitle: { color: C.ink, fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
   skillsLoader: { marginTop: 18 },
   skillList: { marginTop: 10 },
