@@ -86,7 +86,7 @@ export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAc
   };
 
   return <Modal visible={Boolean(requestId)} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose} statusBarTranslucent>
-    <View style={styles.screen}>
+    <View style={[styles.screen, { paddingTop: insets.top + 12 }]}>
       {platformHeader}
       <Text style={styles.eyebrow}>ANYSKILL • INCOMING REQUEST</Text>
       <View style={styles.pulse}><Text style={styles.pulseIcon}>✦</Text></View>
