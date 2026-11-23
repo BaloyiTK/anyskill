@@ -130,7 +130,7 @@ export class PayFastService {
     if (saveCard) this.tokenKey();
     const job = await this.getPayableJob(seekerId, requestId);
     const existing = await this.prisma.payFastCheckout.findFirst({
-      where: { engagementId: job.id, status: "PENDING", createdAt: { gte: new Date(Date.now() - 20 * 60 * 1000) } },
+      where: { engagementId: job.id, status: "PENDING" },
       orderBy: { createdAt: "desc" },
     });
     if (existing) {
@@ -180,7 +180,7 @@ export class PayFastService {
       where: { merchantPaymentId },
       include: { user: { select: { email: true } } },
     });
-    if (!checkout || checkout.status !== "PENDING" || checkout.createdAt.getTime() < Date.now() - 30 * 60 * 1000) {
+    if (!checkout || checkout.status !== "PENDING") {
       throw new NotFoundException("This PayFast checkout has expired. Return to AnySkill and try again.");
     }
     const fields: Record<string, string> = {
@@ -229,6 +229,7 @@ export class PayFastService {
   async chargeSavedCard(seekerId: string, requestId: string, paymentMethodId: string) {
     const config = this.config();
     const job = await this.getPayableJob(seekerId, requestId);
+    if (job.paymentStatus === "PAYFAST_PENDING") throw new ConflictException("A PayFast checkout is already pending. Resume that checkout or wait for its confirmation before charging a saved card.");
     const method = await this.prisma.savedPaymentMethod.findFirst({
       where: { id: paymentMethodId, userId: seekerId, provider: "PAYFAST", status: "ACTIVE" },
     });
