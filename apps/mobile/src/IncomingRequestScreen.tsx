@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { apiRequest } from "./api";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type IncomingRequest = {
   id: string; title: string; skillCategory: string; description: string; status: "OPEN" | "CLOSED" | "CANCELLED" | "COMPLETED";
@@ -15,6 +16,7 @@ type IncomingRequest = {
 type Props = { platformHeader: ReactNode; requestId: string | null; onClose: () => void; onAccepted: (requestId: string) => void };
 
 export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAccepted }: Props) {
+  const insets = useSafeAreaInsets();
   const [request, setRequest] = useState<IncomingRequest | null>(null);
   const [loading, setLoading] = useState(false);
   const [action, setAction] = useState<"accept" | "decline" | null>(null);
