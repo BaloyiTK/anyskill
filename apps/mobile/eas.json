@@ -10,6 +10,9 @@
       "environment": "development",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://anyskill-api.onrender.com/api/v1"
       }
     },
     "preview": {
@@ -17,12 +20,18 @@
       "environment": "preview",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://anyskill-api.onrender.com/api/v1"
       }
     },
     "production": {
       "environment": "production",
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://anyskill-api.onrender.com/api/v1"
       }
     }
   }
