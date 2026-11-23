@@ -476,9 +476,36 @@ model JobEngagement {
   review                ProviderReview?
   seekerReview          SeekerReview?
   disputes              JobDispute[]
+  financialTransactions JobFinancialTransaction[]
   @@index([seekerId, status, createdAt])
   @@index([providerId, status, createdAt])
   @@map("job_engagements")
+}
+
+model JobFinancialTransaction {
+  id                String         @id @default(uuid()) @db.Uuid
+  engagementId      String         @db.Uuid @map("engagement_id")
+  transactionType   String         @map("transaction_type") @db.VarChar(30)
+  mode              String         @db.VarChar(20)
+  status            String         @db.VarChar(30)
+  amount            Decimal        @db.Decimal(10, 2)
+  currency          String         @default("ZAR") @db.VarChar(3)
+  externalProvider  String?        @map("external_provider") @db.VarChar(50)
+  externalReference String?        @map("external_reference") @db.VarChar(255)
+  idempotencyKey    String         @unique @map("idempotency_key") @db.VarChar(160)
+  initiatedAt       DateTime       @default(now()) @map("initiated_at")
+  simulatedAt       DateTime?      @map("simulated_at")
+  completedAt       DateTime?      @map("completed_at")
+  failedAt          DateTime?      @map("failed_at")
+  failureReason     String?        @map("failure_reason") @db.VarChar(1000)
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  engagement        JobEngagement  @relation(fields: [engagementId], references: [id], onDelete: Cascade)
+
+  @@unique([engagementId, transactionType])
+  @@index([transactionType, status, completedAt])
+  @@index([engagementId, createdAt])
+  @@map("job_financial_transactions")
 }
 
 model SeekerReview {
