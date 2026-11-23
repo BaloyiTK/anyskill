@@ -1748,7 +1748,7 @@ const s = StyleSheet.create({
   headerAvatarWrap: { width: 46, height: 46, position: "relative", alignItems: "center", justifyContent: "center" },
   headerAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#EAF3FF", borderWidth: 2, borderColor: "#0066CC", alignItems: "center", justifyContent: "center", alignSelf: "flex-end", overflow: "hidden" },
   identityAvatarBadge: { position: "absolute", right: -1, bottom: -1, width: 19, height: 19, borderRadius: 10, borderWidth: 2, borderColor: "#FFFFFF", alignItems: "center", justifyContent: "center", zIndex: 2 },
-  identityAvatarBadgeVerified: { backgroundColor: "#287FE0" },
+  identityAvatarBadgeVerified: { backgroundColor: "#16845F" },
   identityAvatarBadgeUnverified: { backgroundColor: "#EF3340" },
   identityAvatarBadgeText: { color: "#FFFFFF", fontSize: 12, lineHeight: 14, fontWeight: "900", textAlign: "center" },
   headerAvatarImage: { width: "100%", height: "100%", borderRadius: 21 },
