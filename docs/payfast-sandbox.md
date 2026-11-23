@@ -31,6 +31,8 @@ PAYFAST_PUBLIC_API_URL must be reachable over HTTPS from the internet. For local
 
 The API constructs the notification URL from PAYFAST_PUBLIC_API_URL; do not put the API path in the base URL.
 
+If the API is behind an HTTPS tunnel or reverse proxy, set TRUST_PROXY_HOPS to the exact number of trusted proxy hops (commonly 1 for a single tunnel). Do not set this to an arbitrary value: PayFast ITN sender-IP validation depends on Express resolving the real client IP correctly.
+
 Generate a token-encryption key locally, for example with `openssl rand -hex 32`. The key encrypts PayFast card tokens at rest. It is not a PayFast credential.
 
 ## 3. Payment flow
