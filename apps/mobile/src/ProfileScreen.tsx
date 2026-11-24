@@ -179,6 +179,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   ];
 
   return (
+    <>
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <View style={styles.hero}>
         <View style={styles.avatar}><Text style={styles.avatarText}>{(personName || email || "U").split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</Text></View>
@@ -335,6 +336,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
         </View>
       </View>
     </Modal>
+    </>
   );
 }
 
