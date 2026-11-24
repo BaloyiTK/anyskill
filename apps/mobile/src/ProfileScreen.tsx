@@ -61,6 +61,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const [skillDrawerVisible, setSkillDrawerVisible] = useState(false);
   const [skillDrawerMode, setSkillDrawerMode] = useState<"view" | "edit" | "add">("view");
   const [selectedSkillIndex, setSelectedSkillIndex] = useState<number | null>(null);
+  const [removedSkillName, setRemovedSkillName] = useState("");
   const [skillDraft, setSkillDraft] = useState<ProfileSkill[]>([]);
   const [skillSearch, setSkillSearch] = useState("");
   const [savingSkills, setSavingSkills] = useState(false);
@@ -99,11 +100,11 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const skillCatalogue = ["Accounting", "Automotive Repair", "Beauty Therapy", "Carpentry", "Cleaning", "Driving", "Electrical", "Graphic Design", "Hairdressing", "Landscaping", "Painting", "Photography", "Plumbing", "Software Development", "Tutoring", "Web Development"];
   const cloneSkills = () => skills.map((skill) => ({ ...skill, licencesQualifications: (skill.licencesQualifications ?? []).map((item) => ({ ...item })), portfolio: (skill.portfolio ?? []).map((item) => ({ ...item, links: [...(item.links ?? [])], imageUrls: [...(item.imageUrls ?? [])] })) }));
   const openSkillDrawer = (index: number, drawerMode: "view" | "edit") => {
-    setSkillDraft(cloneSkills()); setSelectedSkillIndex(index); setSkillDrawerMode(drawerMode);
+    setSkillDraft(cloneSkills()); setSelectedSkillIndex(index); setRemovedSkillName(""); setSkillDrawerMode(drawerMode);
     setSkillSearch(""); setSkillError(""); setSkillMessage(""); setEditingSkills(drawerMode === "edit"); setSkillDrawerVisible(true);
   };
   const startSkillEditing = () => {
-    setSkillDraft(cloneSkills()); setSelectedSkillIndex(null); setSkillDrawerMode("add");
+    setSkillDraft(cloneSkills()); setSelectedSkillIndex(null); setRemovedSkillName(""); setSkillDrawerMode("add");
     setSkillSearch(""); setSkillError(""); setSkillMessage(""); setEditingSkills(true); setSkillDrawerVisible(true);
   };
   const closeSkillDrawer = () => { if (savingSkills) return; setSkillDrawerVisible(false); setSkillError(""); setSkillMessage(""); };
@@ -247,7 +248,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                     <View style={styles.skillIconActions}>
                       <Pressable accessibilityRole="button" accessibilityLabel={`View ${skill.category}`} onPress={() => openSkillDrawer(index, "view")} style={styles.skillIconButton}><Text style={styles.skillViewIcon}>◉</Text></Pressable>
                       <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${skill.category}`} onPress={() => openSkillDrawer(index, "edit")} style={styles.skillIconButton}><Text style={styles.skillEditIcon}>✎</Text></Pressable>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${skill.category}`} disabled={savingSkills} onPress={() => { const next = cloneSkills().filter((_, itemIndex) => itemIndex !== index); setSkillDraft(next); setSkillError(""); setSkillMessage(""); setEditingSkills(true); setSkillDrawerMode("edit"); setSelectedSkillIndex(null); setSkillDrawerVisible(true); }} style={styles.skillRemoveButton}><Text style={styles.skillRemoveIcon}>×</Text></Pressable>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${skill.category}`} disabled={savingSkills} onPress={() => { const next = cloneSkills().filter((_, itemIndex) => itemIndex !== index); setSkillDraft(next); setRemovedSkillName(skill.category); setSkillError(""); setSkillMessage(""); setEditingSkills(true); setSkillDrawerMode("edit"); setSelectedSkillIndex(null); setSkillDrawerVisible(true); }} style={styles.skillRemoveButton}><Text style={styles.skillRemoveIcon}>×</Text></Pressable>
                     </View>
                   </View>;
                 }) : <Text style={styles.skillLimitHint}>No skills added yet. Add your first skill to your Provider profile.</Text>}
@@ -286,13 +287,13 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
           <View style={styles.drawerHandle}/>
           <View style={styles.drawerHeader}>
             <View style={styles.drawerHeadingCopy}>
-              <Text style={styles.skillEditorTitle}>{skillDrawerMode === "add" ? "Add a skill" : skillDrawerMode === "edit" ? "Edit skill" : "Skill details"}</Text>
-              <Text style={styles.skillLimitHint}>{skillDrawerMode === "add" ? `${skills.length} of 5 skills currently added` : skillDraft[selectedSkillIndex ?? -1]?.category ?? "Manage your skill"}</Text>
+              <Text style={styles.skillEditorTitle}>{removedSkillName ? "Remove skill" : skillDrawerMode === "add" ? "Add a skill" : skillDrawerMode === "edit" ? "Edit skill" : "Skill details"}</Text>
+              <Text style={styles.skillLimitHint}>{removedSkillName ? `Confirm removal of ${removedSkillName}` : skillDrawerMode === "add" ? `${skills.length} of 5 skills currently added` : skillDraft[selectedSkillIndex ?? -1]?.category ?? "Manage your skill"}</Text>
             </View>
             <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closeSkillDrawer} style={styles.drawerClose}><Text style={styles.drawerCloseText}>×</Text></Pressable>
           </View>
           <ScrollView style={styles.drawerScroll} contentContainerStyle={styles.drawerContent} keyboardShouldPersistTaps="handled">
-            {skillDrawerMode === "add" && selectedSkillIndex === null ? <>
+            {removedSkillName ? <View style={styles.drawerFields}><Text style={styles.drawerReadValue}>This will remove {removedSkillName} from your Provider profile when you save the change.</Text></View> : null}\n            {skillDrawerMode === "add" && selectedSkillIndex === null ? <>
               <Text style={styles.fieldLabel}>Choose a skill</Text>
               <TextInput value={skillSearch} onChangeText={setSkillSearch} placeholder="Search or type a skill" placeholderTextColor="#82949A" style={styles.skillSearchInput} autoCorrect={false}/>
               {skillSearch.trim() ? <View style={styles.skillSuggestions}>
@@ -337,8 +338,8 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
           </ScrollView>
           {skillDrawerMode !== "view" ? <View style={styles.drawerActions}>
             <Pressable accessibilityRole="button" disabled={savingSkills} onPress={closeSkillDrawer} style={styles.skillCancel}><Text style={styles.skillCancelText}>Cancel</Text></Pressable>
-            <Pressable accessibilityRole="button" disabled={savingSkills || selectedSkillIndex === null} onPress={() => void saveSkills()} style={[styles.detailAction, (savingSkills || selectedSkillIndex === null) && styles.skillDisabled]}><Text style={styles.detailActionText}>{savingSkills ? "Saving…" : "Save draft"}</Text></Pressable>
-            <Pressable accessibilityRole="button" disabled={savingSkills || skillDraft.length === 0 || selectedSkillIndex === null} onPress={() => void submitSkillsForReview()} style={[styles.submitReviewButton, (savingSkills || skillDraft.length === 0 || selectedSkillIndex === null) && styles.skillDisabled]}><Text style={styles.submitReviewText}>{savingSkills ? "Processing…" : "Submit for review"}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={savingSkills || (selectedSkillIndex === null && !removedSkillName)} onPress={() => void saveSkills()} style={[styles.detailAction, (savingSkills || selectedSkillIndex === null) && styles.skillDisabled]}><Text style={styles.detailActionText}>{savingSkills ? "Saving…" : "Save draft"}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={savingSkills || (skillDraft.length === 0 && !removedSkillName) || (selectedSkillIndex === null && !removedSkillName)} onPress={() => void submitSkillsForReview()} style={[styles.submitReviewButton, (savingSkills || skillDraft.length === 0 || selectedSkillIndex === null) && styles.skillDisabled]}><Text style={styles.submitReviewText}>{savingSkills ? "Processing…" : "Submit for review"}</Text></Pressable>
           </View> : <View style={styles.drawerActions}><Pressable accessibilityRole="button" onPress={() => { if (selectedSkillIndex !== null) { setSkillDrawerMode("edit"); setEditingSkills(true); } }} style={styles.detailAction}><Text style={styles.detailActionText}>Edit skill</Text></Pressable></View>}
         </View>
       </View>
