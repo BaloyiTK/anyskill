@@ -237,9 +237,6 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
                 : "—"}
             </Text>
           </View>
-          <View style={styles.earningsIcon}>
-            <Text style={styles.earningsIconText}>R</Text>
-          </View>
         </View>
         <View style={styles.earningsFooter}>
           <Text style={styles.earningsJobs}>
