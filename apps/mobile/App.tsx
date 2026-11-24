@@ -565,7 +565,7 @@ export default function App() {
     setActiveTab("home");
     autoSwitchMarketplaceMode("provider");
     setScreen("dashboard");
-  }, [account?.id, roleSummary?.providerStatus, pendingIncomingPushId, screen]);
+  }, [account?.id, roleSummary?.providerStatus, roleSummary?.seekerStatus, pendingIncomingPushId, screen]);
 
   // Reconcile matches from the API while a Provider is online. Push delivery
   // is an alerting channel only; the persisted match is the source of truth.
@@ -637,7 +637,7 @@ export default function App() {
       if (lastResponse) handleNotificationResponse(lastResponse);
     }).catch(() => undefined);
     return () => { received.remove(); response.remove(); };
-  }, [account?.id, roleSummary?.providerStatus]);
+  }, [account?.id, roleSummary?.providerStatus, roleSummary?.seekerStatus]);
 
   useEffect(() => {
     if (otpResendSeconds <= 0) return;
