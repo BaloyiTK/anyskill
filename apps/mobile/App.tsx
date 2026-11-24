@@ -177,6 +177,21 @@ export default function App() {
   }, []);
 
   const feedback = () => { setMessage(""); setError(""); };
+  const hasDualActiveRoles =
+    (roleSummary?.seekerStatus ?? account?.seekerRoleStatus) === "ACTIVE" &&
+    (roleSummary?.providerStatus ?? account?.providerRoleStatus) === "ACTIVE";
+
+  // Background events may open the relevant work item, but dual-role users
+  // keep their manually selected marketplace mode until they switch it.
+  const autoSwitchMarketplaceMode = (nextMode: UserMode) => {
+    if (hasDualActiveRoles) return;
+    setMode(nextMode);
+    void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
+      method: "PATCH",
+      body: JSON.stringify({ mode: nextMode.toUpperCase() }),
+    }, true).then(setRoleSummary).catch(() => undefined);
+  };
+
   const goTo = (next: Screen) => { feedback(); setScreen(next); };
 
   const refreshHomeEligibility = async (initialMode?: string, hasExistingActiveRole = false) => {
@@ -413,7 +428,7 @@ export default function App() {
           };
         });
         const currentIdentityStatus = (identityStatus.latestCase?.status ?? identityStatus.status).toLowerCase();
-        if (roles.providerStatus === "ACTIVE" && ["verified", "approved"].includes(currentIdentityStatus)) {
+        if (roles.providerStatus === "ACTIVE" && roles.seekerStatus !== "ACTIVE" && ["verified", "approved"].includes(currentIdentityStatus)) {
           setMode("provider");
           if (roles.activeMode !== "PROVIDER") {
             const updatedRoles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
@@ -1107,7 +1122,7 @@ export default function App() {
     try {
       const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/seeker/activate", { method: "POST" }, true);
       setRoleSummary(roles);
-      setMode("seeker");
+      if (roles.activeMode) setMode(roles.activeMode.toLowerCase() as UserMode);
       setMessage("Seeker role activated.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not activate Seeker mode.");
