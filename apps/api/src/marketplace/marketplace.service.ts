@@ -1610,25 +1610,27 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const paidAt = new Date();
       const changed = await tx.jobEngagement.updateMany({
         where: { id: job.id, status: "COMPLETED", paymentStatus: "UNPAID" },
-        data: { paymentStatus: "SIMULATED_PAID", paymentSimulatedAt: paidAt, providerPayoutStatus: "SIMULATED_SENT", providerPayoutSimulatedAt: paidAt },
+        data: { paymentStatus: "SIMULATED_PAID", paymentSimulatedAt: paidAt, providerPayoutStatus: "PENDING", providerPayoutSimulatedAt: null },
       });
       if (changed.count !== 1) throw new ConflictException("Payment status changed. Refresh and try again.");
 
-      // Keep Seeker payment and Provider payout as separate, auditable financial events.
-      // SIMULATED mode is explicit: these records do not represent a real gateway transfer.
-      await tx.jobFinancialTransaction.createMany({
-        data: [
-          {
-            engagementId: job.id, transactionType: "SEEKER_PAYMENT", mode: "SIMULATED", status: "COMPLETED",
-            amount: job.finalAmountDue, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
-            idempotencyKey: `${job.id}:SEEKER_PAYMENT`, initiatedAt: paidAt, simulatedAt: paidAt, completedAt: paidAt,
-          },
-          {
-            engagementId: job.id, transactionType: "PROVIDER_PAYOUT", mode: "SIMULATED", status: "COMPLETED",
-            amount: job.finalAmountDue, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
-            idempotencyKey: `${job.id}:PROVIDER_PAYOUT`, initiatedAt: paidAt, simulatedAt: paidAt, completedAt: paidAt,
-          },
-        ],
+      // Simulate only the Seeker debit. Provider payout remains pending until a real transfer is confirmed.
+      const providerAmount = job.finalAmountDue.mul("0.90").toDecimalPlaces(2);
+      const commissionAmount = job.finalAmountDue.minus(providerAmount).toDecimalPlaces(2);
+      await tx.jobFinancialTransaction.upsert({
+        where: { engagementId_transactionType: { engagementId: job.id, transactionType: "SEEKER_PAYMENT" } },
+        create: { engagementId: job.id, transactionType: "SEEKER_PAYMENT", mode: "SIMULATED", status: "COMPLETED", amount: job.finalAmountDue, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR", idempotencyKey: `${job.id}:SEEKER_PAYMENT`, initiatedAt: paidAt, simulatedAt: paidAt, completedAt: paidAt },
+        update: { mode: "SIMULATED", status: "COMPLETED", amount: job.finalAmountDue, simulatedAt: paidAt, completedAt: paidAt, failedAt: null, failureReason: null },
+      });
+      await tx.jobFinancialTransaction.upsert({
+        where: { engagementId_transactionType: { engagementId: job.id, transactionType: "PROVIDER_PAYOUT" } },
+        create: { engagementId: job.id, transactionType: "PROVIDER_PAYOUT", mode: "SIMULATED", status: "PENDING", amount: providerAmount, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR", idempotencyKey: `${job.id}:PROVIDER_PAYOUT`, initiatedAt: paidAt, simulatedAt: paidAt },
+        update: { mode: "SIMULATED", status: "PENDING", amount: providerAmount, simulatedAt: paidAt, completedAt: null, failedAt: null, failureReason: null },
+      });
+      await tx.jobFinancialTransaction.upsert({
+        where: { engagementId_transactionType: { engagementId: job.id, transactionType: "PLATFORM_COMMISSION" } },
+        create: { engagementId: job.id, transactionType: "PLATFORM_COMMISSION", mode: "SIMULATED", status: "COMPLETED", amount: commissionAmount, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR", idempotencyKey: `${job.id}:PLATFORM_COMMISSION`, initiatedAt: paidAt, simulatedAt: paidAt, completedAt: paidAt },
+        update: { mode: "SIMULATED", status: "COMPLETED", amount: commissionAmount, simulatedAt: paidAt, completedAt: paidAt, failedAt: null, failureReason: null },
       });
       await tx.appNotification.create({
         data: {
@@ -1641,12 +1643,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       return {
         success: true,
         paymentStatus: "SIMULATED_PAID",
-        providerPayoutStatus: "SIMULATED_SENT",
+        providerPayoutStatus: "PENDING",
+        successfulDebit: true,
+        providerPayoutAmount: providerAmount.toFixed(2),
+        platformCommissionAmount: commissionAmount.toFixed(2),
         amount: job.finalAmountDue.toFixed(2),
         simulatedAt: paidAt,
         transactions: {
           seekerPayment: { mode: "SIMULATED", status: "COMPLETED", amount: job.finalAmountDue.toFixed(2), completedAt: paidAt },
-          providerPayout: { mode: "SIMULATED", status: "COMPLETED", amount: job.finalAmountDue.toFixed(2), completedAt: paidAt },
+          providerPayout: { mode: "SIMULATED", status: "PENDING", amount: providerAmount.toFixed(2), completedAt: null },
         },
       };
     });
