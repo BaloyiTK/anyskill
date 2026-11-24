@@ -235,6 +235,7 @@ export class OnboardingService {
         select: {
           seekerRoleStatus: true,
           providerRoleStatus: true,
+          activeMarketplaceMode: true,
         },
       });
 
