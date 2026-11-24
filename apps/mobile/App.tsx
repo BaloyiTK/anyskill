@@ -1250,7 +1250,7 @@ export default function App() {
       <StatusBar barStyle="dark-content" />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         {platformHeader}
-        <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={[s.content, activeTab === "account" && { paddingHorizontal: 0 }]} keyboardShouldPersistTaps="handled">
           {screen === "profile-check" && <View style={s.form}>
             <Text style={s.kicker}>ACCOUNT CHECK</Text>
             <Text style={s.formTitle}>Checking your profile</Text>
