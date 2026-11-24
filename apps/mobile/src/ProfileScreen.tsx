@@ -106,19 +106,15 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
   const roleStatus = mode === "provider" ? providerStatus : seekerStatus;
 
   const rows = mode === "provider" ? [
-    { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("
-") || "Your personal details will appear here once saved." },
+    { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("\n") || "Your personal details will appear here once saved." },
     { id: "identity", title: "Identity verification", summary: identityVerified ? "Verified" : statusLabel(identityValue), detail: identityVerified ? "Your identity verification has been approved." : "Complete or check your identity verification to unlock protected marketplace actions." },
-    { id: "skills", title: "Skills & Portfolio", summary: `${skillNames.length} ${skillNames.length === 1 ? "skill" : "skills"} · ${portfolioCount} portfolio entries`, detail: skillNames.length ? skillNames.join("
-") : "No skills have been added yet. Your approved skills will be shown here." },
-    { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("
-") : "Your service locations will appear here when configured." },
+    { id: "skills", title: "Skills & Portfolio", summary: `${skillNames.length} ${skillNames.length === 1 ? "skill" : "skills"} · ${portfolioCount} portfolio entries`, detail: skillNames.length ? skillNames.join("\n") : "No skills have been added yet. Your approved skills will be shown here." },
+    { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("\n") : "Your service locations will appear here when configured." },
     { id: "availability", title: "Availability", summary: provider?.isAvailable ? "Online" : "Offline", detail: provider?.isAvailable ? "You are currently available to receive matching service requests." : "You are currently offline and will not receive new matching requests." },
     { id: "pricing", title: "Pricing", summary: provider?.hourlyRate != null ? `R${provider.hourlyRate} per hour` : "Not configured", detail: provider?.hourlyRate != null ? `Hourly rate: R${provider.hourlyRate}
 Assessment fee: R${provider.assessmentFee ?? 0}` : "Your service pricing has not been configured." },
   ] : [
-    { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("
-") || "Your personal details will appear here once saved." },
+    { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("\n") || "Your personal details will appear here once saved." },
     { id: "identity", title: "Identity verification", summary: identityVerified ? "Verified" : statusLabel(identityValue), detail: identityVerified ? "Your identity verification has been approved." : "Complete or check your identity verification before submitting service requests." },
     { id: "payments", title: "Payment methods", summary: "Manage payment options", detail: "Payment methods will be displayed here when payment management is available." },
     { id: "addresses", title: "Addresses & locations", summary: location || "No saved address", detail: location || "Your saved addresses and preferred service locations will appear here." },
