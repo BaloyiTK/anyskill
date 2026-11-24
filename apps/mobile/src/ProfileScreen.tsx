@@ -293,7 +293,8 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
             <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closeSkillDrawer} style={styles.drawerClose}><Text style={styles.drawerCloseText}>×</Text></Pressable>
           </View>
           <ScrollView style={styles.drawerScroll} contentContainerStyle={styles.drawerContent} keyboardShouldPersistTaps="handled">
-            {removedSkillName ? <View style={styles.drawerFields}><Text style={styles.drawerReadValue}>This will remove {removedSkillName} from your Provider profile when you save the change.</Text></View> : null}\n            {skillDrawerMode === "add" && selectedSkillIndex === null ? <>
+            {removedSkillName ? <View style={styles.drawerFields}><Text style={styles.drawerReadValue}>This will remove {removedSkillName} from your Provider profile when you save the change.</Text></View> : null}
+            {skillDrawerMode === "add" && selectedSkillIndex === null ? <>
               <Text style={styles.fieldLabel}>Choose a skill</Text>
               <TextInput value={skillSearch} onChangeText={setSkillSearch} placeholder="Search or type a skill" placeholderTextColor="#82949A" style={styles.skillSearchInput} autoCorrect={false}/>
               {skillSearch.trim() ? <View style={styles.skillSuggestions}>
