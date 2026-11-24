@@ -147,3 +147,52 @@ test("onboarding submission preserves the selected Provider mode for a dual-role
   await state.service.submit("user-1");
   assert.equal(state.savedRoleUpdate.activeMarketplaceMode, "PROVIDER");
 });
+
+
+test("profile management restores saved Provider skill details when the onboarding draft is empty", async () => {
+  const prisma = {
+    onboardingDraft: {
+      findUnique: async () => ({ profile: {}, skills: [], portfolio: [], submittedAt: new Date("2026-11-20T00:00:00.000Z") }),
+    },
+    providerRoleApplication: { findUnique: async () => null },
+    providerSkill: {
+      findMany: async () => [{
+        category: "plumbing",
+        details: { category: "Plumbing", description: "Repairs and installations", yearsOfExperience: "8 years", portfolio: [{ title: "Bathroom installation" }] },
+        status: "APPROVED",
+        decisionReason: null,
+        submittedAt: new Date("2026-11-20T00:00:00.000Z"),
+        reviewedAt: new Date("2026-11-21T00:00:00.000Z"),
+      }],
+    },
+  };
+  const service = new OnboardingService(prisma, {});
+  const result = await service.get("user-1");
+
+  assert.equal(result.skills.length, 1);
+  assert.equal(result.skills[0].category, "Plumbing");
+  assert.equal(result.skills[0].yearsOfExperience, "8 years");
+  assert.equal(result.skillReviewStatuses[0].status, "APPROVED");
+  assert.ok(result.skillReviewStatuses[0].reviewedAt);
+});
+
+test("profile management merges legacy submitted skills with draft details without duplicates", async () => {
+  const prisma = {
+    onboardingDraft: {
+      findUnique: async () => ({ profile: {}, skills: [{ category: "Plumbing", description: "Updated draft" }], portfolio: [] }),
+    },
+    providerRoleApplication: { findUnique: async () => null },
+    providerSkill: {
+      findMany: async () => [
+        { category: "plumbing", details: { category: "Plumbing", description: "Old submitted detail" }, status: "APPROVED", decisionReason: null, submittedAt: null, reviewedAt: null },
+        { category: "electrical", details: { category: "Electrical", description: "Wiring and repairs" }, status: "PENDING", decisionReason: null, submittedAt: null, reviewedAt: null },
+      ],
+    },
+  };
+  const service = new OnboardingService(prisma, {});
+  const result = await service.get("user-1");
+
+  assert.deepEqual(result.skills.map((skill) => skill.category), ["Plumbing", "Electrical"]);
+  assert.equal(result.skills[0].description, "Updated draft");
+  assert.equal(result.skills[1].description, "Wiring and repairs");
+});
