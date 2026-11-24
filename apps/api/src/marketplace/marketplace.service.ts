@@ -1635,9 +1635,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       await tx.appNotification.create({
         data: {
           userId: job.providerId,
-          title: "Simulated payment recorded",
-          body: "The Seeker's simulated payment and your simulated payout have both been recorded in AnySkill.",
-          data: { type: "SIMULATED_PAYMENT_SENT", requestId },
+          title: "Seeker debit confirmed",
+          body: "The Seeker's simulated debit was successful. Your 90% payout is pending processing; no bank transfer has been made.",
+          data: { type: "SIMULATED_DEBIT_CONFIRMED_PAYOUT_PENDING", requestId },
         },
       });
       return {
