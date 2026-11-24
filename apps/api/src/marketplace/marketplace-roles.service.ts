@@ -58,7 +58,7 @@ export class MarketplaceRolesService {
   async activateSeeker(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { seekerRoleStatus: true },
+      select: { seekerRoleStatus: true, providerRoleStatus: true, activeMarketplaceMode: true },
     });
     if (user.seekerRoleStatus === MarketplaceRoleStatus.SUSPENDED) {
       throw new ForbiddenException("Seeker access is suspended. Contact AnySkill support.");
