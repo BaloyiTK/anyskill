@@ -67,7 +67,9 @@ export class MarketplaceRolesService {
       where: { id: userId },
       data: {
         seekerRoleStatus: MarketplaceRoleStatus.ACTIVE,
-        activeMarketplaceMode: RegistrationMode.SEEKER,
+        activeMarketplaceMode: user.activeMarketplaceMode === RegistrationMode.PROVIDER && user.providerRoleStatus === MarketplaceRoleStatus.ACTIVE
+          ? RegistrationMode.PROVIDER
+          : RegistrationMode.SEEKER,
       },
     });
     return this.getRoles(userId);
