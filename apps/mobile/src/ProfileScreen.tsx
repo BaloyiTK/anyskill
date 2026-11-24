@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
 
 type Mode = "seeker" | "provider";
 type Identity = { status?: string; latestCase?: { status?: string } | null };
 type OnboardingProfile = {
   profile?: { firstName?: string; lastName?: string; phone?: string; suburb?: string; city?: string; province?: string; country?: string; marketplaceRoles?: string[] };
-  skills?: Array<{ category?: string; description?: string; yearsOfExperience?: string | number; portfolio?: Array<{ linkUrl?: string; links?: string[]; imageUrls?: string[] }> }>;
+  skills?: ProfileSkill[];
 };
 type ProviderProfile = {
   publicName?: string;
@@ -42,13 +42,13 @@ const colors = {
 
 const statusLabel = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onModeChange, onAccountSettings, onStartVerification, onEditSkills }: Props) {
+export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onModeChange, onAccountSettings, onStartVerification }: Props) {
   const [profile, setProfile] = useState<OnboardingProfile | null>(null);
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [provider, setProvider] = useState<ProviderProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);\n  const [editingSkills, setEditingSkills] = useState(false);\n  const [skillDraft, setSkillDraft] = useState<ProfileSkill[]>([]);\n  const [skillSearch, setSkillSearch] = useState("");\n  const [savingSkills, setSavingSkills] = useState(false);\n  const [skillError, setSkillError] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -75,7 +75,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
   const identityVerified = ["verified", "approved"].includes(identityValue.toLowerCase());
   const skills = profile?.skills ?? [];
   const skillNames = skills.map((skill) => skill.category?.trim()).filter((value): value is string => Boolean(value));
-  const portfolioCount = skills.reduce((total, skill) => total + (skill.portfolio?.length ?? 0), 0);
+  const portfolioCount = skills.reduce((total, skill) => total + (skill.portfolio?.length ?? 0), 0);\n  const skillCatalogue = ["Accounting", "Automotive Repair", "Beauty Therapy", "Carpentry", "Cleaning", "Driving", "Electrical", "Graphic Design", "Hairdressing", "Landscaping", "Painting", "Photography", "Plumbing", "Software Development", "Tutoring", "Web Development"];\n  const startSkillEditing = () => { setSkillDraft(skills.map((skill) => ({ ...skill }))); setSkillSearch(""); setSkillError(""); setEditingSkills(true); };\n  const addSkill = (category: string) => {\n    const normalized = category.trim();\n    if (!normalized || skillDraft.length >= 5 || skillDraft.some((skill) => skill.category?.trim().toLowerCase() === normalized.toLowerCase())) return;\n    setSkillDraft((current) => [...current, { category: normalized, description: "", yearsOfExperience: "", licencesQualifications: [], portfolio: [] }]);\n    setSkillSearch(""); setSkillError("");\n  };\n  const saveSkills = async () => {\n    setSavingSkills(true); setSkillError("");\n    try {\n      const cleaned = skillDraft.map((skill) => ({ ...skill, category: String(skill.category ?? "").trim() })).filter((skill) => skill.category);\n      if (cleaned.length > 5) throw new Error("You can add a maximum of 5 skills.");\n      if (new Set(cleaned.map((skill) => skill.category.toLowerCase())).size !== cleaned.length) throw new Error("Each skill can only be added once.");\n      const result = await apiRequest<OnboardingProfile>("/profile/onboarding", { method: "PATCH", body: JSON.stringify({ skills: cleaned }) }, true);\n      setProfile((current) => ({ ...(current ?? {}), skills: result.skills ?? cleaned }));\n      setEditingSkills(false); setSkillSearch("");\n    } catch (e) { setSkillError(e instanceof Error ? e.message : "Could not save your skills."); }\n    finally { setSavingSkills(false); }\n  };
   const personName = [profile?.profile?.firstName, profile?.profile?.lastName].filter(Boolean).join(" ");
   const location = [profile?.profile?.suburb, profile?.profile?.city, profile?.profile?.province, profile?.profile?.country].filter(Boolean).join(", ");
   const roleStatus = mode === "provider" ? providerStatus : seekerStatus;
@@ -159,7 +159,31 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
             {isExpanded ? <View style={styles.detail}>
               <Text style={styles.detailText}>{item.detail}</Text>
               {isIdentity && !identityVerified ? <Pressable accessibilityRole="button" onPress={onStartVerification} style={styles.detailAction}><Text style={styles.detailActionText}>Open verification</Text></Pressable> : null}
-              {isSkills ? <Pressable accessibilityRole="button" onPress={onEditSkills} style={styles.detailAction}><Text style={styles.detailActionText}>Manage skills and add more</Text></Pressable> : null}
+              {isSkills ? <View style={styles.skillManager}>
+                {!editingSkills ? <>
+                  <Pressable accessibilityRole="button" onPress={startSkillEditing} style={styles.detailAction}><Text style={styles.detailActionText}>Manage skills</Text></Pressable>
+                  <Text style={styles.skillLimitHint}>You can list up to 5 skills on your Provider profile.</Text>
+                </> : <>
+                  <Text style={styles.skillEditorTitle}>Manage your skills</Text>
+                  <Text style={styles.skillLimitHint}>{skillDraft.length} of 5 skills added. Existing skills stay in your list when you add another.</Text>
+                  {skillDraft.map((skill, index) => <View key={index} style={styles.skillDraftRow}>
+                    <Text style={styles.skillDraftName}>{skill.category || "Unnamed skill"}</Text>
+                    <Pressable accessibilityRole="button" disabled={savingSkills} onPress={() => setSkillDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Text style={styles.skillRemove}>Remove</Text></Pressable>
+                  </View>)}
+                  {skillDraft.length < 5 ? <>
+                    <TextInput value={skillSearch} onChangeText={setSkillSearch} placeholder="Search or type a skill" placeholderTextColor="#82949A" style={styles.skillSearchInput} autoCorrect={false}/>
+                    {skillSearch.trim() ? <View style={styles.skillSuggestions}>
+                      {skillCatalogue.filter((name) => name.toLowerCase().includes(skillSearch.trim().toLowerCase()) && !skillDraft.some((item) => item.category?.trim().toLowerCase() === name.toLowerCase())).slice(0, 6).map((name) => <Pressable key={name} onPress={() => addSkill(name)} style={styles.skillSuggestion}><Text style={styles.skillSuggestionText}>{name}</Text><Text style={styles.skillAddIcon}>＋</Text></Pressable>)}
+                      {!skillCatalogue.some((name) => name.toLowerCase() === skillSearch.trim().toLowerCase()) && !skillDraft.some((item) => item.category?.trim().toLowerCase() === skillSearch.trim().toLowerCase()) ? <Pressable onPress={() => addSkill(skillSearch)} style={styles.skillSuggestion}><Text style={styles.skillSuggestionText}>Add “{skillSearch.trim()}”</Text><Text style={styles.skillAddIcon}>＋</Text></Pressable> : null}
+                    </View> : null}
+                  </> : <Text style={styles.skillLimitHint}>You have reached the 5-skill limit.</Text>}
+                  {!!skillError && <Text style={styles.skillError}>{skillError}</Text>}
+                  <View style={styles.skillEditorActions}>
+                    <Pressable accessibilityRole="button" disabled={savingSkills} onPress={() => { setEditingSkills(false); setSkillError(""); }} style={styles.skillCancel}><Text style={styles.skillCancelText}>Cancel</Text></Pressable>
+                    <Pressable accessibilityRole="button" disabled={savingSkills} onPress={() => void saveSkills()} style={[styles.detailAction, savingSkills && styles.skillDisabled]}><Text style={styles.detailActionText}>{savingSkills ? "Saving…" : "Save skills"}</Text></Pressable>
+                  </View>
+                </>}
+              </View> : null}
             </View> : null}
           </View>
         );
@@ -222,7 +246,7 @@ const styles = StyleSheet.create({
   detail: { borderTopWidth: 1, borderTopColor: colors.border, paddingHorizontal: 14, paddingVertical: 13, gap: 10 },
   detailText: { color: colors.muted, fontSize: 11, lineHeight: 18 },
   detailAction: { alignSelf: "flex-start", backgroundColor: colors.primary, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
-  detailActionText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
+  detailActionText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },\n  skillManager: { gap: 9 },\n  skillLimitHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },\n  skillEditorTitle: { color: colors.ink, fontSize: 13, fontWeight: "900" },\n  skillDraftRow: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.border },\n  skillDraftName: { color: colors.ink, fontSize: 11, fontWeight: "700" },\n  skillRemove: { color: "#B33B3B", fontSize: 10, fontWeight: "800", padding: 7 },\n  skillSearchInput: { minHeight: 43, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 11, color: colors.ink, fontSize: 12, backgroundColor: "#FFFFFF" },\n  skillSuggestions: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, overflow: "hidden" },\n  skillSuggestion: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 11, borderBottomWidth: 1, borderBottomColor: colors.border },\n  skillSuggestionText: { color: colors.ink, fontSize: 11, fontWeight: "600" },\n  skillAddIcon: { color: colors.primary, fontSize: 16, fontWeight: "900" },\n  skillError: { color: "#B33B3B", fontSize: 10 },\n  skillEditorActions: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 9 },\n  skillCancel: { paddingHorizontal: 12, paddingVertical: 10 },\n  skillCancelText: { color: colors.muted, fontSize: 10, fontWeight: "800" },\n  skillDisabled: { opacity: 0.55 },
   helper: { color: colors.muted, fontSize: 11, lineHeight: 17 },
   errorBox: { backgroundColor: "#FCEDEE", borderRadius: 12, padding: 13, gap: 7 },
   errorText: { color: "#A12D2D", fontSize: 11 },
