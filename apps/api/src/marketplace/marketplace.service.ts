@@ -1702,7 +1702,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         include: { request: { select: { skillCategory: true } } },
       });
       if (!job) throw new NotFoundException("Selected job not found.");
-      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker who paid for this job can rate the Provider.");
+      if (job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker assigned to this completed job can rate the Provider.");
       if (job.status !== "COMPLETED" || !["SIMULATED_PAID", "PAYFAST_PAID"].includes(job.paymentStatus)) throw new ConflictException("Complete payment before rating the Provider.");
       if (!job.providerId) throw new ConflictException("This job has no Provider available to rate.");
       const review = await tx.providerReview.create({
