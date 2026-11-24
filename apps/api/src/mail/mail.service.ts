@@ -74,7 +74,11 @@ export class MailService implements OnModuleInit {
   private get senderDetails(): { name: string; email: string } {
     const from = this.fromAddress;
     const match = from.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
-    if (match) return { name: match[1].replace(/^["']|["']$/g, "").trim() || "AnySkill", email: match[2].trim() };
+    if (match) {
+      const name = (match[1] ?? "").replace(/^["']|["']$/g, "").trim() || "AnySkill";
+      const email = (match[2] ?? "").trim();
+      if (email) return { name, email };
+    }
     return { name: "AnySkill", email: from };
   }
 
