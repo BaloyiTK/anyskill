@@ -654,8 +654,9 @@ test("Seeker final approval snapshots estimate, assessment fee and approved extr
   assert.equal(result.jobStatus,"COMPLETED");
   assert.equal(result.finalAmountDue,"700.00");
   assert.equal(result.nextStep,"RATINGS");
-  assert.equal(result.paymentStatus,"SIMULATED_PAID");
-  assert.equal(result.providerPayoutStatus,"SIMULATED_SENT");
+  assert.equal(result.paymentStatus,"UNPAID");
+  assert.equal(result.successfulDebit,false);
+  assert.equal(result.providerPayoutStatus,"NOT_SENT");
   assert.equal(result.providerPayoutAmount,"630.00");
   assert.equal(result.platformCommissionAmount,"70.00");
   assert.equal(calls[0].where.finalAmountDue,null);
@@ -663,6 +664,7 @@ test("Seeker final approval snapshots estimate, assessment fee and approved extr
   assert.equal(calls[0].data.finalApprovedAt instanceof Date);
   assert.deepEqual(calls.find((call)=>call.ledger)?.ledger.map((entry)=>entry.transactionType),["SEEKER_PAYMENT","PROVIDER_PAYOUT","PLATFORM_COMMISSION"]);
   assert.deepEqual(calls.find((call)=>call.ledger)?.ledger.map((entry)=>entry.amount.toFixed(2)),["700.00","630.00","70.00"]);
+  assert.deepEqual(calls.find((call)=>call.ledger)?.ledger.map((entry)=>entry.status),["PENDING","PENDING","PENDING"]);
 });
 
 test("opening a dispute pauses the job and notifies the other party", async () => {
