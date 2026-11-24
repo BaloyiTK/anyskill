@@ -31,6 +31,7 @@ type Props = {
   onModeChange: (mode: Mode) => void;
   onAccountSettings: () => void;
   onStartVerification: () => void;
+  onEditSkills: () => void;
 };
 
 const colors = {
@@ -41,7 +42,7 @@ const colors = {
 
 const statusLabel = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onModeChange, onAccountSettings, onStartVerification }: Props) {
+export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onModeChange, onAccountSettings, onStartVerification, onEditSkills }: Props) {
   const [profile, setProfile] = useState<OnboardingProfile | null>(null);
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [provider, setProvider] = useState<ProviderProfile | null>(null);
@@ -144,6 +145,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
       {loading ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : rows.map((item) => {
         const isExpanded = expanded === item.id;
         const isIdentity = item.id === "identity";
+        const isSkills = item.id === "skills";
         return (
           <View key={item.id} style={styles.rowCard}>
             <Pressable accessibilityRole="button" accessibilityState={{ expanded: isExpanded }} onPress={() => setExpanded(isExpanded ? null : item.id)} style={styles.rowButton}>
@@ -157,6 +159,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
             {isExpanded ? <View style={styles.detail}>
               <Text style={styles.detailText}>{item.detail}</Text>
               {isIdentity && !identityVerified ? <Pressable accessibilityRole="button" onPress={onStartVerification} style={styles.detailAction}><Text style={styles.detailActionText}>Open verification</Text></Pressable> : null}
+              {isSkills ? <Pressable accessibilityRole="button" onPress={onEditSkills} style={styles.detailAction}><Text style={styles.detailActionText}>Manage skills and add more</Text></Pressable> : null}
             </View> : null}
           </View>
         );
