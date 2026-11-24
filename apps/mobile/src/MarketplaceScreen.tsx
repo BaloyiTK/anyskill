@@ -1939,7 +1939,7 @@ export function MarketplaceScreen(p: Props) {
       {error ? <Text style={s.error}>{error}</Text> : null}
     </ScrollView>
     <Modal visible={p.mode === "seeker" && matchingRequest !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => undefined}>
-      <View style={{ flex: 1, backgroundColor: "#F6F8FA", paddingHorizontal: 22, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}>
+      <View style={{ flex: 1, backgroundColor: "#F6F8FA", paddingHorizontal: 14, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}>
         {p.platformHeader}
         <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }}>
           <Text style={{ color: "#1B5E20", fontSize: 11, fontWeight: "900" }}>REQUEST SUBMITTED</Text>
@@ -2042,7 +2042,7 @@ export function MarketplaceScreen(p: Props) {
       </View>
     </Modal>
     <Modal visible={p.mode === "provider" && providerOfferReview !== null && providerOfferReview.status !== "SELECTED"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
-      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 24, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12, justifyContent: "center" }}>
+      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 14, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12, justifyContent: "center" }}>
         {p.platformHeader}
         <View style={{ alignItems: "center" }}>
           <View style={{ width: 82, height: 82, borderRadius: 41, backgroundColor: providerOfferReview?.status === "SELECTED" ? "#DDF3E5" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "#FCE8E6" : "#E5F1EC", alignItems: "center", justifyContent: "center" }}>
@@ -2084,7 +2084,7 @@ export function MarketplaceScreen(p: Props) {
         const destinationReady = job.request.latitude != null && job.request.longitude != null;
         return <View style={{ flex: 1, backgroundColor: "#F5F7F5" }}>
           {p.platformHeader}
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 12, paddingBottom: insets.bottom + 16 }}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 14, paddingTop: 12, paddingBottom: insets.bottom + 16 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>SERVICE WORKSPACE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? "Assessment required" : job.status === "ESTIMATE_SUBMITTED" ? "Estimate awaiting review" : job.status === "ESTIMATE_REJECTED" ? "Estimate revision required" : job.status === "ESTIMATE_APPROVED" ? "Ready to start work" : job.status === "IN_PROGRESS" ? "Service in progress" : job.status === "COMPLETION_PENDING" ? "Completion awaiting review" : job.status === "COMPLETED" ? "Service completed" : job.status === "CANCELLED" ? "Service cancelled" : "Selected service"}</Text></View>
             <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Minimise</Text></Pressable>
@@ -2169,7 +2169,7 @@ export function MarketplaceScreen(p: Props) {
       })()}
     </Modal>
     <Modal visible={journeyScreen !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setJourneyScreen(null)}>
-      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 22, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}>
+      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 14, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}>
         {p.platformHeader}
         <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }}>
           <Pressable onPress={() => setJourneyScreen(null)}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
@@ -2316,16 +2316,16 @@ const s = StyleSheet.create({
   addSkillText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
   selectedSkill: { color: "#1B5E20", fontSize: 12, fontWeight: "700", marginTop: 6 },
   container: { flex: 1, backgroundColor: C.bg },
-  header: { paddingHorizontal: 20, paddingTop: 15, paddingBottom: 18, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
+  header: { paddingHorizontal: 14, paddingTop: 15, paddingBottom: 18, backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
   back: { color: C.primary, fontWeight: "800", fontSize: 13, marginBottom: 14 },
   heading: { color: C.ink, fontSize: 29, fontWeight: "900", letterSpacing: -0.8 },
   subheading: { color: C.muted, marginTop: 6, fontSize: 13, lineHeight: 19 },
-  modeRow: { flexDirection: "row", gap: 9, paddingHorizontal: 20, paddingVertical: 13, backgroundColor: C.surface },
+  modeRow: { flexDirection: "row", gap: 9, paddingHorizontal: 14, paddingVertical: 13, backgroundColor: C.surface },
   modeButton: { flex: 1, borderRadius: 13, borderWidth: 1, borderColor: C.border, paddingVertical: 13, paddingHorizontal: 9, alignItems: "center", backgroundColor: "#FAFCFA" },
   modeActive: { borderColor: C.primary, backgroundColor: "#EAF4ED" },
   modeText: { color: C.muted, fontWeight: "700", fontSize: 12 },
   modeTextActive: { color: C.primary },
-  content: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 36 },
+  content: { paddingHorizontal: 14, paddingTop: 16, paddingBottom: 36 },
   section: { color: C.ink, fontSize: 19, fontWeight: "900", letterSpacing: -0.35, marginTop: 12 },
   sectionSmall: { color: C.ink, fontSize: 14, fontWeight: "800", marginTop: 15 },
   offerCard: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 11, padding: 12, marginTop: 10 },
