@@ -351,44 +351,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const startOfDay = new Date(`${localDate}T00:00:00+02:00`);
     const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
 
-    // New records use the separate payout ledger. The legacy query keeps already-paid
-    // jobs visible until all existing data has naturally moved to ledger-backed payments.
-    const [payouts, legacyPaidJobs] = await Promise.all([
-      this.prisma.jobFinancialTransaction.findMany({
-        where: {
-          transactionType: "PROVIDER_PAYOUT",
-          engagement: { providerId },
-          OR: [
-            { mode: "SIMULATED", status: "COMPLETED", completedAt: { gte: startOfDay, lt: endOfDay } },
-            { mode: "PAYFAST_SANDBOX", status: "PENDING", initiatedAt: { gte: startOfDay, lt: endOfDay } },
-          ],
-        },
-        select: { amount: true, mode: true },
-      }),
-      this.prisma.jobEngagement.findMany({
-        where: {
-          providerId,
-          paymentStatus: "SIMULATED_PAID",
-          OR: [
-            { paymentSimulatedAt: { gte: startOfDay, lt: endOfDay } },
-            { paymentSimulatedAt: null, updatedAt: { gte: startOfDay, lt: endOfDay } },
-          ],
-          financialTransactions: { none: { transactionType: "PROVIDER_PAYOUT" } },
-        },
-        select: { finalAmountDue: true },
-      }),
-    ]);
-    const total = payouts.reduce((sum, payout) => sum + Number(payout.amount), 0)
-      + legacyPaidJobs.reduce((sum, job) => sum + Number(job.finalAmountDue ?? 0), 0);
-    return {
-      date: localDate,
-      currency: "ZAR",
-      amount: Number(total.toFixed(2)),
-      completedPaidJobs: payouts.length + legacyPaidJobs.length,
-      paymentMode: payouts.some((payout) => payout.mode === "PAYFAST_SANDBOX")
-        ? (payouts.some((payout) => payout.mode === "SIMULATED") || legacyPaidJobs.length > 0 ? "MIXED" : "PAYFAST_SANDBOX")
-        : "SIMULATED",
-    };
+    // Earnings are recognised from completed jobs, not payment or payout status.
+    // The Provider earns 90% of the approved job amount when the job is completed.
+    const completedJobs = await this.prisma.jobEngagement.findMany({
+      where: { providerId, status: "COMPLETED", finalApprovedAt: { gte: startOfDay, lt: endOfDay }, finalAmountDue: { not: null } },
+      select: { finalAmountDue: true },
+    });
+    const total = completedJobs.reduce((sum, job) => sum + Number(job.finalAmountDue ?? 0) * 0.9, 0);
+    return { date: localDate, currency: "ZAR", amount: Number(total.toFixed(2)), completedJobs: completedJobs.length, earningsBasis: "COMPLETED_JOBS" };
   }
 
   async getProviderProfile(userId: string) {
@@ -1450,36 +1420,23 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
               workPausedAt: null,
               finalAmountDue: finalAmountDue!,
               finalApprovedAt: reviewTime,
-              paymentStatus: "SIMULATED_PAID",
-              paymentSimulatedAt: reviewTime,
-              providerPayoutStatus: "SIMULATED_SENT",
-              providerPayoutSimulatedAt: reviewTime,
+              // Completion recognises earnings; it does not confirm a debit or bank payout.
+              paymentStatus: "UNPAID",
+              paymentSimulatedAt: null,
+              providerPayoutStatus: "NOT_SENT",
+              providerPayoutSimulatedAt: null,
             }
           : { status: "IN_PROGRESS", workSegmentStartedAt: null, workPausedAt: reviewTime, workEndedAt: null },
       });
       if (jobUpdate.count !== 1) throw new ConflictException("The job status or payment changed. Refresh and try again.");
 
       if (input.approved) {
-        // Testing mode only: record the Seeker payment, Provider's 90% payout,
-        // and AnySkill's 10% commission as separate auditable ledger entries.
-        // No real card charge or bank transfer takes place in SIMULATED mode.
+        // Record the job financial obligations, but do not mark a debit or payout successful.
         await tx.jobFinancialTransaction.createMany({
           data: [
-            {
-              engagementId: job.id, transactionType: "SEEKER_PAYMENT", mode: "SIMULATED", status: "COMPLETED",
-              amount: finalAmountDue!, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
-              idempotencyKey: `${job.id}:SEEKER_PAYMENT`, initiatedAt: reviewTime, simulatedAt: reviewTime, completedAt: reviewTime,
-            },
-            {
-              engagementId: job.id, transactionType: "PROVIDER_PAYOUT", mode: "SIMULATED", status: "COMPLETED",
-              amount: providerPayoutAmount!, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
-              idempotencyKey: `${job.id}:PROVIDER_PAYOUT`, initiatedAt: reviewTime, simulatedAt: reviewTime, completedAt: reviewTime,
-            },
-            {
-              engagementId: job.id, transactionType: "PLATFORM_COMMISSION", mode: "SIMULATED", status: "COMPLETED",
-              amount: platformCommissionAmount!, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
-              idempotencyKey: `${job.id}:PLATFORM_COMMISSION`, initiatedAt: reviewTime, simulatedAt: reviewTime, completedAt: reviewTime,
-            },
+            { engagementId: job.id, transactionType: "SEEKER_PAYMENT", mode: "PAYFAST_SANDBOX", status: "PENDING", amount: finalAmountDue!, currency: "ZAR", externalProvider: "PAYFAST", idempotencyKey: `${job.id}:SEEKER_PAYMENT`, initiatedAt: reviewTime },
+            { engagementId: job.id, transactionType: "PROVIDER_PAYOUT", mode: "PAYFAST_SANDBOX", status: "PENDING", amount: providerPayoutAmount!, currency: "ZAR", externalProvider: "PAYFAST", idempotencyKey: `${job.id}:PROVIDER_PAYOUT`, initiatedAt: reviewTime },
+            { engagementId: job.id, transactionType: "PLATFORM_COMMISSION", mode: "PAYFAST_SANDBOX", status: "PENDING", amount: platformCommissionAmount!, currency: "ZAR", externalProvider: "PAYFAST", idempotencyKey: `${job.id}:PLATFORM_COMMISSION`, initiatedAt: reviewTime },
           ],
         });
         await tx.serviceRequest.updateMany({
@@ -1489,15 +1446,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const notifications = [];
         if (job.providerId) notifications.push({
           userId: job.providerId,
-          title: "Provider payout recorded",
-          body: `The Seeker approved completion. Your simulated 90% payout of R ${providerPayoutAmount!.toFixed(2)} has been recorded. No real money has moved.`,
-          data: { type: "SIMULATED_PAYMENT_SENT", requestId, providerPayoutAmount: providerPayoutAmount!.toFixed(2), platformCommissionAmount: platformCommissionAmount!.toFixed(2) },
+          title: "Job earnings recorded",
+          body: `Your job earnings of R ${providerPayoutAmount!.toFixed(2)} (90%) have been recorded. The Seeker debit is awaiting successful confirmation; your bank payout has not been processed.`,
+          data: { type: "JOB_EARNINGS_RECORDED", requestId, providerPayoutAmount: providerPayoutAmount!.toFixed(2), platformCommissionAmount: platformCommissionAmount!.toFixed(2) },
         });
         notifications.push({
           userId: seekerId,
-          title: "Job completed and payment recorded",
-          body: `Your approval completed the job. The simulated payment of R ${finalAmountDue!.toFixed(2)} has been recorded: 90% Provider payout and 10% AnySkill commission. No real money has moved.`,
-          data: { type: "SIMULATED_PAYMENT_COMPLETED", requestId, amount: finalAmountDue!.toFixed(2) },
+          title: "Job completed",
+          body: `Your approval completed the job. The job amount is R ${finalAmountDue!.toFixed(2)}. The debit must succeed before AnySkill processes the Provider 90% payout.`,
+          data: { type: "JOB_COMPLETED_PAYMENT_PENDING", requestId, amount: finalAmountDue!.toFixed(2), successfulDebit: false },
         });
         await tx.appNotification.createMany({ data: notifications });
       } else if (job.providerId) {
@@ -1517,11 +1474,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         jobStatus: input.approved ? "COMPLETED" : "IN_PROGRESS",
         finalAmountDue: finalAmountDue?.toFixed(2) ?? null,
         finalApprovedAt: input.approved ? reviewTime : null,
-        paymentStatus: input.approved ? "SIMULATED_PAID" : "UNPAID",
-        providerPayoutStatus: input.approved ? "SIMULATED_SENT" : "NOT_SENT",
+        paymentStatus: "UNPAID",
+        successfulDebit: false,
+        providerPayoutStatus: "NOT_SENT",
         providerPayoutAmount: providerPayoutAmount?.toFixed(2) ?? null,
         platformCommissionAmount: platformCommissionAmount?.toFixed(2) ?? null,
-        paymentMode: input.approved ? "SIMULATED" : null,
+        paymentMode: input.approved ? "PAYFAST_SANDBOX" : null,
         nextStep: input.approved ? "RATINGS" : "CORRECTIONS",
       };
     });
