@@ -881,10 +881,14 @@ export function MarketplaceScreen(p: Props) {
   const reviewCompletion = async (requestId: string, submissionId: string, approved: boolean) => {
     setJobActionBusy(true); setError(""); setNotice("");
     try {
-      await apiRequest(`/marketplace/requests/${requestId}/completion/${submissionId}/decision`, {
-        method: "POST", body: JSON.stringify({ approved, note: approved ? undefined : completionReviewNote.trim() }),
-      }, true);
-      setNotice(approved ? "Completion approved. The job is marked completed." : "Corrections requested. The Provider can update the work and resubmit.");
+      const result = await apiRequest<{jobStatus:string;paymentStatus:string;finalAmountDue:string|null;providerPayoutAmount:string|null;platformCommissionAmount:string|null;paymentMode:string|null}>(
+        `/marketplace/requests/${requestId}/completion/${submissionId}/decision`,
+        { method: "POST", body: JSON.stringify({ approved, note: approved ? undefined : completionReviewNote.trim() }) },
+        true,
+      );
+      setNotice(approved
+        ? `Completion approved. Payment has been recorded: R ${Number(result.providerPayoutAmount ?? 0).toFixed(2)} (90%) to the Provider and R ${Number(result.platformCommissionAmount ?? 0).toFixed(2)} (10%) to AnySkill. Testing simulation only; no real money moved.`
+        : "Corrections requested. The Provider can update the work and resubmit.");
       setCompletionReviewNote(""); await loadMyRequests();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not review job completion."); }
     finally { setJobActionBusy(false); }
@@ -1647,29 +1651,15 @@ export function MarketplaceScreen(p: Props) {
               </View>
             </View>) : null}
             {request.jobEngagement?.status === "COMPLETED" ? <>
-              <Text style={s.response}>Completion approved. Payment is the next step.</Text>
+              <Text style={s.response}>Completion approved. Payment was automatically recorded when you confirmed completion.</Text>
               <Text style={s.offerTitle}>Final approved amount: R {Number(request.jobEngagement.finalAmountDue ?? 0).toFixed(2)}</Text>
-              {!isPaymentConfirmed(request.jobEngagement.paymentStatus) ? <View style={s.offerCard}>
-                <Text style={s.offerTitle}>PayFast sandbox payment</Text>
-                <Text style={s.meta}>Test environment only. No real money will be charged or transferred.</Text>
-                {savedPaymentMethods.filter((method) => method.status === "ACTIVE").map((method) => <View key={method.id} style={s.offerCard}>
-                  <Text style={s.meta}>{method.cardBrand ?? "Saved card"}{method.lastFour ? " •••• " + method.lastFour : ""}{method.isDefault ? " · Default" : ""}</Text>
-                  <Primary label={jobActionBusy ? "Processing..." : "Pay with saved card"} onPress={() => void payWithSavedCard(request.id, method.id)} disabled={jobActionBusy || request.jobEngagement?.paymentStatus === "PAYFAST_PENDING"} />
-                  <Secondary label="Remove saved card" onPress={() => void removeSavedCard(method.id)} disabled={jobActionBusy} />
-                </View>)}
-                <Pressable onPress={() => setSaveCardForNextTime((value) => !value)} style={s.choiceRow}>
-                  <Text style={s.meta}>{saveCardForNextTime ? "☑" : "☐"} Save this card for future AnySkill payments</Text>
-                </Pressable>
-                <Text style={s.meta}>If selected, PayFast securely stores your card and returns a payment token. AnySkill never stores your full card number or CVV. A future service charge is only initiated after you approve the final amount.</Text>
-                <Primary label={jobActionBusy ? "Opening PayFast..." : request.jobEngagement?.paymentStatus === "PAYFAST_PENDING" ? "Resume PayFast checkout" : "Continue to PayFast sandbox"} onPress={() => void startPayFastPayment(request.id)} disabled={jobActionBusy} />
-                {request.jobEngagement.paymentStatus === "PAYFAST_PENDING" ? <Text style={s.meta}>Payment started. Complete the PayFast checkout, return here and refresh the status.</Text> : null}
-                <Secondary label="Refresh payment status" onPress={() => void refreshPaymentStatus()} />
-              </View> : <View style={s.offerCard}>
-                <Text style={s.offerTitle}>Payment confirmed · {request.jobEngagement.paymentStatus === "PAYFAST_PAID" ? "PAYFAST SANDBOX" : "SIMULATED"}</Text>
-                <Text style={s.meta}>Provider payout: {request.jobEngagement.providerPayoutStatus === "SIMULATED_SENT" ? "Simulated only" : "Pending. AnySkill has not marked a bank transfer as sent."}</Text>
-                <Text style={s.meta}>Both parties can now submit their ratings.</Text>
-                <Secondary label="Refresh payment status" onPress={() => void refreshPaymentStatus()} />
-              </View>}
+              <View style={s.offerCard}>
+                <Text style={s.offerTitle}>Payment split · SIMULATED</Text>
+                <Text style={s.meta}>Provider receives 90%: R {(Number(request.jobEngagement.finalAmountDue ?? 0) * 0.9).toFixed(2)}</Text>
+                <Text style={s.meta}>AnySkill commission 10%: R {(Number(request.jobEngagement.finalAmountDue ?? 0) - Number((Number(request.jobEngagement.finalAmountDue ?? 0) * 0.9).toFixed(2))).toFixed(2)}</Text>
+                <Text style={s.meta}>Payment is recorded automatically after your approval. No real card charge or bank transfer takes place during testing.</Text>
+                <Text style={s.meta}>Both parties can now submit their ratings independently. Ratings do not affect payment.</Text>
+              </View>
               {isPaymentConfirmed(request.jobEngagement.paymentStatus) && request.jobEngagement.review && request.jobEngagement.seekerReview ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
               {isPaymentConfirmed(request.jobEngagement.paymentStatus) && request.jobEngagement.review ? <View style={s.offerCard}>
                 <Text style={s.offerTitle}>Your submitted ratings</Text>
@@ -1852,10 +1842,12 @@ export function MarketplaceScreen(p: Props) {
             <Text style={s.response}>The Seeker approved this job's completion.</Text>
             <Text style={s.offerTitle}>Final approved amount: R {Number(job.finalAmountDue ?? 0).toFixed(2)}</Text>
             {isPaymentConfirmed(job.paymentStatus) ? <View style={s.offerCard}>
-              <Text style={s.offerTitle}>Payment confirmed · {job.paymentStatus === "PAYFAST_PAID" ? "PAYFAST SANDBOX" : "SIMULATED"}</Text>
-              <Text style={s.meta}>{job.paymentStatus === "PAYFAST_PAID" ? "PayFast confirmed the Seeker payment. Your Provider payout is pending; AnySkill has not recorded a bank transfer." : "The simulated payment and payout were recorded for testing only. No real money moved."}</Text>
+              <Text style={s.offerTitle}>Provider payout recorded · SIMULATED</Text>
+              <Text style={s.meta}>Your 90% payout: R {(Number(job.finalAmountDue ?? 0) * 0.9).toFixed(2)}</Text>
+              <Text style={s.meta}>AnySkill commission (10%): R {(Number(job.finalAmountDue ?? 0) - Number((Number(job.finalAmountDue ?? 0) * 0.9).toFixed(2))).toFixed(2)}</Text>
+              <Text style={s.meta}>The Seeker's completion approval automatically recorded this payment split. No real money moved during testing.</Text>
             </View> : <View style={s.offerCard}>
-              <Text style={s.meta}>{job.paymentStatus === "PAYFAST_PENDING" ? "The Seeker has started PayFast checkout. Waiting for verified payment confirmation." : "Awaiting the Seeker's payment. Ratings unlock after payment is recorded."}</Text>
+              <Text style={s.meta}>Awaiting the Seeker's completion approval. The 90% Provider payout and 10% AnySkill commission will be recorded automatically when approved.</Text>
             </View>}
             {isPaymentConfirmed(job.paymentStatus) && job.seekerReview && job.review ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
             {isPaymentConfirmed(job.paymentStatus) && job.seekerReview ? <View style={s.offerCard}>
