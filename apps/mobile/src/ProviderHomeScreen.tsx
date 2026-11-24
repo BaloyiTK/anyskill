@@ -244,7 +244,6 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
               ? `${dailyEarnings.completedJobs} completed ${dailyEarnings.completedJobs === 1 ? "job" : "jobs"} today`
               : loading ? "Loading today's earnings…" : "Earnings unavailable"}
           </Text>
-          <Text style={styles.earningsMode}>Job earnings · payment tracked separately</Text>
         </View>
       </View>
 
