@@ -255,17 +255,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                 <Pressable accessibilityRole="button" disabled={skills.length >= 5} onPress={startSkillEditing} style={[styles.detailAction, skills.length >= 5 && styles.skillDisabled]}><Text style={styles.detailActionText}>＋ Add skill</Text></Pressable>
                 <Text style={styles.skillLimitHint}>You can list up to 5 skills. View and edit each skill independently.</Text>
               </View> : null}
-                  </> : <Text style={styles.skillLimitHint}>You have reached the 5-skill limit.</Text>}
-                  {!!skillError && <Text style={styles.skillError}>{skillError}</Text>}
-                                    {!!skillMessage && <Text style={styles.skillSuccess}>{skillMessage}</Text>}
-                  <View style={styles.skillEditorActions}>
-                    <Pressable accessibilityRole="button" disabled={savingSkills} onPress={() => { setEditingSkills(false); setSkillError(""); setSkillMessage(""); }} style={styles.skillCancel}><Text style={styles.skillCancelText}>Cancel</Text></Pressable>
-                    <Pressable accessibilityRole="button" disabled={savingSkills} onPress={() => void saveSkills()} style={[styles.detailAction, savingSkills && styles.skillDisabled]}><Text style={styles.detailActionText}>{savingSkills ? "Saving…" : "Save draft"}</Text></Pressable>
-                  </View>
-                  <Pressable accessibilityRole="button" disabled={savingSkills || skillDraft.length === 0} onPress={() => void submitSkillsForReview()} style={[styles.submitReviewButton, (savingSkills || skillDraft.length === 0) && styles.skillDisabled]}><Text style={styles.submitReviewText}>{savingSkills ? "Processing…" : "Submit changes for review"}</Text></Pressable>
-                  <Text style={styles.skillLimitHint}>Submitting sends new or changed skill details to review. Approved skills remain active unless their details are changed.</Text>
-                </>}
-              </View> : null}
+
             </View> : null}
           </View>
         );
