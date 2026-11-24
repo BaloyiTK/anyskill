@@ -35,13 +35,13 @@ const emptySkill = (): SkillEntry => ({ category: "", description: "", yearsOfEx
 const SKILL_CATALOGUE = ["Accounting", "Automotive Repair", "Beauty Therapy", "Carpentry", "Cleaning", "Electrical", "Graphic Design", "Hairdressing", "Landscaping", "Painting", "Photography", "Plumbing", "Software Development", "Tutoring", "Web Development"];
 const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#4CAF50", forest: "#1B5E20", border: "#DCE5EF", surface: "#FFFFFF", bg: "#F6F8FA", hero: "#0B2545", soft: "#EAF3FF" };
 
-export function OnboardingScreen(p: { identityStatus: string; initialMode: MarketplaceRole; seekerRoleStatus: string; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
+export function OnboardingScreen(p: { identityStatus: string; initialMode: MarketplaceRole; seekerRoleStatus: string; startAtSkills?: boolean; onBack: () => void; onStartVerification: () => void; onIdentityUpdated?: () => void | Promise<unknown>; onComplete: () => void | Promise<void> }) {
   const [alsoProvider, setAlsoProvider] = useState(false);
   const isProvider = p.initialMode === "PROVIDER" || alsoProvider;
   const tabs: Section[] = isProvider
     ? ["Profile", "Verification", "Skills", "Submit"]
     : ["Profile", "Verification", "Submit"];
-  const [active, setActive] = useState<Section>("Profile");
+  const [active, setActive] = useState<Section>(p.startAtSkills ? "Skills" : "Profile");
   const scrollViewRef = useRef<ComponentRef<typeof ScrollView>>(null);
   useEffect(() => {
     const frame = requestAnimationFrame(() => scrollViewRef.current?.scrollTo({ y: 0, animated: true }));
