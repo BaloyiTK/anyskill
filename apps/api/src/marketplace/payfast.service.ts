@@ -402,7 +402,9 @@ export class PayFastService {
       const currentJob = await tx.jobEngagement.findUnique({ where: { id: checkout.engagementId } });
       if (!currentJob || (currentJob.paymentStatus !== "PAYFAST_PENDING" && currentJob.paymentStatus !== "UNPAID")) {
         throw new ConflictException("The job payment state has changed; PayFast confirmation needs reconciliation.");
-      }
+      }      if (!currentJob.finalAmountDue) throw new ConflictException("The completed job amount is missing; payment needs reconciliation.");
+      const providerPayoutAmount = currentJob.finalAmountDue.mul("0.90").toDecimalPlaces(2);
+      const platformCommissionAmount = currentJob.finalAmountDue.minus(providerPayoutAmount).toDecimalPlaces(2);
       await tx.jobEngagement.update({
         where: { id: checkout.engagementId },
         data: {
@@ -423,7 +425,7 @@ export class PayFastService {
           transactionType: "PROVIDER_PAYOUT",
           mode: "PAYFAST_SANDBOX",
           status: "PENDING",
-          amount: checkout.amount,
+          amount: providerPayoutAmount,
           currency: "ZAR",
           externalProvider: "PAYFAST",
           externalReference: pfPaymentId,
@@ -433,7 +435,7 @@ export class PayFastService {
         update: {
           mode: "PAYFAST_SANDBOX",
           status: "PENDING",
-          amount: checkout.amount,
+          amount: providerPayoutAmount,
           externalProvider: "PAYFAST",
           externalReference: pfPaymentId,
           initiatedAt: completedAt,
@@ -469,6 +471,18 @@ export class PayFastService {
         },
       });
 
+      await tx.jobFinancialTransaction.upsert({
+        where: { engagementId_transactionType: { engagementId: checkout.engagementId, transactionType: "PLATFORM_COMMISSION" } },
+        create: {
+          engagementId: checkout.engagementId, transactionType: "PLATFORM_COMMISSION", mode: "PAYFAST_SANDBOX", status: "COMPLETED",
+          amount: platformCommissionAmount, currency: "ZAR", externalProvider: "PAYFAST", externalReference: pfPaymentId,
+          idempotencyKey: `${checkout.engagementId}:PLATFORM_COMMISSION`, initiatedAt: checkout.createdAt, completedAt,
+        },
+        update: {
+          mode: "PAYFAST_SANDBOX", status: "COMPLETED", amount: platformCommissionAmount, externalProvider: "PAYFAST",
+          externalReference: pfPaymentId, completedAt, failedAt: null, failureReason: null,
+        },
+      });
       if (checkout.saveCard && body.token) {
         const token = body.token;
         const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
