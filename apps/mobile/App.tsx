@@ -495,20 +495,15 @@ export default function App() {
       setPendingAcceptRequestId(null);
       setPendingIncomingPushId(null);
       setActiveTab("home");
-      setMode("provider");
+      autoSwitchMarketplaceMode("provider");
       setScreen("dashboard");
-      void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
-        method: "PATCH",
-        body: JSON.stringify({ mode: "PROVIDER" }),
-      }, true).then(setRoleSummary).catch(() => undefined);
       setMessage("The Skill Seeker declined your offer. You are back on Provider Home. Your availability setting has not changed.");
       return;
     }
     if (typeof data.requestId === "string" && data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
       setActiveTab("home");
-      setMode("seeker");
+      autoSwitchMarketplaceMode("seeker");
       setScreen("marketplace");
-      void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", { method: "PATCH", body: JSON.stringify({ mode: "SEEKER" }) }, true).then(setRoleSummary).catch(() => undefined);
       setMessage("Your Provider cancelled the service. Find another Provider to continue.");
       return;
     }
@@ -519,9 +514,8 @@ export default function App() {
       setPendingIncomingPushId((current) => current === cancelledRequestId ? null : current);
       dismissedIncomingRequestIds.current.add(cancelledRequestId);
       setActiveTab("home");
-      setMode("provider");
+      autoSwitchMarketplaceMode("provider");
       setScreen("dashboard");
-      void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", { method: "PATCH", body: JSON.stringify({ mode: "PROVIDER" }) }, true).then(setRoleSummary).catch(() => undefined);
       setMessage("The Skill Seeker cancelled the service. You are back on Provider Home.");
       return;
     }
@@ -535,14 +529,8 @@ export default function App() {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(requestId);
           setActiveTab("home");
-          setMode("provider");
+          autoSwitchMarketplaceMode("provider");
           setScreen("marketplace");
-          void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
-            method: "PATCH",
-            body: JSON.stringify({ mode: "PROVIDER" }),
-          }, true).then(setRoleSummary).catch((e) => {
-            console.warn("[AnySkill incoming request] Could not persist Provider mode after accepting.", e);
-          });
         }).catch((e) => {
           setError(e instanceof Error ? e.message : "Could not accept this request.");
           openMatchedRequest(requestId);
@@ -575,14 +563,8 @@ export default function App() {
     if (!["dashboard", "onboarding", "marketplace"].includes(screen)) return;
     setPendingIncomingPushId(null);
     setActiveTab("home");
-    setMode("provider");
+    autoSwitchMarketplaceMode("provider");
     setScreen("dashboard");
-    void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
-      method: "PATCH",
-      body: JSON.stringify({ mode: "PROVIDER" }),
-    }, true).then(setRoleSummary).catch((e) => {
-      console.warn("[AnySkill incoming request] Could not switch to Provider mode.", e);
-    });
   }, [account?.id, roleSummary?.providerStatus, pendingIncomingPushId, screen]);
 
   // Reconcile matches from the API while a Provider is online. Push delivery
@@ -624,17 +606,13 @@ export default function App() {
         setPendingAcceptRequestId(null);
         setPendingIncomingPushId(null);
         setActiveTab("home");
-        setMode("provider");
+        autoSwitchMarketplaceMode("provider");
         setScreen("dashboard");
-        void apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
-          method: "PATCH",
-          body: JSON.stringify({ mode: "PROVIDER" }),
-        }, true).then(setRoleSummary).catch(() => undefined);
         setMessage("The Skill Seeker declined your offer. You are back on Provider Home. Your availability setting has not changed.");
         return;
       }
       if (data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
-        setActiveTab("home"); setMode("seeker"); setScreen("marketplace");
+        setActiveTab("home"); autoSwitchMarketplaceMode("seeker"); setScreen("marketplace");
         setMessage("Your Provider cancelled the service. Find another Provider to continue.");
         return;
       }
@@ -646,7 +624,7 @@ export default function App() {
           setPendingIncomingPushId((current) => current === cancelledRequestId ? null : current);
           dismissedIncomingRequestIds.current.add(cancelledRequestId);
         }
-        setActiveTab("home"); setMode("provider"); setScreen("dashboard");
+        setActiveTab("home"); autoSwitchMarketplaceMode("provider"); setScreen("dashboard");
         setMessage("The Skill Seeker cancelled the service. You are back on Provider Home.");
         return;
       }
