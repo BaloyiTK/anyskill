@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { OnboardingService } from "../dist/onboarding/onboarding.service.js";
 
-function makeService({ mailFailure = false, alreadySubmittedAt = null } = {}) {
+function makeService({ mailFailure = false, alreadySubmittedAt = null, activeMarketplaceMode = null, seekerRoleStatus = "NOT_REQUESTED", providerRoleStatus = "PENDING" } = {}) {
   const events = [];
+  let savedRoleUpdate = null;
   const user = {
     email: "member@example.com",
     initialMode: "PROVIDER",
@@ -65,8 +66,8 @@ function makeService({ mailFailure = false, alreadySubmittedAt = null } = {}) {
           update: async () => { events.push("draft-updated"); },
         },
         user: {
-          findUniqueOrThrow: async () => ({ seekerRoleStatus: "NOT_REQUESTED", providerRoleStatus: "PENDING" }),
-          update: async () => { events.push("roles-updated"); },
+          findUniqueOrThrow: async () => ({ seekerRoleStatus, providerRoleStatus, activeMarketplaceMode }),
+          update: async ({ data }) => { savedRoleUpdate = data; events.push("roles-updated"); },
         },
         providerSkill: {
           findUnique: async () => ({ status: "PENDING", details: draft.skills[0] }),
@@ -95,7 +96,7 @@ function makeService({ mailFailure = false, alreadySubmittedAt = null } = {}) {
     },
   };
   const service = new OnboardingService(prisma, mail);
-  return { service, events };
+  return { service, events, get savedRoleUpdate() { return savedRoleUpdate; } };
 }
 
 test("welcome email is sent after successful full Provider profile submission", async () => {
@@ -134,4 +135,15 @@ test("concurrent first submissions send only one welcome email", async () => {
 
   assert.equal(results.filter((result) => result.welcomeEmailSent).length, 1);
   assert.equal(events.filter((event) => event === "welcome-email").length, 1);
+});
+
+
+test("onboarding submission preserves the selected Provider mode for a dual-role account", async () => {
+  const { service, savedRoleUpdate } = makeService({
+    activeMarketplaceMode: "PROVIDER",
+    seekerRoleStatus: "ACTIVE",
+    providerRoleStatus: "ACTIVE",
+  });
+  await service.submit("user-1");
+  assert.equal(savedRoleUpdate.activeMarketplaceMode, "PROVIDER");
 });
