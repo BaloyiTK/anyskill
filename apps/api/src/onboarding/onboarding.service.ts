@@ -111,11 +111,22 @@ export class OnboardingService {
       this.prisma.providerRoleApplication.findUnique({ where: { userId }, select: { status: true } }),
       this.prisma.providerSkill.findMany({
         where: { userId },
-        select: { category: true, status: true, decisionReason: true, submittedAt: true, reviewedAt: true },
+        select: { category: true, details: true, status: true, decisionReason: true, submittedAt: true, reviewedAt: true },
         orderBy: [{ category: "asc" }],
       }),
     ]);
-    const data = { profile: draft?.profile ?? {}, skills: draft?.skills ?? [], portfolio: draft?.portfolio ?? [] };
+    // The onboarding draft is the editable source of truth when it contains
+    // skills. Older accounts may only have submitted ProviderSkill records;
+    // restore their full saved details instead of returning an empty manager.
+    const draftSkills = Array.isArray(draft?.skills) ? draft.skills : [];
+    const restoredProviderSkills = providerSkills.map((skill) => {
+      const details = skill.details && typeof skill.details === "object" && !Array.isArray(skill.details)
+        ? skill.details as Record<string, unknown>
+        : {};
+      return { ...details, category: typeof details.category === "string" && details.category.trim() ? details.category : skill.category };
+    });
+    const skills = draftSkills.length > 0 ? draftSkills : restoredProviderSkills;
+    const data = { profile: draft?.profile ?? {}, skills, portfolio: draft?.portfolio ?? [] };
     return {
       ...data,
       ...this.completion(data),
@@ -140,14 +151,34 @@ export class OnboardingService {
       ...(input.portfolio !== undefined ? { portfolio: input.portfolio as Prisma.InputJsonValue } : {}),
       // Preserve the original submission marker when editing a submitted profile.
     };
-    await this.prisma.onboardingDraft.upsert({
-      where: { userId },
-      create: { userId, profile: (input.profile ?? {}) as Prisma.InputJsonValue, skills: (input.skills ?? []) as Prisma.InputJsonValue, portfolio: (input.portfolio ?? []) as Prisma.InputJsonValue },
-      update: data,
+    await this.prisma.$transaction(async (tx) => {
+      const existingDraft = await tx.onboardingDraft.findUnique({ where: { userId }, select: { submittedAt: true } });
+      await tx.onboardingDraft.upsert({
+        where: { userId },
+        create: { userId, profile: (input.profile ?? {}) as Prisma.InputJsonValue, skills: (input.skills ?? []) as Prisma.InputJsonValue, portfolio: (input.portfolio ?? []) as Prisma.InputJsonValue },
+        update: data,
+      });
+
+      // For an already-submitted profile, removing a skill in the manager also
+      // removes its live review record and public category. Draft-only edits
+      // never create or re-submit review records; explicit submission does that.
+      if (input.skills !== undefined && existingDraft?.submittedAt) {
+        const retainedCategories = (input.skills as Array<Record<string, unknown>>)
+          .map((skill) => typeof skill.category === "string" ? skill.category.trim().toLocaleLowerCase("en-ZA") : "")
+          .filter(Boolean);
+        await tx.providerSkill.deleteMany({
+          where: { userId, ...(retainedCategories.length ? { category: { notIn: retainedCategories } } : {}) },
+        });
+        const providerProfile = await tx.providerProfile.findUnique({ where: { userId }, select: { skillCategories: true } });
+        if (providerProfile) {
+          await tx.providerProfile.update({
+            where: { userId },
+            data: { skillCategories: providerProfile.skillCategories.filter((category) => retainedCategories.includes(category.toLocaleLowerCase("en-ZA"))) },
+          });
+        }
+      }
     });
 
-    // Saving a draft must not create review-queue records. ProviderSkill
-    // rows are created or re-submitted only after the user explicitly submits.
     return this.get(userId);
   }
 
