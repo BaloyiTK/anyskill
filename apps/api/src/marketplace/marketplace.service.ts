@@ -1410,6 +1410,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   async decideJobCompletion(seekerId: string, requestId: string, submissionId: string, input: DecideJobCompletionDto) {
     return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM job_engagements WHERE request_id = ${requestId}::uuid FOR UPDATE`);
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.seekerId || job.seekerId !== seekerId) throw new ForbiddenException("Only the Skill Seeker can review completion.");
@@ -1417,38 +1418,113 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const submission = await tx.jobCompletionSubmission.findFirst({ where: { id: submissionId, engagementId: job.id, status: "PENDING" } });
       if (!submission) throw new NotFoundException("Pending completion submission not found.");
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain what needs to be corrected before rejecting completion.");
-      const submissionClaim = await tx.jobCompletionSubmission.updateMany({
-        where: { id: submission.id, engagementId: job.id, status: "PENDING" },
-        data: { status: input.approved ? "APPROVED" : "REJECTED", reviewNote: input.note?.trim() || null, reviewedAt: new Date() },
-      });
-      if (submissionClaim.count !== 1) throw new ConflictException("This completion submission has already been reviewed. Refresh to see the latest status.");
-      const updatedSubmission = await tx.jobCompletionSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+
       const reviewTime = new Date();
       let finalAmountDue: Prisma.Decimal | null = null;
+      let providerPayoutAmount: Prisma.Decimal | null = null;
+      let platformCommissionAmount: Prisma.Decimal | null = null;
       if (input.approved) {
         if (job.estimatedTotal === null) throw new ConflictException("The approved estimate is missing. Contact AnySkill support before approving completion.");
+        if (!job.providerId) throw new ConflictException("This completed job has no assigned Provider and cannot be paid.");
+        if (job.paymentStatus !== "UNPAID") throw new ConflictException("Payment has already been processed for this job.");
         const approvedAdjustments = await tx.jobCostAdjustment.aggregate({
           where: { engagementId: job.id, status: "APPROVED" },
           _sum: { requestedAmount: true },
         });
         finalAmountDue = new Prisma.Decimal(job.assessmentFee).plus(job.estimatedTotal).plus(approvedAdjustments._sum.requestedAmount ?? 0).toDecimalPlaces(2);
+        providerPayoutAmount = finalAmountDue.mul(new Prisma.Decimal("0.90")).toDecimalPlaces(2);
+        platformCommissionAmount = finalAmountDue.minus(providerPayoutAmount).toDecimalPlaces(2);
       }
+
+      const submissionClaim = await tx.jobCompletionSubmission.updateMany({
+        where: { id: submission.id, engagementId: job.id, status: "PENDING" },
+        data: { status: input.approved ? "APPROVED" : "REJECTED", reviewNote: input.note?.trim() || null, reviewedAt: reviewTime },
+      });
+      if (submissionClaim.count !== 1) throw new ConflictException("This completion submission has already been reviewed. Refresh to see the latest status.");
+
       const jobUpdate = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: "COMPLETION_PENDING", finalAmountDue: null },
+        where: { id: job.id, status: "COMPLETION_PENDING", finalAmountDue: null, paymentStatus: "UNPAID" },
         data: input.approved
-          ? { status: "COMPLETED", workSegmentStartedAt: null, workPausedAt: null, finalAmountDue, finalApprovedAt: reviewTime }
+          ? {
+              status: "COMPLETED",
+              workSegmentStartedAt: null,
+              workPausedAt: null,
+              finalAmountDue: finalAmountDue!,
+              finalApprovedAt: reviewTime,
+              paymentStatus: "SIMULATED_PAID",
+              paymentSimulatedAt: reviewTime,
+              providerPayoutStatus: "SIMULATED_SENT",
+              providerPayoutSimulatedAt: reviewTime,
+            }
           : { status: "IN_PROGRESS", workSegmentStartedAt: null, workPausedAt: reviewTime, workEndedAt: null },
       });
-      if (jobUpdate.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
-      if (job.providerId) await tx.appNotification.create({
-        data: {
+      if (jobUpdate.count !== 1) throw new ConflictException("The job status or payment changed. Refresh and try again.");
+
+      if (input.approved) {
+        // Testing mode only: record the Seeker payment, Provider's 90% payout,
+        // and AnySkill's 10% commission as separate auditable ledger entries.
+        // No real card charge or bank transfer takes place in SIMULATED mode.
+        await tx.jobFinancialTransaction.createMany({
+          data: [
+            {
+              engagementId: job.id, transactionType: "SEEKER_PAYMENT", mode: "SIMULATED", status: "COMPLETED",
+              amount: finalAmountDue!, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
+              idempotencyKey: `${job.id}:SEEKER_PAYMENT`, initiatedAt: reviewTime, simulatedAt: reviewTime, completedAt: reviewTime,
+            },
+            {
+              engagementId: job.id, transactionType: "PROVIDER_PAYOUT", mode: "SIMULATED", status: "COMPLETED",
+              amount: providerPayoutAmount!, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
+              idempotencyKey: `${job.id}:PROVIDER_PAYOUT`, initiatedAt: reviewTime, simulatedAt: reviewTime, completedAt: reviewTime,
+            },
+            {
+              engagementId: job.id, transactionType: "PLATFORM_COMMISSION", mode: "SIMULATED", status: "COMPLETED",
+              amount: platformCommissionAmount!, currency: "ZAR", externalProvider: "ANYSKILL_SIMULATOR",
+              idempotencyKey: `${job.id}:PLATFORM_COMMISSION`, initiatedAt: reviewTime, simulatedAt: reviewTime, completedAt: reviewTime,
+            },
+          ],
+        });
+        await tx.serviceRequest.updateMany({
+          where: { id: requestId, status: { not: "CANCELLED" } },
+          data: { status: "CLOSED" },
+        });
+        const notifications = [];
+        if (job.providerId) notifications.push({
           userId: job.providerId,
-          title: input.approved ? "Job completion approved" : "Corrections requested",
-          body: input.approved ? "The Skill Seeker approved the completed job." : `The Skill Seeker requested corrections: ${input.note}. The timer is paused; resume when ready to perform the corrections.`,
-          data: { type: input.approved ? "JOB_COMPLETION_APPROVED" : "JOB_COMPLETION_REJECTED", requestId, submissionId },
-        },
-      });
-      return { submission: updatedSubmission, jobStatus: input.approved ? "COMPLETED" : "IN_PROGRESS", finalAmountDue: finalAmountDue?.toFixed(2) ?? null, finalApprovedAt: input.approved ? reviewTime : null, nextStep: input.approved ? "PAYMENT" : "CORRECTIONS" };
+          title: "Provider payout recorded",
+          body: `The Seeker approved completion. Your simulated 90% payout of R ${providerPayoutAmount!.toFixed(2)} has been recorded. No real money has moved.`,
+          data: { type: "SIMULATED_PAYMENT_SENT", requestId, providerPayoutAmount: providerPayoutAmount!.toFixed(2), platformCommissionAmount: platformCommissionAmount!.toFixed(2) },
+        });
+        notifications.push({
+          userId: seekerId,
+          title: "Job completed and payment recorded",
+          body: `Your approval completed the job. The simulated payment of R ${finalAmountDue!.toFixed(2)} has been recorded: 90% Provider payout and 10% AnySkill commission. No real money has moved.`,
+          data: { type: "SIMULATED_PAYMENT_COMPLETED", requestId, amount: finalAmountDue!.toFixed(2) },
+        });
+        await tx.appNotification.createMany({ data: notifications });
+      } else if (job.providerId) {
+        await tx.appNotification.create({
+          data: {
+            userId: job.providerId,
+            title: "Corrections requested",
+            body: `The Skill Seeker requested corrections: ${input.note}. The timer is paused; resume when ready to perform the corrections.`,
+            data: { type: "JOB_COMPLETION_REJECTED", requestId, submissionId },
+          },
+        });
+      }
+
+      const updatedSubmission = await tx.jobCompletionSubmission.findUniqueOrThrow({ where: { id: submission.id } });
+      return {
+        submission: updatedSubmission,
+        jobStatus: input.approved ? "COMPLETED" : "IN_PROGRESS",
+        finalAmountDue: finalAmountDue?.toFixed(2) ?? null,
+        finalApprovedAt: input.approved ? reviewTime : null,
+        paymentStatus: input.approved ? "SIMULATED_PAID" : "UNPAID",
+        providerPayoutStatus: input.approved ? "SIMULATED_SENT" : "NOT_SENT",
+        providerPayoutAmount: providerPayoutAmount?.toFixed(2) ?? null,
+        platformCommissionAmount: platformCommissionAmount?.toFixed(2) ?? null,
+        paymentMode: input.approved ? "SIMULATED" : null,
+        nextStep: input.approved ? "RATINGS" : "CORRECTIONS",
+      };
     });
   }
 
@@ -1655,7 +1731,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (job.providerId !== providerId) throw new ForbiddenException("Only the Provider assigned to this job can rate the Skill Seeker.");
-      if (job.status !== "COMPLETED" || job.paymentStatus !== "SIMULATED_PAID") throw new ConflictException("Wait until payment is completed before rating the Skill Seeker.");
+      if (job.status !== "COMPLETED" || !["SIMULATED_PAID", "PAYFAST_PAID"].includes(job.paymentStatus)) throw new ConflictException("Wait until payment is completed before rating the Skill Seeker.");
       if (!job.seekerId) throw new ConflictException("This job has no Skill Seeker available to rate.");
       const review = await tx.seekerReview.create({
         data: { engagementId: job.id, providerId, seekerId: job.seekerId, rating: input.rating, comment: input.comment?.trim() || null },
