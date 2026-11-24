@@ -144,26 +144,25 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
   const location = [profile?.profile?.suburb, profile?.profile?.city, profile?.profile?.province, profile?.profile?.country].filter(Boolean).join(", ");
   const roleStatus = mode === "provider" ? providerStatus : seekerStatus;
 
-  const rows = mode === "provider" ? [
+  const rows = [
     { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("\n") || "Your personal details will appear here once saved." },
     { id: "identity", title: "Identity verification", summary: identityVerified ? "Verified" : statusLabel(identityValue), detail: identityVerified ? "Your identity verification has been approved." : "Complete or check your identity verification to unlock protected marketplace actions." },
-    { id: "skills", title: "Skills & Portfolio", summary: `${skillNames.length} skills · ${approvedSkillCount} approved · ${pendingSkillCount} pending · ${rejectedSkillCount} rejected`, detail: skillNames.length ? skills.map((skill) => {
-      const review = profile?.skillReviewStatuses?.find((item) => item.category.trim().toLowerCase() === skill.category.trim().toLowerCase());
-      const parts = [`${skill.category} — ${statusLabel(review?.status ?? "NOT_SUBMITTED")}`];
-      if (skill.yearsOfExperience) parts.push(`Experience: ${skill.yearsOfExperience}`);
-      if (skill.description) parts.push(skill.description);
-      if (review?.decisionReason) parts.push(`Review feedback: ${review.decisionReason}`);
-      return parts.join("\n");
-    }).join("\n\n") + `\n\n${portfolioCount} portfolio entries` : "No skills have been added yet. Add your skills and supporting details here." },
-    { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("\n") : "Your service locations will appear here when configured." },
-    { id: "availability", title: "Availability", summary: provider?.isAvailable ? "Online" : "Offline", detail: provider?.isAvailable ? "You are currently available to receive matching service requests." : "You are currently offline and will not receive new matching requests." },
-    { id: "pricing", title: "Pricing", summary: provider?.hourlyRate != null ? `R${provider.hourlyRate} per hour` : "Not configured", detail: provider?.hourlyRate != null ? `Hourly rate: R${provider.hourlyRate}
-Assessment fee: R${provider.assessmentFee ?? 0}` : "Your service pricing has not been configured." },
-  ] : [
-    { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("\n") || "Your personal details will appear here once saved." },
-    { id: "identity", title: "Identity verification", summary: identityVerified ? "Verified" : statusLabel(identityValue), detail: identityVerified ? "Your identity verification has been approved." : "Complete or check your identity verification before submitting service requests." },
-    { id: "payments", title: "Payment methods", summary: "Manage payment options", detail: "Payment methods will be displayed here when payment management is available." },
-    { id: "addresses", title: "Addresses & locations", summary: location || "No saved address", detail: location || "Your saved addresses and preferred service locations will appear here." },
+    ...(mode === "provider" ? [
+      { id: "skills", title: "Skills & Portfolio", summary: `${skillNames.length} skills · ${approvedSkillCount} approved · ${pendingSkillCount} pending · ${rejectedSkillCount} rejected`, detail: skillNames.length ? skills.map((skill) => {
+        const review = profile?.skillReviewStatuses?.find((item) => item.category.trim().toLowerCase() === skill.category.trim().toLowerCase());
+        const parts = [`${skill.category} — ${statusLabel(review?.status ?? "NOT_SUBMITTED")}`];
+        if (skill.yearsOfExperience) parts.push(`Experience: ${skill.yearsOfExperience}`);
+        if (skill.description) parts.push(skill.description);
+        if (review?.decisionReason) parts.push(`Review feedback: ${review.decisionReason}`);
+        return parts.join("\n");
+      }).join("\n\n") + `\n\n${portfolioCount} portfolio entries` : "No skills have been added yet. Add your skills and supporting details here." },
+      { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("\n") : "Your service locations will appear here when configured." },
+      { id: "availability", title: "Availability", summary: provider?.isAvailable ? "Online" : "Offline", detail: provider?.isAvailable ? "You are currently available to receive matching service requests." : "You are currently offline and will not receive new matching requests." },
+      { id: "pricing", title: "Pricing", summary: provider?.hourlyRate != null ? `R${provider.hourlyRate} per hour` : "Not configured", detail: provider?.hourlyRate != null ? `Hourly rate: R${provider.hourlyRate}\nAssessment fee: R${provider.assessmentFee ?? 0}` : "Your service pricing has not been configured." },
+    ] : [
+      { id: "payments", title: "Payment methods", summary: "Manage payment options", detail: "Payment methods will be displayed here when payment management is available." },
+      { id: "addresses", title: "Addresses & locations", summary: location || "No saved address", detail: location || "Your saved addresses and preferred service locations will appear here." },
+    ]),
   ];
 
   return (
@@ -176,15 +175,6 @@ Assessment fee: R${provider.assessmentFee ?? 0}` : "Your service pricing has not
           <Text style={styles.subtitle}>Manage your profile and account information</Text>
         </View>
         <View style={styles.approvedBadge}><Text style={styles.approvedText}>{statusLabel(roleStatus)}</Text></View>
-      </View>
-
-      <View style={styles.modeSwitch}>
-        <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === "provider" }} onPress={() => onModeChange("provider")} style={[styles.modeButton, mode === "provider" && styles.modeSelected]}>
-          <Text style={[styles.modeText, mode === "provider" && styles.modeTextSelected]}>Provider</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityState={{ selected: mode === "seeker" }} onPress={() => onModeChange("seeker")} style={[styles.modeButton, mode === "seeker" && styles.modeSelected]}>
-          <Text style={[styles.modeText, mode === "seeker" && styles.modeTextSelected]}>Seeker</Text>
-        </Pressable>
       </View>
 
       {mode === "provider" && provider ? <View style={styles.ratingsCard}>
@@ -308,7 +298,7 @@ Assessment fee: R${provider.assessmentFee ?? 0}` : "Your service pricing has not
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: 16, paddingBottom: 30, gap: 11 },
+  content: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 24, gap: 11 },
   hero: { backgroundColor: colors.primary, borderRadius: 22, padding: 18, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 116 },
   avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   avatarText: { color: colors.primary, fontSize: 17, fontWeight: "900" },
