@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 import { apiRequest } from "./api";
 
 type Mode = "seeker" | "provider";
+type ProfileSkill = { category: string; description?: string; yearsOfExperience?: string; licencesQualifications?: Array<{ name: string; attachmentUrl: string; attachmentName?: string }>; portfolio?: Array<{ title: string; description: string; links?: string[]; imageUrls?: string[]; linkTitle?: string; linkUrl?: string }> };
 type Identity = { status?: string; latestCase?: { status?: string } | null };
 type OnboardingProfile = {
   profile?: { firstName?: string; lastName?: string; phone?: string; suburb?: string; city?: string; province?: string; country?: string; marketplaceRoles?: string[] };
@@ -31,7 +32,6 @@ type Props = {
   onModeChange: (mode: Mode) => void;
   onAccountSettings: () => void;
   onStartVerification: () => void;
-  onEditSkills: () => void;
 };
 
 const colors = {
