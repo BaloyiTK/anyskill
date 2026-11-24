@@ -341,11 +341,15 @@ export class OnboardingService {
       }
 
       const activeMarketplaceMode =
-        seekerRoleStatus === MarketplaceRoleStatus.ACTIVE
+        currentUser.activeMarketplaceMode === RegistrationMode.SEEKER && seekerRoleStatus === MarketplaceRoleStatus.ACTIVE
           ? RegistrationMode.SEEKER
-          : providerRoleStatus === MarketplaceRoleStatus.ACTIVE
+          : currentUser.activeMarketplaceMode === RegistrationMode.PROVIDER && providerRoleStatus === MarketplaceRoleStatus.ACTIVE
             ? RegistrationMode.PROVIDER
-            : null;
+            : seekerRoleStatus === MarketplaceRoleStatus.ACTIVE
+              ? RegistrationMode.SEEKER
+              : providerRoleStatus === MarketplaceRoleStatus.ACTIVE
+                ? RegistrationMode.PROVIDER
+                : null;
 
       await tx.user.update({
         where: { id: userId },
