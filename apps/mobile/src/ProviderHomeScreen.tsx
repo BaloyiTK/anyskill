@@ -49,6 +49,8 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   const [dailyEarnings, setDailyEarnings] = useState<DailyEarnings | null>(null);
   const [onboardingSkills, setOnboardingSkills] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [earningsLoading, setEarningsLoading] = useState(true);
+  const [earningsUnavailable, setEarningsUnavailable] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -77,8 +79,12 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
     try {
       const earnings = await apiRequest<DailyEarnings>("/marketplace/provider-earnings/today", {}, true);
       setDailyEarnings(earnings);
+      setEarningsUnavailable(false);
     } catch {
       // Keep the last successful total visible if a temporary network error occurs.
+      setEarningsUnavailable(true);
+    } finally {
+      setEarningsLoading(false);
     }
   }, []);
 
@@ -168,11 +174,15 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   return (
     <View style={styles.root}>
       <View style={styles.intro}>
-        <Text style={styles.title}>{isOnline ? "You're online" : "You're offline"}</Text>
+        <Text style={styles.title}>
+          {loading ? "Loading your Provider Home…" : isOnline ? "You're online" : "You're offline"}
+        </Text>
         <Text style={styles.subtitle}>
-          {isOnline
-            ? "You’re visible to nearby customers and ready to receive service requests."
-            : "Go online when you're ready to receive service requests from nearby customers."}
+          {loading
+            ? "Checking your service profile and availability."
+            : isOnline
+              ? "You’re visible to nearby customers and ready to receive service requests."
+              : "Go online when you're ready to receive service requests from nearby customers."}
         </Text>
       </View>
 
@@ -182,7 +192,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
           <View style={[styles.statusPill, isOnline ? styles.onlinePill : styles.offlinePill]}>
             <View style={[styles.statusDot, isOnline ? styles.onlineDot : styles.offlineDot]} />
             <Text style={[styles.statusText, isOnline ? styles.onlineText : styles.offlineText]}>
-              {isOnline ? "ONLINE" : "OFFLINE"}
+              {loading ? "CHECKING" : isOnline ? "ONLINE" : "OFFLINE"}
             </Text>
           </View>
         </View>
@@ -234,7 +244,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
             <Text style={styles.earningsAmount}>
               {dailyEarnings
                 ? new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR" }).format(dailyEarnings.amount)
-                : "—"}
+                : earningsLoading ? "Loading…" : "—"}
             </Text>
           </View>
         </View>
@@ -242,7 +252,9 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
           <Text style={styles.earningsJobs}>
             {dailyEarnings
               ? `${dailyEarnings.completedJobs} completed ${dailyEarnings.completedJobs === 1 ? "job" : "jobs"} today`
-              : loading ? "Loading today's earnings…" : "Earnings unavailable"}
+              : earningsLoading ? "Loading today's earnings…"
+                : earningsUnavailable ? "Earnings unavailable. Please try again shortly."
+                  : "No completed jobs today"}
           </Text>
         </View>
       </View>
@@ -411,11 +423,8 @@ const styles = StyleSheet.create({
   earningsTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   earningsLabel: { color: C.muted, fontSize: 11, fontWeight: "700" },
   earningsAmount: { color: C.ink, fontSize: 28, fontWeight: "900", marginTop: 5, letterSpacing: -0.7 },
-  earningsIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#DCEFE3", alignItems: "center", justifyContent: "center" },
-  earningsIconText: { color: C.online, fontSize: 20, fontWeight: "900" },
   earningsFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "#DCEBE1", paddingTop: 11 },
   earningsJobs: { color: C.ink, fontSize: 10, fontWeight: "700" },
-  earningsMode: { color: C.muted, fontSize: 9 },
     skillsSection: { marginTop: 31 },
   sectionTitle: { color: C.ink, fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
   skillsLoader: { marginTop: 18 },
@@ -444,19 +453,5 @@ const styles = StyleSheet.create({
   skillNotRated: { color: C.muted, fontSize: 9, fontWeight: "600" },
   emptySkills: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 14 },
   swipeHint: { color: C.muted, fontSize: 10, marginTop: 11, textAlign: "center" },
-  locationIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: C.soft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  locationGlyph: { color: C.primary, fontSize: 21 },
-  locationCopy: { flex: 1, gap: 4 },
-  locationTitle: { color: C.ink, fontSize: 12, fontWeight: "700" },
-  locationSubtitle: { color: C.muted, fontSize: 10, lineHeight: 15 },
   error: { color: C.danger, fontSize: 12, lineHeight: 18, marginTop: 15 },
-  refresh: { alignSelf: "center", paddingVertical: 15, paddingHorizontal: 18 },
-  refreshText: { color: C.primary, fontSize: 11, fontWeight: "700" },
 });
