@@ -887,7 +887,7 @@ export function MarketplaceScreen(p: Props) {
         true,
       );
       setNotice(approved
-        ? `Completion approved. Payment has been recorded: R ${Number(result.providerPayoutAmount ?? 0).toFixed(2)} (90%) to the Provider and R ${Number(result.platformCommissionAmount ?? 0).toFixed(2)} (10%) to AnySkill. Testing simulation only; no real money moved.`
+        ? `Completion approved. Provider earnings of R ${Number(result.providerPayoutAmount ?? 0).toFixed(2)} (90%) and AnySkill commission of R ${Number(result.platformCommissionAmount ?? 0).toFixed(2)} (10%) have been recorded. Seeker debit is pending; Provider payout follows successful debit.`
         : "Corrections requested. The Provider can update the work and resubmit.");
       setCompletionReviewNote(""); await loadMyRequests();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not review job completion."); }
@@ -1651,13 +1651,15 @@ export function MarketplaceScreen(p: Props) {
               </View>
             </View>) : null}
             {request.jobEngagement?.status === "COMPLETED" ? <>
-              <Text style={s.response}>Completion approved. Payment was automatically recorded when you confirmed completion.</Text>
+              <Text style={s.response}>Completion approved. The job amount and 90/10 split have been recorded. Payment is tracked separately.</Text>
               <Text style={s.offerTitle}>Final approved amount: R {Number(request.jobEngagement.finalAmountDue ?? 0).toFixed(2)}</Text>
               <View style={s.offerCard}>
-                <Text style={s.offerTitle}>Payment split · SIMULATED</Text>
+                <Text style={s.offerTitle}>Job amount and split</Text>
                 <Text style={s.meta}>Provider receives 90%: R {(Number(request.jobEngagement.finalAmountDue ?? 0) * 0.9).toFixed(2)}</Text>
                 <Text style={s.meta}>AnySkill commission 10%: R {(Number(request.jobEngagement.finalAmountDue ?? 0) - Number((Number(request.jobEngagement.finalAmountDue ?? 0) * 0.9).toFixed(2))).toFixed(2)}</Text>
-                <Text style={s.meta}>Payment is recorded automatically after your approval. No real card charge or bank transfer takes place during testing.</Text>
+                <Text style={s.meta}>Successful Seeker debit: {isPaymentConfirmed(request.jobEngagement.paymentStatus) ? "TRUE" : "FALSE"}</Text>
+                <Text style={s.meta}>Provider payout status: {request.jobEngagement.providerPayoutStatus ?? "NOT_SENT"}</Text>
+                <Text style={s.meta}>AnySkill processes the Provider 90% only after the Seeker debit is successfully confirmed. A successful debit does not itself mean the Provider has received a bank transfer.</Text>
                 <Text style={s.meta}>Both parties can now submit their ratings independently. Ratings do not affect payment.</Text>
               </View>
               {isPaymentConfirmed(request.jobEngagement.paymentStatus) && request.jobEngagement.review && request.jobEngagement.seekerReview ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
@@ -1841,14 +1843,14 @@ export function MarketplaceScreen(p: Props) {
           {job.status === "COMPLETED" ? <>
             <Text style={s.response}>The Seeker approved this job's completion.</Text>
             <Text style={s.offerTitle}>Final approved amount: R {Number(job.finalAmountDue ?? 0).toFixed(2)}</Text>
-            {isPaymentConfirmed(job.paymentStatus) ? <View style={s.offerCard}>
-              <Text style={s.offerTitle}>Provider payout recorded · SIMULATED</Text>
-              <Text style={s.meta}>Your 90% payout: R {(Number(job.finalAmountDue ?? 0) * 0.9).toFixed(2)}</Text>
+            <View style={s.offerCard}>
+              <Text style={s.offerTitle}>Your job earnings and payment status</Text>
+              <Text style={s.meta}>Your job earnings (90%): R {(Number(job.finalAmountDue ?? 0) * 0.9).toFixed(2)}</Text>
               <Text style={s.meta}>AnySkill commission (10%): R {(Number(job.finalAmountDue ?? 0) - Number((Number(job.finalAmountDue ?? 0) * 0.9).toFixed(2))).toFixed(2)}</Text>
-              <Text style={s.meta}>The Seeker's completion approval automatically recorded this payment split. No real money moved during testing.</Text>
-            </View> : <View style={s.offerCard}>
-              <Text style={s.meta}>Awaiting the Seeker's completion approval. The 90% Provider payout and 10% AnySkill commission will be recorded automatically when approved.</Text>
-            </View>}
+              <Text style={s.meta}>Successful Seeker debit: {isPaymentConfirmed(job.paymentStatus) ? "TRUE" : "FALSE"}</Text>
+              <Text style={s.meta}>Provider bank payout: {job.providerPayoutStatus === "COMPLETED" || job.providerPayoutStatus === "SIMULATED_SENT" ? "PROCESSED" : job.providerPayoutStatus === "PENDING" ? "PENDING PROCESSING" : "NOT PROCESSED"}</Text>
+              <Text style={s.meta}>Your job earnings are recorded from completion, regardless of payment status. AnySkill can process the 90% payout after a successful debit; the payout is only complete once the transfer is confirmed.</Text>
+            </View>
             {isPaymentConfirmed(job.paymentStatus) && job.seekerReview && job.review ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
             {isPaymentConfirmed(job.paymentStatus) && job.seekerReview ? <View style={s.offerCard}>
               <Text style={s.offerTitle}>Your submitted rating of the Skill Seeker</Text>
