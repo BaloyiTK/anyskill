@@ -298,7 +298,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: 12, paddingTop: 12, paddingBottom: 24, gap: 11 },
+  content: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 24, gap: 11 },
   hero: { backgroundColor: colors.primary, borderRadius: 22, padding: 18, flexDirection: "row", alignItems: "center", gap: 12, minHeight: 116 },
   avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   avatarText: { color: colors.primary, fontSize: 17, fontWeight: "900" },
