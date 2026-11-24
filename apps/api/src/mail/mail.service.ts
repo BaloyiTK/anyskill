@@ -9,11 +9,14 @@ export class MailService implements OnModuleInit {
   // SMTP health checks are observational: a temporary provider outage must not
   // prevent the API from starting. HTTPS providers are verified on first send.
   onModuleInit(): void {
-    if (this.emailProvider === "resend") {
-      if (process.env.RESEND_API_KEY?.trim() && process.env.MAIL_FROM?.trim()) {
-        this.logger.log("Resend email API configured; SMTP verification skipped.");
+    if (this.emailProvider !== "smtp") {
+      const apiKey = this.emailProvider === "brevo"
+        ? process.env.BREVO_API_KEY?.trim()
+        : process.env.RESEND_API_KEY?.trim();
+      if (apiKey && process.env.MAIL_FROM?.trim()) {
+        this.logger.log(`${this.emailProvider} email API configured; SMTP verification skipped.`);
       } else {
-        this.logger.error("Resend email provider selected but RESEND_API_KEY or MAIL_FROM is missing.");
+        this.logger.error(`${this.emailProvider} email provider selected but its API key or MAIL_FROM is missing.`);
       }
       return;
     }
@@ -26,8 +29,10 @@ export class MailService implements OnModuleInit {
       });
   }
 
-  private get emailProvider(): "resend" | "smtp" {
-    return process.env.EMAIL_PROVIDER?.trim().toLowerCase() === "resend" ? "resend" : "smtp";
+  private get emailProvider(): "brevo" | "resend" | "smtp" {
+    const provider = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
+    if (provider === "brevo" || provider === "resend") return provider;
+    return "smtp";
   }
 
   private errorCode(error: unknown): string {
@@ -64,6 +69,49 @@ export class MailService implements OnModuleInit {
     const from = process.env.MAIL_FROM?.trim();
     if (!from) throw new InternalServerErrorException("Email delivery is not configured correctly");
     return from;
+  }
+
+  private get senderDetails(): { name: string; email: string } {
+    const from = this.fromAddress;
+    const match = from.match(/^\s*(.*?)\s*<([^<>]+)>\s*$/);
+    if (match) return { name: match[1].replace(/^["']|["']$/g, "").trim() || "AnySkill", email: match[2].trim() };
+    return { name: "AnySkill", email: from };
+  }
+
+  private async deliverWithBrevo(kind: string, email: string, options: SendMailOptions): Promise<string> {
+    const apiKey = process.env.BREVO_API_KEY?.trim();
+    if (!apiKey) throw new InternalServerErrorException("Brevo email delivery is not configured");
+
+    const payload: Record<string, unknown> = {
+      sender: this.senderDetails,
+      to: [{ email }],
+      subject: options.subject ?? "AnySkill notification",
+    };
+    if (typeof options.text === "string") payload.textContent = options.text;
+    if (typeof options.html === "string") payload.htmlContent = options.html;
+    if (!payload.textContent && !payload.htmlContent) {
+      throw new InternalServerErrorException("Email content is missing");
+    }
+
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": apiKey,
+        accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    const responseBody = await response.json().catch(() => ({})) as { messageId?: string; message?: string; code?: string };
+    if (!response.ok) {
+      const error = new Error(`Brevo request failed with HTTP ${response.status}`) as Error & { code: string };
+      error.code = `BREVO_HTTP_${response.status}`;
+      this.logger.error(`Brevo rejected email (type=${kind}, recipient=${this.maskedRecipient(email)}, status=${response.status}, reason=${String(responseBody.message ?? responseBody.code ?? "unknown").slice(0, 160)}).`);
+      throw error;
+    }
+    return responseBody.messageId ?? "accepted";
   }
 
   private async deliverWithResend(kind: string, email: string, options: SendMailOptions): Promise<string> {
@@ -105,7 +153,10 @@ export class MailService implements OnModuleInit {
     const startedAt = Date.now();
     try {
       let messageId: string;
-      if (this.emailProvider === "resend") {
+      if (this.emailProvider === "brevo") {
+        messageId = await this.deliverWithBrevo(kind, email, options);
+        this.logger.log(`Brevo accepted email (type=${kind}, recipient=${this.maskedRecipient(email)}, messageId=${messageId}, durationMs=${Date.now() - startedAt}).`);
+      } else if (this.emailProvider === "resend") {
         messageId = await this.deliverWithResend(kind, email, options);
         this.logger.log(`Resend accepted email (type=${kind}, recipient=${this.maskedRecipient(email)}, messageId=${messageId}, durationMs=${Date.now() - startedAt}).`);
       } else {
