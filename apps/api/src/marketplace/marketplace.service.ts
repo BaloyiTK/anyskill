@@ -1419,13 +1419,19 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!input.approved && !input.note?.trim()) throw new ConflictException("Please explain what needs to be corrected before rejecting completion.");
 
       const reviewTime = new Date();
+      const submissionClaim = await tx.jobCompletionSubmission.updateMany({
+        where: { id: submission.id, engagementId: job.id, status: "PENDING" },
+        data: { status: input.approved ? "APPROVED" : "REJECTED", reviewNote: input.note?.trim() || null, reviewedAt: reviewTime },
+      });
+      if (submissionClaim.count !== 1) throw new ConflictException("This completion submission has already been reviewed. Refresh to see the latest status.");
+
       let finalAmountDue: Prisma.Decimal | null = null;
       let providerPayoutAmount: Prisma.Decimal | null = null;
       let platformCommissionAmount: Prisma.Decimal | null = null;
       if (input.approved) {
         if (job.estimatedTotal === null) throw new ConflictException("The approved estimate is missing. Contact AnySkill support before approving completion.");
         if (!job.providerId) throw new ConflictException("This completed job has no assigned Provider and cannot be paid.");
-        if (job.paymentStatus !== "UNPAID") throw new ConflictException("Payment has already been processed for this job.");
+        if (job.paymentStatus && job.paymentStatus !== "UNPAID") throw new ConflictException("Payment has already been processed for this job.");
         const approvedAdjustments = await tx.jobCostAdjustment.aggregate({
           where: { engagementId: job.id, status: "APPROVED" },
           _sum: { requestedAmount: true },
@@ -1434,12 +1440,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         providerPayoutAmount = finalAmountDue.mul(new Prisma.Decimal("0.90")).toDecimalPlaces(2);
         platformCommissionAmount = finalAmountDue.minus(providerPayoutAmount).toDecimalPlaces(2);
       }
-
-      const submissionClaim = await tx.jobCompletionSubmission.updateMany({
-        where: { id: submission.id, engagementId: job.id, status: "PENDING" },
-        data: { status: input.approved ? "APPROVED" : "REJECTED", reviewNote: input.note?.trim() || null, reviewedAt: reviewTime },
-      });
-      if (submissionClaim.count !== 1) throw new ConflictException("This completion submission has already been reviewed. Refresh to see the latest status.");
 
       const jobUpdate = await tx.jobEngagement.updateMany({
         where: { id: job.id, status: "COMPLETION_PENDING", finalAmountDue: null, paymentStatus: "UNPAID" },
