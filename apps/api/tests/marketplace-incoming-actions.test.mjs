@@ -661,7 +661,7 @@ test("Seeker final approval snapshots estimate, assessment fee and approved extr
   assert.equal(result.platformCommissionAmount,"70.00");
   assert.equal(calls[0].where.finalAmountDue,null);
   assert.equal(calls[0].data.finalAmountDue.toFixed(2),"700.00");
-  assert.equal(calls[0].data.finalApprovedAt instanceof Date);
+  assert.equal(calls[0].data.finalApprovedAt instanceof Date,true);
   assert.deepEqual(calls.find((call)=>call.ledger)?.ledger.map((entry)=>entry.transactionType),["SEEKER_PAYMENT","PROVIDER_PAYOUT","PLATFORM_COMMISSION"]);
   assert.deepEqual(calls.find((call)=>call.ledger)?.ledger.map((entry)=>entry.amount.toFixed(2)),["700.00","630.00","70.00"]);
   assert.deepEqual(calls.find((call)=>call.ledger)?.ledger.map((entry)=>entry.status),["PENDING","PENDING","PENDING"]);
