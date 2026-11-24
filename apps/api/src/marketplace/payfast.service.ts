@@ -390,8 +390,13 @@ export class PayFastService {
 
     if (body.payment_status !== "COMPLETE") {
       await this.prisma.$transaction(async (tx) => {
-        await tx.payFastCheckout.update({ where: { id: checkout.id }, data: { status: "FAILED", failedAt: new Date(), failureReason: "PayFast reported a non-completed payment." } });
+        const failedAt = new Date();
+        await tx.payFastCheckout.update({ where: { id: checkout.id }, data: { status: "FAILED", failedAt, failureReason: "PayFast reported a non-completed payment." } });
         await tx.jobEngagement.updateMany({ where: { id: checkout.engagementId, paymentStatus: "PAYFAST_PENDING" }, data: { paymentStatus: "UNPAID" } });
+        await tx.jobFinancialTransaction.updateMany({
+          where: { engagementId: checkout.engagementId, transactionType: "SEEKER_PAYMENT", status: "PENDING" },
+          data: { mode: "PAYFAST_SANDBOX", status: "FAILED", externalProvider: "PAYFAST", externalReference: body.pf_payment_id ?? null, failedAt, failureReason: "PayFast reported a non-completed payment." },
+        });
       });
       return { success: true, paymentStatus: "FAILED" };
     }
