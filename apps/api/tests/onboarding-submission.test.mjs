@@ -139,11 +139,11 @@ test("concurrent first submissions send only one welcome email", async () => {
 
 
 test("onboarding submission preserves the selected Provider mode for a dual-role account", async () => {
-  const { service, savedRoleUpdate } = makeService({
+  const state = makeService({
     activeMarketplaceMode: "PROVIDER",
     seekerRoleStatus: "ACTIVE",
     providerRoleStatus: "ACTIVE",
   });
-  await service.submit("user-1");
-  assert.equal(savedRoleUpdate.activeMarketplaceMode, "PROVIDER");
+  await state.service.submit("user-1");
+  assert.equal(state.savedRoleUpdate.activeMarketplaceMode, "PROVIDER");
 });
