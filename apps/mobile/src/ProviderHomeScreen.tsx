@@ -24,8 +24,8 @@ type DailyEarnings = {
   date: string;
   currency: "ZAR";
   amount: number;
-  completedPaidJobs: number;
-  paymentMode: "SIMULATED" | string;
+  completedJobs: number;
+  earningsBasis: "COMPLETED_JOBS" | string;
 };
 
 type Props = { onManageProfile: () => void };
@@ -82,7 +82,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
     }
   }, []);
 
-  // Keep earnings current when a Seeker pays while the Provider Home is open.
+  // Keep earnings current as completed jobs are recorded while Provider Home is open.
   useEffect(() => {
     void refreshEarnings();
     const interval = setInterval(() => { void refreshEarnings(); }, 30_000);
@@ -244,10 +244,10 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
         <View style={styles.earningsFooter}>
           <Text style={styles.earningsJobs}>
             {dailyEarnings
-              ? `${dailyEarnings.completedPaidJobs} paid ${dailyEarnings.completedPaidJobs === 1 ? "job" : "jobs"} today`
+              ? `${dailyEarnings.completedJobs} completed ${dailyEarnings.completedJobs === 1 ? "job" : "jobs"} today`
               : loading ? "Loading today's earnings…" : "Earnings unavailable"}
           </Text>
-          <Text style={styles.earningsMode}>Simulated payouts</Text>
+          <Text style={styles.earningsMode}>Job earnings · payment tracked separately</Text>
         </View>
       </View>
 
