@@ -48,7 +48,12 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
   const [provider, setProvider] = useState<ProviderProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [expanded, setExpanded] = useState<string | null>(null);\n  const [editingSkills, setEditingSkills] = useState(false);\n  const [skillDraft, setSkillDraft] = useState<ProfileSkill[]>([]);\n  const [skillSearch, setSkillSearch] = useState("");\n  const [savingSkills, setSavingSkills] = useState(false);\n  const [skillError, setSkillError] = useState("");
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [editingSkills, setEditingSkills] = useState(false);
+  const [skillDraft, setSkillDraft] = useState<ProfileSkill[]>([]);
+  const [skillSearch, setSkillSearch] = useState("");
+  const [savingSkills, setSavingSkills] = useState(false);
+  const [skillError, setSkillError] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -75,20 +80,45 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
   const identityVerified = ["verified", "approved"].includes(identityValue.toLowerCase());
   const skills = profile?.skills ?? [];
   const skillNames = skills.map((skill) => skill.category?.trim()).filter((value): value is string => Boolean(value));
-  const portfolioCount = skills.reduce((total, skill) => total + (skill.portfolio?.length ?? 0), 0);\n  const skillCatalogue = ["Accounting", "Automotive Repair", "Beauty Therapy", "Carpentry", "Cleaning", "Driving", "Electrical", "Graphic Design", "Hairdressing", "Landscaping", "Painting", "Photography", "Plumbing", "Software Development", "Tutoring", "Web Development"];\n  const startSkillEditing = () => { setSkillDraft(skills.map((skill) => ({ ...skill }))); setSkillSearch(""); setSkillError(""); setEditingSkills(true); };\n  const addSkill = (category: string) => {\n    const normalized = category.trim();\n    if (!normalized || skillDraft.length >= 5 || skillDraft.some((skill) => skill.category?.trim().toLowerCase() === normalized.toLowerCase())) return;\n    setSkillDraft((current) => [...current, { category: normalized, description: "", yearsOfExperience: "", licencesQualifications: [], portfolio: [] }]);\n    setSkillSearch(""); setSkillError("");\n  };\n  const saveSkills = async () => {\n    setSavingSkills(true); setSkillError("");\n    try {\n      const cleaned = skillDraft.map((skill) => ({ ...skill, category: String(skill.category ?? "").trim() })).filter((skill) => skill.category);\n      if (cleaned.length > 5) throw new Error("You can add a maximum of 5 skills.");\n      if (new Set(cleaned.map((skill) => skill.category.toLowerCase())).size !== cleaned.length) throw new Error("Each skill can only be added once.");\n      const result = await apiRequest<OnboardingProfile>("/profile/onboarding", { method: "PATCH", body: JSON.stringify({ skills: cleaned }) }, true);\n      setProfile((current) => ({ ...(current ?? {}), skills: result.skills ?? cleaned }));\n      setEditingSkills(false); setSkillSearch("");\n    } catch (e) { setSkillError(e instanceof Error ? e.message : "Could not save your skills."); }\n    finally { setSavingSkills(false); }\n  };
+  const portfolioCount = skills.reduce((total, skill) => total + (skill.portfolio?.length ?? 0), 0);
+  const skillCatalogue = ["Accounting", "Automotive Repair", "Beauty Therapy", "Carpentry", "Cleaning", "Driving", "Electrical", "Graphic Design", "Hairdressing", "Landscaping", "Painting", "Photography", "Plumbing", "Software Development", "Tutoring", "Web Development"];
+  const startSkillEditing = () => { setSkillDraft(skills.map((skill) => ({ ...skill }))); setSkillSearch(""); setSkillError(""); setEditingSkills(true); };
+  const addSkill = (category: string) => {
+    const normalized = category.trim();
+    if (!normalized || skillDraft.length >= 5 || skillDraft.some((skill) => skill.category?.trim().toLowerCase() === normalized.toLowerCase())) return;
+    setSkillDraft((current) => [...current, { category: normalized, description: "", yearsOfExperience: "", licencesQualifications: [], portfolio: [] }]);
+    setSkillSearch(""); setSkillError("");
+  };
+  const saveSkills = async () => {
+    setSavingSkills(true); setSkillError("");
+    try {
+      const cleaned = skillDraft.map((skill) => ({ ...skill, category: String(skill.category ?? "").trim() })).filter((skill) => skill.category);
+      if (cleaned.length > 5) throw new Error("You can add a maximum of 5 skills.");
+      if (new Set(cleaned.map((skill) => skill.category.toLowerCase())).size !== cleaned.length) throw new Error("Each skill can only be added once.");
+      const result = await apiRequest<OnboardingProfile>("/profile/onboarding", { method: "PATCH", body: JSON.stringify({ skills: cleaned }) }, true);
+      setProfile((current) => ({ ...(current ?? {}), skills: result.skills ?? cleaned }));
+      setEditingSkills(false); setSkillSearch("");
+    } catch (e) { setSkillError(e instanceof Error ? e.message : "Could not save your skills."); }
+    finally { setSavingSkills(false); }
+  };
   const personName = [profile?.profile?.firstName, profile?.profile?.lastName].filter(Boolean).join(" ");
   const location = [profile?.profile?.suburb, profile?.profile?.city, profile?.profile?.province, profile?.profile?.country].filter(Boolean).join(", ");
   const roleStatus = mode === "provider" ? providerStatus : seekerStatus;
 
   const rows = mode === "provider" ? [
-    { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("\n") || "Your personal details will appear here once saved." },
+    { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("
+") || "Your personal details will appear here once saved." },
     { id: "identity", title: "Identity verification", summary: identityVerified ? "Verified" : statusLabel(identityValue), detail: identityVerified ? "Your identity verification has been approved." : "Complete or check your identity verification to unlock protected marketplace actions." },
-    { id: "skills", title: "Skills & Portfolio", summary: `${skillNames.length} ${skillNames.length === 1 ? "skill" : "skills"} · ${portfolioCount} portfolio entries`, detail: skillNames.length ? skillNames.join("\n") : "No skills have been added yet. Your approved skills will be shown here." },
-    { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("\n") : "Your service locations will appear here when configured." },
+    { id: "skills", title: "Skills & Portfolio", summary: `${skillNames.length} ${skillNames.length === 1 ? "skill" : "skills"} · ${portfolioCount} portfolio entries`, detail: skillNames.length ? skillNames.join("
+") : "No skills have been added yet. Your approved skills will be shown here." },
+    { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("
+") : "Your service locations will appear here when configured." },
     { id: "availability", title: "Availability", summary: provider?.isAvailable ? "Online" : "Offline", detail: provider?.isAvailable ? "You are currently available to receive matching service requests." : "You are currently offline and will not receive new matching requests." },
-    { id: "pricing", title: "Pricing", summary: provider?.hourlyRate != null ? `R${provider.hourlyRate} per hour` : "Not configured", detail: provider?.hourlyRate != null ? `Hourly rate: R${provider.hourlyRate}\nAssessment fee: R${provider.assessmentFee ?? 0}` : "Your service pricing has not been configured." },
+    { id: "pricing", title: "Pricing", summary: provider?.hourlyRate != null ? `R${provider.hourlyRate} per hour` : "Not configured", detail: provider?.hourlyRate != null ? `Hourly rate: R${provider.hourlyRate}
+Assessment fee: R${provider.assessmentFee ?? 0}` : "Your service pricing has not been configured." },
   ] : [
-    { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("\n") || "Your personal details will appear here once saved." },
+    { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("
+") || "Your personal details will appear here once saved." },
     { id: "identity", title: "Identity verification", summary: identityVerified ? "Verified" : statusLabel(identityValue), detail: identityVerified ? "Your identity verification has been approved." : "Complete or check your identity verification before submitting service requests." },
     { id: "payments", title: "Payment methods", summary: "Manage payment options", detail: "Payment methods will be displayed here when payment management is available." },
     { id: "addresses", title: "Addresses & locations", summary: location || "No saved address", detail: location || "Your saved addresses and preferred service locations will appear here." },
@@ -246,7 +276,23 @@ const styles = StyleSheet.create({
   detail: { borderTopWidth: 1, borderTopColor: colors.border, paddingHorizontal: 14, paddingVertical: 13, gap: 10 },
   detailText: { color: colors.muted, fontSize: 11, lineHeight: 18 },
   detailAction: { alignSelf: "flex-start", backgroundColor: colors.primary, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
-  detailActionText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },\n  skillManager: { gap: 9 },\n  skillLimitHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },\n  skillEditorTitle: { color: colors.ink, fontSize: 13, fontWeight: "900" },\n  skillDraftRow: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.border },\n  skillDraftName: { color: colors.ink, fontSize: 11, fontWeight: "700" },\n  skillRemove: { color: "#B33B3B", fontSize: 10, fontWeight: "800", padding: 7 },\n  skillSearchInput: { minHeight: 43, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 11, color: colors.ink, fontSize: 12, backgroundColor: "#FFFFFF" },\n  skillSuggestions: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, overflow: "hidden" },\n  skillSuggestion: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 11, borderBottomWidth: 1, borderBottomColor: colors.border },\n  skillSuggestionText: { color: colors.ink, fontSize: 11, fontWeight: "600" },\n  skillAddIcon: { color: colors.primary, fontSize: 16, fontWeight: "900" },\n  skillError: { color: "#B33B3B", fontSize: 10 },\n  skillEditorActions: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 9 },\n  skillCancel: { paddingHorizontal: 12, paddingVertical: 10 },\n  skillCancelText: { color: colors.muted, fontSize: 10, fontWeight: "800" },\n  skillDisabled: { opacity: 0.55 },
+  detailActionText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
+  skillManager: { gap: 9 },
+  skillLimitHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },
+  skillEditorTitle: { color: colors.ink, fontSize: 13, fontWeight: "900" },
+  skillDraftRow: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.border },
+  skillDraftName: { color: colors.ink, fontSize: 11, fontWeight: "700" },
+  skillRemove: { color: "#B33B3B", fontSize: 10, fontWeight: "800", padding: 7 },
+  skillSearchInput: { minHeight: 43, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 11, color: colors.ink, fontSize: 12, backgroundColor: "#FFFFFF" },
+  skillSuggestions: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, overflow: "hidden" },
+  skillSuggestion: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 11, borderBottomWidth: 1, borderBottomColor: colors.border },
+  skillSuggestionText: { color: colors.ink, fontSize: 11, fontWeight: "600" },
+  skillAddIcon: { color: colors.primary, fontSize: 16, fontWeight: "900" },
+  skillError: { color: "#B33B3B", fontSize: 10 },
+  skillEditorActions: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 9 },
+  skillCancel: { paddingHorizontal: 12, paddingVertical: 10 },
+  skillCancelText: { color: colors.muted, fontSize: 10, fontWeight: "800" },
+  skillDisabled: { opacity: 0.55 },
   helper: { color: colors.muted, fontSize: 11, lineHeight: 17 },
   errorBox: { backgroundColor: "#FCEDEE", borderRadius: 12, padding: 13, gap: 7 },
   errorText: { color: "#A12D2D", fontSize: 11 },
