@@ -90,6 +90,9 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
   const skills = profile?.skills ?? [];
   const skillNames = skills.map((skill) => skill.category?.trim()).filter((value): value is string => Boolean(value));
   const portfolioCount = skills.reduce((total, skill) => total + (skill.portfolio?.length ?? 0), 0);
+  const approvedSkillCount = (profile?.skillReviewStatuses ?? []).filter((item) => item.status === "APPROVED").length;
+  const pendingSkillCount = (profile?.skillReviewStatuses ?? []).filter((item) => item.status === "PENDING" || item.status === "UNDER_REVIEW").length;
+  const rejectedSkillCount = (profile?.skillReviewStatuses ?? []).filter((item) => item.status === "REJECTED").length;
   const skillCatalogue = ["Accounting", "Automotive Repair", "Beauty Therapy", "Carpentry", "Cleaning", "Driving", "Electrical", "Graphic Design", "Hairdressing", "Landscaping", "Painting", "Photography", "Plumbing", "Software Development", "Tutoring", "Web Development"];
   const startSkillEditing = () => { setSkillDraft(skills.map((skill) => ({ ...skill, licencesQualifications: (skill.licencesQualifications ?? []).map((item) => ({ ...item })), portfolio: (skill.portfolio ?? []).map((item) => ({ ...item })) }))); setSkillSearch(""); setSkillError(""); setSkillMessage(""); setEditingSkills(true); };
   const reviewForSkill = (category: string) => profile?.skillReviewStatuses?.find((item) => item.category.trim().toLowerCase() === category.trim().toLowerCase());
@@ -144,7 +147,14 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onMod
   const rows = mode === "provider" ? [
     { id: "personal", title: "Personal information", summary: personName || email, detail: [personName, profile?.profile?.phone, location].filter(Boolean).join("\n") || "Your personal details will appear here once saved." },
     { id: "identity", title: "Identity verification", summary: identityVerified ? "Verified" : statusLabel(identityValue), detail: identityVerified ? "Your identity verification has been approved." : "Complete or check your identity verification to unlock protected marketplace actions." },
-    { id: "skills", title: "Skills & Portfolio", summary: `${skillNames.length} ${skillNames.length === 1 ? "skill" : "skills"} · ${portfolioCount} portfolio entries`, detail: skillNames.length ? skillNames.join("\n") : "No skills have been added yet. Your approved skills will be shown here." },
+    { id: "skills", title: "Skills & Portfolio", summary: `${skillNames.length} skills · ${approvedSkillCount} approved · ${pendingSkillCount} pending · ${rejectedSkillCount} rejected`, detail: skillNames.length ? skills.map((skill) => {
+      const review = profile?.skillReviewStatuses?.find((item) => item.category.trim().toLowerCase() === skill.category.trim().toLowerCase());
+      const parts = [`${skill.category} — ${statusLabel(review?.status ?? "NOT_SUBMITTED")}`];
+      if (skill.yearsOfExperience) parts.push(`Experience: ${skill.yearsOfExperience}`);
+      if (skill.description) parts.push(skill.description);
+      if (review?.decisionReason) parts.push(`Review feedback: ${review.decisionReason}`);
+      return parts.join("\n");
+    }).join("\n\n") + `\n\n${portfolioCount} portfolio entries` : "No skills have been added yet. Add your skills and supporting details here." },
     { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("\n") : "Your service locations will appear here when configured." },
     { id: "availability", title: "Availability", summary: provider?.isAvailable ? "Online" : "Offline", detail: provider?.isAvailable ? "You are currently available to receive matching service requests." : "You are currently offline and will not receive new matching requests." },
     { id: "pricing", title: "Pricing", summary: provider?.hourlyRate != null ? `R${provider.hourlyRate} per hour` : "Not configured", detail: provider?.hourlyRate != null ? `Hourly rate: R${provider.hourlyRate}
