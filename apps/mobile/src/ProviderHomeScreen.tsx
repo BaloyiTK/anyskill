@@ -51,6 +51,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
   const [loading, setLoading] = useState(true);
   const [earningsLoading, setEarningsLoading] = useState(true);
   const [earningsUnavailable, setEarningsUnavailable] = useState(false);
+  const [showAllSkills, setShowAllSkills] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -260,48 +261,75 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
       </View>
 
       <View style={styles.skillsSection}>
-        <View>
-          <Text style={styles.sectionTitle}>Active Skills</Text>
+        <View style={styles.skillsHeader}>
+          <View style={styles.skillsHeadingCopy}>
+            <Text style={styles.sectionTitle}>Active Skills</Text>
+            <Text style={styles.skillsSubtitle}>Services on your Provider profile</Text>
+          </View>
+          {!loading && activeSkills.length > 0 ? (
+            <View style={styles.skillsCount}>
+              <Text style={styles.skillsCountText}>{activeSkills.length}</Text>
+            </View>
+          ) : null}
         </View>
 
         {loading ? (
           <ActivityIndicator color={C.primary} style={styles.skillsLoader} />
         ) : activeSkills.length ? (
-          <View style={styles.skillList}>
-            {activeSkills.map((skill, index) => {
-              const skillRating = profile?.ratings?.skills?.find(
-                (item) => item.category.trim().toLowerCase() === skill.trim().toLowerCase(),
-              );
-              return (
-                <View key={skill + index} style={styles.skillRow}>
-                  <View style={styles.skillIcon}>
-                    <Text style={styles.skillInitial}>{skill.trim().charAt(0).toUpperCase()}</Text>
+          <>
+            <View style={styles.skillGrid}>
+              {activeSkills.slice(0, showAllSkills ? activeSkills.length : 6).map((skill, index) => {
+                const skillRating = profile?.ratings?.skills?.find(
+                  (item) => item.category.trim().toLowerCase() === skill.trim().toLowerCase(),
+                );
+                return (
+                  <View key={skill + index} style={styles.skillCard}>
+                    <View style={styles.skillCardTop}>
+                      <View style={styles.skillIcon}>
+                        <Text style={styles.skillInitial}>{skill.trim().charAt(0).toUpperCase()}</Text>
+                      </View>
+                      {skillRating?.isRated ? (
+                        <View style={styles.skillRatingBadge}>
+                          <Text style={styles.skillRatingValue}>★ {skillRating.displayRating.toFixed(1)}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text numberOfLines={2} style={styles.skillName}>{skill}</Text>
+                    <Text style={styles.skillRatingCount}>
+                      {skillRating?.isRated
+                        ? `${skillRating.reviewCount} ${skillRating.reviewCount === 1 ? "review" : "reviews"}`
+                        : "Not yet rated"}
+                    </Text>
                   </View>
-                  <Text style={styles.skillName}>{skill}</Text>
-                  <View style={styles.skillRating}>
-                    {skillRating?.isRated ? (
-                      <>
-                        <Text style={styles.skillRatingValue}>{skillRating.displayRating.toFixed(1)} ★</Text>
-                        <Text style={styles.skillRatingCount}>
-                          {skillRating.reviewCount} {skillRating.reviewCount === 1 ? "review" : "reviews"}
-                        </Text>
-                      </>
-                    ) : (
-                      <Text style={styles.skillNotRated}>Not yet rated</Text>
-                    )}
-                  </View>
-                </View>
-              );
-            })}
-          </View>
+                );
+              })}
+            </View>
+            {activeSkills.length > 6 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={showAllSkills ? "Show fewer active skills" : `View all ${activeSkills.length} active skills`}
+                onPress={() => setShowAllSkills((current) => !current)}
+                style={styles.skillsExpand}
+              >
+                <Text style={styles.skillsExpandText}>
+                  {showAllSkills ? "Show fewer skills" : `View all ${activeSkills.length} skills`}
+                </Text>
+                <Text style={styles.skillsExpandArrow}>{showAllSkills ? "↑" : "↓"}</Text>
+              </Pressable>
+            ) : null}
+          </>
         ) : (
-          <Text style={styles.emptySkills}>
-            Add skills to your Provider profile to start receiving relevant requests.
-          </Text>
+          <View style={styles.emptySkillsCard}>
+            <Text style={styles.emptySkillsTitle}>No active skills yet</Text>
+            <Text style={styles.emptySkills}>
+              Add skills to your Provider profile to start receiving relevant requests.
+            </Text>
+            <Pressable accessibilityRole="button" onPress={onManageProfile} style={styles.skillsManageLink}>
+              <Text style={styles.skillsManageLinkText}>Manage skills</Text>
+              <Text style={styles.skillsExpandArrow}>›</Text>
+            </Pressable>
+          </View>
         )}
-        {activeSkills.length > 4 ? (
-          <Text style={styles.swipeHint}>Scroll to see more skills ↓</Text>
-        ) : null}
       </View>
 
       {!!error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
@@ -426,32 +454,46 @@ const styles = StyleSheet.create({
   earningsFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: "#DCEBE1", paddingTop: 11 },
   earningsJobs: { color: C.ink, fontSize: 10, fontWeight: "700" },
     skillsSection: { marginTop: 31 },
-  sectionTitle: { color: C.ink, fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
-  skillsLoader: { marginTop: 18 },
-  skillList: { marginTop: 10 },
-  skillRow: {
-    minHeight: 62,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#EDF1EE",
+  sectionTitle: { color: C.ink, fontSize: 18, fontWeight: "800", letterSpacing: -0.4 },
+  skillsHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  skillsHeadingCopy: { gap: 3 },
+  skillsSubtitle: { color: C.muted, fontSize: 11, lineHeight: 16 },
+  skillsCount: { minWidth: 28, height: 28, paddingHorizontal: 8, borderRadius: 14, backgroundColor: C.soft, alignItems: "center", justifyContent: "center" },
+  skillsCountText: { color: C.primary, fontSize: 12, fontWeight: "800" },
+  skillsLoader: { marginTop: 12 },
+  skillGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 10 },
+  skillCard: {
+    width: "48.5%",
+    minHeight: 118,
+    padding: 12,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "space-between",
+    gap: 9,
   },
+  skillCardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   skillIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 11,
     backgroundColor: C.soft,
     alignItems: "center",
     justifyContent: "center",
   },
-  skillInitial: { color: C.primary, fontSize: 15, fontWeight: "800" },
-  skillName: { flex: 1, color: C.ink, fontSize: 13, fontWeight: "600" },
-  skillRating: { alignItems: "flex-end", justifyContent: "center", minWidth: 78, gap: 2 },
-  skillRatingValue: { color: C.primary, fontSize: 11, fontWeight: "800" },
-  skillRatingCount: { color: C.muted, fontSize: 9 },
-  skillNotRated: { color: C.muted, fontSize: 9, fontWeight: "600" },
-  emptySkills: { color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 14 },
-  swipeHint: { color: C.muted, fontSize: 10, marginTop: 11, textAlign: "center" },
+  skillInitial: { color: C.primary, fontSize: 14, fontWeight: "800" },
+  skillName: { color: C.ink, fontSize: 12, lineHeight: 17, fontWeight: "700" },
+  skillRatingBadge: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 9, backgroundColor: C.onlineSoft },
+  skillRatingValue: { color: C.online, fontSize: 10, fontWeight: "800" },
+  skillRatingCount: { color: C.muted, fontSize: 9, lineHeight: 13 },
+  skillsExpand: { minHeight: 42, marginTop: 10, paddingHorizontal: 12, borderRadius: 12, backgroundColor: C.soft, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  skillsExpandText: { color: C.primary, fontSize: 11, fontWeight: "800" },
+  skillsExpandArrow: { color: C.primary, fontSize: 15, fontWeight: "800" },
+  emptySkillsCard: { padding: 15, borderRadius: 15, borderWidth: 1, borderColor: C.border, backgroundColor: "#FBFCFB" },
+  emptySkillsTitle: { color: C.ink, fontSize: 13, fontWeight: "800" },
+  emptySkills: { color: C.muted, fontSize: 11, lineHeight: 17, marginTop: 6 },
+  skillsManageLink: { marginTop: 10, minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  skillsManageLinkText: { color: C.primary, fontSize: 11, fontWeight: "800" },
   error: { color: C.danger, fontSize: 12, lineHeight: 18, marginTop: 15 },
 });
