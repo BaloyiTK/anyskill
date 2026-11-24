@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { apiRequest } from "./api";
 
 type Mode = "seeker" | "provider";
@@ -9,6 +10,7 @@ type ProfileSkill = {
   yearsOfExperience?: string | number;
   licencesQualifications?: Array<{ name: string; attachmentUrl: string; attachmentName?: string }>;
   portfolio?: Array<{ title: string; description: string; links?: string[]; imageUrls?: string[]; linkTitle?: string; linkUrl?: string }>;
+  isPaused?: boolean;
 };
 type SkillReviewStatus = { category: string; status: string; decisionReason?: string | null; submittedAt?: string | null; reviewedAt?: string | null };
 type Identity = { status?: string; latestCase?: { status?: string } | null };
@@ -110,6 +112,17 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const closeSkillDrawer = () => { if (savingSkills) return; setSkillDrawerVisible(false); setSkillError(""); setSkillMessage(""); };
   const reviewForSkill = (category: string) => profile?.skillReviewStatuses?.find((item) => item.category.trim().toLowerCase() === category.trim().toLowerCase());
   const updateSkill = (index: number, patch: Partial<ProfileSkill>) => setSkillDraft((current) => current.map((skill, itemIndex) => itemIndex === index ? { ...skill, ...patch } : skill));
+  const toggleSkillPaused = async (index: number) => {
+    const next = cloneSkills();
+    next[index] = { ...next[index], isPaused: !next[index].isPaused };
+    setSkillDraft(next); setSavingSkills(true); setSkillError("");
+    try {
+      const result = await apiRequest<OnboardingProfile>("/profile/onboarding", { method: "PATCH", body: JSON.stringify({ skills: next }) }, true);
+      setProfile(result);
+      setSkillMessage(next[index].isPaused ? `${next[index].category} has been paused.` : `${next[index].category} is active again.`);
+    } catch (e) { setSkillError(e instanceof Error ? e.message : "Could not update this skill."); setSkillDraft(cloneSkills()); }
+    finally { setSavingSkills(false); }
+  };
   const updateQualification = (skillIndex: number, qualificationIndex: number, patch: Partial<{ name: string; attachmentUrl: string; attachmentName?: string }>) => setSkillDraft((current) => current.map((skill, index) => index !== skillIndex ? skill : { ...skill, licencesQualifications: (skill.licencesQualifications ?? []).map((item, qIndex) => qIndex === qualificationIndex ? { ...item, ...patch } : item) }));
   const updatePortfolio = (skillIndex: number, portfolioIndex: number, patch: Partial<{ title: string; description: string; links?: string[]; imageUrls?: string[]; linkTitle?: string; linkUrl?: string }>) => setSkillDraft((current) => current.map((skill, index) => index !== skillIndex ? skill : { ...skill, portfolio: (skill.portfolio ?? []).map((item, pIndex) => pIndex === portfolioIndex ? { ...item, ...patch } : item) }));
   const addSkill = (category: string) => {
@@ -233,7 +246,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
               <Text style={styles.chevron}>{isExpanded ? "−" : "+"}</Text>
             </Pressable>
             {isExpanded ? <View style={styles.detail}>
-              <Text style={styles.detailText}>{item.detail}</Text>
+              {!isSkills ? <Text style={styles.detailText}>{item.detail}</Text> : null}
               {isIdentity && !identityVerified ? <Pressable accessibilityRole="button" onPress={onStartVerification} style={styles.detailAction}><Text style={styles.detailActionText}>Open verification</Text></Pressable> : null}
               {isSkills ? <View style={styles.skillManager}>
                 {skills.length ? skills.map((skill, index) => {
@@ -241,20 +254,21 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                   const reviewStatus = review?.status ?? "NOT_SUBMITTED";
                   const statusStyle = reviewStatus === "APPROVED" ? styles.goodBadge : reviewStatus === "REJECTED" ? styles.rejectedBadge : reviewStatus === "PENDING" || reviewStatus === "UNDER_REVIEW" ? styles.pendingBadge : styles.neutralBadge;
                   const statusTextStyle = reviewStatus === "APPROVED" ? styles.goodText : reviewStatus === "REJECTED" ? styles.rejectedText : reviewStatus === "PENDING" || reviewStatus === "UNDER_REVIEW" ? styles.pendingText : styles.neutralText;
-                  return <View key={skill.category.toLowerCase()} style={styles.profileSkillRow}>
+                  return <View key={skill.category.toLowerCase()} style={[styles.profileSkillRow, skill.isPaused && styles.profileSkillPaused]}>
                     <View style={styles.profileSkillCopy}>
-                      <Text style={styles.profileSkillName}>{skill.category}</Text>
+                      <Text style={styles.profileSkillName}>{skill.category}{skill.isPaused ? " · Paused" : ""}</Text>
                       <View style={[styles.skillStatusBadge, statusStyle]}><Text style={[styles.skillStatusText, statusTextStyle]}>{statusLabel(reviewStatus)}</Text></View>
                     </View>
                     <View style={styles.skillIconActions}>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`View ${skill.category}`} onPress={() => openSkillDrawer(index, "view")} style={styles.skillIconButton}><Text style={styles.skillViewIcon}>◉</Text></Pressable>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`View ${skill.category}`} onPress={() => openSkillDrawer(index, "view")} style={styles.skillIconButton}><Text style={styles.skillViewIcon}>👁</Text></Pressable>
                       <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${skill.category}`} onPress={() => openSkillDrawer(index, "edit")} style={styles.skillIconButton}><Text style={styles.skillEditIcon}>✎</Text></Pressable>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`${skill.isPaused ? "Resume" : "Pause"} ${skill.category}`} disabled={savingSkills} onPress={() => void toggleSkillPaused(index)} style={[styles.skillIconButton, skill.isPaused && styles.skillPausedButton]}><Text style={styles.skillPauseIcon}>{skill.isPaused ? "▶" : "Ⅱ"}</Text></Pressable>
                       <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${skill.category}`} disabled={savingSkills} onPress={() => { const next = cloneSkills().filter((_, itemIndex) => itemIndex !== index); setSkillDraft(next); setRemovedSkillName(skill.category); setSkillError(""); setSkillMessage(""); setEditingSkills(true); setSkillDrawerMode("edit"); setSelectedSkillIndex(null); setSkillDrawerVisible(true); }} style={styles.skillRemoveButton}><Text style={styles.skillRemoveIcon}>×</Text></Pressable>
                     </View>
                   </View>;
                 }) : <Text style={styles.skillLimitHint}>No skills added yet. Add your first skill to your Provider profile.</Text>}
                 <Pressable accessibilityRole="button" disabled={skills.length >= 5} onPress={startSkillEditing} style={[styles.detailAction, skills.length >= 5 && styles.skillDisabled]}><Text style={styles.detailActionText}>＋ Add skill</Text></Pressable>
-                <Text style={styles.skillLimitHint}>You can list up to 5 skills. View and edit each skill independently.</Text>
+                <Text style={styles.skillLimitHint}>Up to 5 skills · Manage each skill separately</Text>
               </View> : null}
 
             </View> : null}
@@ -272,7 +286,9 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
       </Pressable>
     </ScrollView>
     <Modal visible={skillDrawerVisible} transparent animationType="slide" onRequestClose={closeSkillDrawer} statusBarTranslucent>
-      <View style={styles.skillDrawerBackdrop}>
+      <KeyboardAvoidingView style={styles.skillDrawerBackdrop} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close skill drawer" style={styles.skillDrawerDismiss} onPress={closeSkillDrawer}/>
+        <SafeAreaView edges={["bottom"]} style={styles.skillDrawerSafeArea}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close skill drawer" style={styles.skillDrawerDismiss} onPress={closeSkillDrawer}/>
         <View style={styles.skillDrawer}>
           <View style={styles.drawerHandle}/>
@@ -283,7 +299,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
             </View>
             <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closeSkillDrawer} style={styles.drawerClose}><Text style={styles.drawerCloseText}>×</Text></Pressable>
           </View>
-          <ScrollView style={styles.drawerScroll} contentContainerStyle={styles.drawerContent} keyboardShouldPersistTaps="handled">
+          <ScrollView style={styles.drawerScroll} contentContainerStyle={styles.drawerContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets={Platform.OS === "ios"} nestedScrollEnabled>
             {removedSkillName ? <View style={styles.drawerFields}><Text style={styles.drawerReadValue}>This will remove {removedSkillName} from your Provider profile when you save the change.</Text></View> : null}
             {skillDrawerMode === "add" && selectedSkillIndex === null ? <>
               <Text style={styles.fieldLabel}>Choose a skill</Text>
@@ -334,7 +350,8 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
             <Pressable accessibilityRole="button" disabled={savingSkills || (skillDraft.length === 0 && !removedSkillName) || (selectedSkillIndex === null && !removedSkillName)} onPress={() => void submitSkillsForReview()} style={[styles.submitReviewButton, (savingSkills || skillDraft.length === 0 || selectedSkillIndex === null) && styles.skillDisabled]}><Text style={styles.submitReviewText}>{savingSkills ? "Processing…" : "Submit for review"}</Text></Pressable>
           </View> : <View style={styles.drawerActions}><Pressable accessibilityRole="button" onPress={() => { if (selectedSkillIndex !== null) { setSkillDrawerMode("edit"); setEditingSkills(true); } }} style={styles.detailAction}><Text style={styles.detailActionText}>Edit skill</Text></Pressable></View>}
         </View>
-      </View>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
     </Modal>
     </>
   );
@@ -412,23 +429,27 @@ const styles = StyleSheet.create({
   skillSuccess: { color: colors.green, fontSize: 10, fontWeight: "700" },
   submitReviewButton: { alignSelf: "stretch", backgroundColor: "#EAF2FF", borderWidth: 1, borderColor: "#C9DCF9", borderRadius: 10, alignItems: "center", padding: 12 },
   submitReviewText: { color: colors.primary, fontSize: 11, fontWeight: "900" },
-  profileSkillRow: { minHeight: 62, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 11, paddingVertical: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  profileSkillRow: { minHeight: 48, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border, borderRadius: 11, paddingHorizontal: 9, paddingVertical: 6, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
+  profileSkillPaused: { backgroundColor: "#F4F6F8", borderColor: "#CDD5DB" },
   profileSkillCopy: { flex: 1, gap: 5 },
   profileSkillName: { color: colors.ink, fontSize: 12, fontWeight: "800" },
   skillIconActions: { flexDirection: "row", alignItems: "center", gap: 6 },
   skillIconButton: { width: 31, height: 31, borderRadius: 9, backgroundColor: "#EEF5F7", alignItems: "center", justifyContent: "center" },
-  skillViewIcon: { color: colors.primary, fontSize: 18, fontWeight: "800" },
+  skillViewIcon: { color: colors.primary, fontSize: 16, fontWeight: "800" },
+  skillPauseIcon: { color: colors.primary, fontSize: 14, fontWeight: "900" },
+  skillPausedButton: { backgroundColor: "#FFF2E5" },
   skillEditIcon: { color: colors.primary, fontSize: 18, fontWeight: "800" },
   skillDrawerBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(5, 23, 31, 0.48)" },
+  skillDrawerSafeArea: { maxHeight: "94%", justifyContent: "flex-end" },
   skillDrawerDismiss: { flex: 1 },
-  skillDrawer: { maxHeight: "88%", minHeight: "42%", backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 9, paddingBottom: 20 },
+  skillDrawer: { height: "88%", maxHeight: "100%", minHeight: "42%", backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 9, overflow: "hidden" },
   drawerHandle: { alignSelf: "center", width: 42, height: 4, borderRadius: 3, backgroundColor: "#B8C8CD", marginBottom: 12 },
   drawerHeader: { paddingHorizontal: 18, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   drawerHeadingCopy: { flex: 1, gap: 4 },
   drawerClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#E7EFF1", alignItems: "center", justifyContent: "center" },
   drawerCloseText: { color: colors.ink, fontSize: 23, lineHeight: 25 },
-  drawerScroll: { flexGrow: 0 },
-  drawerContent: { padding: 18, gap: 12, paddingBottom: 24 },
+  drawerScroll: { flex: 1 },
+  drawerContent: { padding: 16, gap: 10, paddingBottom: 32 },
   drawerFields: { gap: 10 },
   drawerSkillCategory: { color: colors.ink, fontSize: 16, fontWeight: "900" },
   drawerStatus: { alignSelf: "flex-start", backgroundColor: "#E8F1F4", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
