@@ -50,7 +50,7 @@ const colors = {
 
 const statusLabel = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onModeChange, onAccountSettings, onStartVerification }: Props) {
+export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAccountSettings, onStartVerification }: Props) {
   const [profile, setProfile] = useState<OnboardingProfile | null>(null);
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [provider, setProvider] = useState<ProviderProfile | null>(null);
