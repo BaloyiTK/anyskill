@@ -30,6 +30,33 @@ type DailyEarnings = {
 
 type Props = { onManageProfile: () => void };
 
+function getSkillIcon(category: string): string {
+  const value = category.toLowerCase();
+  const icons: Array<[string[], string]> = [
+    [["plumb", "pipe"], "🔧"],
+    [["electric", "wiring"], "⚡"],
+    [["clean", "housekeep"], "🧹"],
+    [["garden", "landscap", "lawn"], "🌿"],
+    [["paint", "decorat"], "🖌️"],
+    [["carpenter", "wood", "cabinet"], "🪚"],
+    [["build", "mason", "brick", "construction"], "🧱"],
+    [["hair", "barber", "beaut"], "✂️"],
+    [["makeup", "make-up"], "💄"],
+    [["photo", "video"], "📷"],
+    [["cook", "cater", "chef", "baking"], "🍳"],
+    [["tutor", "teach", "lesson"], "📚"],
+    [["computer", "it support", "software", "web", "tech"], "💻"],
+    [["mechanic", "auto", "vehicle"], "🚗"],
+    [["搬", "moving", "搬运"], "📦"],
+    [["security", "guard"], "🛡️"],
+    [["plaster", "til"], "🧰"],
+    [["delivery", "courier"], "🚚"],
+    [["massage", "wellness"], "💆"],
+    [["sew", "tailor", "fashion"], "🧵"],
+  ];
+  return icons.find(([keywords]) => keywords.some((keyword) => value.includes(keyword)))?.[1] ?? "✦";
+}
+
 const C = {
   // AnySkill brand palette sampled from the supplied logo.
   navy: "#012353",
@@ -289,7 +316,12 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
                 );
                 return (
                   <View key={skill + index} style={styles.skillRow}>
-                    <Text numberOfLines={2} style={styles.skillName}>{skill}</Text>
+                    <View style={styles.skillIdentity}>
+                      <View style={styles.skillIcon}>
+                        <Text style={styles.skillIconText}>{getSkillIcon(skill)}</Text>
+                      </View>
+                      <Text numberOfLines={2} style={styles.skillName}>{skill}</Text>
+                    </View>
                     <View style={styles.skillRatingInfo}>
                       {skillRating?.isRated ? (
                         <>
@@ -478,6 +510,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 16,
+  },
+  skillIdentity: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  skillIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: C.soft,
+    borderWidth: 1,
+    borderColor: "#D8E8FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  skillIconText: {
+    fontSize: 21,
+    lineHeight: 26,
   },
   skillName: {
     flex: 1,
