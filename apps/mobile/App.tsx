@@ -1454,7 +1454,6 @@ export default function App() {
             seekerRoleStatus={account.seekerRoleStatus}
             onBack={() => { setSkillsEditorRequested(false); void navigateHome(); }}
             onStartVerification={() => { void startIdentityVerification(); }}
-              onEditSkills={() => { setSkillsEditorRequested(true); setScreen("onboarding"); }}
             onIdentityUpdated={refreshHomeEligibility}
             onComplete={async () => { setSkillsEditorRequested(false); await navigateHome(); }}
           />}
@@ -1663,6 +1662,7 @@ export default function App() {
               onModeChange={(nextMode) => { void switchMarketplaceMode(nextMode); }}
               onAccountSettings={() => setShowAccountSettings(true)}
               onStartVerification={() => { void startIdentityVerification(); }}
+              onEditSkills={() => { setSkillsEditorRequested(true); setScreen("onboarding"); }}
             />)}
 
           {message ? <View style={s.successNotice}><Text style={s.successText}>{message}</Text></View> : null}
