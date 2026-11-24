@@ -1455,7 +1455,7 @@ export default function App() {
             onBack={() => { setSkillsEditorRequested(false); void navigateHome(); }}
             onStartVerification={() => { void startIdentityVerification(); }}
             onIdentityUpdated={refreshHomeEligibility}
-            onComplete={async () => { setSkillsEditorRequested(false); await navigateHome(); }}
+            onComplete={async () => { await navigateHome(); }}
           />}
 
           {screen === "marketplace" && account && <MarketplaceScreen
