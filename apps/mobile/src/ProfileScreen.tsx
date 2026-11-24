@@ -223,7 +223,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
               {isIdentity && !identityVerified ? <Pressable accessibilityRole="button" onPress={onStartVerification} style={styles.detailAction}><Text style={styles.detailActionText}>Open verification</Text></Pressable> : null}
               {isSkills ? <View style={styles.skillManager}>
                 {!editingSkills ? <>
-                  <Pressable accessibilityRole="button" onPress={startSkillEditing} style={styles.detailAction}><Text style={styles.detailActionText}>Manage skills</Text></Pressable>
+                  <Pressable accessibilityRole="button" onPress={startSkillEditing} style={styles.detailAction}><Text style={styles.detailActionText}>Add skill</Text></Pressable>
                   <Text style={styles.skillLimitHint}>You can list up to 5 skills on your Provider profile.</Text>
                 </> : <>
                   <Text style={styles.skillEditorTitle}>Manage your skills</Text>
@@ -240,7 +240,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                           <Text style={styles.skillMeta}>{review?.reviewedAt ? `Reviewed ${new Date(review.reviewedAt).toLocaleDateString()}` : review?.submittedAt ? `Submitted ${new Date(review.submittedAt).toLocaleDateString()}` : "Not yet submitted for review"}</Text>
                         </View>
                         <View style={[styles.skillStatusBadge, statusStyle]}><Text style={[styles.skillStatusText, statusTextStyle]}>{statusLabel(reviewStatus)}</Text></View>
-                        <Pressable accessibilityRole="button" disabled={savingSkills} onPress={() => setSkillDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Text style={styles.skillRemove}>Remove</Text></Pressable>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${skill.category}`} hitSlop={8} disabled={savingSkills} onPress={() => setSkillDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))} style={styles.skillRemoveButton}><Text style={styles.skillRemoveIcon}>×</Text></Pressable>
                       </View>
                       {review?.decisionReason ? <View style={styles.reviewFeedback}><Text style={styles.reviewFeedbackTitle}>Reviewer feedback</Text><Text style={styles.reviewFeedbackText}>{review.decisionReason}</Text></View> : null}
                       <Text style={styles.fieldLabel}>Skill description</Text>
@@ -369,6 +369,8 @@ const styles = StyleSheet.create({
   submitReviewButton: { alignSelf: "stretch", backgroundColor: "#EAF2FF", borderWidth: 1, borderColor: "#C9DCF9", borderRadius: 10, alignItems: "center", padding: 12 },
   submitReviewText: { color: colors.primary, fontSize: 11, fontWeight: "900" },
   skillRemove: { color: "#B33B3B", fontSize: 10, fontWeight: "800", padding: 7 },
+  skillRemoveButton: { width: 30, height: 30, borderRadius: 15, backgroundColor: "#FDECEC", borderWidth: 1, borderColor: "#F4CACA", alignItems: "center", justifyContent: "center" },
+  skillRemoveIcon: { color: "#B33B3B", fontSize: 22, lineHeight: 24, fontWeight: "500" },
   skillSearchInput: { minHeight: 43, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 11, color: colors.ink, fontSize: 12, backgroundColor: "#FFFFFF" },
   skillSuggestions: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, overflow: "hidden" },
   skillSuggestion: { minHeight: 39, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 11, borderBottomWidth: 1, borderBottomColor: colors.border },
