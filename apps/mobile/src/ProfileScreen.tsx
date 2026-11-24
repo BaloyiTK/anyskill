@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { apiRequest } from "./api";
 
 type Mode = "seeker" | "provider";
@@ -58,6 +58,9 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [editingSkills, setEditingSkills] = useState(false);
+  const [skillDrawerVisible, setSkillDrawerVisible] = useState(false);
+  const [skillDrawerMode, setSkillDrawerMode] = useState<"view" | "edit" | "add">("view");
+  const [selectedSkillIndex, setSelectedSkillIndex] = useState<number | null>(null);
   const [skillDraft, setSkillDraft] = useState<ProfileSkill[]>([]);
   const [skillSearch, setSkillSearch] = useState("");
   const [savingSkills, setSavingSkills] = useState(false);
@@ -94,7 +97,16 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const pendingSkillCount = (profile?.skillReviewStatuses ?? []).filter((item) => item.status === "PENDING" || item.status === "UNDER_REVIEW").length;
   const rejectedSkillCount = (profile?.skillReviewStatuses ?? []).filter((item) => item.status === "REJECTED").length;
   const skillCatalogue = ["Accounting", "Automotive Repair", "Beauty Therapy", "Carpentry", "Cleaning", "Driving", "Electrical", "Graphic Design", "Hairdressing", "Landscaping", "Painting", "Photography", "Plumbing", "Software Development", "Tutoring", "Web Development"];
-  const startSkillEditing = () => { setSkillDraft(skills.map((skill) => ({ ...skill, licencesQualifications: (skill.licencesQualifications ?? []).map((item) => ({ ...item })), portfolio: (skill.portfolio ?? []).map((item) => ({ ...item })) }))); setSkillSearch(""); setSkillError(""); setSkillMessage(""); setEditingSkills(true); };
+  const cloneSkills = () => skills.map((skill) => ({ ...skill, licencesQualifications: (skill.licencesQualifications ?? []).map((item) => ({ ...item })), portfolio: (skill.portfolio ?? []).map((item) => ({ ...item, links: [...(item.links ?? [])], imageUrls: [...(item.imageUrls ?? [])] })) }));
+  const openSkillDrawer = (index: number, drawerMode: "view" | "edit") => {
+    setSkillDraft(cloneSkills()); setSelectedSkillIndex(index); setSkillDrawerMode(drawerMode);
+    setSkillSearch(""); setSkillError(""); setSkillMessage(""); setEditingSkills(drawerMode === "edit"); setSkillDrawerVisible(true);
+  };
+  const startSkillEditing = () => {
+    setSkillDraft(cloneSkills()); setSelectedSkillIndex(null); setSkillDrawerMode("add");
+    setSkillSearch(""); setSkillError(""); setSkillMessage(""); setEditingSkills(true); setSkillDrawerVisible(true);
+  };
+  const closeSkillDrawer = () => { if (savingSkills) return; setSkillDrawerVisible(false); setSkillError(""); setSkillMessage(""); };
   const reviewForSkill = (category: string) => profile?.skillReviewStatuses?.find((item) => item.category.trim().toLowerCase() === category.trim().toLowerCase());
   const updateSkill = (index: number, patch: Partial<ProfileSkill>) => setSkillDraft((current) => current.map((skill, itemIndex) => itemIndex === index ? { ...skill, ...patch } : skill));
   const updateQualification = (skillIndex: number, qualificationIndex: number, patch: Partial<{ name: string; attachmentUrl: string; attachmentName?: string }>) => setSkillDraft((current) => current.map((skill, index) => index !== skillIndex ? skill : { ...skill, licencesQualifications: (skill.licencesQualifications ?? []).map((item, qIndex) => qIndex === qualificationIndex ? { ...item, ...patch } : item) }));
@@ -125,7 +137,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
     setSavingSkills(true); setSkillError(""); setSkillMessage("");
     try {
       await persistSkillDraft();
-      setEditingSkills(false); setSkillSearch(""); setSkillMessage("Your skill changes have been saved.");
+      setEditingSkills(false); setSkillDrawerVisible(false); setSkillSearch(""); setSkillMessage("Your skill changes have been saved.");
     } catch (e) { setSkillError(e instanceof Error ? e.message : "Could not save your skills."); }
     finally { setSavingSkills(false); }
   };
@@ -136,7 +148,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
       await apiRequest("/profile/onboarding/submit", { method: "POST", body: "{}" }, true);
       const refreshed = await apiRequest<OnboardingProfile>("/profile/onboarding", {}, true);
       setProfile(refreshed); setSkillDraft(refreshed.skills ?? []);
-      setEditingSkills(false); setSkillSearch(""); setSkillMessage("Your skill changes have been submitted for review.");
+      setEditingSkills(false); setSkillDrawerVisible(false); setSkillSearch(""); setSkillMessage("Your skill changes have been submitted for review.");
     } catch (e) { setSkillError(e instanceof Error ? e.message : "Could not submit your skills for review."); }
     finally { setSavingSkills(false); }
   };
@@ -222,52 +234,26 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
               <Text style={styles.detailText}>{item.detail}</Text>
               {isIdentity && !identityVerified ? <Pressable accessibilityRole="button" onPress={onStartVerification} style={styles.detailAction}><Text style={styles.detailActionText}>Open verification</Text></Pressable> : null}
               {isSkills ? <View style={styles.skillManager}>
-                {!editingSkills ? <>
-                  <Pressable accessibilityRole="button" onPress={startSkillEditing} style={styles.detailAction}><Text style={styles.detailActionText}>Add skill</Text></Pressable>
-                  <Text style={styles.skillLimitHint}>You can list up to 5 skills on your Provider profile.</Text>
-                </> : <>
-                  <Text style={styles.skillEditorTitle}>Manage your skills</Text>
-                  <Text style={styles.skillLimitHint}>{skillDraft.length} of 5 skills added. Existing skills stay in your list when you add another.</Text>
-                  {skillDraft.map((skill, index) => {
-                    const review = reviewForSkill(skill.category);
-                    const reviewStatus = review?.status ?? "NOT_SUBMITTED";
-                    const statusStyle = reviewStatus === "APPROVED" ? styles.goodBadge : reviewStatus === "REJECTED" ? styles.rejectedBadge : reviewStatus === "PENDING" || reviewStatus === "UNDER_REVIEW" ? styles.pendingBadge : styles.neutralBadge;
-                    const statusTextStyle = reviewStatus === "APPROVED" ? styles.goodText : reviewStatus === "REJECTED" ? styles.rejectedText : reviewStatus === "PENDING" || reviewStatus === "UNDER_REVIEW" ? styles.pendingText : styles.neutralText;
-                    return <View key={skill.category.toLowerCase()} style={styles.skillCard}>
-                      <View style={styles.skillCardHeader}>
-                        <View style={styles.skillCardTitleWrap}>
-                          <Text style={styles.skillDraftName}>{skill.category || "Unnamed skill"}</Text>
-                          <Text style={styles.skillMeta}>{review?.reviewedAt ? `Reviewed ${new Date(review.reviewedAt).toLocaleDateString()}` : review?.submittedAt ? `Submitted ${new Date(review.submittedAt).toLocaleDateString()}` : "Not yet submitted for review"}</Text>
-                        </View>
-                        <View style={[styles.skillStatusBadge, statusStyle]}><Text style={[styles.skillStatusText, statusTextStyle]}>{statusLabel(reviewStatus)}</Text></View>
-                        <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${skill.category}`} hitSlop={8} disabled={savingSkills} onPress={() => setSkillDraft((current) => current.filter((_, itemIndex) => itemIndex !== index))} style={styles.skillRemoveButton}><Text style={styles.skillRemoveIcon}>×</Text></Pressable>
-                      </View>
-                      {review?.decisionReason ? <View style={styles.reviewFeedback}><Text style={styles.reviewFeedbackTitle}>Reviewer feedback</Text><Text style={styles.reviewFeedbackText}>{review.decisionReason}</Text></View> : null}
-                      <Text style={styles.fieldLabel}>Skill description</Text>
-                      <TextInput value={skill.description ?? ""} onChangeText={(value) => updateSkill(index, { description: value })} placeholder="Describe the work you can do" placeholderTextColor="#82949A" style={[styles.skillSearchInput, styles.skillMultiline]} multiline/>
-                      <Text style={styles.fieldLabel}>Years of experience</Text>
-                      <TextInput value={String(skill.yearsOfExperience ?? "")} onChangeText={(value) => updateSkill(index, { yearsOfExperience: value })} placeholder="e.g. 3 years" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>
-                      <View style={styles.subsectionHeader}><Text style={styles.subsectionTitle}>Qualifications & licences</Text><Pressable onPress={() => updateSkill(index, { licencesQualifications: [...(skill.licencesQualifications ?? []), { name: "", attachmentUrl: "" }] })}><Text style={styles.inlineAdd}>＋ Add</Text></Pressable></View>
-                      {(skill.licencesQualifications ?? []).map((qualification, qIndex) => <View key={qIndex} style={styles.nestedEditor}>
-                        <TextInput value={qualification.name} onChangeText={(value) => updateQualification(index, qIndex, { name: value })} placeholder="Qualification or licence name" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>
-                        <TextInput value={qualification.attachmentUrl} onChangeText={(value) => updateQualification(index, qIndex, { attachmentUrl: value })} placeholder="Document URL / attachment reference" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>
-                        <Pressable onPress={() => updateSkill(index, { licencesQualifications: (skill.licencesQualifications ?? []).filter((_, itemIndex) => itemIndex !== qIndex) })}><Text style={styles.skillRemove}>Remove qualification</Text></Pressable>
-                      </View>)}
-                      <View style={styles.subsectionHeader}><Text style={styles.subsectionTitle}>Work portfolio</Text><Pressable onPress={() => updateSkill(index, { portfolio: [...(skill.portfolio ?? []), { title: "", description: "", links: [], imageUrls: [] }] })}><Text style={styles.inlineAdd}>＋ Add</Text></Pressable></View>
-                      {(skill.portfolio ?? []).map((work, pIndex) => <View key={pIndex} style={styles.nestedEditor}>
-                        <TextInput value={work.title} onChangeText={(value) => updatePortfolio(index, pIndex, { title: value })} placeholder="Project / work title" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>
-                        <TextInput value={work.description} onChangeText={(value) => updatePortfolio(index, pIndex, { description: value })} placeholder="What did you do?" placeholderTextColor="#82949A" style={[styles.skillSearchInput, styles.skillMultiline]} multiline/>
-                        <TextInput value={work.linkUrl ?? work.links?.[0] ?? ""} onChangeText={(value) => updatePortfolio(index, pIndex, { linkUrl: value, links: value ? [value, ...(work.links ?? []).slice(1)] : [] })} placeholder="Portfolio link (optional)" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>
-                        <Pressable onPress={() => updateSkill(index, { portfolio: (skill.portfolio ?? []).filter((_, itemIndex) => itemIndex !== pIndex) })}><Text style={styles.skillRemove}>Remove portfolio item</Text></Pressable>
-                      </View>)}
-                    </View>;
-                  })}
-                  {skillDraft.length < 5 ? <>
-                    <TextInput value={skillSearch} onChangeText={setSkillSearch} placeholder="Search or type a skill" placeholderTextColor="#82949A" style={styles.skillSearchInput} autoCorrect={false}/>
-                    {skillSearch.trim() ? <View style={styles.skillSuggestions}>
-                      {skillCatalogue.filter((name) => name.toLowerCase().includes(skillSearch.trim().toLowerCase()) && !skillDraft.some((item) => item.category?.trim().toLowerCase() === name.toLowerCase())).slice(0, 6).map((name) => <Pressable key={name} onPress={() => addSkill(name)} style={styles.skillSuggestion}><Text style={styles.skillSuggestionText}>{name}</Text><Text style={styles.skillAddIcon}>＋</Text></Pressable>)}
-                      {!skillCatalogue.some((name) => name.toLowerCase() === skillSearch.trim().toLowerCase()) && !skillDraft.some((item) => item.category?.trim().toLowerCase() === skillSearch.trim().toLowerCase()) ? <Pressable onPress={() => addSkill(skillSearch)} style={styles.skillSuggestion}><Text style={styles.skillSuggestionText}>Add “{skillSearch.trim()}”</Text><Text style={styles.skillAddIcon}>＋</Text></Pressable> : null}
-                    </View> : null}
+                {skills.length ? skills.map((skill, index) => {
+                  const review = reviewForSkill(skill.category);
+                  const reviewStatus = review?.status ?? "NOT_SUBMITTED";
+                  const statusStyle = reviewStatus === "APPROVED" ? styles.goodBadge : reviewStatus === "REJECTED" ? styles.rejectedBadge : reviewStatus === "PENDING" || reviewStatus === "UNDER_REVIEW" ? styles.pendingBadge : styles.neutralBadge;
+                  const statusTextStyle = reviewStatus === "APPROVED" ? styles.goodText : reviewStatus === "REJECTED" ? styles.rejectedText : reviewStatus === "PENDING" || reviewStatus === "UNDER_REVIEW" ? styles.pendingText : styles.neutralText;
+                  return <View key={skill.category.toLowerCase()} style={styles.profileSkillRow}>
+                    <View style={styles.profileSkillCopy}>
+                      <Text style={styles.profileSkillName}>{skill.category}</Text>
+                      <View style={[styles.skillStatusBadge, statusStyle]}><Text style={[styles.skillStatusText, statusTextStyle]}>{statusLabel(reviewStatus)}</Text></View>
+                    </View>
+                    <View style={styles.skillIconActions}>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`View ${skill.category}`} onPress={() => openSkillDrawer(index, "view")} style={styles.skillIconButton}><Text style={styles.skillViewIcon}>◉</Text></Pressable>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${skill.category}`} onPress={() => openSkillDrawer(index, "edit")} style={styles.skillIconButton}><Text style={styles.skillEditIcon}>✎</Text></Pressable>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${skill.category}`} disabled={savingSkills} onPress={() => { const next = cloneSkills().filter((_, itemIndex) => itemIndex !== index); setSkillDraft(next); setSkillError(""); setSkillMessage(""); setEditingSkills(true); setSkillDrawerMode("edit"); setSelectedSkillIndex(null); setSkillDrawerVisible(true); }} style={styles.skillRemoveButton}><Text style={styles.skillRemoveIcon}>×</Text></Pressable>
+                    </View>
+                  </View>;
+                }) : <Text style={styles.skillLimitHint}>No skills added yet. Add your first skill to your Provider profile.</Text>}
+                <Pressable accessibilityRole="button" disabled={skills.length >= 5} onPress={startSkillEditing} style={[styles.detailAction, skills.length >= 5 && styles.skillDisabled]}><Text style={styles.detailActionText}>＋ Add skill</Text></Pressable>
+                <Text style={styles.skillLimitHint}>You can list up to 5 skills. View and edit each skill independently.</Text>
+              </View> : null}
                   </> : <Text style={styles.skillLimitHint}>You have reached the 5-skill limit.</Text>}
                   {!!skillError && <Text style={styles.skillError}>{skillError}</Text>}
                                     {!!skillMessage && <Text style={styles.skillSuccess}>{skillMessage}</Text>}
@@ -293,6 +279,70 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
         <Text style={styles.settingsArrow}>›</Text>
       </Pressable>
     </ScrollView>
+    <Modal visible={skillDrawerVisible} transparent animationType="slide" onRequestClose={closeSkillDrawer} statusBarTranslucent>
+      <View style={styles.skillDrawerBackdrop}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Close skill drawer" style={styles.skillDrawerDismiss} onPress={closeSkillDrawer}/>
+        <View style={styles.skillDrawer}>
+          <View style={styles.drawerHandle}/>
+          <View style={styles.drawerHeader}>
+            <View style={styles.drawerHeadingCopy}>
+              <Text style={styles.skillEditorTitle}>{skillDrawerMode === "add" ? "Add a skill" : skillDrawerMode === "edit" ? "Edit skill" : "Skill details"}</Text>
+              <Text style={styles.skillLimitHint}>{skillDrawerMode === "add" ? `${skills.length} of 5 skills currently added` : skillDraft[selectedSkillIndex ?? -1]?.category ?? "Manage your skill"}</Text>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={closeSkillDrawer} style={styles.drawerClose}><Text style={styles.drawerCloseText}>×</Text></Pressable>
+          </View>
+          <ScrollView style={styles.drawerScroll} contentContainerStyle={styles.drawerContent} keyboardShouldPersistTaps="handled">
+            {skillDrawerMode === "add" && selectedSkillIndex === null ? <>
+              <Text style={styles.fieldLabel}>Choose a skill</Text>
+              <TextInput value={skillSearch} onChangeText={setSkillSearch} placeholder="Search or type a skill" placeholderTextColor="#82949A" style={styles.skillSearchInput} autoCorrect={false}/>
+              {skillSearch.trim() ? <View style={styles.skillSuggestions}>
+                {skillCatalogue.filter((name) => name.toLowerCase().includes(skillSearch.trim().toLowerCase()) && !skillDraft.some((item) => item.category?.trim().toLowerCase() === name.toLowerCase())).slice(0, 8).map((name) => <Pressable key={name} onPress={() => { addSkill(name); setSelectedSkillIndex(skillDraft.length); }} style={styles.skillSuggestion}><Text style={styles.skillSuggestionText}>{name}</Text><Text style={styles.skillAddIcon}>＋</Text></Pressable>)}
+                {!skillCatalogue.some((name) => name.toLowerCase() === skillSearch.trim().toLowerCase()) && !skillDraft.some((item) => item.category?.trim().toLowerCase() === skillSearch.trim().toLowerCase()) ? <Pressable onPress={() => { addSkill(skillSearch); setSelectedSkillIndex(skillDraft.length); }} style={styles.skillSuggestion}><Text style={styles.skillSuggestionText}>Add “{skillSearch.trim()}”</Text><Text style={styles.skillAddIcon}>＋</Text></Pressable> : null}
+              </View> : null}
+              {skillDraft.length < 5 ? <Text style={styles.skillLimitHint}>Select a skill to open its details for completion.</Text> : <Text style={styles.skillLimitHint}>You have reached the 5-skill limit.</Text>}
+            </> : null}
+            {selectedSkillIndex !== null && skillDraft[selectedSkillIndex] ? (() => {
+              const skill = skillDraft[selectedSkillIndex];
+              const review = reviewForSkill(skill.category);
+              const isReadOnly = skillDrawerMode === "view";
+              return <View style={styles.drawerFields}>
+                <Text style={styles.fieldLabel}>Skill</Text>
+                <Text style={styles.drawerSkillCategory}>{skill.category}</Text>
+                {review?.status ? <View style={styles.drawerStatus}><Text style={styles.skillStatusText}>{statusLabel(review.status)}</Text></View> : null}
+                {review?.decisionReason ? <View style={styles.reviewFeedback}><Text style={styles.reviewFeedbackTitle}>Reviewer feedback</Text><Text style={styles.reviewFeedbackText}>{review.decisionReason}</Text></View> : null}
+                <Text style={styles.fieldLabel}>Skill description</Text>
+                {isReadOnly ? <Text style={styles.drawerReadValue}>{skill.description || "Not provided"}</Text> : <TextInput value={skill.description ?? ""} onChangeText={(value) => updateSkill(selectedSkillIndex, { description: value })} placeholder="Describe the work you can do" placeholderTextColor="#82949A" style={[styles.skillSearchInput, styles.skillMultiline]} multiline/>}
+                <Text style={styles.fieldLabel}>Years of experience</Text>
+                {isReadOnly ? <Text style={styles.drawerReadValue}>{String(skill.yearsOfExperience || "Not provided")}</Text> : <TextInput value={String(skill.yearsOfExperience ?? "")} onChangeText={(value) => updateSkill(selectedSkillIndex, { yearsOfExperience: value })} placeholder="e.g. 3 years" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>}
+                <View style={styles.subsectionHeader}><Text style={styles.subsectionTitle}>Qualifications & licences</Text>{!isReadOnly ? <Pressable onPress={() => updateSkill(selectedSkillIndex, { licencesQualifications: [...(skill.licencesQualifications ?? []), { name: "", attachmentUrl: "" }] })}><Text style={styles.inlineAdd}>＋ Add</Text></Pressable> : null}</View>
+                {(skill.licencesQualifications ?? []).length ? (skill.licencesQualifications ?? []).map((qualification, qIndex) => <View key={qIndex} style={styles.nestedEditor}>
+                  {isReadOnly ? <><Text style={styles.drawerReadValue}>{qualification.name || "Qualification"}</Text><Text style={styles.drawerReadMuted}>{qualification.attachmentName || qualification.attachmentUrl || "No document attached"}</Text></> : <>
+                    <TextInput value={qualification.name} onChangeText={(value) => updateQualification(selectedSkillIndex, qIndex, { name: value })} placeholder="Qualification or licence name" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>
+                    <TextInput value={qualification.attachmentUrl} onChangeText={(value) => updateQualification(selectedSkillIndex, qIndex, { attachmentUrl: value })} placeholder="Document URL / attachment reference" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>
+                    <Pressable onPress={() => updateSkill(selectedSkillIndex, { licencesQualifications: (skill.licencesQualifications ?? []).filter((_, itemIndex) => itemIndex !== qIndex) })}><Text style={styles.skillRemove}>Remove qualification</Text></Pressable>
+                  </>}
+                </View>) : <Text style={styles.drawerReadMuted}>No qualifications or licences added.</Text>}
+                <View style={styles.subsectionHeader}><Text style={styles.subsectionTitle}>Work portfolio</Text>{!isReadOnly ? <Pressable onPress={() => updateSkill(selectedSkillIndex, { portfolio: [...(skill.portfolio ?? []), { title: "", description: "", links: [], imageUrls: [] }] })}><Text style={styles.inlineAdd}>＋ Add</Text></Pressable> : null}</View>
+                {(skill.portfolio ?? []).length ? (skill.portfolio ?? []).map((work, pIndex) => <View key={pIndex} style={styles.nestedEditor}>
+                  {isReadOnly ? <><Text style={styles.drawerReadValue}>{work.title || "Portfolio item"}</Text><Text style={styles.drawerReadMuted}>{work.description || "No description"}</Text>{work.linkUrl || work.links?.[0] ? <Text style={styles.drawerReadMuted}>{work.linkUrl || work.links?.[0]}</Text> : null}</> : <>
+                    <TextInput value={work.title} onChangeText={(value) => updatePortfolio(selectedSkillIndex, pIndex, { title: value })} placeholder="Project / work title" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>
+                    <TextInput value={work.description} onChangeText={(value) => updatePortfolio(selectedSkillIndex, pIndex, { description: value })} placeholder="What did you do?" placeholderTextColor="#82949A" style={[styles.skillSearchInput, styles.skillMultiline]} multiline/>
+                    <TextInput value={work.linkUrl ?? work.links?.[0] ?? ""} onChangeText={(value) => updatePortfolio(selectedSkillIndex, pIndex, { linkUrl: value, links: value ? [value, ...(work.links ?? []).slice(1)] : [] })} placeholder="Portfolio link (optional)" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>
+                    <Pressable onPress={() => updateSkill(selectedSkillIndex, { portfolio: (skill.portfolio ?? []).filter((_, itemIndex) => itemIndex !== pIndex) })}><Text style={styles.skillRemove}>Remove portfolio item</Text></Pressable>
+                  </>}
+                </View>) : <Text style={styles.drawerReadMuted}>No portfolio items added.</Text>}
+              </View>;
+            })() : null}
+            {!!skillError && <Text style={styles.skillError}>{skillError}</Text>}
+          </ScrollView>
+          {skillDrawerMode !== "view" ? <View style={styles.drawerActions}>
+            <Pressable accessibilityRole="button" disabled={savingSkills} onPress={closeSkillDrawer} style={styles.skillCancel}><Text style={styles.skillCancelText}>Cancel</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={savingSkills || selectedSkillIndex === null} onPress={() => void saveSkills()} style={[styles.detailAction, (savingSkills || selectedSkillIndex === null) && styles.skillDisabled]}><Text style={styles.detailActionText}>{savingSkills ? "Saving…" : "Save draft"}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={savingSkills || skillDraft.length === 0 || selectedSkillIndex === null} onPress={() => void submitSkillsForReview()} style={[styles.submitReviewButton, (savingSkills || skillDraft.length === 0 || selectedSkillIndex === null) && styles.skillDisabled]}><Text style={styles.submitReviewText}>{savingSkills ? "Processing…" : "Submit for review"}</Text></Pressable>
+          </View> : <View style={styles.drawerActions}><Pressable accessibilityRole="button" onPress={() => { if (selectedSkillIndex !== null) { setSkillDrawerMode("edit"); setEditingSkills(true); } }} style={styles.detailAction}><Text style={styles.detailActionText}>Edit skill</Text></Pressable></View>}
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -368,6 +418,29 @@ const styles = StyleSheet.create({
   skillSuccess: { color: colors.green, fontSize: 10, fontWeight: "700" },
   submitReviewButton: { alignSelf: "stretch", backgroundColor: "#EAF2FF", borderWidth: 1, borderColor: "#C9DCF9", borderRadius: 10, alignItems: "center", padding: 12 },
   submitReviewText: { color: colors.primary, fontSize: 11, fontWeight: "900" },
+  profileSkillRow: { minHeight: 62, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingHorizontal: 11, paddingVertical: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  profileSkillCopy: { flex: 1, gap: 5 },
+  profileSkillName: { color: colors.ink, fontSize: 12, fontWeight: "800" },
+  skillIconActions: { flexDirection: "row", alignItems: "center", gap: 6 },
+  skillIconButton: { width: 31, height: 31, borderRadius: 9, backgroundColor: "#EEF5F7", alignItems: "center", justifyContent: "center" },
+  skillViewIcon: { color: colors.primary, fontSize: 18, fontWeight: "800" },
+  skillEditIcon: { color: colors.primary, fontSize: 18, fontWeight: "800" },
+  skillDrawerBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(5, 23, 31, 0.48)" },
+  skillDrawerDismiss: { flex: 1 },
+  skillDrawer: { maxHeight: "88%", minHeight: "42%", backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 9, paddingBottom: 20 },
+  drawerHandle: { alignSelf: "center", width: 42, height: 4, borderRadius: 3, backgroundColor: "#B8C8CD", marginBottom: 12 },
+  drawerHeader: { paddingHorizontal: 18, paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  drawerHeadingCopy: { flex: 1, gap: 4 },
+  drawerClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#E7EFF1", alignItems: "center", justifyContent: "center" },
+  drawerCloseText: { color: colors.ink, fontSize: 23, lineHeight: 25 },
+  drawerScroll: { flexGrow: 0 },
+  drawerContent: { padding: 18, gap: 12, paddingBottom: 24 },
+  drawerFields: { gap: 10 },
+  drawerSkillCategory: { color: colors.ink, fontSize: 16, fontWeight: "900" },
+  drawerStatus: { alignSelf: "flex-start", backgroundColor: "#E8F1F4", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  drawerReadValue: { color: colors.ink, fontSize: 12, lineHeight: 18, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border, borderRadius: 10, padding: 11 },
+  drawerReadMuted: { color: colors.muted, fontSize: 11, lineHeight: 17 },
+  drawerActions: { paddingHorizontal: 18, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
   skillRemove: { color: "#B33B3B", fontSize: 10, fontWeight: "800", padding: 7 },
   skillRemoveButton: { width: 30, height: 30, borderRadius: 15, backgroundColor: "#FDECEC", borderWidth: 1, borderColor: "#F4CACA", alignItems: "center", justifyContent: "center" },
   skillRemoveIcon: { color: "#B33B3B", fontSize: 22, lineHeight: 24, fontWeight: "500" },
