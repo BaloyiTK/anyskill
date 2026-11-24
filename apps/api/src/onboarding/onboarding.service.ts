@@ -126,7 +126,7 @@ export class OnboardingService {
       return { ...details, category: typeof details.category === "string" && details.category.trim() ? details.category : skill.category };
     });
     const draftCategories = new Set(draftSkills.map((skill: any) => String(skill?.category ?? "").trim().toLocaleLowerCase("en-ZA")).filter(Boolean));
-    const skills = [
+    const skills: unknown[] = [
       ...draftSkills,
       ...restoredProviderSkills.filter((skill) => !draftCategories.has(String(skill.category ?? "").trim().toLocaleLowerCase("en-ZA"))),
     ];
@@ -238,7 +238,7 @@ export class OnboardingService {
           .filter(Boolean)
       : [];
     const skillDetails: Prisma.JsonObject[] = Array.isArray(onboarding.skills)
-      ? onboarding.skills.filter((item): item is Prisma.JsonObject => item !== null && typeof item === "object" && !Array.isArray(item))
+      ? (onboarding.skills as unknown[]).filter((item): item is Prisma.JsonObject => item !== null && typeof item === "object" && !Array.isArray(item))
       : [];
     const publicName = [
       profileData.businessName,
