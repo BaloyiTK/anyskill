@@ -10,10 +10,10 @@ export class MailService implements OnModuleInit {
   // prevent the API from starting. HTTPS providers are verified on first send.
   onModuleInit(): void {
     if (this.emailProvider === "resend") {
-      if (process.env.RESEND_API_KEY?.trim()) {
+      if (process.env.RESEND_API_KEY?.trim() && process.env.MAIL_FROM?.trim()) {
         this.logger.log("Resend email API configured; SMTP verification skipped.");
       } else {
-        this.logger.error("Resend email provider selected but RESEND_API_KEY is missing.");
+        this.logger.error("Resend email provider selected but RESEND_API_KEY or MAIL_FROM is missing.");
       }
       return;
     }
