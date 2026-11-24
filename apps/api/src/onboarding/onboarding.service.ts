@@ -125,7 +125,11 @@ export class OnboardingService {
         : {};
       return { ...details, category: typeof details.category === "string" && details.category.trim() ? details.category : skill.category };
     });
-    const skills = draftSkills.length > 0 ? draftSkills : restoredProviderSkills;
+    const draftCategories = new Set(draftSkills.map((skill: any) => String(skill?.category ?? "").trim().toLocaleLowerCase("en-ZA")).filter(Boolean));
+    const skills = [
+      ...draftSkills,
+      ...restoredProviderSkills.filter((skill) => !draftCategories.has(String(skill.category ?? "").trim().toLocaleLowerCase("en-ZA"))),
+    ];
     const data = { profile: draft?.profile ?? {}, skills, portfolio: draft?.portfolio ?? [] };
     return {
       ...data,
