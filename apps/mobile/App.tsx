@@ -106,6 +106,7 @@ const C = {
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("welcome");
+   const [skillsEditorRequested, setSkillsEditorRequested] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [mode, setMode] = useState<UserMode>("seeker");
@@ -1447,13 +1448,15 @@ export default function App() {
           </View>}
 
           {screen === "onboarding" && account && <OnboardingScreen
+            startAtSkills={skillsEditorRequested}
             identityStatus={identityStatus}
             initialMode={account.initialMode}
             seekerRoleStatus={account.seekerRoleStatus}
-            onBack={() => { void navigateHome(); }}
+            onBack={() => { setSkillsEditorRequested(false); void navigateHome(); }}
             onStartVerification={() => { void startIdentityVerification(); }}
+              onEditSkills={() => { setSkillsEditorRequested(true); setScreen("onboarding"); }}
             onIdentityUpdated={refreshHomeEligibility}
-            onComplete={async () => { await navigateHome(); }}
+            onComplete={async () => { setSkillsEditorRequested(false); await navigateHome(); }}
           />}
 
           {screen === "marketplace" && account && <MarketplaceScreen
