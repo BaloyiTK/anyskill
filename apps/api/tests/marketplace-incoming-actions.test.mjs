@@ -646,16 +646,23 @@ test("Seeker final approval snapshots estimate, assessment fee and approved extr
     jobEngagement:{findUnique:async()=>job,updateMany:async(args)=>{calls.push(args);return {count:1};}},
     jobCompletionSubmission:{findFirst:async()=>submission,updateMany:async()=>({count:1}),findUniqueOrThrow:async()=>({...submission,status:"APPROVED"})},
     jobCostAdjustment:{aggregate:async()=>({_sum:{requestedAmount:"125.00"}})},
-    serviceRequest:{update:async()=>{}},
-    appNotification:{create:async()=>{}},
+    jobFinancialTransaction:{createMany:async({data})=>{calls.push({ledger:data});}},
+    serviceRequest:{updateMany:async()=>({count:1})},
+    appNotification:{createMany:async({data})=>{calls.push({notifications:data});}},
   };
   const result = await serviceWith(tx).decideJobCompletion("seeker-1","request-1","submission-1",{approved:true});
   assert.equal(result.jobStatus,"COMPLETED");
   assert.equal(result.finalAmountDue,"700.00");
-  assert.equal(result.nextStep,"PAYMENT");
+  assert.equal(result.nextStep,"RATINGS");
+  assert.equal(result.paymentStatus,"SIMULATED_PAID");
+  assert.equal(result.providerPayoutStatus,"SIMULATED_SENT");
+  assert.equal(result.providerPayoutAmount,"630.00");
+  assert.equal(result.platformCommissionAmount,"70.00");
   assert.equal(calls[0].where.finalAmountDue,null);
   assert.equal(calls[0].data.finalAmountDue.toFixed(2),"700.00");
-  assert.ok(calls[0].data.finalApprovedAt instanceof Date);
+  assert.equal(calls[0].data.finalApprovedAt instanceof Date);
+  assert.deepEqual(calls.find((call)=>call.ledger)?.ledger.map((entry)=>entry.transactionType),["SEEKER_PAYMENT","PROVIDER_PAYOUT","PLATFORM_COMMISSION"]);
+  assert.deepEqual(calls.find((call)=>call.ledger)?.ledger.map((entry)=>entry.amount.toFixed(2)),["700.00","630.00","70.00"]);
 });
 
 test("opening a dispute pauses the job and notifies the other party", async () => {
