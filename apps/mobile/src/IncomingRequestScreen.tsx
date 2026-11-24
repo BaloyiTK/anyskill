@@ -123,7 +123,7 @@ export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAc
 }
 
 const styles = StyleSheet.create({
-  screen:{flex:1,backgroundColor:"#123F32",paddingHorizontal:24,paddingTop:12,paddingBottom:34,justifyContent:"center"},
+  screen:{flex:1,backgroundColor:"#123F32",paddingHorizontal:12,paddingTop:12,paddingBottom:34,justifyContent:"center"},
   eyebrow:{color:"#BFE8D0",fontSize:11,fontWeight:"900",letterSpacing:2,textAlign:"center"},
   pulse:{width:86,height:86,borderRadius:43,backgroundColor:"#FFFFFF1C",alignSelf:"center",alignItems:"center",justifyContent:"center",marginTop:28,marginBottom:24,borderWidth:1,borderColor:"#FFFFFF55"},
   pulseIcon:{color:"#FFFFFF",fontSize:40,fontWeight:"800"},
