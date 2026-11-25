@@ -76,6 +76,7 @@ enum ServiceRequestStatus {
 enum ProviderResponseStatus {
   OFFERED
   WITHDRAWN
+  EXPIRED
   DECLINED
   SELECTED
 }
