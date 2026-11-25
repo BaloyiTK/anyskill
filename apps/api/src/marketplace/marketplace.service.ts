@@ -966,10 +966,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
   }
   async withdrawProviderOffer(providerId: string, requestId: string, responseId: string) {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const response = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId, providerId, status: "OFFERED" },
-        select: { id: true, request: { select: { id: true, seekerId: true, status: true } } },
+        select: { id: true, request: { select: { id: true, seekerId: true, status: true, matchingWave: true } } },
       });
       if (!response || !response.request.seekerId) throw new NotFoundException("This pending offer could not be found.");
       if (response.request.status !== "OPEN") throw new ConflictException("The request is no longer open for offer withdrawal.");
@@ -978,6 +978,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: { status: "WITHDRAWN" },
       });
       if (changed.count !== 1) throw new ConflictException("The Seeker has already made a decision on this offer.");
+      // A withdrawn offer is no longer an active response. Expire its match so
+      // it cannot leave the request waiting on this Provider's old wave.
+      await tx.requestMatch.updateMany({
+        where: { requestId, providerId, status: { in: ["NOTIFIED", "RESPONDED"] } },
+        data: { status: "EXPIRED" },
+      });
       await tx.appNotification.create({
         data: {
           userId: response.request.seekerId,
@@ -986,8 +992,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           data: { type: "PROVIDER_OFFER_WITHDRAWN", requestId, responseId },
         },
       });
-      return { success: true, requestId, responseId, status: "WITHDRAWN" };
+      await tx.serviceRequest.updateMany({
+        where: { id: requestId, status: "OPEN" },
+        data: { matchingNextAt: null, matchingExhaustedAt: null },
+      });
+      return { success: true, requestId, responseId, status: "WITHDRAWN", matchingWave: response.request.matchingWave };
     });
+    const matching = await this.dispatchNextWave(requestId, result.matchingWave + 1);
+    const { matchingWave: _matchingWave, ...response } = result;
+    return { ...response, matching };
   }
 
   async scheduleRequest(seekerId: string, requestId: string, input: ScheduleServiceRequestDto) {
