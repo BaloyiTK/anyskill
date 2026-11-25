@@ -1037,10 +1037,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const result = await this.prisma.$transaction(async (tx) => {
       const response = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId, providerId, status: "OFFERED" },
-        select: { id: true, request: { select: { id: true, seekerId: true, status: true, matchingWave: true } } },
+        select: { id: true, createdAt: true, request: { select: { id: true, seekerId: true, status: true, matchingWave: true } } },
       });
       if (!response || !response.request.seekerId) throw new NotFoundException("This pending offer could not be found.");
       if (response.request.status !== "OPEN") throw new ConflictException("The request is no longer open for offer withdrawal.");
+      if (Date.now() >= response.createdAt.getTime() + PROVIDER_OFFER_RESPONSE_WINDOW_MS) {
+        throw new ConflictException("This offer has expired and can no longer be withdrawn.");
+      }
       const changed = await tx.providerResponse.updateMany({
         where: { id: responseId, requestId, providerId, status: "OFFERED" },
         data: { status: "WITHDRAWN" },
@@ -1107,6 +1110,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           id: responseId,
           requestId,
           status: "OFFERED",
+          createdAt: { gt: new Date(Date.now() - PROVIDER_OFFER_RESPONSE_WINDOW_MS) },
           request: { is: { id: requestId, seekerId, status: "OPEN" } },
         },
         data: { status: "WITHDRAWN" },
