@@ -113,13 +113,17 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const reviewForSkill = (category: string) => profile?.skillReviewStatuses?.find((item) => item.category.trim().toLowerCase() === category.trim().toLowerCase());
   const updateSkill = (index: number, patch: Partial<ProfileSkill>) => setSkillDraft((current) => current.map((skill, itemIndex) => itemIndex === index ? { ...skill, ...patch } : skill));
   const toggleSkillPaused = async (index: number) => {
-    const next = cloneSkills();
-    next[index] = { ...next[index], isPaused: !next[index].isPaused };
+    const currentSkill = skills[index];
+    if (!currentSkill) return;
+    const isPaused = !currentSkill.isPaused;
+    const next = cloneSkills().map((skill, itemIndex) =>
+      itemIndex === index ? { ...skill, isPaused } : skill,
+    );
     setSkillDraft(next); setSavingSkills(true); setSkillError("");
     try {
       const result = await apiRequest<OnboardingProfile>("/profile/onboarding", { method: "PATCH", body: JSON.stringify({ skills: next }) }, true);
       setProfile(result);
-      setSkillMessage(next[index].isPaused ? `${next[index].category} has been paused.` : `${next[index].category} is active again.`);
+      setSkillMessage(isPaused ? `${currentSkill.category} has been paused.` : `${currentSkill.category} is active again.`);
     } catch (e) { setSkillError(e instanceof Error ? e.message : "Could not update this skill."); setSkillDraft(cloneSkills()); }
     finally { setSavingSkills(false); }
   };
