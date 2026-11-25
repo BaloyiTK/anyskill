@@ -518,7 +518,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           },
           providerResponses: {
             where: { providerId },
-            select: { id: true, status: true, createdAt: true },
+            select: { id: true, status: true, createdAt: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true },
           },
           matches: {
             where: { providerId },
