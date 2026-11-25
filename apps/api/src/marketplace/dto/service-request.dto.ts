@@ -27,10 +27,10 @@ export class CreateServiceRequestDto {
   @MaxLength(100)
   skillCategory!: string;
 
+  @IsOptional()
   @IsString()
-  @MinLength(20)
   @MaxLength(5000)
-  description!: string;
+  description?: string;
 
   @IsOptional()
   @IsArray()
