@@ -542,6 +542,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       : [];
     const hasMore = requests.length > 20;
     const now = Date.now();
+    const serverNow = new Date(now).toISOString();
     const hasFreshProviderLocation = providerProfile?.liveLatitude != null
       && providerProfile.liveLongitude != null
       && providerProfile.liveLocationUpdatedAt != null
@@ -572,6 +573,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         : null;
       return {
         ...request,
+        serverNow,
         seeker: {
           firstName,
           lastName,
