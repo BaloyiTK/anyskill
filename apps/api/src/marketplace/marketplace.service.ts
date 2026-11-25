@@ -665,7 +665,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         providerSkills: { where: { status: "APPROVED" }, select: { category: true } },
       },
     }) : [];
+    const activeOfferProviderIds = new Set(requests.flatMap((request) => request.status === "OPEN"
+      ? request.providerResponses.filter((response) => response.status === "OFFERED" && response.providerId)
+        .map((response) => response.providerId as string)
+      : []));
     const portfolioImageAssets = providerUsers.flatMap((providerUser) => {
+      if (!activeOfferProviderIds.has(providerUser.id)) return [];
       const skills = providerUser.onboardingDraft?.skills;
       if (!Array.isArray(skills)) return [];
       return skills.flatMap((skill) => {
