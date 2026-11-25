@@ -497,6 +497,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             // the app to confirm the explicit Seeker decision before navigation.
             { providerResponses: { some: { providerId, status: "SELECTED" } } },
             { providerResponses: { some: { providerId, status: "WITHDRAWN" } } },
+            { providerResponses: { some: { providerId, status: "EXPIRED" } } },
           ],
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -653,7 +654,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       : [[], []];
     const providerUsers = providerIds.length ? await this.prisma.user.findMany({
       where: { id: { in: providerIds } },
-      select: { id: true, identityVerification: true, onboardingDraft: { select: { skills: true } } },
+      select: {
+        id: true,
+        identityVerification: true,
+        onboardingDraft: { select: { skills: true } },
+        providerSkills: { where: { status: "APPROVED" }, select: { category: true } },
+      },
     }) : [];
     return requests.map((request) => ({
       ...request,
@@ -707,6 +713,24 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
                 && Date.now() - profile.liveLocationUpdatedAt.getTime() <= 60_000
                 ? profile.liveLocationUpdatedAt : null,
               identityVerified: providerUser?.identityVerification === "VERIFIED",
+              approvedSkills: providerUser?.providerSkills.map((item) => item.category) ?? [],
+              portfolio: (() => {
+                const skills = providerUser?.onboardingDraft?.skills;
+                if (!Array.isArray(skills)) return [];
+                const requested = normalise(request.skillCategory).replace(/[^\\p{L}\\p{N}]+/gu, "");
+                const entry = skills.find((item) => item && typeof item === "object" && !Array.isArray(item)
+                  && normalise(String((item as Record<string, unknown>).category ?? "")).replace(/[^\\p{L}\\p{N}]+/gu, "") === requested) as Record<string, unknown> | undefined;
+                if (!Array.isArray(entry?.portfolio)) return [];
+                return entry.portfolio.filter((item) => item && typeof item === "object" && !Array.isArray(item)).map((item) => {
+                  const value = item as Record<string, unknown>;
+                  return {
+                    title: typeof value.title === "string" ? value.title : "",
+                    description: typeof value.description === "string" ? value.description : "",
+                    linkUrl: typeof value.linkUrl === "string" ? value.linkUrl : Array.isArray(value.links) ? String(value.links[0] ?? "") : "",
+                    imageCount: Array.isArray(value.imageUrls) ? value.imageUrls.length : 0,
+                  };
+                }).filter((item) => item.title || item.description || item.linkUrl || item.imageCount > 0);
+              })(),
               experience: (() => {
                 const skills = providerUser?.onboardingDraft?.skills;
                 if (!Array.isArray(skills)) return null;
