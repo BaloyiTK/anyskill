@@ -209,6 +209,8 @@ export class MarketplaceRolesService {
         id: user.id,
         email: user.email,
         mode: modes,
+        seekerRoleStatus: user.seekerRoleStatus,
+        providerRoleStatus: user.providerRoleStatus,
         identity: {
           status: user.identityVerification === IdentityVerificationStatus.FAILED ? "REJECTED" : user.identityVerification,
           reason: latestIdentity?.decisionReason ?? null,
@@ -431,7 +433,12 @@ export class MarketplaceRolesService {
 
   async getAdminDashboardMetrics() {
     const now = new Date();
-    const [activeProviders, activeSeekers, jobsInProgress, completedJobs, scheduledJobs, pendingJobs, pendingApplications, applicationsUnderReview] = await Promise.all([
+    const [
+      activeProviders, activeSeekers, jobsInProgress, completedJobs, scheduledJobs, pendingJobs,
+      pendingApplications, applicationsUnderReview, assessmentsPending, estimatesPending,
+      completionPending, openDisputes, completedPaymentPending, successfulPayFastPayments,
+      simulatedPayments, pendingProviderPayouts, completedJobValue, jobsAwaitingRatings,
+    ] = await Promise.all([
       this.prisma.user.count({ where: { providerRoleStatus: MarketplaceRoleStatus.ACTIVE, identityVerification: "VERIFIED", deletedAt: null } }),
       this.prisma.user.count({ where: { seekerRoleStatus: MarketplaceRoleStatus.ACTIVE, deletedAt: null } }),
       this.prisma.jobEngagement.count({ where: { status: "IN_PROGRESS" } }),
@@ -440,11 +447,54 @@ export class MarketplaceRolesService {
       this.prisma.serviceRequest.count({ where: { status: "OPEN" } }),
       this.prisma.providerRoleApplication.count({ where: { status: ProviderApplicationStatus.PENDING } }),
       this.prisma.providerRoleApplication.count({ where: { status: ProviderApplicationStatus.UNDER_REVIEW } }),
+      this.prisma.jobEngagement.count({ where: { status: "ASSESSMENT_PENDING" } }),
+      this.prisma.jobEngagement.count({ where: { status: "ESTIMATE_SUBMITTED" } }),
+      this.prisma.jobEngagement.count({ where: { status: "COMPLETION_PENDING" } }),
+      this.prisma.jobEngagement.count({ where: { status: "DISPUTED" } }),
+      this.prisma.jobEngagement.count({ where: { status: "COMPLETED", paymentStatus: { in: ["UNPAID", "PAYFAST_PENDING"] } } }),
+      this.prisma.jobEngagement.count({ where: { status: "COMPLETED", paymentStatus: "PAYFAST_PAID" } }),
+      this.prisma.jobEngagement.count({ where: { paymentStatus: "SIMULATED_PAID" } }),
+      this.prisma.jobEngagement.count({ where: { providerPayoutStatus: "PENDING" } }),
+      this.prisma.jobEngagement.aggregate({ where: { status: "COMPLETED" }, _sum: { finalAmountDue: true } }),
+      this.prisma.jobEngagement.count({ where: { status: "COMPLETED", paymentStatus: { in: ["PAYFAST_PAID", "SIMULATED_PAID"] }, OR: [{ review: null }, { seekerReview: null }] } }),
     ]);
     return {
       activeProviders, activeSeekers, jobsInProgress, completedJobs, scheduledJobs, pendingJobs,
-      pendingApplications, applicationsUnderReview, generatedAt: now.toISOString(),
+      pendingApplications, applicationsUnderReview, assessmentsPending, estimatesPending,
+      completionPending, openDisputes, completedPaymentPending, successfulPayFastPayments,
+      simulatedPayments, pendingProviderPayouts,
+      completedJobValue: Number(completedJobValue._sum.finalAmountDue ?? 0),
+      jobsAwaitingRatings, generatedAt: now.toISOString(),
     };
+  }
+
+  async listAdminJobs() {
+    const jobs = await this.prisma.jobEngagement.findMany({
+      orderBy: { updatedAt: "desc" },
+      take: 250,
+      select: {
+        id: true, status: true, createdAt: true, updatedAt: true,
+        assessmentCompletedAt: true, estimateSubmittedAt: true, estimateDecidedAt: true,
+        finalApprovedAt: true, workStartedAt: true, workEndedAt: true,
+        finalAmountDue: true, paymentStatus: true, providerPayoutStatus: true,
+        request: { select: { id: true, title: true, skillCategory: true, status: true, createdAt: true, preferredStartAt: true, seeker: { select: { id: true, email: true } } } },
+        response: { select: { provider: { select: { id: true, email: true } } } },
+        financialTransactions: { select: { transactionType: true, status: true, amount: true, currency: true, mode: true, completedAt: true } },
+        review: { select: { skillRating: true, platformRating: true, createdAt: true } },
+        seekerReview: { select: { rating: true, createdAt: true } },
+        disputes: { where: { status: { in: ["OPEN", "UNDER_REVIEW"] } }, select: { id: true, status: true, createdAt: true } },
+      },
+    });
+    return jobs.map((job) => ({
+      ...job,
+      seeker: job.request.seeker,
+      provider: job.response.provider,
+      request: { id: job.request.id, title: job.request.title, skillCategory: job.request.skillCategory, status: job.request.status, createdAt: job.request.createdAt, preferredStartAt: job.request.preferredStartAt },
+      finalAmountDue: job.finalAmountDue?.toString() ?? null,
+      financialTransactions: job.financialTransactions.map((transaction) => ({
+        ...transaction, amount: transaction.amount.toString(),
+      })),
+    }));
   }
 
 

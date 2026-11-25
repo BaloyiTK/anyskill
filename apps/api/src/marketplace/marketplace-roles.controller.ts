@@ -81,6 +81,13 @@ export class MarketplaceRolesController {
     return this.roles.getAdminDashboardMetrics();
   }
 
+  @Get("admin/marketplace/jobs")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.ADMIN)
+  listAdminJobs() {
+    return this.roles.listAdminJobs();
+  }
+
   @Get("admin/staff")
   @UseGuards(StaffAccessGuard)
   @RequireStaffRole(StaffRole.SUPER_ADMIN)

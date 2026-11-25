@@ -61,11 +61,11 @@ function signOut(callApi = true) {
 const moduleDefinitions = {
   "user-providers": { group: "MARKETPLACE", title: "Providers", description: "Provider account register with All, Active, Suspended and application-status filters.", items: ["Provider profile and skills", "Identity verification state", "Availability and service areas", "Provider role status and account-level controls"], note: "The provider register UI is scoped here; connect it to a protected, paginated user-management API before showing live accounts or changing access." },
   "user-seekers": { group: "MARKETPLACE", title: "Seekers", description: "Seeker account register with All, Active and Suspended tabs.", items: ["Seeker profile and contact details", "Marketplace roles (including dual-role accounts)", "Account status and registration date", "Role-level suspension kept separate from whole-account suspension"], note: "The seeker register UI is scoped here; connect it to a protected, paginated user-management API before showing live accounts or changing access." },
-  jobs: { group: "MARKETPLACE", title: "Jobs & requests", description: "Central register for service requests and job engagements.", items: ["All jobs", "Informal services (service category, not a lifecycle status)", "Pending and matching", "In progress and scheduled", "Cancelled and completed", "Disputes and escalations"], note: "Job records need a unified, paginated API joining requests, provider responses and engagements. The current schema does not yet contain a complete cancellation/dispute case workflow." },
+  jobs: { group: "MARKETPLACE", title: "Jobs & requests", description: "Central register for service requests and job engagements.", items: ["All jobs", "Informal services (service category, not a lifecycle status)", "Pending and matching", "In progress and scheduled", "Cancelled and completed", "Disputes and escalations"], note: "The read-only register now joins the latest 250 engagements to request, participant, lifecycle, dispute, payment and rating records. Cancellation and dispute decisions remain controlled by their dedicated workflows." },
   identity: { group: "TRUST & SAFETY", title: "Identity verification", description: "Review identity documents and the live selfie independently of skill decisions.", items: ["Identity documents and live selfie", "Separate identity decision and rejection reason", "Identity verification is required before skill approval"], note: "Identity verification is its own review queue. It does not approve or reject the user’s skills." },
   disputes: { group: "TRUST & SAFETY", title: "Disputes", description: "Review evidence, hear both parties and record an auditable outcome for disputed jobs.", items: ["Open and under-review disputes", "Seeker and Provider responses", "Secure evidence access", "Resolve in favour of either party or cancel the engagement", "Recorded staff decision and audit history"], note: "Only active Support Agents, Administrators and the Super Administrator can resolve cases. All outcomes are recorded against the staff account." },
   fraud: { group: "TRUST & SAFETY", title: "Fraud & risk", description: "Review suspicious activity and reported accounts.", items: ["Reported users and jobs", "Suspicious account patterns", "Transaction risk flags", "Investigation notes and outcomes"], note: "Risk signals and investigation records are not yet implemented. Do not present automated fraud prevention as an existing capability." },
-  reviews: { group: "TRUST & SAFETY", title: "Ratings & reviews", description: "Moderate feedback and reported content.", items: ["Provider ratings and seeker feedback", "Reported reviews", "Content moderation queue", "Moderation audit history"], note: "A review and moderation data model plus permission-checked endpoints are required before this module can display records." },
+  reviews: { group: "TRUST & SAFETY", title: "Ratings & reviews", description: "Moderate feedback and reported content.", items: ["Provider ratings and seeker feedback", "Reported reviews", "Content moderation queue", "Moderation audit history"], note: "The live view shows the two reciprocal ratings recorded against completed jobs. Reported-content moderation and moderation actions still need a separate workflow." },
   transactions: { group: "FINANCIALS", title: "Transactions", description: "Monitor payment attempts and completed marketplace payments.", items: ["Successful, pending and failed payments", "Transaction references and linked jobs", "Refund and chargeback references", "Reconciliation status"], note: "Payment gateway transaction records and webhook reconciliation are not yet connected. No payment totals are fabricated in this portal." },
   commissions: { group: "FINANCIALS", title: "Commissions", description: "Track the proposed marketplace commission model.", items: ["Seeker fee and provider commission", "Commission per completed transaction", "VAT and payment-fee treatment", "Commission adjustments and reporting"], note: "The proposed 5% seeker + 5% provider model must be configurable and reconciled against actual payment records before financial reporting is enabled." },
   payouts: { group: "FINANCIALS", title: "Payouts & refunds", description: "Manage provider settlement and customer refunds.", items: ["Payout eligibility and status", "Payout history", "Refund requests and outcomes", "Chargeback tracking"], note: "Payout and refund operations require payment-provider integration, approval controls and immutable financial audit records." },
@@ -82,12 +82,65 @@ function renderModulePage(page) {
   $("#module-title").textContent = module.title + ".";
   $("#module-description").textContent = module.description;
   if (page === "disputes") { $("#module-status").textContent = "Live dispute queue"; $("#module-content").innerHTML = '<div class="panel"><p>Loading live dispute records…</p></div>'; void loadAdminDisputes(); return; }
+  if (page === "jobs" || page === "reviews") { $("#module-status").textContent = "Live operational records"; void loadAdminJobs(page === "reviews"); return; }
   $("#module-status").textContent = "API integration required";
   $("#module-content").innerHTML = '<section class="panel module-detail-panel"><div class="module-detail-heading"><strong>Planned administration capabilities</strong><span class="module-state">Not connected to live records</span></div><ul>' +
     module.items.map((item) => '<li>' + escapeHtml(item) + '</li>').join("") +
     '</ul><div class="module-integration-note"><strong>Implementation note</strong><p>' + escapeHtml(module.note) + '</p></div></section>';
 }
 
+
+
+function adminJobDate(value) {
+  return value ? new Intl.DateTimeFormat("en-ZA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not recorded";
+}
+function adminMoney(value, currency = "ZAR") {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? new Intl.NumberFormat("en-ZA", { style: "currency", currency, maximumFractionDigits: 2 }).format(amount) : "—";
+}
+function renderAdminJobs(rows, reviewsOnly = false) {
+  const root = $("#module-content");
+  const list = (rows || []).filter((job) => !reviewsOnly || job.review || job.seekerReview);
+  const statuses = [...new Set(list.map((job) => job.status))].sort();
+  root.innerHTML = '<section class="panel admin-job-register"><div class="admin-job-toolbar"><input id="admin-job-search" type="search" placeholder="Search title, category, Seeker or Provider"><select id="admin-job-status"><option value="">All job statuses</option>' +
+    statuses.map((status) => '<option value="' + escapeHtml(status) + '">' + escapeHtml(status.replaceAll("_", " ")) + '</option>').join("") +
+    '</select><span class="module-state">' + list.length + ' records · latest 250</span></div><div id="admin-job-results"></div></section>';
+  const draw = () => {
+    const query = $("#admin-job-search").value.trim().toLowerCase();
+    const status = $("#admin-job-status").value;
+    const matches = list.filter((job) => {
+      const searchText = [job.request?.title, job.request?.skillCategory, job.seeker?.email, job.provider?.email, job.id].join(" ").toLowerCase();
+      return (!query || searchText.includes(query)) && (!status || job.status === status);
+    });
+    $("#admin-job-results").innerHTML = matches.length ? matches.map((job) => {
+      const transactions = (job.financialTransactions || []).map((item) =>
+        '<span class="admin-financial-line">' + escapeHtml(item.transactionType.replaceAll("_", " ")) + ' · ' + escapeHtml(item.status) + ' · ' + escapeHtml(adminMoney(item.amount, item.currency)) + (String(item.mode).includes("SIMULATED") ? ' · SIMULATED' : '') + '</span>').join("");
+      const providerRating = job.review ? 'Provider rating: ' + escapeHtml(job.review.platformRating) + '/5 platform · ' + escapeHtml(job.review.skillRating) + '/5 skill' : 'Provider rating outstanding';
+      const seekerRating = job.seekerReview ? 'Seeker rating: ' + escapeHtml(job.seekerReview.rating) + '/5' : 'Seeker rating outstanding';
+      return '<article class="application-row admin-job-card"><div class="admin-job-card-heading"><div><strong>' + escapeHtml(job.request?.title || job.request?.skillCategory || "Service job") + '</strong><div class="applicant-meta">' + escapeHtml(job.request?.skillCategory || "Uncategorised") + ' · ' + escapeHtml(job.id) + '</div></div><span class="status-pill">' + escapeHtml(job.status.replaceAll("_", " ")) + '</span></div>' +
+        '<div class="admin-job-facts"><div><small>Seeker</small><strong>' + escapeHtml(job.seeker?.email || "Unavailable") + '</strong></div><div><small>Provider</small><strong>' + escapeHtml(job.provider?.email || "Not selected") + '</strong></div><div><small>Approved job amount</small><strong>' + escapeHtml(adminMoney(job.finalAmountDue)) + '</strong></div><div><small>Seeker payment</small><strong>' + escapeHtml(job.paymentStatus || "UNPAID") + '</strong></div><div><small>Provider payout</small><strong>' + escapeHtml(job.providerPayoutStatus || "NOT_SENT") + '</strong></div></div>' +
+        '<div class="admin-job-timeline"><span>Assessment: ' + escapeHtml(adminJobDate(job.assessmentCompletedAt)) + '</span><span>Estimate submitted: ' + escapeHtml(adminJobDate(job.estimateSubmittedAt)) + '</span><span>Estimate decided: ' + escapeHtml(adminJobDate(job.estimateDecidedAt)) + '</span><span>Final price approved: ' + escapeHtml(adminJobDate(job.finalApprovedAt)) + '</span><span>Work started: ' + escapeHtml(adminJobDate(job.workStartedAt)) + '</span><span>Work ended: ' + escapeHtml(adminJobDate(job.workEndedAt)) + '</span></div>' +
+        (transactions ? '<div class="admin-financial-list"><strong>Recorded financial transactions</strong>' + transactions + '</div>' : '<p class="applicant-meta">No financial transaction records are attached to this job.</p>') +
+        '<div class="admin-job-ratings"><span>' + providerRating + '</span><span>' + seekerRating + '</span></div>' +
+        ((job.disputes || []).length ? '<div class="alert alert-error">Open dispute: ' + escapeHtml(job.disputes.map((d) => d.status).join(", ")) + '</div>' : '') + '</article>';
+    }).join("") : '<div class="empty-state">No matching ' + (reviewsOnly ? 'reviewed jobs' : 'jobs') + ' found.</div>';
+  };
+  $("#admin-job-search").addEventListener("input", draw);
+  $("#admin-job-status").addEventListener("change", draw);
+  draw();
+}
+async function loadAdminJobs(reviewsOnly = false) {
+  const root = $("#module-content");
+  root.innerHTML = '<div class="loading-state">Loading live job records…</div>';
+  try {
+    const result = await request("/admin/marketplace/jobs");
+    state.adminJobs = Array.isArray(result) ? result : [];
+    renderAdminJobs(state.adminJobs, reviewsOnly);
+  } catch (error) {
+    root.innerHTML = '<section class="panel"><div class="alert alert-error">' + escapeHtml(error.message || "Could not load jobs.") + '</div><button class="button button-light" id="admin-jobs-retry">Retry</button></section>';
+    $("#admin-jobs-retry")?.addEventListener("click", () => loadAdminJobs(reviewsOnly));
+  }
+}
 
 async function loadAdminDisputes() {
   const root = $("#module-content");
@@ -144,11 +197,24 @@ function renderMetrics() {
     "#metric-completed": metrics.completedJobs,
     "#metric-scheduled": metrics.scheduledJobs,
     "#metric-pending-jobs": metrics.pendingJobs,
+    "#metric-assessment-pending": metrics.assessmentsPending,
+    "#metric-estimates-pending": metrics.estimatesPending,
+    "#metric-completion-pending": metrics.completionPending,
+    "#metric-open-disputes": metrics.openDisputes,
+    "#metric-payment-pending": metrics.completedPaymentPending,
+    "#metric-payments-successful": metrics.successfulPayFastPayments,
+    "#metric-payouts-pending": metrics.pendingProviderPayouts,
+    "#metric-simulated-payments": metrics.simulatedPayments,
+    "#metric-ratings-pending": metrics.jobsAwaitingRatings,
   };
   Object.entries(values).forEach(([selector, value]) => {
     const node = $(selector);
     if (node) node.textContent = Number.isFinite(value) ? value.toLocaleString("en-ZA") : "—";
   });
+  const completedValue = $("#metric-completed-value");
+  if (completedValue) completedValue.textContent = Number.isFinite(metrics.completedJobValue)
+    ? new Intl.NumberFormat("en-ZA", { style: "currency", currency: "ZAR", maximumFractionDigits: 2 }).format(metrics.completedJobValue)
+    : "—";
 }
 function renderStaffMembers() {
   const list = $("#staff-list");
@@ -186,7 +252,8 @@ async function loadAdminPermissions(){
   probeAdminPermission("/admin/dashboard/metrics")
  ]);
  ["identity","skills","accounts","staff"].forEach((page,i)=>{const nav=document.querySelector('.nav-item[data-page="'+page+'"]');if(nav)checks[i]?show(nav):hide(nav);});
- state.adminPermissions={identity:checks[0],skills:checks[1],accounts:checks[2],staff:checks[3],dashboard:checks[4]};
+ ["jobs","reviews"].forEach((page)=>{const nav=document.querySelector('.nav-item[data-page="'+page+'"]');if(nav)checks[4]?show(nav):hide(nav);});
+ state.adminPermissions={identity:checks[0],skills:checks[1],accounts:checks[2],staff:checks[3],dashboard:checks[4],jobs:checks[4]};
 }
 function renderIdentityQueue(){
  const list=$("#identity-list");if(!state.identityCases.length){list.innerHTML='<div class="empty-state">No identity verification cases are awaiting review.</div>';return;}
@@ -212,7 +279,7 @@ function renderAdminAccounts(){
   const modes=(Array.isArray(a.mode)?a.mode:[]).map(mode=>'<span class="status-pill">'+escapeHtml(mode)+'</span>').join(" ")||"—";
   const skills=(a.skills||[]).map(s=>'<div class="account-skill"><span>'+escapeHtml(s.name)+'</span><span class="status-pill">'+escapeHtml(s.status)+'</span>'+(s.reason?'<small>'+escapeHtml(s.reason)+'</small>':"")+'</div>').join("")||'<span class="applicant-meta">No provider skills recorded</span>';
   const ready=a.identity?.status==="VERIFIED"&&(a.skills||[]).some(s=>s.status==="APPROVED");
-  return '<article class="application-row account-row"><div class="applicant-main"><div class="applicant-avatar">'+escapeHtml(initials(a.email))+'</div><div class="applicant-copy"><strong>'+escapeHtml(a.email)+'</strong><span>Mode: '+escapeHtml(modes)+'</span><div class="applicant-meta">Identity: '+escapeHtml(a.identity?.status||"NOT_STARTED")+(a.identity?.reason?" · "+escapeHtml(a.identity.reason):"")+'</div><div class="account-skills"><strong>Skills</strong>'+skills+'</div><div class="applicant-meta">Provider access: '+(ready?"Available":"Not yet available")+' — verified identity and at least one approved skill</div></div></div></article>';
+  return '<article class="application-row account-row"><div class="applicant-main"><div class="applicant-avatar">'+escapeHtml(initials(a.email))+'</div><div class="applicant-copy"><strong>'+escapeHtml(a.email)+'</strong><span>Mode: '+escapeHtml(modes)+'</span><div class="applicant-meta">Identity: '+escapeHtml(a.identity?.status||"NOT_STARTED")+(a.identity?.reason?" · "+escapeHtml(a.identity.reason):"")+'</div><div class="applicant-meta">Seeker access: '+escapeHtml(a.seekerRoleStatus||"UNKNOWN")+' · Provider role: '+escapeHtml(a.providerRoleStatus||"UNKNOWN")+'</div><div class="account-skills"><strong>Skills</strong>'+skills+'</div><div class="applicant-meta">Provider access: '+(ready?"Available":"Not yet available")+' — verified identity and at least one approved skill</div></div></div></article>';
  }).join("");
 }
 async function loadAdminAccounts(){

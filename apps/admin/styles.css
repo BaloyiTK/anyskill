@@ -281,3 +281,24 @@ input,select,textarea{accent-color:#0f6cbd}
 
 /* Inline Fluent-style navigation glyphs */
 .nav-icon svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+
+
+/* Live operational job and reciprocal review registers */
+.admin-job-register{padding:16px}
+.admin-job-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.admin-job-toolbar input,.admin-job-toolbar select{min-height:38px;border:1px solid var(--fluent-border);border-radius:6px;padding:7px 10px;background:#fff;color:var(--fluent-text);font-size:13px}
+.admin-job-toolbar input{flex:1;min-width:220px}
+.admin-job-card{display:grid;gap:13px;margin-bottom:10px}
+.admin-job-card-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.admin-job-card-heading strong{font-size:14px;color:var(--fluent-text)}
+.admin-job-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.admin-job-facts>div{display:grid;gap:4px;min-width:0;padding:10px;border:1px solid var(--line);border-radius:6px;background:#fafafa}
+.admin-job-facts small{font-size:10px;color:var(--muted)}
+.admin-job-facts strong{font-size:12px;overflow-wrap:anywhere}
+.admin-job-timeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px 12px;color:var(--muted);font-size:11px}
+.admin-financial-list{display:grid;gap:6px;padding:12px;border:1px solid var(--line);border-radius:7px;background:#fafafa}
+.admin-financial-list>strong{font-size:11px;color:var(--fluent-text)}
+.admin-financial-line{font-size:11px;color:var(--muted)}
+.admin-job-ratings{display:flex;gap:8px;flex-wrap:wrap}
+.admin-job-ratings span{padding:7px 9px;border-radius:5px;background:#eff6fc;color:#245b86;font-size:11px}
+@media(max-width:720px){.admin-job-toolbar input{min-width:100%}.admin-job-card-heading{flex-direction:column}}
