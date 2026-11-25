@@ -139,7 +139,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           seekerId,
           title: input.title.trim(),
           skillCategory: input.skillCategory.trim(),
-          description: input.description.trim(),
+          description: input.description?.trim() ?? "",
           imageUrls: input.imageUrls ?? [],
           location: input.location?.trim() || null,
           // Remote-only requests must never retain a physical location, even if a
