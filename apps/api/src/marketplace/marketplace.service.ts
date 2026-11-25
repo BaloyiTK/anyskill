@@ -26,6 +26,7 @@ import {
 type RankedProvider = { userId: string; score: number };
 const normalise = (value: string) => value.trim().toLocaleLowerCase("en-ZA");
 const RESPONSE_WINDOW_MS = Math.max(60, Number(process.env.MATCH_RESPONSE_WINDOW_SECONDS ?? 300)) * 1000;
+const PROVIDER_OFFER_RESPONSE_WINDOW_MS = 10 * 60 * 1000;
 // Offer one ranked Provider at a time. A decline or response timeout advances to the next
 // eligible Provider; if the ranked shortlist is exhausted, the matching worker retries later.
 const WAVE_SIZE = 1;
@@ -590,6 +591,9 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         distanceKm,
         alreadyResponded: providerResponses.length > 0,
         myResponse: providerResponses[0] ?? null,
+        offerExpiresAt: providerResponses[0]?.status === "OFFERED"
+          ? new Date(providerResponses[0].createdAt.getTime() + PROVIDER_OFFER_RESPONSE_WINDOW_MS).toISOString()
+          : null,
         responseDeadlineAt: (() => {
           const activeMatch = matches.find((match) => match.status === "NOTIFIED");
           return activeMatch
@@ -653,6 +657,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     }) : [];
     return requests.map((request) => ({
       ...request,
+      serverNow,
       jobEngagement: request.jobEngagement ? (() => {
         const approvedAdjustments = request.jobEngagement.adjustments.filter((item) => item.status === "APPROVED");
         const approvedAdditionalHours = approvedAdjustments.reduce((sum, item) => sum + Number(item.requestedHours), 0);
@@ -672,6 +677,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const providerUser = providerUsers.find((item) => item.id === response.providerId);
         return {
           ...response,
+          expiresAt: new Date(response.createdAt.getTime() + PROVIDER_OFFER_RESPONSE_WINDOW_MS).toISOString(),
           provider: {
             ...response.provider,
             phone: request.jobEngagement?.providerId === response.providerId
@@ -1102,9 +1108,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
       const offer = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId, status: "OFFERED" },
-        select: { id: true, providerId: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true },
+        select: { id: true, providerId: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true },
       });
       if (!offer || !offer.providerId) throw new NotFoundException("This Provider offer is no longer available.");
+      if (Date.now() >= offer.createdAt.getTime() + PROVIDER_OFFER_RESPONSE_WINDOW_MS) {
+        throw new ConflictException("This Provider offer has expired. AnySkill is finding the next eligible Provider.");
+      }
 
       // Eligibility is mutable after an offer is submitted. Recheck it at the
       // Seeker's final selection point, not only when the Provider responds.
@@ -2087,6 +2096,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { status: "SENDING", updatedAt: { lt: staleBefore }, attempts: { gte: 5 } },
         data: { status: "FAILED", lastError: "Email worker stopped after the maximum number of attempts." },
       });
+      await this.expireTimedOutProviderOffers();
       await this.expandExpiredWaves();
       await this.retryExhaustedRequests();
       await this.dispatchPendingNotifications();
@@ -2361,6 +2371,72 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       return { notified: 0, wave, exhausted: true };
     });
+  }
+
+  private async expireTimedOutProviderOffers() {
+    const deadline = new Date(Date.now() - PROVIDER_OFFER_RESPONSE_WINDOW_MS);
+    const candidates = await this.prisma.providerResponse.findMany({
+      where: { status: "OFFERED", createdAt: { lte: deadline }, request: { status: "OPEN" } },
+      select: { id: true, requestId: true, providerId: true },
+      orderBy: { createdAt: "asc" },
+      take: 50,
+    });
+
+    for (const candidate of candidates) {
+      const expired = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM service_requests WHERE id = ${candidate.requestId}::uuid FOR UPDATE`);
+        const offer = await tx.providerResponse.findFirst({
+          where: {
+            id: candidate.id,
+            status: "OFFERED",
+            createdAt: { lte: deadline },
+            request: { status: "OPEN" },
+          },
+          select: {
+            id: true,
+            providerId: true,
+            requestId: true,
+            request: { select: { seekerId: true, title: true, matchingWave: true } },
+          },
+        });
+        if (!offer || !offer.providerId) return null;
+        const changed = await tx.providerResponse.updateMany({
+          where: { id: offer.id, status: "OFFERED" },
+          data: { status: "EXPIRED" },
+        });
+        if (changed.count !== 1) return null;
+        await tx.requestMatch.updateMany({
+          where: { requestId: offer.requestId, providerId: offer.providerId, status: "RESPONDED" },
+          data: { status: "EXPIRED" },
+        });
+        await tx.serviceRequest.updateMany({
+          where: { id: offer.requestId, status: "OPEN" },
+          data: { matchingNextAt: new Date(), matchingExhaustedAt: null },
+        });
+        await tx.appNotification.create({
+          data: {
+            userId: offer.providerId,
+            title: "Your offer has expired",
+            body: "The Seeker did not respond within 10 minutes. AnySkill is moving on to the next eligible Provider.",
+            data: { type: "PROVIDER_OFFER_EXPIRED", requestId: offer.requestId, responseId: offer.id },
+          },
+        });
+        if (offer.request.seekerId) {
+          await tx.appNotification.create({
+            data: {
+              userId: offer.request.seekerId,
+              title: "Provider offer expired",
+              body: "The response time for this offer ended. AnySkill is finding the next eligible Provider for your request.",
+              data: { type: "PROVIDER_OFFER_EXPIRED", requestId: offer.requestId, responseId: offer.id },
+            },
+          });
+        }
+        return offer.request.matchingWave;
+      });
+      if (expired != null) {
+        await this.dispatchNextWave(candidate.requestId, expired + 1);
+      }
+    }
   }
 
   private async expandExpiredWaves() {
