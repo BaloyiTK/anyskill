@@ -1041,7 +1041,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       });
       if (!response || !response.request.seekerId) throw new NotFoundException("This pending offer could not be found.");
       if (response.request.status !== "OPEN") throw new ConflictException("The request is no longer open for offer withdrawal.");
-      if (Date.now() >= response.createdAt.getTime() + PROVIDER_OFFER_RESPONSE_WINDOW_MS) {
+      if (response.createdAt && Date.now() >= response.createdAt.getTime() + PROVIDER_OFFER_RESPONSE_WINDOW_MS) {
         throw new ConflictException("This offer has expired and can no longer be withdrawn.");
       }
       const changed = await tx.providerResponse.updateMany({
@@ -1171,7 +1171,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: { id: true, providerId: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true },
       });
       if (!offer || !offer.providerId) throw new NotFoundException("This Provider offer is no longer available.");
-      if (Date.now() >= offer.createdAt.getTime() + PROVIDER_OFFER_RESPONSE_WINDOW_MS) {
+      if (offer.createdAt && Date.now() >= offer.createdAt.getTime() + PROVIDER_OFFER_RESPONSE_WINDOW_MS) {
         throw new ConflictException("This Provider offer has expired. AnySkill is finding the next eligible Provider.");
       }
 
