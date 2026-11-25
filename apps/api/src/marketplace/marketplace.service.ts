@@ -14,6 +14,7 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
 import { LiveProviderMapService } from "./live-provider-map.service";
+import { MediaService } from "./media.service";
 import {
   CreateServiceRequestDto,
   ProviderResponseDto,
@@ -44,6 +45,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly liveProviderMap: LiveProviderMapService,
     private readonly mail: MailService,
+    private readonly media: MediaService,
   ) {}
 
   onModuleInit() {
@@ -663,6 +665,29 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         providerSkills: { where: { status: "APPROVED" }, select: { category: true } },
       },
     }) : [];
+    const portfolioImageAssets = providerUsers.flatMap((providerUser) => {
+      const skills = providerUser.onboardingDraft?.skills;
+      if (!Array.isArray(skills)) return [];
+      return skills.flatMap((skill) => {
+        if (!skill || typeof skill !== "object" || Array.isArray(skill)) return [];
+        const portfolio = (skill as Record<string, unknown>).portfolio;
+        if (!Array.isArray(portfolio)) return [];
+        return portfolio.flatMap((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+          const imageIds = (item as Record<string, unknown>).imageUrls;
+          return Array.isArray(imageIds) ? imageIds.filter((id): id is string => typeof id === "string").map((assetId) => ({ userId: providerUser.id, assetId })) : [];
+        });
+      });
+    });
+    const portfolioImageUrlEntries = await Promise.all(portfolioImageAssets.map(async ({ userId, assetId }) => {
+      try {
+        const preview = await this.media.getProviderEvidencePreviewUrl(userId, assetId);
+        return [userId + ":" + assetId, preview?.url ?? null] as const;
+      } catch {
+        return [userId + ":" + assetId, null] as const;
+      }
+    }));
+    const portfolioImageUrls = new Map(portfolioImageUrlEntries);
     return requests.map((request) => ({
       ...request,
       serverNow,
@@ -730,6 +755,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
                     description: typeof value.description === "string" ? value.description : "",
                     linkUrl: typeof value.linkUrl === "string" ? value.linkUrl : Array.isArray(value.links) ? String(value.links[0] ?? "") : "",
                     imageCount: Array.isArray(value.imageUrls) ? value.imageUrls.length : 0,
+                    imageUrls: Array.isArray(value.imageUrls)
+                      ? value.imageUrls.filter((id): id is string => typeof id === "string")
+                        .map((assetId) => portfolioImageUrls.get(response.providerId + ":" + assetId))
+                        .filter((url): url is string => typeof url === "string")
+                      : [],
                   };
                 }).filter((item) => item.title || item.description || item.linkUrl || item.imageCount > 0);
               })(),
