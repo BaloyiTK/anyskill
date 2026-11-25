@@ -1,0 +1,1 @@
+ALTER TYPE "ProviderResponseStatus" ADD VALUE IF NOT EXISTS 'EXPIRED';
