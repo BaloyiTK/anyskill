@@ -607,7 +607,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       orderBy: { createdAt: "desc" },
       include: {
         jobEngagement: { include: { review: true, seekerReview: true, adjustments: { orderBy: { createdAt: "desc" } }, completionSubmissions: { include: { evidenceAssets: { select: { id: true, contentType: true, originalName: true, sizeBytes: true } } }, orderBy: { submittedAt: "desc" } }, disputes: { orderBy: { createdAt: "desc" }, take: 1, include: { messages: { orderBy: { createdAt: "asc" }, include: { author: { select: { id: true } }, evidenceAssets: { select: { id: true, originalName: true, contentType: true, sizeBytes: true } } } } } } } },
-        _count: { select: { matches: true } },
+        // Only current-wave active notifications count as notified. Declined,
+        // expired and withdrawn matches remain in history but are not pending.
+        _count: {
+          select: {
+            matches: { where: { status: { in: ["NOTIFIED", "RESPONDED"] } } },
+          },
+        },
         providerResponses: {
           orderBy: { createdAt: "asc" },
           select: {
@@ -2344,7 +2350,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
       await tx.serviceRequest.update({
         where: { id: requestId },
-        data: { matchingNextAt: null, matchingExhaustedAt: new Date() },
+        data: {
+          // Persist the attempted wave even when no eligible Provider was found.
+          // Otherwise the Seeker keeps seeing the previous wave and its declined
+          // Provider count indefinitely.
+          matchingWave: wave,
+          matchingNextAt: null,
+          matchingExhaustedAt: new Date(),
+        },
       });
       return { notified: 0, wave, exhausted: true };
     });
