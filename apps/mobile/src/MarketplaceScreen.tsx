@@ -115,6 +115,7 @@ export function MarketplaceScreen(p: Props) {
   const hasLoadedIncomingRequestsRef = useRef(false);
   const incomingRequestsLoadInFlightRef = useRef(false);
   const serviceChatLoadVersionRef = useRef(0);
+  const seekerRequestsLoadVersionRef = useRef(0);
   const [clockNow, setClockNow] = useState(Date.now());
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const [estimateHours, setEstimateHours] = useState("2");
@@ -214,11 +215,13 @@ export function MarketplaceScreen(p: Props) {
   }, []);
 
   const loadMyRequests = useCallback(async () => {
+    const loadVersion = ++seekerRequestsLoadVersionRef.current;
     setBusy(true); setError("");
     try {
       const requestStartedAt = Date.now();
       const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
       const receivedAt = Date.now();
+      if (loadVersion !== seekerRequestsLoadVersionRef.current) return;
       const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
       if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
       setMyRequests(result);
@@ -227,8 +230,11 @@ export function MarketplaceScreen(p: Props) {
         id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
         createdAt: active.matchingStartedAt, notified: active._count?.matches ?? 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
       } : null);
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not load your requests."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      if (loadVersion === seekerRequestsLoadVersionRef.current) setError(e instanceof Error ? e.message : "Could not load your requests.");
+    } finally {
+      if (loadVersion === seekerRequestsLoadVersionRef.current) setBusy(false);
+    }
   }, []);
 
   const loadSavedPaymentMethods = useCallback(async () => {
@@ -320,11 +326,12 @@ export function MarketplaceScreen(p: Props) {
             }
           }
         } else {
+          const loadVersion = ++seekerRequestsLoadVersionRef.current;
           const requestStartedAt = Date.now();
-          const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
+          const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests?_=1795718583217", {}, true);
           const receivedAt = Date.now();
           const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
-          if (active) {
+          if (active && loadVersion === seekerRequestsLoadVersionRef.current) {
             if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
             setMyRequests(result);
             // Rebuild the Seeker's current journey from the persisted engagement.
@@ -365,7 +372,17 @@ export function MarketplaceScreen(p: Props) {
             } else {
               setJourneyScreen(null);
             }
-            const active = result.find((item) => item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
+            // Keep the offer's own request selected. Otherwise a refresh of a
+            // different open request can hide the offer drawer while its ID is active.
+            const activeOfferRequest = activeOfferId
+              ? result.find((item) => item.status === "OPEN" && item.providerResponses.some((offer) => offer.id === activeOfferId && offer.status === "OFFERED"))
+              : undefined;
+            const pendingOfferRequest = result.find((item) => item.status === "OPEN" && item.providerResponses.some((offer) =>
+              offer.status === "OFFERED" && !dismissedOfferIds.includes(offer.id),
+            ));
+            const active = activeOfferRequest ?? pendingOfferRequest ?? result.find((item) =>
+              item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"),
+            );
             setMatchingRequest(active ? {
               id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
               createdAt: active.matchingStartedAt, notified: active._count?.matches ?? 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
@@ -393,7 +410,7 @@ export function MarketplaceScreen(p: Props) {
       active = false;
       clearInterval(refresh);
     };
-  }, [p.mode, providerOfferReview?.status, providerSelectionWatch?.responseId, journeyScreen?.requestId]);
+  }, [p.mode, providerOfferReview?.status, providerSelectionWatch?.responseId, journeyScreen?.requestId, activeOfferId, dismissedOfferIds]);
 
   useEffect(() => {
     if (p.mode !== "provider") return;
