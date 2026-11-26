@@ -245,7 +245,7 @@ export function MarketplaceScreen(p: Props) {
     } catch (e) {
       if (loadVersion === seekerRequestsLoadVersionRef.current) setError(e instanceof Error ? e.message : "Could not load your requests.");
     } finally {
-      if (loadVersion === seekerRequestsLoadVersionRef.current) setBusy(false);
+      setBusy(false);
     }
   }, []);
 
