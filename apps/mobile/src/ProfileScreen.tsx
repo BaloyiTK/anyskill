@@ -114,7 +114,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const updateSkill = (index: number, patch: Partial<ProfileSkill>) => setSkillDraft((current) => current.map((skill, itemIndex) => itemIndex === index ? { ...skill, ...patch } : skill));
   const toggleSkillPaused = async (index: number) => {
     const currentSkill = skills[index];
-    if (!currentSkill) return;
+    if (!currentSkill || reviewForSkill(currentSkill.category)?.status !== "APPROVED") return;
     const isPaused = !currentSkill.isPaused;
     const next = cloneSkills().map((skill, itemIndex) =>
       itemIndex === index ? { ...skill, isPaused } : skill,
@@ -266,7 +266,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                     <View style={styles.skillIconActions}>
                       <Pressable accessibilityRole="button" accessibilityLabel={`View ${skill.category}`} onPress={() => openSkillDrawer(index, "view")} style={styles.skillIconButton}><Text style={styles.skillViewIcon}>👁</Text></Pressable>
                       <Pressable accessibilityRole="button" accessibilityLabel={`Edit ${skill.category}`} onPress={() => openSkillDrawer(index, "edit")} style={styles.skillIconButton}><Text style={styles.skillEditIcon}>✎</Text></Pressable>
-                      <Pressable accessibilityRole="button" accessibilityLabel={`${skill.isPaused ? "Resume" : "Pause"} ${skill.category}`} disabled={savingSkills} onPress={() => void toggleSkillPaused(index)} style={[styles.skillIconButton, skill.isPaused && styles.skillPausedButton]}><Text style={styles.skillPauseIcon}>{skill.isPaused ? "▶" : "Ⅱ"}</Text></Pressable>
+                      <Pressable accessibilityRole="button" accessibilityLabel={`${skill.isPaused ? "Resume" : "Pause"} ${skill.category}`} accessibilityState={{ disabled: savingSkills || reviewStatus !== "APPROVED" }} disabled={savingSkills || reviewStatus !== "APPROVED"} onPress={() => void toggleSkillPaused(index)} style={[styles.skillIconButton, skill.isPaused && styles.skillPausedButton, reviewStatus !== "APPROVED" && styles.skillDisabled]}><Text style={styles.skillPauseIcon}>{skill.isPaused ? "▶" : "Ⅱ"}</Text></Pressable>
                       <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${skill.category}`} disabled={savingSkills} onPress={() => { const next = cloneSkills().filter((_, itemIndex) => itemIndex !== index); setSkillDraft(next); setRemovedSkillName(skill.category); setSkillError(""); setSkillMessage(""); setEditingSkills(true); setSkillDrawerMode("edit"); setSelectedSkillIndex(null); setSkillDrawerVisible(true); }} style={styles.skillRemoveButton}><Text style={styles.skillRemoveIcon}>×</Text></Pressable>
                     </View>
                   </View>;
