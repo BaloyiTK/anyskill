@@ -300,7 +300,7 @@ test("accept revalidates active Provider status and approved skill before creati
     assert.equal(responseCreated, false);
     if (provider.providerRoleStatus === "ACTIVE") {
       assert.deepEqual(skillLookup.where, {
-        userId: "provider-1", category: "plumber", status: "APPROVED",
+        userId: "provider-1", category: "plumber", status: "APPROVED", isPaused: false,
       });
     }
   }
@@ -787,7 +787,7 @@ test("Provider going online immediately retries recent open requests for an appr
   });
 
   const skillQuery = calls.find(([name]) => name === "approved-skills")[1];
-  assert.deepEqual(skillQuery.where, { userId: "provider-1", status: "APPROVED" });
+  assert.deepEqual(skillQuery.where, { userId: "provider-1", status: "APPROVED", isPaused: false });
   const requestQuery = calls.find(([name]) => name === "open-requests")[1];
   assert.equal(requestQuery.where.status, "OPEN");
   assert.deepEqual(requestQuery.where.skillCategory, { in: ["Plumber"], mode: "insensitive" });
