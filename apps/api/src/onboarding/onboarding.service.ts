@@ -348,7 +348,7 @@ export class OnboardingService {
         // in-app notification records are consumed by the normal push worker.
         if (submittedSkillCategories.length > 0) {
           const submittedLabel = submittedSkillCategories
-            .map((category) => category.split(/\\s+/).map((word) => word ? word[0].toLocaleUpperCase("en-ZA") + word.slice(1) : word).join(" "))
+            .map((category) => category.split(/\s+/).map((word) => word ? word.charAt(0).toLocaleUpperCase("en-ZA") + word.slice(1) : word).join(" "))
             .join(", ");
           await tx.appNotification.create({
             data: {
