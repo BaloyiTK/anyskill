@@ -58,11 +58,13 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listSkills(query: string) {
-    const profiles = await this.prisma.providerProfile.findMany({
-      where: { skillCategories: { isEmpty: false }, user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } } }, select: { skillCategories: true }, take: 2000,
+    const approvedSkills = await this.prisma.providerSkill.findMany({
+      where: { status: "APPROVED", isPaused: false, user: { is: { providerRoleStatus: "ACTIVE", identityVerification: "VERIFIED" } } },
+      select: { category: true }, take: 4000,
     });
     const counts = new Map<string, number>();
-    for (const profile of profiles) for (const skill of profile.skillCategories) {
+    for (const skillRecord of approvedSkills) {
+      const skill = skillRecord.category;
       const canonical = skill.trim().replace(/\s+/g, " ");
       if (!canonical) continue;
       const key = normalise(canonical);
@@ -234,7 +236,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         });
       }
     }
-    const skillCategories = [...new Set(input.skillCategories.map(normalise).filter(Boolean))];
+    const requestedSkillCategories = [...new Set(input.skillCategories.map(normalise).filter(Boolean))];
+    const approvedSkillsForProfile = await this.prisma.providerSkill.findMany({
+      where: { userId, status: "APPROVED", isPaused: false },
+      select: { category: true },
+    });
+    const approvedCategoryMap = new Map(approvedSkillsForProfile.map((skill) => [normalise(skill.category), skill.category]));
+    const skillCategories = requestedSkillCategories
+      .map((category) => approvedCategoryMap.get(category))
+      .filter((category): category is string => Boolean(category));
     const serviceAreas = [...new Set(input.serviceAreas.map(normalise).filter(Boolean))];
     const deliveryModes = [...new Set(input.deliveryModes)];
     if (skillCategories.length === 0) {
@@ -305,7 +315,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
   private async rematchOpenRequestsForProvider(providerId: string) {
     const approvedSkills = await this.prisma.providerSkill.findMany({
-      where: { userId: providerId, status: "APPROVED" },
+      where: { userId: providerId, status: "APPROVED", isPaused: false },
       select: { category: true },
     });
     const categories = [...new Set(approvedSkills.map((skill) => skill.category.trim()).filter(Boolean))];
@@ -367,6 +377,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, updatedAt: true },
     });
     if (!profile) return null;
+    const approvedSkills = await this.prisma.providerSkill.findMany({
+      where: { userId, status: "APPROVED", isPaused: false },
+      select: { category: true },
+    });
+    const activeSkillCategories = approvedSkills.map((skill) => skill.category);
     const [overallGroups, skillGroups] = await Promise.all([
       this.prisma.providerReview.groupBy({
         by: ["providerId"], where: { providerId: userId },
@@ -380,7 +395,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const overallGroup = overallGroups[0];
     const overallCount = overallGroup?._count._all ?? 0;
     const overall = overallGroup?._avg.platformRating ?? null;
-    const skills = profile.skillCategories.map((category) => {
+    const skills = activeSkillCategories.map((category) => {
       const matching = skillGroups.find((group) => normalise(group.skillCategory) === normalise(category));
       const count = matching?._count._all ?? 0;
       const rating = matching?._avg.skillRating ?? null;
@@ -394,6 +409,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     });
     return {
       ...profile,
+      skillCategories: activeSkillCategories,
       ratings: {
         overall: overall == null ? 5 : Number(overall.toFixed(1)),
         overallReviewCount: overallCount,
@@ -1115,6 +1131,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           userId: offer.providerId,
           category: normalise(request.skillCategory),
           status: "APPROVED",
+          isPaused: false,
         },
         select: { id: true },
       });
@@ -2278,7 +2295,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
         const [approvedSkills, activeMatch, pendingOffer, activeJob] = await Promise.all([
           tx.providerSkill.findMany({
-            where: { userId: provider.userId, status: "APPROVED" },
+            where: { userId: provider.userId, status: "APPROVED", isPaused: false },
             select: { category: true },
           }),
           tx.requestMatch.findFirst({
