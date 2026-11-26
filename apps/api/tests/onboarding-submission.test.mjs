@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { OnboardingService } from "../dist/onboarding/onboarding.service.js";
 
-function makeService({ mailFailure = false, alreadySubmittedAt = null, activeMarketplaceMode = null, seekerRoleStatus = "NOT_REQUESTED", providerRoleStatus = "PENDING" } = {}) {
+function makeService({ mailFailure = false, alreadySubmittedAt = null, activeMarketplaceMode = null, seekerRoleStatus = "NOT_REQUESTED", providerRoleStatus = "PENDING", skillExists = true, staffMembers = [{ userId: "reviewer-1" }] } = {}) {
   const events = [];
   let savedRoleUpdate = null;
   const user = {
@@ -70,15 +70,25 @@ function makeService({ mailFailure = false, alreadySubmittedAt = null, activeMar
           update: async ({ data }) => { savedRoleUpdate = data; events.push("roles-updated"); },
         },
         providerSkill: {
-          findUnique: async () => ({ status: "PENDING", details: draft.skills[0] }),
+          findUnique: async () => skillExists ? ({ status: "PENDING", details: draft.skills[0] }) : null,
           update: async () => {},
-          create: async () => {},
+          create: async () => { events.push("skill-created"); },
+          findMany: async () => [],
+        },
+        staffMembership: {
+          findMany: async () => staffMembers,
+        },
+        providerProfile: {
+          updateMany: async () => ({ count: 1 }),
         },
         providerRoleApplication: {
           findUnique: async () => ({ status: "PENDING" }),
           upsert: async () => {},
         },
-        appNotification: { create: async () => {} },
+        appNotification: {
+          create: async () => {},
+          createMany: async ({ data }) => { events.push(["staff-skill-notifications", data]); return { count: data.length }; },
+        },
         welcomeEmailOutbox: {
           create: async ({ data }) => { events.push(["outbox-created", data]); return { id: "welcome-1" }; },
         },
@@ -195,4 +205,31 @@ test("profile management merges legacy submitted skills with draft details witho
   assert.deepEqual(result.skills.map((skill) => skill.category), ["Plumbing", "Electrical"]);
   assert.equal(result.skills[0].description, "Updated draft");
   assert.equal(result.skills[1].description, "Wiring and repairs");
+});
+
+
+test("new skill submission notifies active skill reviewers and administrators", async () => {
+  const { service, events } = makeService({
+    skillExists: false,
+    staffMembers: [{ userId: "reviewer-1" }, { userId: "admin-1" }],
+  });
+
+  await service.submit("user-1");
+
+  const notificationEvent = events.find((event) => Array.isArray(event) && event[0] === "staff-skill-notifications");
+  assert.ok(notificationEvent, "staff notifications should be created in the submission transaction");
+  assert.equal(notificationEvent[1].length, 2);
+  assert.deepEqual(notificationEvent[1].map((item) => item.userId), ["reviewer-1", "admin-1"]);
+  assert.equal(notificationEvent[1][0].title, "New skill awaiting approval");
+  assert.equal(notificationEvent[1][0].data.type, "PROVIDER_SKILL_SUBMITTED");
+  assert.deepEqual(notificationEvent[1][0].data.categories, ["electrician"]);
+  assert.ok(events.indexOf("transaction-committed") > events.indexOf("skill-created"));
+});
+
+test("unchanged pending skills do not generate duplicate staff review notifications", async () => {
+  const { service, events } = makeService({ skillExists: true });
+
+  await service.submit("user-1");
+
+  assert.equal(events.some((event) => Array.isArray(event) && event[0] === "staff-skill-notifications"), false);
 });
