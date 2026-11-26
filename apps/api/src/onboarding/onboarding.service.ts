@@ -301,6 +301,7 @@ export class OnboardingService {
         // review queue; explicit submission creates new reviews and a changed
         // or rejected skill is returned to PENDING without disturbing other
         // approved skills.
+        const submittedSkillCategories: string[] = [];
         for (const skill of skillDetails) {
           const category = typeof skill.category === "string"
             ? skill.category.trim().toLocaleLowerCase("en-ZA")
@@ -316,6 +317,7 @@ export class OnboardingService {
             await tx.providerSkill.create({
               data: { userId, category, details: reviewDetails as Prisma.InputJsonValue },
             });
+            submittedSkillCategories.push(category);
             continue;
           }
           const existingReviewDetails = JSON.parse(JSON.stringify(existingSkill.details ?? {})) as Record<string, unknown>;
@@ -333,10 +335,41 @@ export class OnboardingService {
                 submittedAt,
               },
             });
+            submittedSkillCategories.push(category);
           } else if (existingSkill.status === "PENDING") {
             await tx.providerSkill.update({
               where: { userId_category: { userId, category } },
               data: { details: reviewDetails as Prisma.InputJsonValue, submittedAt },
+            });
+          }
+        }
+
+        // Notify every active skill reviewer and administrator in the same
+        // transaction as the pending review records. The normal notification
+        // worker then delivers push notifications to registered staff devices.
+        if (submittedSkillCategories.length > 0) {
+          const reviewers = await tx.staffMembership.findMany({
+            where: {
+              isActive: true,
+              role: { in: ["PROVIDER_REVIEWER", "ADMIN", "SUPER_ADMIN"] },
+            },
+            select: { userId: true },
+          });
+          if (reviewers.length > 0) {
+            const submittedLabel = submittedSkillCategories
+              .map((category) => category.replace(/\\b\\p{L}/gu, (letter) => letter.toLocaleUpperCase("en-ZA")))
+              .join(", ");
+            await tx.appNotification.createMany({
+              data: reviewers.map((reviewer) => ({
+                userId: reviewer.userId,
+                title: "New skill awaiting approval",
+                body: `${publicName?.trim() || "A Provider"} submitted ${submittedLabel} for review.`,
+                data: {
+                  type: "PROVIDER_SKILL_SUBMITTED",
+                  providerId: userId,
+                  categories: submittedSkillCategories,
+                },
+              })),
             });
           }
         }
