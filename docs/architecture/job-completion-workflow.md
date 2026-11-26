@@ -14,6 +14,13 @@
 10. Rejection returns the engagement to IN_PROGRESS so the Provider can correct and resubmit. It does not trigger capture.
 11. Once payment capture is confirmed, the Provider's net amount becomes eligible for the separate AnySkill settlement process.
 
+## Cancellation before assessment
+
+- A Seeker may cancel an open request while Provider matching is active.
+- After selecting a Provider, the Seeker may still cancel while the engagement remains `ASSESSMENT_PENDING`.
+- That cancellation atomically marks both the service request and job engagement `CANCELLED` and notifies the selected Provider.
+- Cancellation is no longer available after the Provider submits an estimate; later-stage changes must follow the applicable job-resolution process.
+
 ## Completion rules implemented
 
 - Only the selected Provider can submit completion.
