@@ -111,7 +111,7 @@ export class OnboardingService {
       this.prisma.providerRoleApplication.findUnique({ where: { userId }, select: { status: true } }),
       this.prisma.providerSkill.findMany({
         where: { userId },
-        select: { category: true, details: true, status: true, decisionReason: true, submittedAt: true, reviewedAt: true },
+        select: { category: true, details: true, status: true, isPaused: true, decisionReason: true, submittedAt: true, reviewedAt: true },
         orderBy: [{ category: "asc" }],
       }),
     ]);
@@ -138,6 +138,7 @@ export class OnboardingService {
       skillReviewStatuses: providerSkills.map((skill) => ({
         category: skill.category,
         status: skill.status,
+        isPaused: skill.isPaused,
         decisionReason: skill.decisionReason,
         submittedAt: skill.submittedAt,
         reviewedAt: skill.reviewedAt,
