@@ -344,6 +344,7 @@ export function MarketplaceScreen(p: Props) {
                   latitude: activeJourney.latitude,
                   longitude: activeJourney.longitude,
                   providerName: profile?.publicName ?? "Your selected Provider",
+                  providerSkills: profile?.skillCategories ?? [],
                   phone: selectedOffer.provider.phone ?? profile?.phone ?? null,
                   liveLatitude: profile?.liveLatitude ?? null,
                   liveLongitude: profile?.liveLongitude ?? null,
