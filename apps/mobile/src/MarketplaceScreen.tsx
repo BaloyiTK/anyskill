@@ -2077,42 +2077,6 @@ export function MarketplaceScreen(p: Props) {
             <Secondary label="Request corrections" onPress={() => { if (!jobActionBusy && completionReviewNote.trim().length >= 10) void reviewCompletion(journeyScreen.requestId, submission.id, false); }} />
           </View>
         </View>) : null}
-        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 15, marginTop: 12 }}>
-          <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE PROGRESS</Text>
-          {["Provider selected","Assessment","Final estimate","Your approval","Work authorised"].map((step,index) => {
-            const status = journeyScreen?.engagementStatus ?? "ASSESSMENT_PENDING";
-            const assessmentDone = !!journeyScreen?.assessmentCompletedAt || ["ESTIMATE_SUBMITTED","ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(status);
-            const estimateSent = ["ESTIMATE_SUBMITTED","ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(status);
-            const approved = ["ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(status);
-            const workStarted = ["IN_PROGRESS","COMPLETION_PENDING","COMPLETED","DISPUTED"].includes(status);
-            const done = index === 0 || (index === 1 && assessmentDone) || (index === 2 && estimateSent) || (index === 3 && approved) || (index === 4 && workStarted);
-            const current = index === 0 ? !journeyScreen?.providerArrivedAt : index === 1 ? !!journeyScreen?.assessmentStartedAt && !assessmentDone : index === 2 ? assessmentDone && !estimateSent : index === 3 ? status === "ESTIMATE_SUBMITTED" : status === "ESTIMATE_APPROVED";
-            const label = index === 1 ? (assessmentDone ? "Assessment done" : journeyScreen?.assessmentStartedAt ? "Assessing" : "Assessment pending") : index === 2 ? (estimateSent ? "Final estimate submitted" : "Final estimate pending") : index === 3 ? (approved ? "Price approved" : status === "ESTIMATE_SUBMITTED" ? "Approve final price" : "Approval pending") : index === 4 && workStarted ? "Work started" : step;
-            return <View key={step} style={{ flexDirection: "row", alignItems: "center", marginTop: 11 }}>
-              <View style={{ width: 25, height: 25, borderRadius: 13, backgroundColor: done ? "#176B55" : "#EEF2EF", alignItems: "center", justifyContent: "center" }}><Text style={{ color: done ? "#FFFFFF" : "#829087", fontSize: 11, fontWeight: "900" }}>{done ? "✓" : String(index + 1)}</Text></View>
-              <Text style={{ color: done || current ? "#176B55" : "#66756D", fontSize: 12, fontWeight: done || current ? "900" : "600", marginLeft: 10 }}>{label}{current ? " · Current stage" : ""}</Text>
-            </View>;
-          })}
-        </View>
-        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#E1E8E3", padding: 16, marginTop: 22 }}>
-          <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE LOCATION</Text>
-          <Text style={{ color: "#15251E", fontSize: 17, fontWeight: "900", marginTop: 7 }}>{journeyScreen?.title}</Text>
-          <Text style={{ color: "#66756D", fontSize: 13, marginTop: 6 }}>{journeyScreen?.location || "Pinned service destination"}</Text>
-        </View>
-        {journeyScreen?.latitude != null && journeyScreen.longitude != null ? (
-          <>
-            <View style={{ marginTop: 18, borderRadius: 16, overflow: "hidden" }}>
-              <MapPinPicker latitude={journeyScreen.latitude} longitude={journeyScreen.longitude} selectedLatitude={journeyScreen.latitude} selectedLongitude={journeyScreen.longitude} onSelect={() => undefined} readOnly liveLatitude={journeyScreen.liveLatitude} liveLongitude={journeyScreen.liveLongitude} />
-            </View>
-            <Pressable onPress={() => { const url = `https://www.google.com/maps/dir/?api=1&destination=${journeyScreen.latitude},${journeyScreen.longitude}&travelmode=driving`; void Linking.openURL(url).catch(() => setError("Could not open your maps application.")); }} style={{ backgroundColor: "#176B55", borderRadius: 15, padding: 16, alignItems: "center", marginTop: 18 }}>
-              <Text style={{ color: "#FFFFFF", fontSize: 14, fontWeight: "900" }}>Navigate to service location</Text>
-            </Pressable>
-          </>
-        ) : (
-          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 16, marginTop: 18 }}>
-            <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20 }}>This request does not have a physical destination. No travel navigation is required.</Text>
-          </View>
-        )}
         <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
           <Text style={{ color: "#176B55", fontWeight: "900" }}>Open service chat</Text>
         </Pressable>
