@@ -273,7 +273,7 @@ export class MarketplaceRolesService {
       });
       if (changed.count !== 1) throw new ConflictException("This identity verification case has already been decided.");
       const approvedSkills = await tx.providerSkill.findMany({
-        where: { userId: verificationCase.userId, status: "APPROVED" },
+        where: { userId: verificationCase.userId, status: "APPROVED", isPaused: false },
         select: { category: true },
         orderBy: { category: "asc" },
       });
@@ -383,7 +383,7 @@ export class MarketplaceRolesService {
         data: { status: decision, reviewerId, reviewedAt: now, decisionReason: trimmedReason || null } });
       if (changed.count !== 1) throw new ConflictException("This skill has already been decided.");
       const approvedSkills = await tx.providerSkill.findMany({
-        where: { userId: skill.userId, status: "APPROVED" },
+        where: { userId: skill.userId, status: "APPROVED", isPaused: false },
         select: { category: true },
         orderBy: { category: "asc" },
       });
