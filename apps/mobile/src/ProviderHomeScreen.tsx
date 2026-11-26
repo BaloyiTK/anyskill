@@ -20,6 +20,9 @@ type ProviderProfile = {
   };
 };
 
+type ProviderSkillReview = { category: string; status: string; isPaused?: boolean };
+type ProviderOnboarding = { skillReviewStatuses?: ProviderSkillReview[] };
+
 type DailyEarnings = {
   date: string;
   currency: "ZAR";
@@ -90,8 +93,25 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
     setLoading(true);
     setError("");
     try {
-      const providerProfile = await apiRequest<ProviderProfile | null>("/marketplace/provider-profile", {}, true);
-      setProfile(providerProfile);
+      const [providerProfile, onboarding] = await Promise.all([
+        apiRequest<ProviderProfile | null>("/marketplace/provider-profile", {}, true),
+        apiRequest<ProviderOnboarding>("/profile/onboarding", {}, true),
+      ]);
+      if (!providerProfile) {
+        setProfile(null);
+      } else {
+        // The onboarding review records are the authoritative approval source.
+        // Never display denormalized profile categories unless a matching skill
+        // is explicitly approved and not paused.
+        const reviewByCategory = new Map(
+          (onboarding.skillReviewStatuses ?? []).map((skill) => [skill.category.trim().toLocaleLowerCase("en-ZA"), skill]),
+        );
+        const approvedActiveCategories = providerProfile.skillCategories.filter((category) => {
+          const review = reviewByCategory.get(category.trim().toLocaleLowerCase("en-ZA"));
+          return review?.status === "APPROVED" && review.isPaused !== true;
+        });
+        setProfile({ ...providerProfile, skillCategories: approvedActiveCategories });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your Provider profile.");
     } finally {
@@ -193,7 +213,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
   // The API returns only approved, unpaused skills. Never fall back to draft skills here.
   const activeSkills = profile?.skillCategories ?? [];
-  const canToggle = Boolean(profile && Number(profile.hourlyRate) >= 1);
+  const canToggle = Boolean(profile && Number(profile.hourlyRate) >= 1 && (profile.isAvailable || activeSkills.length > 0));
   const isOnline = Boolean(profile?.isAvailable);
 
   return (
