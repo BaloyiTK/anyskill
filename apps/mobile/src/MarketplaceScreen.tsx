@@ -39,7 +39,7 @@ type JobAdjustment = { id: string; requestedHours: string | number; requestedAmo
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
 type DisputeMessage = { id: string; author: { id: string }; body: string; createdAt: string; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}> };
 type JobDispute = { id: string; status: string; reason: string; resolutionNote: string | null; resolvedAt: string | null; messages: DisputeMessage[] };
-type JobEngagement = { id: string; providerId?: string | null; paymentStatus?: string; paymentSimulatedAt?: string | null; providerPayoutStatus?: string; providerPayoutSimulatedAt?: string | null; assessmentDraftHours?: string | number | null; assessmentDraftNotes?: string | null; assessmentDraftUpdatedAt?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; providerArrivedAt?: string | null; assessmentStartedAt?: string | null; assessmentCompletedAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
+type JobEngagement = { id: string; responseId?: string | null; providerId?: string | null; paymentStatus?: string; paymentSimulatedAt?: string | null; providerPayoutStatus?: string; providerPayoutSimulatedAt?: string | null; assessmentDraftHours?: string | number | null; assessmentDraftNotes?: string | null; assessmentDraftUpdatedAt?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; providerArrivedAt?: string | null; assessmentStartedAt?: string | null; assessmentCompletedAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
 type ProviderJob = JobEngagement & {
   responseId: string;
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
@@ -352,35 +352,39 @@ export function MarketplaceScreen(p: Props) {
               && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(item.jobEngagement.status),
             );
             if (activeJourney?.jobEngagement) {
-              const selectedOffer = activeJourney.providerResponses.find((offer) => offer.status === "SELECTED");
-              if (selectedOffer) {
-                const profile = selectedOffer.provider.providerProfile;
-                setJourneyScreen((current) => ({ ...(current?.requestId === activeJourney.id ? current : {}),
-                  requestId: activeJourney.id,
-                  responseId: selectedOffer.id,
-                  title: activeJourney.title,
-                  location: activeJourney.location,
-                  latitude: activeJourney.latitude,
-                  longitude: activeJourney.longitude,
-                  providerName: profile?.publicName ?? "Your selected Provider",
-                  providerSkills: profile?.skillCategories ?? [],
-                  phone: selectedOffer.provider.phone ?? profile?.phone ?? null,
-                  liveLatitude: profile?.liveLatitude ?? null,
-                  liveLongitude: profile?.liveLongitude ?? null,
-                  liveLocationUpdatedAt: profile?.liveLocationUpdatedAt ?? null,
-                  providerEnRouteAt: activeJourney.jobEngagement?.providerEnRouteAt ?? null,
-                  providerArrivedAt: activeJourney.jobEngagement?.providerArrivedAt ?? null,
-                  assessmentStartedAt: activeJourney.jobEngagement?.assessmentStartedAt ?? null,
-                  assessmentCompletedAt: activeJourney.jobEngagement?.assessmentCompletedAt ?? null,
-                  completionSubmissions: activeJourney.jobEngagement?.completionSubmissions ?? [],
-                  engagementStatus: activeJourney.jobEngagement?.status ?? "ASSESSMENT_PENDING",
-                  estimatedTotal: activeJourney.jobEngagement?.estimatedTotal == null ? null : Number(activeJourney.jobEngagement.estimatedTotal),
-                  estimatedHours: activeJourney.jobEngagement?.estimatedHours == null ? null : Number(activeJourney.jobEngagement.estimatedHours),
-                  estimateNotes: activeJourney.jobEngagement?.estimateNotes ?? null,
-                  hourlyRate: selectedOffer.hourlyRateAtOffer == null ? null : Number(selectedOffer.hourlyRateAtOffer),
-                  assessmentFee: selectedOffer.assessmentFeeAtOffer == null ? null : Number(selectedOffer.assessmentFeeAtOffer),
-                }));
-              }
+              const engagement = activeJourney.jobEngagement;
+              // The engagement is the authoritative proof of a selected service.
+              // Prefer its responseId, then the SELECTED response status. Do not
+              // hide the Seeker workspace if response status data is temporarily
+              // inconsistent or the response relation is missing from the payload.
+              const selectedOffer = activeJourney.providerResponses.find((offer) => offer.id === engagement.responseId)
+                ?? activeJourney.providerResponses.find((offer) => offer.status === "SELECTED");
+              const profile = selectedOffer?.provider.providerProfile;
+              setJourneyScreen((current) => ({ ...(current?.requestId === activeJourney.id ? current : {}),
+                requestId: activeJourney.id,
+                responseId: selectedOffer?.id ?? engagement.responseId ?? "",
+                title: activeJourney.title,
+                location: activeJourney.location,
+                latitude: activeJourney.latitude,
+                longitude: activeJourney.longitude,
+                providerName: profile?.publicName ?? "Your selected Provider",
+                providerSkills: profile?.skillCategories ?? [],
+                phone: selectedOffer?.provider.phone ?? profile?.phone ?? null,
+                liveLatitude: profile?.liveLatitude ?? null,
+                liveLongitude: profile?.liveLongitude ?? null,
+                liveLocationUpdatedAt: profile?.liveLocationUpdatedAt ?? null,
+                providerEnRouteAt: engagement.providerEnRouteAt ?? null,
+                providerArrivedAt: engagement.providerArrivedAt ?? null,
+                assessmentStartedAt: engagement.assessmentStartedAt ?? null,
+                assessmentCompletedAt: engagement.assessmentCompletedAt ?? null,
+                completionSubmissions: engagement.completionSubmissions ?? [],
+                engagementStatus: engagement.status ?? "ASSESSMENT_PENDING",
+                estimatedTotal: engagement.estimatedTotal == null ? null : Number(engagement.estimatedTotal),
+                estimatedHours: engagement.estimatedHours == null ? null : Number(engagement.estimatedHours),
+                estimateNotes: engagement.estimateNotes ?? null,
+                hourlyRate: selectedOffer?.hourlyRateAtOffer == null ? Number(engagement.hourlyRate) : Number(selectedOffer.hourlyRateAtOffer),
+                assessmentFee: selectedOffer?.assessmentFeeAtOffer == null ? Number(engagement.assessmentFee) : Number(selectedOffer.assessmentFeeAtOffer),
+              }));
             } else {
               setJourneyScreen(null);
             }
