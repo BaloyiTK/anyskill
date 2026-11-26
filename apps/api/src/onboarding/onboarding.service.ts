@@ -176,10 +176,10 @@ export class OnboardingService {
         // Pause state is independent of approval and is stored on the authoritative skill record.
         for (const skill of input.skills as Array<Record<string, unknown>>) {
           const category = typeof skill.category === "string" ? skill.category.trim().toLocaleLowerCase("en-ZA") : "";
-          if (!category) continue;
+          if (!category || typeof skill.isPaused !== "boolean") continue;
           await tx.providerSkill.updateMany({
             where: { userId, category },
-            data: { isPaused: skill.isPaused === true },
+            data: { isPaused: skill.isPaused },
           });
         }
         const activeApprovedSkills = await tx.providerSkill.findMany({
