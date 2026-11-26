@@ -344,10 +344,26 @@ export class OnboardingService {
           }
         }
 
-        // Notify every active skill reviewer and administrator in the same
-        // transaction as the pending review records. The normal notification
-        // worker then delivers push notifications to registered staff devices.
+        // Notify the Provider as well as the review team. These durable
+        // in-app notification records are consumed by the normal push worker.
         if (submittedSkillCategories.length > 0) {
+          const submittedLabel = submittedSkillCategories
+            .map((category) => category.split(/\\s+/).map((word) => word ? word[0].toLocaleUpperCase("en-ZA") + word.slice(1) : word).join(" "))
+            .join(", ");
+          await tx.appNotification.create({
+            data: {
+              userId,
+              title: "Skill submitted for approval",
+              body: `Your ${submittedLabel} skill submission has been received and is awaiting review.`,
+              data: {
+                type: "PROVIDER_SKILL_SUBMITTED",
+                categories: submittedSkillCategories,
+              },
+            },
+          });
+
+          // Notify every active skill reviewer and administrator in the same
+          // transaction as the pending review records.
           const reviewers = await tx.staffMembership.findMany({
             where: {
               isActive: true,
@@ -356,9 +372,6 @@ export class OnboardingService {
             select: { userId: true },
           });
           if (reviewers.length > 0) {
-            const submittedLabel = submittedSkillCategories
-              .map((category) => category.replace(/\\b\\p{L}/gu, (letter) => letter.toLocaleUpperCase("en-ZA")))
-              .join(", ");
             await tx.appNotification.createMany({
               data: reviewers.map((reviewer) => ({
                 userId: reviewer.userId,
