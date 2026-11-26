@@ -86,7 +86,7 @@ function makeService({ mailFailure = false, alreadySubmittedAt = null, activeMar
           upsert: async () => {},
         },
         appNotification: {
-          create: async () => {},
+          create: async ({ data }) => { events.push(["provider-skill-notification", data]); },
           createMany: async ({ data }) => { events.push(["staff-skill-notifications", data]); return { count: data.length }; },
         },
         welcomeEmailOutbox: {
@@ -218,6 +218,11 @@ test("new skill submission notifies active skill reviewers and administrators", 
 
   const notificationEvent = events.find((event) => Array.isArray(event) && event[0] === "staff-skill-notifications");
   assert.ok(notificationEvent, "staff notifications should be created in the submission transaction");
+  const providerNotification = events.find((event) => Array.isArray(event) && event[0] === "provider-skill-notification" && event[1].title === "Skill submitted for approval");
+  assert.ok(providerNotification, "the Provider should receive a submission notification");
+  assert.equal(providerNotification[1].userId, "user-1");
+  assert.equal(providerNotification[1].data.type, "PROVIDER_SKILL_SUBMITTED");
+  assert.deepEqual(providerNotification[1].data.categories, ["electrician"]);
   assert.equal(notificationEvent[1].length, 2);
   assert.deepEqual(notificationEvent[1].map((item) => item.userId), ["reviewer-1", "admin-1"]);
   assert.equal(notificationEvent[1][0].title, "New skill awaiting approval");
