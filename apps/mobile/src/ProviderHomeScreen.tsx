@@ -103,11 +103,11 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
         // The onboarding review records are the authoritative approval source.
         // Never display denormalized profile categories unless a matching skill
         // is explicitly approved and not paused.
-        const reviewByCategory = new Map(
-          (onboarding.skillReviewStatuses ?? []).map((skill) => [skill.category.trim().toLocaleLowerCase("en-ZA"), skill]),
-        );
         const approvedActiveCategories = providerProfile.skillCategories.filter((category) => {
-          const review = reviewByCategory.get(category.trim().toLocaleLowerCase("en-ZA"));
+          const normalizedCategory = category.trim().toLocaleLowerCase("en-ZA");
+          const review = (onboarding.skillReviewStatuses ?? []).find(
+            (skill) => skill.category.trim().toLocaleLowerCase("en-ZA") === normalizedCategory,
+          );
           return review?.status === "APPROVED" && review.isPaused !== true;
         });
         setProfile({ ...providerProfile, skillCategories: approvedActiveCategories });
