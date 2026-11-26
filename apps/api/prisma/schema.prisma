@@ -101,6 +101,7 @@ enum JobEngagementStatus {
   COMPLETION_PENDING
   COMPLETED
   DISPUTED
+  CANCELLED
 }
 
 enum CostAdjustmentStatus {
