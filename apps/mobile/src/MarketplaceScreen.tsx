@@ -929,9 +929,13 @@ export function MarketplaceScreen(p: Props) {
               ? "No eligible, verified and available Providers matched this request yet. You can keep the request open and check again later."
               : "Your request was saved. Provider matching is being prepared."}</Text>
         </View>}
-        <Text style={s.section}>Your service requests and Provider offers</Text>
-        <Text style={s.helper}>Compare the offers you receive. Selecting a Provider closes the request to further offers. You can only select one offer.</Text>
-        <Secondary label="Refresh my requests" onPress={() => void loadMyRequests()} />
+        {myRequests.some((request) => request.jobEngagement?.status === "ASSESSMENT_PENDING")
+          ? <Text style={s.section}>Your requests</Text>
+          : <>
+            <Text style={s.section}>Your service requests and Provider offers</Text>
+            <Text style={s.helper}>Compare the offers you receive. Selecting a Provider closes the request to further offers. You can only select one offer.</Text>
+            <Secondary label="Refresh my requests" onPress={() => void loadMyRequests()} />
+          </>}
         {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
         {myRequests.map((request) => {
           const offers = request.providerResponses.filter((offer) => ["OFFERED", "SELECTED"].includes(offer.status));
@@ -939,13 +943,15 @@ export function MarketplaceScreen(p: Props) {
           if (request.jobEngagement?.status === "ASSESSMENT_PENDING" && selected) {
             const provider = selected.provider.providerProfile;
             const providerName = provider?.publicName?.trim() || "Skill Provider";
-            const providerInitials = providerName.split(/\\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "P";
+            const providerInitials = providerName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "P";
             const ratings = provider?.ratings;
             return <View key={request.id} style={[s.card, { padding: 0, overflow: "hidden" }]}>
               <View style={{ backgroundColor: "#12392F", paddingHorizontal: 19, paddingTop: 21, paddingBottom: 20 }}>
-                <Text style={{ color: "#BCE9D8", fontSize: 10, fontWeight: "900", letterSpacing: 1.1 }}>ASSESSMENT PENDING</Text>
-                <Text style={{ color: "#FFFFFF", fontSize: 25, lineHeight: 31, fontWeight: "900", marginTop: 8 }}>Assessment pending</Text>
-                <Text style={{ color: "#E1EEE8", fontSize: 13, lineHeight: 20, marginTop: 8 }}>Your Provider has not started the assessment yet.</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: "#F2C66D" }} />
+                  <Text style={{ color: "#FFFFFF", fontSize: 25, lineHeight: 31, fontWeight: "900" }}>Assessment pending</Text>
+                </View>
+                <Text style={{ color: "#E1EEE8", fontSize: 13, lineHeight: 20, marginTop: 10 }}>Your Provider has not started the assessment yet.</Text>
               </View>
 
               <View style={{ padding: 17 }}>
