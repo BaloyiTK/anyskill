@@ -527,22 +527,59 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async cancelRequest(seekerId: string, requestId: string) {
-    const request = await this.prisma.serviceRequest.findFirst({
-      where: { id: requestId, seekerId },
-      select: { id: true, status: true },
+    return this.prisma.$transaction(async (tx) => {
+      const request = await tx.serviceRequest.findFirst({
+        where: { id: requestId, seekerId },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          jobEngagement: { select: { id: true, status: true, providerId: true } },
+        },
+      });
+      if (!request) throw new NotFoundException("This service request could not be found.");
+
+      if (request.status === "OPEN") {
+        const changed = await tx.serviceRequest.updateMany({
+          where: { id: requestId, seekerId, status: "OPEN" },
+          data: { status: "CANCELLED", matchingNextAt: null },
+        });
+        if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
+        await tx.requestMatch.updateMany({
+          where: { requestId, status: "NOTIFIED" },
+          data: { status: "EXPIRED" },
+        });
+        return { success: true, requestId, status: "CANCELLED" };
+      }
+
+      if (request.status === "CLOSED" && request.jobEngagement?.status === "ASSESSMENT_PENDING") {
+        const requestChanged = await tx.serviceRequest.updateMany({
+          where: { id: requestId, seekerId, status: "CLOSED" },
+          data: { status: "CANCELLED", matchingNextAt: null },
+        });
+        if (requestChanged.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
+
+        const engagementChanged = await tx.jobEngagement.updateMany({
+          where: { id: request.jobEngagement.id, status: "ASSESSMENT_PENDING" },
+          data: { status: "CANCELLED" },
+        });
+        if (engagementChanged.count !== 1) throw new ConflictException("The assessment has already moved to another stage. Refresh and try again.");
+
+        if (request.jobEngagement.providerId) {
+          await tx.appNotification.create({
+            data: {
+              userId: request.jobEngagement.providerId,
+              title: "Request cancelled",
+              body: `The Seeker cancelled the request: ${request.title}`,
+              data: { type: "REQUEST_CANCELLED", requestId },
+            },
+          });
+        }
+        return { success: true, requestId, status: "CANCELLED" };
+      }
+
+      throw new ConflictException("This request can only be cancelled while it is open or awaiting the Provider's assessment.");
     });
-    if (!request) throw new NotFoundException("This service request could not be found.");
-    if (request.status !== "OPEN") throw new ConflictException("Only an open request can be cancelled.");
-    const changed = await this.prisma.serviceRequest.updateMany({
-      where: { id: requestId, seekerId, status: "OPEN" },
-      data: { status: "CANCELLED", matchingNextAt: null },
-    });
-    if (changed.count !== 1) throw new ConflictException("The request changed. Refresh and try again.");
-    await this.prisma.requestMatch.updateMany({
-      where: { requestId, status: "NOTIFIED" },
-      data: { status: "EXPIRED" },
-    });
-    return { success: true, requestId, status: "CANCELLED" };
   }
 
   async scheduleRequest(seekerId: string, requestId: string, input: ScheduleServiceRequestDto) {
