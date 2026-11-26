@@ -173,11 +173,24 @@ export class OnboardingService {
         await tx.providerSkill.deleteMany({
           where: { userId, ...(retainedCategories.length ? { category: { notIn: retainedCategories } } : {}) },
         });
-        const providerProfile = await tx.providerProfile.findUnique({ where: { userId }, select: { skillCategories: true } });
+        // Pause state is independent of approval and is stored on the authoritative skill record.
+        for (const skill of input.skills as Array<Record<string, unknown>>) {
+          const category = typeof skill.category === "string" ? skill.category.trim().toLocaleLowerCase("en-ZA") : "";
+          if (!category) continue;
+          await tx.providerSkill.updateMany({
+            where: { userId, category },
+            data: { isPaused: skill.isPaused === true },
+          });
+        }
+        const activeApprovedSkills = await tx.providerSkill.findMany({
+          where: { userId, status: "APPROVED", isPaused: false },
+          select: { category: true },
+        });
+        const providerProfile = await tx.providerProfile.findUnique({ where: { userId }, select: { id: true } });
         if (providerProfile) {
           await tx.providerProfile.update({
             where: { userId },
-            data: { skillCategories: providerProfile.skillCategories.filter((category) => retainedCategories.includes(category.toLocaleLowerCase("en-ZA"))) },
+            data: { skillCategories: activeApprovedSkills.map((skill) => skill.category) },
           });
         }
       }
@@ -296,19 +309,21 @@ export class OnboardingService {
             where: { userId_category: { userId, category } },
             select: { status: true, details: true },
           });
+          const reviewDetails = JSON.parse(JSON.stringify(skill)) as Record<string, unknown>;
+          delete reviewDetails.isPaused;
           if (!existingSkill) {
             await tx.providerSkill.create({
-              data: { userId, category, details: skill as Prisma.InputJsonValue },
+              data: { userId, category, details: reviewDetails as Prisma.InputJsonValue },
             });
             continue;
           }
-          const detailsChanged = JSON.stringify(existingSkill.details) !== JSON.stringify(skill);
+          const detailsChanged = JSON.stringify(existingSkill.details) !== JSON.stringify(reviewDetails);
           if (existingSkill.status === "REJECTED" || (existingSkill.status === "APPROVED" && detailsChanged)) {
             await tx.providerSkill.update({
               where: { userId_category: { userId, category } },
               data: {
                 status: "PENDING",
-                details: skill as Prisma.InputJsonValue,
+                details: reviewDetails as Prisma.InputJsonValue,
                 decisionReason: null,
                 reviewerId: null,
                 reviewedAt: null,
@@ -318,7 +333,7 @@ export class OnboardingService {
           } else if (existingSkill.status === "PENDING") {
             await tx.providerSkill.update({
               where: { userId_category: { userId, category } },
-              data: { details: skill as Prisma.InputJsonValue, submittedAt },
+              data: { details: reviewDetails as Prisma.InputJsonValue, submittedAt },
             });
           }
         }
