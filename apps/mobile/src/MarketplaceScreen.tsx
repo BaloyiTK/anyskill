@@ -94,7 +94,7 @@ export function MarketplaceScreen(p: Props) {
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
   const [autoOpenedOfferIds, setAutoOpenedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
-  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;providerEnRouteAt:string|null;providerArrivedAt:string|null;assessmentStartedAt:string|null;assessmentCompletedAt:string|null;engagementStatus:string;estimatedTotal:number|null;estimatedHours:number|null;estimateNotes:string|null;hourlyRate:number|null;assessmentFee:number|null;completionSubmissions:CompletionSubmission[]}|null>(null);
+  const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;providerSkills:string[];phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;providerEnRouteAt:string|null;providerArrivedAt:string|null;assessmentStartedAt:string|null;assessmentCompletedAt:string|null;engagementStatus:string;estimatedTotal:number|null;estimatedHours:number|null;estimateNotes:string|null;hourlyRate:number|null;assessmentFee:number|null;completionSubmissions:CompletionSubmission[]}|null>(null);
   const [providerOfferReview, setProviderOfferReview] = useState<{requestId:string;title:string;skillCategory:string;seekerName:string;responseId:string;status:string}|null>(null);
   // Keep tracking the exact offer after its review modal is dismissed. Selection can
   // happen later, and the selected job must still take priority over older jobs.
@@ -664,6 +664,7 @@ export function MarketplaceScreen(p: Props) {
         latitude: selectedRequest?.latitude ?? null,
         longitude: selectedRequest?.longitude ?? null,
         providerName: selectedOffer?.provider.providerProfile?.publicName ?? "Your selected Provider",
+        providerSkills: selectedOffer?.provider.providerProfile?.skillCategories ?? [],
         phone: selectedOffer?.provider.phone ?? selectedOffer?.provider.providerProfile?.phone ?? null,
         liveLatitude: selectedOffer?.provider.providerProfile?.liveLatitude ?? null,
         liveLongitude: selectedOffer?.provider.providerProfile?.liveLongitude ?? null,
@@ -2030,9 +2031,14 @@ export function MarketplaceScreen(p: Props) {
         <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }}>
           <Pressable onPress={() => setJourneyScreen(null)}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
         </View>
-        <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, marginTop: 28 }}>PROVIDER SELECTED</Text>
-        <Text style={{ color: "#15251E", fontSize: 28, lineHeight: 34, fontWeight: "900", marginTop: 8 }}>Your journey starts here</Text>
-        <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20, marginTop: 7 }}>You selected {journeyScreen?.providerName}. Your engagement is confirmed and the Provider must complete the assessment before submitting the job estimate.</Text>
+        <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, marginTop: 28 }}>ASSESSMENT PENDING</Text>
+        <Text style={{ color: "#15251E", fontSize: 28, lineHeight: 34, fontWeight: "900", marginTop: 8 }}>Your Provider has been selected</Text>
+        <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20, marginTop: 7 }}>Your selected Provider is confirmed. The assessment has not started yet. We’ll notify you when your Provider is on the way.</Text>
+        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#DCE7DF", padding: 15, marginTop: 16 }}>
+          <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900", letterSpacing: 0.8 }}>YOUR SELECTED PROVIDER</Text>
+          <Text style={{ color: "#15251E", fontSize: 18, fontWeight: "900", marginTop: 7 }}>{journeyScreen?.providerName ?? "Your selected Provider"}</Text>
+          {journeyScreen?.providerSkills?.length ? <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{journeyScreen.providerSkills.join(" · ")}</Text> : null}
+        </View>
         <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 16 }}>
           <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>ENGAGEMENT STATUS</Text>
           <Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900", marginTop: 6 }}>{journeyScreen?.engagementStatus === "IN_PROGRESS" ? "Work in progress" : journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? "Work completed · awaiting your review" : journeyScreen?.assessmentCompletedAt ? "Assessment completed" : journeyScreen?.assessmentStartedAt ? "Assessment in progress" : journeyScreen?.providerArrivedAt ? "Provider has arrived" : journeyScreen?.providerEnRouteAt ? "Provider is on the way" : "Assessment pending"}</Text>
@@ -2044,16 +2050,7 @@ export function MarketplaceScreen(p: Props) {
           <Text style={{ color: "#66756D", fontSize: 12, marginTop: 5 }}>{journeyScreen?.assessmentFee == null ? "Assessment fee not available" : journeyScreen.assessmentFee === 0 ? "No assessment / call-out fee" : "Assessment / call-out fee: R " + journeyScreen.assessmentFee.toFixed(2)}</Text>
           <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 8 }}>These are the charges saved with the offer you selected. The final job estimate will be shown separately for your approval.</Text>
         </View>
-        {journeyScreen?.providerEnRouteAt ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#B9DCC8", padding: 15, marginTop: 12 }}>
-          <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900" }}>LIVE PROVIDER LOCATION</Text>
-          <Text style={{ color: "#15251E", fontSize: 16, fontWeight: "900", marginTop: 6 }}>{journeyScreen.providerArrivedAt ? "Your Provider has arrived" : "Your Provider is on the way"}</Text>
-          {journeyScreen.latitude != null && journeyScreen.longitude != null && journeyScreen.liveLatitude != null && journeyScreen.liveLongitude != null
-            ? <View style={{ marginTop: 12, borderRadius: 14, overflow: "hidden" }}>
-                <MapPinPicker latitude={journeyScreen.latitude} longitude={journeyScreen.longitude} selectedLatitude={journeyScreen.latitude} selectedLongitude={journeyScreen.longitude} onSelect={() => undefined} readOnly liveLatitude={journeyScreen.liveLatitude} liveLongitude={journeyScreen.liveLongitude} />
-              </View>
-            : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 18, marginTop: 7 }}>Waiting for the Provider's next GPS update. Their location will appear here as soon as a fresh position is received.</Text>}
-          <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 8 }}>{journeyScreen.liveLocationUpdatedAt ? "Location updates automatically while the Provider is travelling." : "Live location is awaiting a fresh GPS update."}</Text>
-        </View> : null}
+        {journeyScreen?.providerEnRouteAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 12 }}><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900" }}>PROVIDER ON THE WAY</Text><Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 6 }}>Your Provider is on the way. We’ll keep you updated when they arrive.</Text></View> : <View style={{ backgroundColor: "#EAF4F8", borderRadius: 16, padding: 15, marginTop: 12 }}><Text style={{ color: "#17546A", fontSize: 12, fontWeight: "900" }}>WE’LL KEEP YOU UPDATED</Text><Text style={{ color: "#315E6D", fontSize: 12, lineHeight: 18, marginTop: 6 }}>We’ll notify you when your Provider is on the way. You do not need to keep checking this screen.</Text></View>}
         {journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#B9DCC8", padding: 15, marginTop: 12 }}>
           <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900" }}>FINAL PRICE FOR YOUR APPROVAL</Text>
           <Text style={{ color: "#15251E", fontSize: 24, fontWeight: "900", marginTop: 7 }}>R {(Number(journeyScreen.estimatedTotal ?? 0) + Number(journeyScreen.assessmentFee ?? 0)).toFixed(2)}</Text>
