@@ -3,6 +3,7 @@ name: AnySkill CI
 on:
   push:
     branches:
+      - developmentBranch
       - main
       - "foundation/**"
       - "feature/**"
