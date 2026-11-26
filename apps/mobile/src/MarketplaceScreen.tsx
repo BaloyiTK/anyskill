@@ -225,7 +225,7 @@ export function MarketplaceScreen(p: Props) {
       await apiRequest(`/marketplace/requests/${requestId}/select-provider`, {
         method: "POST", body: JSON.stringify({ responseId }),
       }, true);
-      setNotice("Provider selected. The request is now closed to further offers.");
+      setNotice("");
       setMatchingRequest(null);
       await loadMyRequests();
     } catch (e) {
