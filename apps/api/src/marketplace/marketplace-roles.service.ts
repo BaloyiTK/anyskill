@@ -273,10 +273,11 @@ export class MarketplaceRolesService {
       });
       if (changed.count !== 1) throw new ConflictException("This identity verification case has already been decided.");
       const approvedSkills = await tx.providerSkill.findMany({
-        where: { userId: verificationCase.userId, status: "APPROVED", isPaused: false },
+        where: { userId: verificationCase.userId, status: "APPROVED" },
         select: { category: true },
         orderBy: { category: "asc" },
       });
+      const activeApprovedSkills = approvedSkills.filter((skill) => !skill.isPaused);
       const user = await tx.user.findUniqueOrThrow({ where: { id: verificationCase.userId },
         select: { providerRoleStatus: true, seekerRoleStatus: true, activeMarketplaceMode: true } });
       const identityStatus = decision === "APPROVED" ? IdentityVerificationStatus.VERIFIED : IdentityVerificationStatus.FAILED;
@@ -296,12 +297,12 @@ export class MarketplaceRolesService {
           create: {
             userId: verificationCase.userId,
             ...(publicName ? { publicName: publicName.trim() } : {}),
-            skillCategories: approvedSkills.map((item) => item.category),
+            skillCategories: activeApprovedSkills.map((item) => item.category),
             isAvailable: false,
           },
           update: {
             ...(publicName ? { publicName: publicName.trim() } : {}),
-            skillCategories: approvedSkills.map((item) => item.category),
+            skillCategories: activeApprovedSkills.map((item) => item.category),
           },
         });
       }
@@ -383,10 +384,11 @@ export class MarketplaceRolesService {
         data: { status: decision, reviewerId, reviewedAt: now, decisionReason: trimmedReason || null } });
       if (changed.count !== 1) throw new ConflictException("This skill has already been decided.");
       const approvedSkills = await tx.providerSkill.findMany({
-        where: { userId: skill.userId, status: "APPROVED", isPaused: false },
-        select: { category: true },
+        where: { userId: skill.userId, status: "APPROVED" },
+        select: { category: true, isPaused: true },
         orderBy: { category: "asc" },
       });
+      const activeApprovedSkills = approvedSkills.filter((item) => !item.isPaused);
       const providerActive = skill.user.identityVerification === IdentityVerificationStatus.VERIFIED &&
         approvedSkills.length > 0 && skill.user.providerRoleStatus !== MarketplaceRoleStatus.SUSPENDED;
       if (providerActive) {
