@@ -975,7 +975,6 @@ export function MarketplaceScreen(p: Props) {
     setError(""); setNotice(""); setVerificationPrompt(false);
     if (title.trim().length < 5) { setError("Enter a request title with at least 5 characters."); return; }
     if (category.trim().length < 2) { setError("Choose a skill from the suggestions or use Add skill before publishing."); return; }
-    if (description.trim().length < 20) { setError("Describe the work in at least 20 characters so Providers understand what is needed."); return; }
     if (deliveryMode !== "REMOTE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the exact job location on the map, use your saved Home Location, or use current GPS. Select Remote if the work does not need a physical location."); return; }
     setBusy(true);
     try {
@@ -1606,7 +1605,7 @@ export function MarketplaceScreen(p: Props) {
             onSelect={(lat, lon) => { setRequestLatitude(lat); setRequestLongitude(lon); setLocation("On-site job location"); }}
           />
         </> : <Text style={s.helper}>Remote requests do not need a physical job location or GPS coordinates.</Text>}
-        <Primary label={busy ? "Publishing request..." : "Publish service request"} onPress={submitRequest} disabled={busy} />
+        <Primary label={busy ? "Publishing request..." : "Service request"} onPress={submitRequest} disabled={busy} />
         <Text style={s.helper}>You can tap Publish service request at any time. If anything required is missing, AnySkill will explain what to complete. On-site and Either requests need a selected map location; Remote requests do not.</Text>
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
         {matchingRequest && <View style={s.notice}>
@@ -1617,150 +1616,7 @@ export function MarketplaceScreen(p: Props) {
               ? "No eligible, verified and available Providers matched this request yet. You can keep the request open and check again later."
               : "Your request was saved. Provider matching is being prepared."}</Text>
         </View>}
-        <Text style={s.section}>Your service requests and Provider offers</Text>
-        <Text style={s.helper}>Compare the offers you receive. Selecting a Provider closes the request to further offers. You can only select one offer.</Text>
-        <Secondary label="Refresh my requests" onPress={() => void loadMyRequests()} />
-        {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
-        {myRequests.map((request) => {
-          const offers = request.providerResponses.filter((offer) => ["OFFERED", "SELECTED"].includes(offer.status));
-          const selected = request.providerResponses.find((offer) => offer.status === "SELECTED");
-          return <View key={request.id} style={s.card}>
-            <Text style={s.cardTitle}>{request.title}</Text>
-            <Text style={s.meta}>{request.skillCategory} · {request.status === "OPEN" ? "Open" : request.status}</Text>
-            <Text style={s.body}>{request.description}</Text>
-            {selected ? <Text style={s.response}>Selected Provider: {selected.providerId.slice(0, 8)} · {new Date(selected.createdAt).toLocaleString()}</Text> : null}
-            {request.jobEngagement && request.jobEngagement.status === "COMPLETION_PENDING" ? request.jobEngagement.completionSubmissions.filter((submission) => submission.status === "PENDING").map((submission) => <View key={submission.id} style={s.offerCard}>
-              <Text style={s.offerTitle}>Provider completion submitted</Text>
-              <Text style={s.meta}>Submitted {new Date(submission.submittedAt).toLocaleString()}</Text>
-              <Text style={s.body}>{submission.notes}</Text>
-              {submission.evidenceAssets?.map((asset, index) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); const { Linking } = await import("react-native"); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open evidence photo."); } }}><Text style={s.response}>View photo evidence {index + 1} · {asset.originalName}</Text></Pressable>)}
-              {submission.evidenceUrls.map((url, index) => <Text key={url} style={s.meta}>Legacy evidence link {index + 1}: {url}</Text>)}
-              <View style={s.offerCard}>
-                <Text style={s.offerTitle}>Final amount for your approval</Text>
-                <Text style={s.meta}>Approved estimate: R {Number(request.jobEngagement?.estimatedTotal ?? 0).toFixed(2)}</Text>
-                <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement?.assessmentFee ?? 0).toFixed(2)}</Text>
-                <Text style={s.meta}>Approved additional hours: R {Number(request.jobEngagement?.approvedAdditionalAmount ?? 0).toFixed(2)}</Text>
-                <Text style={s.response}>Total due after approval: R {(Number(request.jobEngagement?.assessmentFee ?? 0) + Number(request.jobEngagement?.estimatedTotal ?? 0) + Number(request.jobEngagement?.approvedAdditionalAmount ?? 0)).toFixed(2)}</Text>
-                <Text style={s.meta}>This confirms the agreed amount only. Payment is the next separate step; approving completion does not mark the payment as paid.</Text>
-              </View>
-                            <Text style={s.label}>If rejecting, explain what needs correction</Text>
-              <TextInput value={completionReviewNote} onChangeText={setCompletionReviewNote} placeholder="Describe the work that still needs attention..." multiline style={[s.input, s.multiline]} />
-              <View style={s.choiceRow}>
-                <Primary label="Approve completion" onPress={() => void reviewCompletion(request.id, submission.id, true)} disabled={jobActionBusy} />
-                <Secondary label="Request corrections" onPress={() => { if (!jobActionBusy && completionReviewNote.trim().length >= 10) void reviewCompletion(request.id, submission.id, false); }} />
-              </View>
-            </View>) : null}
-            {request.jobEngagement?.status === "COMPLETED" ? <>
-              <Text style={s.response}>Completion approved. The job amount and 90/10 split have been recorded. Payment is tracked separately.</Text>
-              <Text style={s.offerTitle}>Final approved amount: R {Number(request.jobEngagement.finalAmountDue ?? 0).toFixed(2)}</Text>
-              <View style={s.offerCard}>
-                <Text style={s.offerTitle}>Job amount and split</Text>
-                <Text style={s.meta}>Provider receives 90%: R {(Number(request.jobEngagement.finalAmountDue ?? 0) * 0.9).toFixed(2)}</Text>
-                <Text style={s.meta}>AnySkill commission 10%: R {(Number(request.jobEngagement.finalAmountDue ?? 0) - Number((Number(request.jobEngagement.finalAmountDue ?? 0) * 0.9).toFixed(2))).toFixed(2)}</Text>
-                <Text style={s.meta}>Successful Seeker debit: {isPaymentConfirmed(request.jobEngagement.paymentStatus) ? "TRUE" : "FALSE"}</Text>
-                <Text style={s.meta}>Provider payout status: {request.jobEngagement.providerPayoutStatus ?? "NOT_SENT"}</Text>
-                <Text style={s.meta}>AnySkill processes the Provider 90% only after the Seeker debit is successfully confirmed. A successful debit does not itself mean the Provider has received a bank transfer.</Text>
-                <Text style={s.meta}>Both parties can now submit their ratings independently. Ratings do not affect payment.</Text>
-              </View>
-              {isPaymentConfirmed(request.jobEngagement.paymentStatus) && request.jobEngagement.review && request.jobEngagement.seekerReview ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
-              {isPaymentConfirmed(request.jobEngagement.paymentStatus) && request.jobEngagement.review ? <View style={s.offerCard}>
-                <Text style={s.offerTitle}>Your submitted ratings</Text>
-                <Text style={s.meta}>{request.skillCategory}: {request.jobEngagement.review.skillRating}.0 ★ · Overall AnySkill: {request.jobEngagement.review.platformRating}.0 ★</Text>
-                {request.jobEngagement.review.comment ? <Text style={s.body}>{request.jobEngagement.review.comment}</Text> : null}
-              </View> : isPaymentConfirmed(request.jobEngagement.paymentStatus) ? <View style={s.offerCard}>
-                <Text style={s.offerTitle}>Rate your Provider</Text>
-                <Text style={s.meta}>Rate the service skill and the Provider's overall experience on AnySkill separately.</Text>
-                {ratingDraft?.requestId !== request.id ? <Primary label="Rate this Provider" onPress={() => setRatingDraft({requestId:request.id,skillRating:5,platformRating:5,comment:""})} /> : <>
-                  <Text style={s.label}>{request.skillCategory} rating</Text>
-                  <View style={s.choiceRow}>{[1,2,3,4,5].map((value) => <Pressable key={"skill-"+value} onPress={() => setRatingDraft((draft) => draft ? {...draft,skillRating:value} : draft)} style={[s.choice,(ratingDraft.skillRating===value)&&s.choiceActive]}><Text style={[s.choiceText,(ratingDraft.skillRating===value)&&s.choiceTextActive]}>{value} ★</Text></Pressable>)}</View>
-                  <Text style={s.label}>Overall AnySkill rating</Text>
-                  <View style={s.choiceRow}>{[1,2,3,4,5].map((value) => <Pressable key={"overall-"+value} onPress={() => setRatingDraft((draft) => draft ? {...draft,platformRating:value} : draft)} style={[s.choice,(ratingDraft.platformRating===value)&&s.choiceActive]}><Text style={[s.choiceText,(ratingDraft.platformRating===value)&&s.choiceTextActive]}>{value} ★</Text></Pressable>)}</View>
-                  <TextInput value={ratingDraft.comment} onChangeText={(comment) => setRatingDraft((draft) => draft ? {...draft,comment} : draft)} placeholder="Optional feedback about your experience..." multiline style={[s.input,s.multiline]} />
-                  <Primary label="Submit ratings" onPress={() => void submitProviderRating(request.id)} disabled={jobActionBusy} />
-                </>}
-              </View> : null}
-            </> : null}
-            {request.jobEngagement?.completionSubmissions.filter((submission) => submission.status === "REJECTED").map((submission) => <View key={submission.id} style={s.offerCard}>
-              <Text style={s.meta}>Previous completion review: corrections requested</Text>
-              <Text style={s.body}>{submission.reviewNote}</Text>
-            </View>)}
-            {request.jobEngagement ? <View style={s.offerCard}>
-              <Text style={s.offerTitle}>Assessment and job-cost approval</Text>
-              <Text style={s.meta}>Status: {request.jobEngagement.status.replaceAll("_", " ")}</Text>
-              {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED", "DISPUTED"].includes(request.jobEngagement.status) ? <>
-                <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(request.jobEngagement, clockNow + clockOffsetMs))}</Text>
-                <Text style={s.meta}>{request.jobEngagement.workPausedAt ? "Provider is on a break" : request.jobEngagement.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting your review" : request.jobEngagement.status === "COMPLETED" ? "Final recorded working time" : request.jobEngagement.status === "DISPUTED" ? "Timer paused · under dispute review" : "Work timer running"}</Text>
-              </> : null}
-              <Text style={s.meta}>Agreed hourly rate: R {Number(request.jobEngagement.hourlyRate).toFixed(2)}</Text>
-              <Text style={s.meta}>Assessment fee: R {Number(request.jobEngagement.assessmentFee).toFixed(2)}</Text>
-              {request.jobEngagement.estimatedHours != null ? <Text style={s.meta}>Estimated hours: {Number(request.jobEngagement.estimatedHours).toFixed(2)}</Text> : null}
-              {request.jobEngagement.estimatedTotal != null ? <Text style={s.cardTitle}>Estimated job cost: R {Number(request.jobEngagement.estimatedTotal).toFixed(2)}</Text> : null}
-              {request.jobEngagement.agreedWorkTotal != null && Number(request.jobEngagement?.approvedAdditionalAmount ?? 0) > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(request.jobEngagement.agreedWorkTotal).toFixed(2)}</Text> : null}
-              {request.jobEngagement.estimateNotes ? <Text style={s.body}>Provider explanation: {request.jobEngagement.estimateNotes}</Text> : null}
-              {request.jobEngagement.status === "ESTIMATE_SUBMITTED" ? <>
-                <Text style={s.meta}>Review the Provider's hours, agreed hourly rate, assessment fee and written scope before deciding. Work cannot start until you approve.</Text>
-                <TextInput value={estimateDecisionNoteDraft} onChangeText={setEstimateDecisionNoteDraft} placeholder="If requesting a revision, explain what needs clarification or correction (minimum 10 characters)." multiline maxLength={1000} style={[s.input, s.multiline]} />
-                <View style={s.choiceRow}>
-                  <Primary label="Approve estimate" onPress={() => void decideEstimate(request.id, true)} disabled={jobActionBusy} />
-                  <Secondary label="Request revision" onPress={() => void decideEstimate(request.id, false)} />
-                </View>
-              </> : null}
-              {request.jobEngagement.status === "ESTIMATE_REJECTED" ? <Text style={s.meta}>You rejected the estimate. The Provider can submit a revised estimate.</Text> : null}
-              {request.jobEngagement.status === "COMPLETION_PENDING" ? <>
-                <Text style={s.helper}>Prefer formal platform review instead of approving or requesting corrections? Open a dispute. Work and the timer will remain paused.</Text>
-                <TextInput value={disputeReasonDraft} onChangeText={setDisputeReasonDraft} placeholder="Explain what is wrong with the completed work (minimum 20 characters)." multiline maxLength={2000} style={[s.input,s.multiline]} />
-                <Secondary label={uploadingDisputeEvidence ? "Uploading dispute evidence..." : "Attach dispute evidence"} onPress={() => void pickDisputeEvidence()} disabled={uploadingDisputeEvidence || jobActionBusy} />
-                {disputeEvidenceAssets.map((asset) => <Text key={asset.id} style={s.meta}>✓ {asset.name}</Text>)}
-                <Primary label="Open dispute with AnySkill" onPress={() => void openJobDispute(request.id)} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReasonDraft.trim().length < 20} />
-              </> : null}
-              {request.jobEngagement.disputes?.[0] ? <View style={s.offerCard}>
-                <Text style={s.offerTitle}>AnySkill dispute · {request.jobEngagement.disputes[0].status.replaceAll("_"," ")}</Text>
-                {request.jobEngagement.disputes[0].messages.map((message) => <View key={message.id} style={s.offerCard}>
-                  <Text style={s.meta}>{message.author.id === request.jobEngagement?.providerId ? "Provider response" : "Your response"} · {new Date(message.createdAt).toLocaleString()}</Text>
-                  <Text style={s.body}>{message.body}</Text>
-                  {message.evidenceAssets?.map((asset) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open dispute evidence."); } }}><Text style={s.response}>View evidence · {asset.originalName}</Text></Pressable>)}
-                </View>)}
-                {request.jobEngagement.disputes[0].resolutionNote ? <Text style={s.body}>Resolution: {request.jobEngagement.disputes[0].resolutionNote}</Text> : null}
-                {["OPEN","UNDER_REVIEW"].includes(request.jobEngagement.disputes[0].status) ? <>
-                  <TextInput value={disputeReplyDraft} onChangeText={setDisputeReplyDraft} placeholder="Add your response (minimum 10 characters)." multiline maxLength={2000} style={[s.input,s.multiline]} />
-                  <Secondary label={uploadingDisputeEvidence ? "Uploading..." : "Attach response evidence"} onPress={() => void pickDisputeEvidence()} disabled={uploadingDisputeEvidence || jobActionBusy} />
-                  <Primary label="Send dispute response" onPress={() => void replyToJobDispute(request.id,request.jobEngagement?.disputes?.[0]?.id ?? "")} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReplyDraft.trim().length < 10} />
-                </> : null}
-              </View> : null}
-              {request.jobEngagement.adjustments.map((adjustment) => <View key={adjustment.id} style={s.offerCard}>
-                <Text style={s.offerTitle}>Additional hours: {Number(adjustment.requestedHours).toFixed(2)}</Text>
-                <Text style={s.meta}>Additional cost: R {Number(adjustment.requestedAmount).toFixed(2)} · {adjustment.status}</Text>
-                <Text style={s.body}>{adjustment.reason}</Text>
-                {adjustment.status === "PENDING" ? <View style={s.choiceRow}>
-                  <Primary label="Approve extra hours" onPress={() => void decideExtraHours(request.id, adjustment.id, true)} disabled={jobActionBusy} />
-                  <Secondary label="Reject" onPress={() => void decideExtraHours(request.id, adjustment.id, false)} />
-                </View> : null}
-              </View>)}
-            </View> : null}
-            <Text style={s.sectionSmall}>Offers received ({offers.length})</Text>
-            {offers.map((offer, index) => <View key={offer.id} style={s.offerCard}>
-              <Text style={s.offerTitle}>{offer.provider.providerProfile?.publicName || "Skill Provider"}</Text>
-              <Text style={s.meta}>Provider offer {index + 1}</Text>
-              {offer.provider.providerProfile?.ratings ? <Text style={s.response}>
-                {request.skillCategory}: {offer.provider.providerProfile.ratings.requestedSkill.toFixed(1)} ★ {offer.provider.providerProfile.ratings.requestedSkillIsRated ? "(" + offer.provider.providerProfile.ratings.requestedSkillReviewCount + " reviews)" : "(new · not yet rated)"} · Overall AnySkill: {offer.provider.providerProfile.ratings.overall.toFixed(1)} ★ {offer.provider.providerProfile.ratings.overallIsRated ? "(" + offer.provider.providerProfile.ratings.overallReviewCount + " reviews)" : "(new · not yet rated)"}
-              </Text> : null}
-              <Text style={s.meta}>Received {new Date(offer.createdAt).toLocaleString()}</Text>
-              <Text style={s.meta}>Provider ID: {offer.providerId.slice(0, 8)}</Text>
-              <Text style={s.meta}>Hourly rate: {offer.hourlyRateAtOffer == null ? "Not supplied" : `R ${Number(offer.hourlyRateAtOffer).toFixed(2)} / hour`}</Text>
-              <Text style={s.meta}>Assessment fee: {offer.assessmentFeeAtOffer == null ? "Not supplied" : Number(offer.assessmentFeeAtOffer) === 0 ? "No assessment fee" : `R ${Number(offer.assessmentFeeAtOffer).toFixed(2)}`}</Text>
-              {offer.provider.providerProfile?.skillCategories?.length ? <Text style={s.meta}>Skills: {offer.provider.providerProfile.skillCategories.join(", ")}</Text> : null}
-              {offer.provider.providerProfile?.serviceAreas?.length ? <Text style={s.meta}>Service areas: {offer.provider.providerProfile.serviceAreas.join(", ")}</Text> : null}
-              {offer.provider.providerProfile?.deliveryModes?.length ? <Text style={s.meta}>Work modes: {offer.provider.providerProfile.deliveryModes.join(", ")}</Text> : null}
-              <Text style={s.body}>{offer.message?.trim() || "The Provider did not add a message."}</Text>
-              {offer.status === "SELECTED" ? <Text style={s.response}>Selected</Text> : request.status === "OPEN" ?
-                <Primary label={selectingOfferId === offer.id ? "Selecting..." : "Select this Provider"} onPress={() => void selectProvider(request.id, offer.id)} disabled={!!selectingOfferId || busy} /> :
-                <Text style={s.meta}>This request is closed; this offer cannot be selected.</Text>}
-            </View>)}
-            {offers.length === 0 ? <Text style={s.helper}>No offers yet. Matched Providers can still respond while this request is open.</Text> : null}
-          </View>;
-        })}
-        {!busy && myRequests.length === 0 ? <Text style={s.helper}>You have not published any service requests yet.</Text> : null}
-      </> : <>
+        </> : <>
         <Text style={s.section}>Your Provider profile</Text>
         <Text style={s.helper}>Tell AnySkill what work you do and where you can do it. Matching uses these details and your availability. Live GPS is used only while Available for on-site matching.</Text>
         <Text style={s.label}>Public Provider name</Text>
