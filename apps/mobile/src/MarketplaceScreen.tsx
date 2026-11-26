@@ -92,6 +92,10 @@ export function MarketplaceScreen(p: Props) {
   const [selectingOfferId, setSelectingOfferId] = useState<string | null>(null);
   const [activeOfferId, setActiveOfferId] = useState<string | null>(null);
   const [dismissedOfferIds, setDismissedOfferIds] = useState<string[]>([]);
+  const activeOfferIdRef = useRef<string | null>(null);
+  const dismissedOfferIdsRef = useRef<string[]>([]);
+  activeOfferIdRef.current = activeOfferId;
+  dismissedOfferIdsRef.current = dismissedOfferIds;
   const [autoOpenedOfferIds, setAutoOpenedOfferIds] = useState<string[]>([]);
   const [showProviderProfile, setShowProviderProfile] = useState(false);
   const [journeyScreen, setJourneyScreen] = useState<{requestId:string;responseId:string;title:string;location:string|null;latitude:number|null;longitude:number|null;providerName:string;providerSkills:string[];phone:string|null;liveLatitude:number|null;liveLongitude:number|null;liveLocationUpdatedAt:string|null;providerEnRouteAt:string|null;providerArrivedAt:string|null;assessmentStartedAt:string|null;assessmentCompletedAt:string|null;engagementStatus:string;estimatedTotal:number|null;estimatedHours:number|null;estimateNotes:string|null;hourlyRate:number|null;assessmentFee:number|null;completionSubmissions:CompletionSubmission[]}|null>(null);
@@ -219,13 +223,21 @@ export function MarketplaceScreen(p: Props) {
     setBusy(true); setError("");
     try {
       const requestStartedAt = Date.now();
-      const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests", {}, true);
+      const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests?_=" + Date.now(), {}, true);
       const receivedAt = Date.now();
       if (loadVersion !== seekerRequestsLoadVersionRef.current) return;
       const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
       if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
       setMyRequests(result);
-      const active = result.find((item) => item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"));
+      const activeOfferRequest = activeOfferIdRef.current
+        ? result.find((item) => item.status === "OPEN" && item.providerResponses.some((offer) => offer.id === activeOfferIdRef.current && offer.status === "OFFERED"))
+        : undefined;
+      const pendingOfferRequest = result.find((item) => item.status === "OPEN" && item.providerResponses.some((offer) =>
+        offer.status === "OFFERED" && !dismissedOfferIdsRef.current.includes(offer.id),
+      ));
+      const active = activeOfferRequest ?? pendingOfferRequest ?? result.find((item) =>
+        item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"),
+      );
       setMatchingRequest(active ? {
         id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
         createdAt: active.matchingStartedAt, notified: active._count?.matches ?? 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
@@ -328,7 +340,7 @@ export function MarketplaceScreen(p: Props) {
         } else {
           const loadVersion = ++seekerRequestsLoadVersionRef.current;
           const requestStartedAt = Date.now();
-          const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests?_=1795718583217", {}, true);
+          const result = await apiRequest<SeekerRequest[]>("/marketplace/my-requests?_=" + Date.now(), {}, true);
           const receivedAt = Date.now();
           const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
           if (active && loadVersion === seekerRequestsLoadVersionRef.current) {
@@ -374,11 +386,11 @@ export function MarketplaceScreen(p: Props) {
             }
             // Keep the offer's own request selected. Otherwise a refresh of a
             // different open request can hide the offer drawer while its ID is active.
-            const activeOfferRequest = activeOfferId
-              ? result.find((item) => item.status === "OPEN" && item.providerResponses.some((offer) => offer.id === activeOfferId && offer.status === "OFFERED"))
+            const activeOfferRequest = activeOfferIdRef.current
+              ? result.find((item) => item.status === "OPEN" && item.providerResponses.some((offer) => offer.id === activeOfferIdRef.current && offer.status === "OFFERED"))
               : undefined;
             const pendingOfferRequest = result.find((item) => item.status === "OPEN" && item.providerResponses.some((offer) =>
-              offer.status === "OFFERED" && !dismissedOfferIds.includes(offer.id),
+              offer.status === "OFFERED" && !dismissedOfferIdsRef.current.includes(offer.id),
             ));
             const active = activeOfferRequest ?? pendingOfferRequest ?? result.find((item) =>
               item.status === "OPEN" && !item.jobEngagement && !item.providerResponses.some((offer) => offer.status === "SELECTED"),
@@ -410,7 +422,7 @@ export function MarketplaceScreen(p: Props) {
       active = false;
       clearInterval(refresh);
     };
-  }, [p.mode, providerOfferReview?.status, providerSelectionWatch?.responseId, journeyScreen?.requestId, activeOfferId, dismissedOfferIds]);
+  }, [p.mode, providerOfferReview?.status, providerSelectionWatch?.responseId, journeyScreen?.requestId]);
 
   useEffect(() => {
     if (p.mode !== "provider") return;
