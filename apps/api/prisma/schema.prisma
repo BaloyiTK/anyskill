@@ -325,6 +325,7 @@ model ProviderSkill {
   category       String             @db.VarChar(100)
   details        Json?
   status         ProviderSkillStatus @default(PENDING)
+  isPaused       Boolean            @default(false) @map("is_paused")
   decisionReason String?            @map("decision_reason") @db.VarChar(1000)
   reviewerId     String?            @db.Uuid @map("reviewer_id")
   submittedAt    DateTime           @default(now()) @map("submitted_at")
