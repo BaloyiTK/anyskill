@@ -247,8 +247,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       .filter((category): category is string => Boolean(category));
     const serviceAreas = [...new Set(input.serviceAreas.map(normalise).filter(Boolean))];
     const deliveryModes = [...new Set(input.deliveryModes)];
-    if (skillCategories.length === 0) {
-      throw new ConflictException("Add at least one skill category before becoming available.");
+    if (input.isAvailable && skillCategories.length === 0) {
+      throw new ConflictException("Add at least one approved, active skill category before becoming available.");
     }
     if (deliveryModes.length === 0) {
       throw new ConflictException("Choose at least one delivery mode.");
@@ -2006,6 +2006,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             userId: providerId,
             category: normalise(request.skillCategory),
             status: "APPROVED",
+            isPaused: false,
           },
           select: { id: true },
         });
@@ -2159,7 +2160,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             // ProviderSkill is the authoritative approval record. Do not rely
             // on the denormalized profile skill list for match eligibility.
             providerSkills: {
-              where: { status: "APPROVED" },
+              where: { status: "APPROVED", isPaused: false },
               select: { category: true },
             },
           },
