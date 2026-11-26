@@ -5,6 +5,25 @@ import { MailService } from "../mail/mail.service";
 
 type SectionInput = { profile?: Record<string, unknown>; skills?: unknown[]; portfolio?: unknown[] };
 
+// Compare persisted JSON with a newly submitted skill independent of object-key
+// order. The client can serialize the same skill with a different property
+// order when another skill is added; that must not send an approved skill back
+// through review.
+function stableJson(value: unknown): string {
+  const normalize = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(normalize);
+    if (item && typeof item === "object") {
+      return Object.fromEntries(
+        Object.entries(item as Record<string, unknown>)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, nested]) => [key, normalize(nested)]),
+      );
+    }
+    return item;
+  };
+  return JSON.stringify(normalize(value));
+}
+
 @Injectable()
 export class OnboardingService {
   private readonly logger = new Logger(OnboardingService.name);
@@ -302,7 +321,7 @@ export class OnboardingService {
             });
             continue;
           }
-          const detailsChanged = JSON.stringify(existingSkill.details) !== JSON.stringify(skill);
+          const detailsChanged = stableJson(existingSkill.details) !== stableJson(skill);
           if (existingSkill.status === "REJECTED" || (existingSkill.status === "APPROVED" && detailsChanged)) {
             await tx.providerSkill.update({
               where: { userId_category: { userId, category } },
