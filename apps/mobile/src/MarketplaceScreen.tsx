@@ -5,7 +5,7 @@ import * as Location from "expo-location";
 import { MapPinPicker } from "./MapPinPicker";
 import { Platform } from "react-native";
 import {
-  ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { apiRequest } from "./api";
 import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderLocationUpdates } from "./provider-location";
@@ -232,6 +232,29 @@ export function MarketplaceScreen(p: Props) {
       setError(e instanceof Error ? e.message : "Could not select this Provider.");
       await loadMyRequests();
     } finally { setSelectingOfferId(null); }
+  };
+
+  const cancelSelectedRequest = async (requestId: string) => {
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      await apiRequest(`/marketplace/requests/${requestId}/cancel`, { method: "POST" }, true);
+      setNotice("Your request has been cancelled. The selected Provider has been notified.");
+      await loadMyRequests();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not cancel this request.");
+      await loadMyRequests();
+    } finally { setJobActionBusy(false); }
+  };
+
+  const confirmCancelSelectedRequest = (requestId: string) => {
+    Alert.alert(
+      "Cancel this request?",
+      "Your selected Provider will be notified that you cancelled the request.",
+      [
+        { text: "Keep request", style: "cancel" },
+        { text: "Cancel request", style: "destructive", onPress: () => void cancelSelectedRequest(requestId) },
+      ],
+    );
   };
 
   const submitEstimate = async (requestId: string) => {
@@ -913,6 +936,66 @@ export function MarketplaceScreen(p: Props) {
         {myRequests.map((request) => {
           const offers = request.providerResponses.filter((offer) => ["OFFERED", "SELECTED"].includes(offer.status));
           const selected = request.providerResponses.find((offer) => offer.status === "SELECTED");
+          if (request.jobEngagement?.status === "ASSESSMENT_PENDING" && selected) {
+            const provider = selected.provider.providerProfile;
+            const providerName = provider?.publicName?.trim() || "Skill Provider";
+            const providerInitials = providerName.split(/\\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "P";
+            const ratings = provider?.ratings;
+            return <View key={request.id} style={[s.card, { padding: 0, overflow: "hidden" }]}>
+              <View style={{ backgroundColor: "#12392F", paddingHorizontal: 19, paddingTop: 21, paddingBottom: 20 }}>
+                <Text style={{ color: "#BCE9D8", fontSize: 10, fontWeight: "900", letterSpacing: 1.1 }}>ASSESSMENT PENDING</Text>
+                <Text style={{ color: "#FFFFFF", fontSize: 25, lineHeight: 31, fontWeight: "900", marginTop: 8 }}>Assessment pending</Text>
+                <Text style={{ color: "#E1EEE8", fontSize: 13, lineHeight: 20, marginTop: 8 }}>Your Provider has not started the assessment yet.</Text>
+              </View>
+
+              <View style={{ padding: 17 }}>
+                <Text style={{ color: C.muted, fontSize: 10, fontWeight: "900", letterSpacing: 0.9 }}>YOUR REQUEST</Text>
+                <Text style={{ color: C.ink, fontSize: 16, lineHeight: 22, fontWeight: "800", marginTop: 6 }}>{request.title}</Text>
+                <Text style={{ color: C.muted, fontSize: 12, marginTop: 4 }}>{request.skillCategory}</Text>
+
+                <View style={{ height: 1, backgroundColor: C.border, marginVertical: 16 }} />
+
+                <Text style={{ color: C.muted, fontSize: 10, fontWeight: "900", letterSpacing: 0.9, marginBottom: 11 }}>YOUR PROVIDER</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  <View style={{ width: 52, height: 52, borderRadius: 17, backgroundColor: "#E8F1ED", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: "#176B55", fontSize: 16, fontWeight: "900" }}>{providerInitials}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>{providerName}</Text>
+                    <Text style={{ color: C.muted, fontSize: 12, marginTop: 3 }}>{provider?.skillCategories?.length ? provider.skillCategories.join(" · ") : request.skillCategory}</Text>
+                  </View>
+                </View>
+
+                {ratings ? <View style={{ flexDirection: "row", gap: 8, marginTop: 13 }}>
+                  <View style={{ flex: 1, backgroundColor: "#F4F7F5", borderRadius: 11, padding: 10 }}>
+                    <Text style={{ color: C.muted, fontSize: 9, fontWeight: "800" }}>SERVICE RATING</Text>
+                    <Text style={{ color: C.ink, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{ratings.requestedSkillIsRated ? `${ratings.requestedSkill.toFixed(1)} ★ · ${ratings.requestedSkillReviewCount} reviews` : "New · No reviews yet"}</Text>
+                  </View>
+                  <View style={{ flex: 1, backgroundColor: "#F4F7F5", borderRadius: 11, padding: 10 }}>
+                    <Text style={{ color: C.muted, fontSize: 9, fontWeight: "800" }}>OVERALL RATING</Text>
+                    <Text style={{ color: C.ink, fontSize: 13, fontWeight: "900", marginTop: 5 }}>{ratings.overallIsRated ? `${ratings.overall.toFixed(1)} ★ · ${ratings.overallReviewCount} reviews` : "New · No reviews yet"}</Text>
+                  </View>
+                </View> : null}
+
+                <View style={{ backgroundColor: "#EAF4F8", borderRadius: 13, padding: 14, marginTop: 17 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={{ color: "#17546A", fontSize: 14, fontWeight: "900" }}>🔔  We’ll keep you updated</Text>
+                  </View>
+                  <Text style={{ color: "#315E6D", fontSize: 13, lineHeight: 20, marginTop: 6 }}>We’ll notify you when your Provider is on the way.</Text>
+                </View>
+
+                <Pressable
+                  onPress={() => confirmCancelSelectedRequest(request.id)}
+                  disabled={jobActionBusy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel request"
+                  style={{ minHeight: 49, borderRadius: 12, borderWidth: 1, borderColor: "#D65B5B", alignItems: "center", justifyContent: "center", marginTop: 17, opacity: jobActionBusy ? 0.5 : 1 }}
+                >
+                  <Text style={{ color: "#C54848", fontSize: 13, fontWeight: "900" }}>{jobActionBusy ? "Please wait..." : "Cancel Request"}</Text>
+                </Pressable>
+              </View>
+            </View>;
+          }
           return <View key={request.id} style={s.card}>
             <Text style={s.cardTitle}>{request.title}</Text>
             <Text style={s.meta}>{request.skillCategory} · {request.status === "OPEN" ? "Open" : request.status}</Text>
