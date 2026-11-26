@@ -317,7 +317,9 @@ export class OnboardingService {
             });
             continue;
           }
-          const detailsChanged = JSON.stringify(existingSkill.details) !== JSON.stringify(reviewDetails);
+          const existingReviewDetails = JSON.parse(JSON.stringify(existingSkill.details ?? {})) as Record<string, unknown>;
+          delete existingReviewDetails.isPaused;
+          const detailsChanged = JSON.stringify(existingReviewDetails) !== JSON.stringify(reviewDetails);
           if (existingSkill.status === "REJECTED" || (existingSkill.status === "APPROVED" && detailsChanged)) {
             await tx.providerSkill.update({
               where: { userId_category: { userId, category } },
