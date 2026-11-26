@@ -384,8 +384,9 @@ export function MarketplaceScreen(p: Props) {
     }
     // Keep an active Seeker journey responsive while the Provider progresses
     // through arrival, assessment and estimate stages.
-    const refreshMs = (p.mode === "provider" && providerSelectionWatch && providerOfferReview?.status === "OFFERED")
-      || (p.mode === "seeker" && journeyScreen) ? 3000 : 12000;
+    const refreshMs = p.mode === "seeker"
+      ? 3000
+      : providerSelectionWatch && providerOfferReview?.status === "OFFERED" ? 3000 : 12000;
     const refresh = setInterval(() => { void refreshJobState(); }, refreshMs);
     return () => {
       active = false;
