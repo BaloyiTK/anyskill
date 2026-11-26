@@ -79,7 +79,6 @@ const C = {
 export function ProviderHomeScreen({ onManageProfile }: Props) {
   const [profile, setProfile] = useState<ProviderProfile | null>(null);
   const [dailyEarnings, setDailyEarnings] = useState<DailyEarnings | null>(null);
-  const [onboardingSkills, setOnboardingSkills] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [earningsLoading, setEarningsLoading] = useState(true);
   const [earningsUnavailable, setEarningsUnavailable] = useState(false);
@@ -91,14 +90,8 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
     setLoading(true);
     setError("");
     try {
-      const [providerProfile, onboarding] = await Promise.all([
-        apiRequest<ProviderProfile | null>("/marketplace/provider-profile", {}, true),
-        apiRequest<{ skills?: Array<{ category?: string }> }>("/profile/onboarding", {}, true),
-      ]);
+      const providerProfile = await apiRequest<ProviderProfile | null>("/marketplace/provider-profile", {}, true);
       setProfile(providerProfile);
-      setOnboardingSkills((onboarding.skills ?? [])
-        .map((item) => item.category?.trim() ?? "")
-        .filter(Boolean));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your Provider profile.");
     } finally {
@@ -198,9 +191,8 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
     }
   };
 
-  const activeSkills = profile?.skillCategories?.length
-    ? profile.skillCategories
-    : onboardingSkills;
+  // The API returns only approved, unpaused skills. Never fall back to draft skills here.
+  const activeSkills = profile?.skillCategories ?? [];
   const canToggle = Boolean(profile && Number(profile.hourlyRate) >= 1);
   const isOnline = Boolean(profile?.isAvailable);
 
