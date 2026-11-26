@@ -340,6 +340,15 @@ export class OnboardingService {
           }
         }
 
+        const activeApprovedSkills = await tx.providerSkill.findMany({
+          where: { userId, status: "APPROVED", isPaused: false },
+          select: { category: true },
+        });
+        await tx.providerProfile.updateMany({
+          where: { userId },
+          data: { skillCategories: activeApprovedSkills.map((skill) => skill.category) },
+        });
+
         if (!publicName || skills.length === 0) {
           throw new BadRequestException("Provider applications require a public name and at least one skill.");
         }
