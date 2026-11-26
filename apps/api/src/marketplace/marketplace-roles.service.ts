@@ -274,7 +274,7 @@ export class MarketplaceRolesService {
       if (changed.count !== 1) throw new ConflictException("This identity verification case has already been decided.");
       const approvedSkills = await tx.providerSkill.findMany({
         where: { userId: verificationCase.userId, status: "APPROVED" },
-        select: { category: true },
+        select: { category: true, isPaused: true },
         orderBy: { category: "asc" },
       });
       const activeApprovedSkills = approvedSkills.filter((skill) => !skill.isPaused);
