@@ -917,3 +917,95 @@ test("Provider offer review lists only the current Provider open offers", async 
   const service = new MarketplaceService(prisma, {});
   assert.deepEqual(await service.listMyOffers("provider-1"), expected);
 });
+
+
+test("remote Provider readiness does not require a physical en-route event", async () => {
+  const calls = [];
+  const tx = {
+    jobEngagement: {
+      findUnique: async () => ({
+        id: "job-remote", providerId: "provider-1", seekerId: "seeker-1", status: "ASSESSMENT_PENDING",
+        providerEnRouteAt: null, providerArrivedAt: null,
+        request: { title: "Remote consultation", deliveryMode: "REMOTE" },
+      }),
+      updateMany: async (args) => { calls.push(["engagement", args]); return { count: 1 }; },
+    },
+    appNotification: { create: async (args) => { calls.push(["notification", args]); } },
+  };
+  const result = await serviceWith(tx).markProviderArrived("provider-1", "request-remote");
+  assert.equal(result.success, true);
+  assert.ok(result.providerArrivedAt instanceof Date);
+  assert.equal(calls[0][1].where.providerEnRouteAt, undefined);
+  assert.equal(calls[1][1].data.data.type, "PROVIDER_REMOTE_READY_CONFIRMATION_REQUIRED");
+});
+
+test("on-site Provider cannot report arrival before starting the journey", async () => {
+  const tx = {
+    jobEngagement: {
+      findUnique: async () => ({
+        id: "job-onsite", providerId: "provider-1", seekerId: "seeker-1", status: "ASSESSMENT_PENDING",
+        providerEnRouteAt: null, providerArrivedAt: null,
+        request: { title: "On-site repair", deliveryMode: "ONSITE" },
+      }),
+    },
+  };
+  await assert.rejects(
+    serviceWith(tx).markProviderArrived("provider-1", "request-onsite"),
+    (error) => error.getStatus?.() === 409 && /starting your journey/i.test(error.message),
+  );
+});
+
+test("confirmed no-assessment service can start work", async () => {
+  const calls = [];
+  const job = {
+    id: "job-1", providerId: "provider-1", seekerId: "seeker-1",
+    status: "ASSESSMENT_PENDING", assessmentRequired: false,
+    providerArrivedAt: new Date(), seekerArrivalConfirmedAt: new Date(),
+  };
+  const tx = {
+    jobEngagement: {
+      findUnique: async () => job,
+      updateMany: async (args) => { calls.push(["update", args]); return { count: 1 }; },
+      findUniqueOrThrow: async () => ({ ...job, status: "IN_PROGRESS" }),
+    },
+    appNotification: { create: async (args) => { calls.push(["notification", args]); } },
+  };
+  const result = await serviceWith(tx).startWork("provider-1", "request-1");
+  assert.equal(result.status, "IN_PROGRESS");
+  assert.equal(calls[0][1].where.assessmentRequired, false);
+  assert.ok(calls[0][1].where.providerArrivedAt);
+  assert.ok(calls[0][1].where.seekerArrivalConfirmedAt);
+  assert.equal(calls[0][1].data.status, "IN_PROGRESS");
+});
+
+test("no-assessment work cannot start until the Seeker confirms Provider arrival or readiness", async () => {
+  const job = {
+    id: "job-1", providerId: "provider-1", seekerId: "seeker-1",
+    status: "ASSESSMENT_PENDING", assessmentRequired: false,
+    providerArrivedAt: new Date(), seekerArrivalConfirmedAt: null,
+  };
+  const tx = { jobEngagement: { findUnique: async () => job } };
+  await assert.rejects(
+    serviceWith(tx).startWork("provider-1", "request-1"),
+    (error) => error.getStatus?.() === 409 && /Provider must confirm/i.test(error.message),
+  );
+});
+
+test("remote Seeker confirmation records the second half of the remote-ready gate", async () => {
+  const calls = [];
+  const tx = {
+    jobEngagement: {
+      findUnique: async () => ({
+        id: "job-remote", seekerId: "seeker-1", providerId: "provider-1", status: "ASSESSMENT_PENDING",
+        providerArrivedAt: new Date(), seekerArrivalConfirmedAt: null,
+        request: { title: "Remote consultation", deliveryMode: "REMOTE" },
+      }),
+      updateMany: async (args) => { calls.push(["engagement", args]); return { count: 1 }; },
+    },
+    appNotification: { create: async (args) => { calls.push(["notification", args]); } },
+  };
+  const result = await serviceWith(tx).confirmProviderArrival("seeker-1", "request-remote");
+  assert.equal(result.success, true);
+  assert.ok(result.seekerArrivalConfirmedAt instanceof Date);
+  assert.equal(calls[1][1].data.data.type, "PROVIDER_REMOTE_READY_CONFIRMED");
+});

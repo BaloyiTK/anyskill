@@ -881,12 +881,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: {
           id: true, providerId: true, seekerId: true, status: true,
           providerEnRouteAt: true, providerArrivedAt: true,
-          request: { select: { title: true } },
+          request: { select: { title: true, deliveryMode: true } },
         },
       });
       if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
-      if (job.status !== "ASSESSMENT_PENDING" || !job.providerEnRouteAt) {
-        throw new ConflictException("You can only confirm arrival after starting your journey to the service location.");
+      const isRemote = job.request.deliveryMode === "REMOTE";
+      if (job.status !== "ASSESSMENT_PENDING" || (!isRemote && !job.providerEnRouteAt)) {
+        throw new ConflictException(isRemote
+          ? "This remote service is not waiting for a Provider confirmation."
+          : "You can only confirm arrival after starting your journey to the service location.");
       }
       if (job.providerArrivedAt) return { success: true, requestId, providerArrivedAt: job.providerArrivedAt };
       const providerArrivedAt = new Date();
@@ -898,9 +901,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       await tx.appNotification.create({
         data: {
           userId: job.seekerId,
-          title: "Your Provider says they have arrived",
-          body: `Please confirm whether your Provider has arrived at the service location for "${job.request.title}". The assessment cannot start until you confirm.`,
-          data: { type: "PROVIDER_ARRIVAL_CONFIRMATION_REQUIRED", requestId },
+          title: isRemote ? "Your Provider is ready for the remote service" : "Your Provider says they have arrived",
+          body: isRemote
+            ? `Please confirm that your Provider is ready to begin "${job.request.title}". The assessment or work cannot start until you confirm.`
+            : `Please confirm whether your Provider has arrived at the service location for "${job.request.title}". The assessment cannot start until you confirm.`,
+          data: { type: isRemote ? "PROVIDER_REMOTE_READY_CONFIRMATION_REQUIRED" : "PROVIDER_ARRIVAL_CONFIRMATION_REQUIRED", requestId },
         },
       });
       return { success: true, requestId, providerArrivedAt };
@@ -914,14 +919,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: {
           id: true, seekerId: true, providerId: true, status: true,
           providerArrivedAt: true, seekerArrivalConfirmedAt: true,
-          request: { select: { title: true } },
+          request: { select: { title: true, deliveryMode: true } },
         },
       });
       if (!job || job.seekerId !== seekerId || !job.providerId) {
         throw new NotFoundException("This selected service could not be found.");
       }
       if (job.status !== "ASSESSMENT_PENDING" || !job.providerArrivedAt) {
-        throw new ConflictException("Your Provider has not reported arrival for this service.");
+        throw new ConflictException(job.request.deliveryMode === "REMOTE"
+          ? "Your Provider has not confirmed readiness for this remote service."
+          : "Your Provider has not reported arrival for this service.");
       }
       if (job.seekerArrivalConfirmedAt) {
         return { success: true, requestId, seekerArrivalConfirmedAt: job.seekerArrivalConfirmedAt };
@@ -935,12 +942,15 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         data: { seekerArrivalConfirmedAt },
       });
       if (changed.count !== 1) throw new ConflictException("The service changed. Refresh and try again.");
+      const isRemote = job.request.deliveryMode === "REMOTE";
       await tx.appNotification.create({
         data: {
           userId: job.providerId,
-          title: "Seeker confirmed your arrival",
-          body: `The Seeker confirmed your arrival for "${job.request.title}". You can now start the assessment.`,
-          data: { type: "PROVIDER_ARRIVAL_CONFIRMED", requestId },
+          title: isRemote ? "Seeker confirmed remote readiness" : "Seeker confirmed your arrival",
+          body: isRemote
+            ? `The Seeker confirmed that you are ready for "${job.request.title}". You can now start the assessment or agreed work.`
+            : `The Seeker confirmed your arrival for "${job.request.title}". You can now start the assessment.`,
+          data: { type: isRemote ? "PROVIDER_REMOTE_READY_CONFIRMED" : "PROVIDER_ARRIVAL_CONFIRMED", requestId },
         },
       });
       return { success: true, requestId, seekerArrivalConfirmedAt };
@@ -1858,11 +1868,16 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
-      const noAssessmentStart = job.status === "ASSESSMENT_PENDING" && job.assessmentRequired === false && !!job.seekerArrivalConfirmedAt;
-      if (job.status !== "ESTIMATE_APPROVED" && !noAssessmentStart) throw new ConflictException("The Seeker must confirm arrival for a no-assessment job or approve the estimate before work can start.");
+      const noAssessmentStart = job.status === "ASSESSMENT_PENDING"
+        && job.assessmentRequired === false
+        && !!job.providerArrivedAt
+        && !!job.seekerArrivalConfirmedAt;
+      if (job.status !== "ESTIMATE_APPROVED" && !noAssessmentStart) {
+        throw new ConflictException("The Provider must confirm arrival or remote readiness, and the Seeker must confirm it, before a no-assessment job can start. Assessment-based work still requires estimate approval.");
+      }
       const now = new Date();
       const claimed = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: job.status, ...(noAssessmentStart ? { assessmentRequired: false, seekerArrivalConfirmedAt: { not: null } } : {}) },
+        where: { id: job.id, status: job.status, ...(noAssessmentStart ? { assessmentRequired: false, providerArrivedAt: { not: null }, seekerArrivalConfirmedAt: { not: null } } : {}) },
         data: { status: "IN_PROGRESS", workStartedAt: now, workAccumulatedMs: 0, workSegmentStartedAt: now, workPausedAt: null, workEndedAt: null },
       });
       if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
