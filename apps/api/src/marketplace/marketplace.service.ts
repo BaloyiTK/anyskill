@@ -2110,8 +2110,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         // A zero-fee assessment is still a full assessment/estimate journey.
         // Older clients that omit these fields default to assessment required
         // and retain the Provider's configured profile fee.
-        const assessmentRequired = input.assessmentRequired ?? true;
         const configuredAssessmentFee = Number(provider.providerProfile?.assessmentFee ?? 0);
+        const assessmentRequired = input.assessmentRequired ?? configuredAssessmentFee > 0;
         const assessmentFee = assessmentRequired
           ? input.assessmentFee ?? configuredAssessmentFee
           : 0;

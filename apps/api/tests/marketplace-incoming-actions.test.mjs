@@ -370,6 +370,29 @@ test("Provider acceptance builds a no-assessment offer from the saved profile an
   });
 });
 
+
+test("Provider can require a free assessment when accepting a request", async () => {
+  const calls = [];
+  const tx = {
+    $queryRaw: async () => [],
+    serviceRequest: {
+      findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", skillCategory: "Plumber", status: "OPEN" }),
+      updateMany: async () => ({ count: 1 }),
+    },
+    requestMatch: {
+      findUnique: async () => ({ id: "match-1", status: "NOTIFIED", notifiedAt: new Date() }),
+      updateMany: async () => ({ count: 1 }),
+    },
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { assessmentFee: 0 } }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 425 }) },
+    providerResponse: { create: async (args) => { calls.push(args); return { id: "offer-1", status: "OFFERED" }; } },
+    appNotification: { create: async () => {} },
+  };
+  await serviceWith(tx).respondToRequest("provider-1", "request-1", { assessmentRequired: true, assessmentFee: 0 });
+  assert.equal(calls[0].data.assessmentRequiredAtOffer, true);
+  assert.equal(calls[0].data.assessmentFeeAtOffer, 0);
+});
+
 test("Provider acceptance fails closed when the match compare-and-set loses a race", async () => {
   let offerCreated = false;
   const tx = {
