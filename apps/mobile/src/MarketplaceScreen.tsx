@@ -752,6 +752,7 @@ export function MarketplaceScreen(p: Props) {
         liveLocationUpdatedAt: selectedOffer?.provider.providerProfile?.liveLocationUpdatedAt ?? null,
         providerEnRouteAt: null,
         providerArrivedAt: null,
+        seekerArrivalConfirmedAt: null,
         assessmentStartedAt: null,
         assessmentCompletedAt: null,
         completionSubmissions: [],
