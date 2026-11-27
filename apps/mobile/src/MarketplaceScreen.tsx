@@ -2194,10 +2194,10 @@ export function MarketplaceScreen(p: Props) {
               const assessmentStage = !!journeyScreen?.providerArrivedAt || !!journeyScreen?.assessmentStartedAt;
               const activeIndex = workStarted || estimateApproved ? 4 : estimateStage ? 3 : assessmentStage ? 2 : 1;
               const steps = [
-                { title: "Provider selected", detail: "You've chosen your Provider", done: true },
+                { title: "Provider selected · hourly rate agreed", detail: journeyScreen?.hourlyRate == null ? "You selected the Provider. Their hourly rate is saved for the assessment-based estimate." : `You accepted R ${journeyScreen.hourlyRate.toFixed(2)} per hour. This approves the rate for assessment pricing only, not the total job cost.`, done: true },
                 { title: "Provider travelling", detail: journeyScreen?.providerArrivedAt ? "Provider has arrived" : journeyScreen?.providerEnRouteAt ? "Provider is on the way" : "We'll notify you when they're on the way", done: !!journeyScreen?.providerArrivedAt },
                 { title: "Assessment", detail: journeyScreen?.assessmentCompletedAt ? "Assessment completed" : journeyScreen?.assessmentStartedAt ? "Assessment in progress" : journeyScreen?.providerArrivedAt ? journeyScreen.seekerArrivalConfirmedAt ? "Arrival confirmed · assessment can begin" : "Waiting for you to confirm Provider arrival" : "Starts after the Provider arrives", done: !!journeyScreen?.assessmentCompletedAt },
-                { title: "Final estimate", detail: status === "ESTIMATE_SUBMITTED" ? "Review and approve the Provider’s final estimate before work can begin" : status === "ESTIMATE_REJECTED" ? "Provider is revising the estimate for your approval" : estimateApproved ? "You approved the final estimate" : "Provider submits this after assessment · your approval is required", done: estimateApproved },
+                { title: "Assessed hours & final price", detail: status === "ESTIMATE_SUBMITTED" ? "Review the assessed hours and total calculated at your agreed hourly rate. Approve before main work begins." : status === "ESTIMATE_REJECTED" ? "Provider is revising the estimated hours and total for your approval" : estimateApproved ? "You approved the assessed hours and final job price" : "After assessment, the Provider calculates the required hours and submits the total for your approval", done: estimateApproved },
                 { title: "Main work", detail: status === "IN_PROGRESS" ? "Work is in progress" : status === "COMPLETION_PENDING" ? "Work submitted for your review" : status === "COMPLETED" ? "Work completed" : "Only begins after you approve the estimate", done: workStarted },
               ];
               return steps.map((step, index) => {
@@ -2222,14 +2222,14 @@ export function MarketplaceScreen(p: Props) {
           </View>
 
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 20, padding: 17, marginTop: 14, borderWidth: 1, borderColor: "#E2EAE5" }}>
-            <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>YOUR AGREED OFFER RATE</Text>
+            <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>HOURLY RATE ACCEPTED · ASSESSMENT ONLY</Text>
             <Text style={{ color: "#172820", fontSize: 28, fontWeight: "900", marginTop: 9 }}>{journeyScreen?.hourlyRate == null ? "Rate unavailable" : "R " + journeyScreen.hourlyRate.toFixed(2)}<Text style={{ color: "#718078", fontSize: 13, fontWeight: "700" }}> / hour</Text></Text>
             <View style={{ height: 1, backgroundColor: "#E8EEE9", marginVertical: 13 }} />
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
               <Text style={{ color: "#66756D", fontSize: 12 }}>Assessment / call-out fee</Text>
               <Text style={{ color: "#26372E", fontSize: 12, fontWeight: "900" }}>{journeyScreen?.assessmentFee == null ? "Not available" : journeyScreen.assessmentFee === 0 ? "No fee" : "R " + journeyScreen.assessmentFee.toFixed(2)}</Text>
             </View>
-            <Text style={{ color: "#829087", fontSize: 11, lineHeight: 17, marginTop: 12 }}>This is the rate saved from the offer you selected. It is not the final job total. Your Provider must assess the work and submit a separate estimate for your approval.</Text>
+            <Text style={{ color: "#829087", fontSize: 11, lineHeight: 17, marginTop: 12 }}>Your first approval locked in the Provider’s hourly rate only. It does not approve the total job cost. After assessment, the Provider will calculate the hours needed and submit the labour total (hours × this rate), plus any agreed assessment fee, for your separate approval.</Text>
           </View>
 
           {journeyScreen?.providerEnRouteAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 14 }}>
@@ -2243,7 +2243,7 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#172820", fontSize: 24, fontWeight: "900", marginTop: 8 }}>R {(Number(journeyScreen.estimatedTotal ?? 0) + Number(journeyScreen.assessmentFee ?? 0)).toFixed(2)}</Text>
             <Text style={{ color: "#66756D", fontSize: 11, marginTop: 4 }}>Final assessed price</Text>
             <View style={{ height: 1, backgroundColor: "#DCEAE0", marginVertical: 13 }} />
-            <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 19 }}>Labour: {journeyScreen.estimatedHours == null ? "—" : journeyScreen.estimatedHours.toFixed(2) + " hours"} × R {Number(journeyScreen.hourlyRate ?? 0).toFixed(2)} = R {Number(journeyScreen.estimatedTotal ?? 0).toFixed(2)}</Text>
+            <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 19 }}>Estimated labour: {journeyScreen.estimatedHours == null ? "—" : journeyScreen.estimatedHours.toFixed(2) + " hours"} × agreed hourly rate R {Number(journeyScreen.hourlyRate ?? 0).toFixed(2)} = R {Number(journeyScreen.estimatedTotal ?? 0).toFixed(2)}</Text>
             <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 19, marginTop: 3 }}>Agreed assessment fee: R {Number(journeyScreen.assessmentFee ?? 0).toFixed(2)}</Text>
             {journeyScreen.estimateNotes ? <Text style={{ color: "#26372E", fontSize: 12, lineHeight: 19, marginTop: 12 }}>{journeyScreen.estimateNotes}</Text> : null}
             <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 12 }}>You accepted the Provider's rate when selecting the offer. Approving here confirms the assessed hours, scope and final total. Main work cannot start until you approve.</Text>
