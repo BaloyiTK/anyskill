@@ -129,9 +129,13 @@ export class OnboardingService {
         : {};
       return { ...details, category: typeof details.category === "string" && details.category.trim() ? details.category : skill.category, hourlyRate: details.hourlyRate ?? (skill.hourlyRate == null ? "" : String(skill.hourlyRate)) };
     });
+    const persistedSkillByCategory = new Map(providerSkills.map((skill) => [skill.category.trim().toLocaleLowerCase("en-ZA"), skill]));
     const draftCategories = new Set(draftSkills.map((skill: any) => String(skill?.category ?? "").trim().toLocaleLowerCase("en-ZA")).filter(Boolean));
     const skills: unknown[] = [
-      ...draftSkills,
+      ...draftSkills.map((skill: any) => {
+        const saved = persistedSkillByCategory.get(String(skill?.category ?? "").trim().toLocaleLowerCase("en-ZA"));
+        return { ...skill, hourlyRate: skill?.hourlyRate ?? (saved?.hourlyRate == null ? "" : String(saved.hourlyRate)) };
+      }),
       ...restoredProviderSkills.filter((skill) => !draftCategories.has(String(skill.category ?? "").trim().toLocaleLowerCase("en-ZA"))),
     ];
     const data = { profile: draft?.profile ?? {}, skills, portfolio: draft?.portfolio ?? [] };
