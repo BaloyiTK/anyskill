@@ -23,8 +23,6 @@ export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAc
   const [error, setError] = useState("");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
-  const [assessmentRequired, setAssessmentRequired] = useState(true);
-  const [assessmentFee, setAssessmentFee] = useState("0");
   const actionInProgressRef = useRef(false);
   const pollInFlightRef = useRef(false);
 
@@ -50,8 +48,6 @@ export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAc
       }
     };
     setRequest(null);
-    setAssessmentRequired(true);
-    setAssessmentFee("0");
     setAction(null);
     setError("");
     void load(true);
@@ -68,15 +64,13 @@ export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAc
   }, [request?.responseDeadlineAt]);
 
   const expired = Boolean(request?.responseDeadlineAt && secondsRemaining <= 0);
-  const parsedAssessmentFee = Number(assessmentFee);
-  const assessmentFeeValid = assessmentFee.trim() !== "" && Number.isFinite(parsedAssessmentFee) && parsedAssessmentFee >= 0 && parsedAssessmentFee <= 1000000;
   const respond = async (choice: "accept" | "decline") => {
     if (!requestId || action || expired) return;
     actionInProgressRef.current = true;
     setAction(choice); setError("");
     try {
       if (choice === "accept") {
-        await apiRequest("/marketplace/requests/" + requestId + "/accept", { method: "POST", body: JSON.stringify({ assessmentRequired, assessmentFee: assessmentRequired ? parsedAssessmentFee : 0 }) }, true);
+        await apiRequest("/marketplace/requests/" + requestId + "/accept", { method: "POST" }, true);
         onAccepted(requestId);
       } else {
         await apiRequest("/marketplace/requests/" + requestId + "/decline", { method: "POST" }, true);
@@ -112,32 +106,8 @@ export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAc
           {request.preferredStartAt ? <Text style={styles.meta}>PREFERRED TIME  {new Date(request.preferredStartAt).toLocaleString()}</Text> : null}
           {request.responseDeadlineAt ? <Text accessibilityLiveRegion="polite" style={[styles.countdown, expired && styles.expired]}>{expired ? "RESPONSE WINDOW EXPIRED" : `RESPOND WITHIN  ${Math.floor(secondsRemaining / 60)}:${String(secondsRemaining % 60).padStart(2, "0")}`}</Text> : null}
         </View>
-        <View style={styles.assessmentChoice}>
-          <Text style={styles.choiceHeading}>ASSESSMENT FOR THIS JOB</Text>
-          <Text style={styles.choiceDescription}>Decide whether you need to assess the job first to understand the work and estimate the hours required. This choice is saved with this offer.</Text>
-          <Pressable accessibilityRole="radio" accessibilityState={{ checked: assessmentRequired }} onPress={() => setAssessmentRequired(true)} style={[styles.choiceOption, assessmentRequired && styles.choiceOptionSelected]}>
-            <View style={[styles.radio, assessmentRequired && styles.radioSelected]} />
-            <View style={styles.choiceCopy}>
-              <Text style={styles.choiceTitle}>Assessment required</Text>
-              <Text style={styles.choiceHint}>Assess the job, record the findings and estimated hours, then submit the final price for the Seeker's approval.</Text>
-            </View>
-          </Pressable>
-          <Pressable accessibilityRole="radio" accessibilityState={{ checked: !assessmentRequired }} onPress={() => setAssessmentRequired(false)} style={[styles.choiceOption, !assessmentRequired && styles.choiceOptionSelected]}>
-            <View style={[styles.radio, !assessmentRequired && styles.radioSelected]} />
-            <View style={styles.choiceCopy}>
-              <Text style={styles.choiceTitle}>No assessment</Text>
-              <Text style={styles.choiceHint}>Proceed after arrival confirmation. The service is capped at one billable hour.</Text>
-            </View>
-          </Pressable>
-          {assessmentRequired ? <>
-            <Text style={styles.feeLabel}>Assessment fee (ZAR)</Text>
-            <TextInput value={assessmentFee} onChangeText={(value) => setAssessmentFee(value.replace(/[^0-9.]/g, ""))} keyboardType="decimal-pad" placeholder="0.00" style={styles.feeInput}/>
-            <Text style={styles.choiceHint}>Enter R0 if you will assess at no charge. The assessment can still be required.</Text>
-            {!assessmentFeeValid ? <Text style={styles.feeError}>Enter a valid assessment fee of R0 or more.</Text> : null}
-          </> : <Text style={styles.choiceHint}>No assessment fee will be charged.</Text>}
-        </View>
         <View style={styles.actions}>
-          <Pressable accessibilityRole="button" disabled={Boolean(action) || expired || (assessmentRequired && !assessmentFeeValid)} onPress={() => void respond("accept")} style={[styles.accept, (Boolean(action) || expired) && styles.disabled]}>
+          <Pressable accessibilityRole="button" disabled={Boolean(action) || expired} onPress={() => void respond("accept")} style={[styles.accept, (Boolean(action) || expired) && styles.disabled]}>
             <Text style={styles.acceptText}>{action === "accept" ? "ACCEPTING…" : "ACCEPT REQUEST"}</Text>
           </Pressable>
           <Pressable accessibilityRole="button" disabled={Boolean(action) || expired} onPress={() => void respond("decline")} style={[styles.decline, (Boolean(action) || expired) && styles.disabled]}>
