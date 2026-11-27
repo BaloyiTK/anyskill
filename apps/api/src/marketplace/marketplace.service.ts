@@ -15,7 +15,7 @@ import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
 import { LiveProviderMapService } from "./live-provider-map.service";
 import {
-  CreateServiceRequestDto, RespondToRequestDto,
+  CreateServiceRequestDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto, UpdateProviderAssessmentSettingsDto,
   SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, OpenJobDisputeDto, PostJobDisputeMessageDto, ResolveJobDisputeDto,
