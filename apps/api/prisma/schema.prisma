@@ -78,6 +78,7 @@ enum ProviderResponseStatus {
   WITHDRAWN
   DECLINED
   SELECTED
+  EXPIRED
 }
 
 enum ServiceDeliveryMode {
