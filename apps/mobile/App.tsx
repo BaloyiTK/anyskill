@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentRef, ReactNode } from "react";
 import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
@@ -140,7 +140,14 @@ function StartupLoader() {
 
 export default function App() {
   const [startupChecking, setStartupChecking] = useState(true);
-  const [screen, setScreen] = useState<Screen>("welcome");
+  const [navigationPreparing, setNavigationPreparing] = useState(true);
+  const [navigationRevision, setNavigationRevision] = useState(0);
+  const [screen, setScreenState] = useState<Screen>("welcome");
+  const setScreen = useCallback((nextScreen: Screen) => {
+    setScreenState(nextScreen);
+    setNavigationPreparing(true);
+    setNavigationRevision((revision) => revision + 1);
+  }, []);
   const [activeTab, setActiveTab] = useState<AppTab>("home");
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [mode, setMode] = useState<UserMode>("seeker");
@@ -1315,23 +1322,6 @@ export default function App() {
     </View>
   );
 
-  if (startupChecking) {
-    return (
-      <SafeAreaProvider>
-        <SafeAreaView style={s.startupScreen}>
-          <StatusBar barStyle="dark-content" />
-          <Image
-            source={require("./assets/branding/anyskill-logo.png")}
-            style={s.startupLogo}
-            resizeMode="contain"
-            accessibilityLabel="AnySkill logo"
-          />
-          <StartupLoader />
-        </SafeAreaView>
-      </SafeAreaProvider>
-    );
-  }
-
   return (
     <SafeAreaProvider>
       <SafeAreaView style={s.safe}>
@@ -1339,6 +1329,7 @@ export default function App() {
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         {platformHeader}
         <ScrollView contentContainerStyle={[s.content, activeTab === "account" && { paddingHorizontal: 0 }]} keyboardShouldPersistTaps="handled">
+          <View key={`${screen}-${activeTab}-${mode}-${navigationRevision}`} style={{ flexGrow: 1 }} onLayout={() => setNavigationPreparing(false)}>
           {screen === "profile-check" && <View style={s.form}>
             <Text style={s.kicker}>ACCOUNT CHECK</Text>
             <Text style={s.formTitle}>Checking your profile</Text>
@@ -1781,6 +1772,7 @@ export default function App() {
           {message ? <View style={s.successNotice}><Text style={s.successText}>{message}</Text></View> : null}
           {error ? <View style={s.errorNotice}><Text style={s.errorText}>{error}</Text></View> : null}
           {busy ? <ActivityIndicator color={C.primary} style={s.loader} /> : null}
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
       {account && <View style={s.bottomTabBar}>
@@ -1806,6 +1798,18 @@ export default function App() {
           setScreen("provider-job");
         }}
       />
+      {(startupChecking || navigationPreparing) && <View pointerEvents="auto" style={s.startupOverlay}>
+        <SafeAreaView style={s.startupScreen}>
+          <StatusBar barStyle="dark-content" />
+          <Image
+            source={require("./assets/branding/anyskill-logo.png")}
+            style={s.startupLogo}
+            resizeMode="contain"
+            accessibilityLabel="AnySkill logo"
+          />
+          <StartupLoader />
+        </SafeAreaView>
+      </View>}
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -1859,6 +1863,7 @@ function ModeCard(p: { title: string; description: string; selected: boolean; on
 const s = StyleSheet.create({
   flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
   startupScreen: { flex: 1, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
+  startupOverlay: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 1000, elevation: 1000, backgroundColor: "#FFFFFF" },
   startupLogo: { width: 280, height: 280 },
   startupSpinner: { width: 28, height: 28, marginTop: -4, borderWidth: 3, borderRadius: 14, borderColor: "#0077C8", borderTopColor: "transparent" },
   content: { flexGrow: 1, paddingHorizontal: 10, paddingTop: 0, paddingBottom: 32 },
