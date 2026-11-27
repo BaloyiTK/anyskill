@@ -519,12 +519,24 @@ export function ProviderJobScreen(p: Props) {
       job.request.id === providerSelectionWatch.requestId
       && job.responseId === providerSelectionWatch.responseId,
     );
-    if (!selectedJob) return;
+    // A selected response is not enough to leave the pending screen. Wait
+    // until the matching engagement has reached a renderable service stage.
+    // This prevents a blank full-screen modal while the job/assessment payload
+    // is still being created or synchronized by the API.
+    if (!selectedJob || ![
+      "ASSESSMENT_PENDING",
+      "ESTIMATE_SUBMITTED",
+      "ESTIMATE_REJECTED",
+      "ESTIMATE_APPROVED",
+      "IN_PROGRESS",
+      "COMPLETION_PENDING",
+      "DISPUTED",
+    ].includes(selectedJob.status)) return;
     setDismissedActiveJobIds((ids) => ids.filter((id) => id !== selectedJob.request.id));
     setActiveProviderJobId(selectedJob.request.id);
     setProviderSelectionWatch(null);
-    // The pending-approval screen ends as soon as the Seeker selects this
-    // Provider. Move directly into the assessment-requirement/service workspace.
+    // Only dismiss Offer Pending Approval after the service workspace has a
+    // server-confirmed engagement stage and can render its next screen.
     setProviderOfferReview((current) =>
       current?.requestId === selectedJob.request.id
       && current.responseId === selectedJob.responseId
@@ -1768,7 +1780,7 @@ export function ProviderJobScreen(p: Props) {
         })() : null}
       </View>
     </Modal>
-    <Modal visible={p.mode === "provider" && providerOfferReview !== null && providerOfferReview.status !== "SELECTED"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
+    <Modal visible={p.mode === "provider" && providerOfferReview !== null && (providerOfferReview.status !== "SELECTED" || activeProviderJobId === null)} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
       <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 10, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12, justifyContent: "center" }}>
         {p.platformHeader}
         <View style={{ alignItems: "center" }}>
