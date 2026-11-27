@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { apiRequest } from "./api";
 
+type ProviderOffer = {
+  id: string; requestId: string; createdAt: string;
+  hourlyRateAtOffer: string | number | null;
+  assessmentFeeAtOffer: string | number | null;
+  assessmentRequiredAtOffer: boolean;
+  request: { id: string; title: string; skillCategory: string; location: string | null };
+};
+
 type ProviderJob = {
   id: string;
   status: string;
@@ -54,6 +62,7 @@ const C = {
 
 export function ProviderActivitiesScreen({ onOpenJob }: Props) {
   const [jobs, setJobs] = useState<ProviderJob[]>([]);
+  const [offers, setOffers] = useState<ProviderOffer[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -63,8 +72,12 @@ export function ProviderActivitiesScreen({ onOpenJob }: Props) {
     else setLoading(true);
     setError("");
     try {
-      const result = await apiRequest<ProviderJob[]>("/marketplace/my-jobs", {}, true);
+      const [result, pendingOffers] = await Promise.all([
+        apiRequest<ProviderJob[]>("/marketplace/my-jobs", {}, true),
+        apiRequest<ProviderOffer[]>("/marketplace/my-offers", {}, true),
+      ]);
       setJobs(result);
+      setOffers(pendingOffers);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your selected services.");
     } finally {
@@ -107,7 +120,27 @@ export function ProviderActivitiesScreen({ onOpenJob }: Props) {
       {loading ? <ActivityIndicator color={C.primary} style={{ marginTop: 22 }} /> : null}
       {error ? <Text accessibilityRole="alert" style={{ color: C.danger, fontSize: 12, lineHeight: 18, marginTop: 16 }}>{error}</Text> : null}
 
-      {!loading && jobs.length === 0 && !error ? (
+      {!loading && offers.length > 0 ? (
+        <View style={{ marginTop: 22 }}>
+          <Text style={{ color: C.ink, fontSize: 18, fontWeight: "900" }}>Offers awaiting Seeker decision</Text>
+          <Text style={{ color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 5 }}>Your offer uses the rates and assessment settings saved in your Provider profile.</Text>
+          {offers.map((offer) => (
+            <View key={offer.id} style={{ backgroundColor: C.background, borderWidth: 1, borderColor: "#B8DCC7", borderRadius: 16, padding: 16, marginTop: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <Text style={{ color: C.ink, fontSize: 15, lineHeight: 20, fontWeight: "900", flex: 1 }}>{offer.request.title}</Text>
+                <View style={{ backgroundColor: C.soft, borderRadius: 20, paddingHorizontal: 9, paddingVertical: 6 }}><Text style={{ color: C.primary, fontSize: 9, fontWeight: "900" }}>AWAITING REVIEW</Text></View>
+              </View>
+              <Text style={{ color: C.muted, fontSize: 11, marginTop: 7 }}>{offer.request.skillCategory}</Text>
+              <Text style={{ color: C.ink, fontSize: 14, fontWeight: "800", marginTop: 10 }}>R {Number(offer.hourlyRateAtOffer ?? 0).toFixed(2)} / hour</Text>
+              <Text style={{ color: C.muted, fontSize: 11, marginTop: 5 }}>{offer.assessmentRequiredAtOffer ? "Assessment required · R " + Number(offer.assessmentFeeAtOffer ?? 0).toFixed(2) + " assessment fee" : "No assessment · limited to one billable hour"}</Text>
+              {offer.request.location ? <Text style={{ color: C.muted, fontSize: 11, marginTop: 5 }}>Location: {offer.request.location}</Text> : null}
+              <Text style={{ color: C.muted, fontSize: 10, marginTop: 9 }}>Sent {new Date(offer.createdAt).toLocaleString()}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {!loading && jobs.length === 0 && offers.length === 0 && !error ? (
         <View style={{ borderWidth: 1, borderColor: C.border, borderRadius: 16, padding: 17, marginTop: 18, backgroundColor: C.background }}>
           <Text style={{ color: C.ink, fontSize: 15, fontWeight: "800" }}>No selected services yet</Text>
           <Text style={{ color: C.muted, fontSize: 12, lineHeight: 18, marginTop: 6 }}>When a Seeker selects your offer, the assessment and service will appear here automatically.</Text>
