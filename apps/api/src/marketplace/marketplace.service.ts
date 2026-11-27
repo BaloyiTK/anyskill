@@ -892,12 +892,52 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       await tx.appNotification.create({
         data: {
           userId: job.seekerId,
-          title: "Your Provider has arrived",
-          body: `Your Provider has arrived at the service location for "${job.request.title}".`,
-          data: { type: "PROVIDER_ARRIVED", requestId },
+          title: "Your Provider says they have arrived",
+          body: `Please confirm whether your Provider has arrived at the service location for "${job.request.title}". The assessment cannot start until you confirm.`,
+          data: { type: "PROVIDER_ARRIVAL_CONFIRMATION_REQUIRED", requestId },
         },
       });
       return { success: true, requestId, providerArrivedAt };
+    });
+  }
+
+  async confirmProviderArrival(seekerId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const job = await tx.jobEngagement.findUnique({
+        where: { requestId },
+        select: {
+          id: true, seekerId: true, providerId: true, status: true,
+          providerArrivedAt: true, seekerArrivalConfirmedAt: true,
+          request: { select: { title: true } },
+        },
+      });
+      if (!job || job.seekerId !== seekerId || !job.providerId) {
+        throw new NotFoundException("This selected service could not be found.");
+      }
+      if (job.status !== "ASSESSMENT_PENDING" || !job.providerArrivedAt) {
+        throw new ConflictException("Your Provider has not reported arrival for this service.");
+      }
+      if (job.seekerArrivalConfirmedAt) {
+        return { success: true, requestId, seekerArrivalConfirmedAt: job.seekerArrivalConfirmedAt };
+      }
+      const seekerArrivalConfirmedAt = new Date();
+      const changed = await tx.jobEngagement.updateMany({
+        where: {
+          id: job.id, seekerId, status: "ASSESSMENT_PENDING",
+          providerArrivedAt: { not: null }, seekerArrivalConfirmedAt: null,
+        },
+        data: { seekerArrivalConfirmedAt },
+      });
+      if (changed.count !== 1) throw new ConflictException("The service changed. Refresh and try again.");
+      await tx.appNotification.create({
+        data: {
+          userId: job.providerId,
+          title: "Seeker confirmed your arrival",
+          body: `The Seeker confirmed your arrival for "${job.request.title}". You can now start the assessment.`,
+          data: { type: "PROVIDER_ARRIVAL_CONFIRMED", requestId },
+        },
+      });
+      return { success: true, requestId, seekerArrivalConfirmedAt };
     });
   }
 
@@ -905,14 +945,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({
         where: { requestId },
-        select: { id: true, providerId: true, seekerId: true, status: true, providerArrivedAt: true, assessmentStartedAt: true, request: { select: { title: true } } },
+        select: { id: true, providerId: true, seekerId: true, status: true, providerArrivedAt: true, seekerArrivalConfirmedAt: true, assessmentStartedAt: true, request: { select: { title: true } } },
       });
       if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
-      if (job.status !== "ASSESSMENT_PENDING" || !job.providerArrivedAt) throw new ConflictException("Confirm arrival before starting the assessment.");
+      if (job.status !== "ASSESSMENT_PENDING" || !job.providerArrivedAt || !job.seekerArrivalConfirmedAt) throw new ConflictException("Wait for the Seeker to confirm your arrival before starting the assessment.");
       if (job.assessmentStartedAt) return { success: true, requestId, assessmentStartedAt: job.assessmentStartedAt };
       const assessmentStartedAt = new Date();
       const changed = await tx.jobEngagement.updateMany({
-        where: { id: job.id, providerId, status: "ASSESSMENT_PENDING", providerArrivedAt: { not: null }, assessmentStartedAt: null },
+        where: { id: job.id, providerId, status: "ASSESSMENT_PENDING", providerArrivedAt: { not: null }, seekerArrivalConfirmedAt: { not: null }, assessmentStartedAt: null },
         data: { assessmentStartedAt },
       });
       if (changed.count !== 1) throw new ConflictException("The assessment stage changed. Refresh and try again.");
