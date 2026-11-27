@@ -617,7 +617,7 @@ export default function App() {
 
   useEffect(() => {
     if (!account || roleSummary?.providerStatus !== "ACTIVE" || !pendingIncomingPushId) return;
-    if (!["dashboard", "onboarding", "marketplace"].includes(screen)) return;
+    if (!["dashboard", "onboarding"].includes(screen)) return;
     setPendingIncomingPushId(null);
     setActiveTab("home");
     autoSwitchMarketplaceMode("provider");
@@ -1623,7 +1623,7 @@ export default function App() {
                 <Primary
                   label="Explore services"
                   onPress={() => {
-                    if (roleSummary?.seekerStatus === "ACTIVE") goTo("marketplace");
+                    if (roleSummary?.seekerStatus === "ACTIVE") goTo("dashboard");
                     else { setActiveTab("account"); setScreen("dashboard"); setMessage("Activate your Seeker role before opening its workspace."); }
                   }}
                 />
