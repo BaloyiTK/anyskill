@@ -1582,15 +1582,6 @@ export function MarketplaceScreen(p: Props) {
   );
 
   return <View style={s.container}>
-    <View style={s.header}>
-      <Pressable onPress={p.onBack}><Text style={s.back}>‹ Back</Text></Pressable>
-      <Text style={s.heading}>Marketplace</Text>
-      <Text style={s.subheading}>Choose how you want to use AnySkill.</Text>
-    </View>
-    <View style={s.modeRow}>
-      <Pressable onPress={() => p.onModeChange("seeker")} style={[s.modeButton, p.mode === "seeker" && s.modeActive]}><Text style={[s.modeText, p.mode === "seeker" && s.modeTextActive]}>Skill Seeker</Text></Pressable>
-      <Pressable onPress={() => p.onModeChange("provider")} style={[s.modeButton, p.mode === "provider" && s.modeActive]}><Text style={[s.modeText, p.mode === "provider" && s.modeTextActive]}>Skill Provider</Text></Pressable>
-    </View>
     <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
       {p.mode === "seeker" ? !seekerRequestsLoaded ? <View style={{ alignItems: "center", paddingVertical: 48 }}>
         <ActivityIndicator size="large" color={C.primary} />
