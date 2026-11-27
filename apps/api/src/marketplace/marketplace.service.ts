@@ -1321,6 +1321,18 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { coordinates, destination: { latitude: job.request.latitude, longitude: job.request.longitude } };
   }
 
+  async listMyOffers(providerId: string) {
+    return this.prisma.providerResponse.findMany({
+      where: { providerId, status: "OFFERED", request: { status: "OPEN" } },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true, requestId: true, createdAt: true,
+        hourlyRateAtOffer: true, assessmentFeeAtOffer: true, assessmentRequiredAtOffer: true,
+        request: { select: { id: true, title: true, skillCategory: true, location: true } },
+      },
+    });
+  }
+
   async listMyJobs(providerId: string) {
     const jobs = await this.prisma.jobEngagement.findMany({
       // A job is visible to its Provider only after the exact linked offer has

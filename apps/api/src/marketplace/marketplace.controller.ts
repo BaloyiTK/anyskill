@@ -97,6 +97,12 @@ export class MarketplaceController {
     return this.marketplace.getProviderAvailability(user.id);
   }
 
+  @Get("marketplace/my-offers")
+  @RequireMarketplaceRole("PROVIDER")
+  myOffers(@CurrentUser() user: AuthenticatedUser) {
+    return this.marketplace.listMyOffers(user.id);
+  }
+
   @Get("marketplace/my-requests")
   @RequireMarketplaceRole("SEEKER")
   myRequests(@CurrentUser() user: AuthenticatedUser) {
