@@ -618,6 +618,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   }
 
   async listMyRequests(seekerId: string) {
+    let failedStage = "load seeker requests and related records";
+    try {
     const requests = await this.prisma.serviceRequest.findMany({
       where: { seekerId },
       orderBy: { createdAt: "desc" },
@@ -641,10 +643,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         },
       },
     });
+    failedStage = "prepare provider review aggregates";
     const serverNow = new Date().toISOString();
     const providerIds = [...new Set(requests.flatMap((request) =>
       request.providerResponses.map((response) => response.providerId).filter((id): id is string => Boolean(id)),
     ))];
+    failedStage = "query provider review aggregates";
     const [providerOverallGroups, providerSkillGroups] = providerIds.length
       ? await Promise.all([
           this.prisma.providerReview.groupBy({
@@ -657,6 +661,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           }),
         ])
       : [[], []];
+    failedStage = "load provider identity and onboarding details";
     const providerUsers = providerIds.length ? await this.prisma.user.findMany({
       where: { id: { in: providerIds } },
       select: { id: true, identityVerification: true, onboardingDraft: { select: { skills: true } } },
@@ -740,6 +745,18 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         };
       }),
     }));
+    } catch (error) {
+      const errorName = error instanceof Error ? error.name : "UnknownError";
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const prismaCode = error && typeof error === "object" && "code" in error
+        ? String((error as { code?: unknown }).code ?? "") : "";
+      this.logger.error(
+        `listMyRequests failed at stage=${failedStage} error=${errorName} prismaCode=${prismaCode || "none"} message=${errorMessage}`,
+        errorStack,
+      );
+      throw error;
+    }
   }
 
   async cancelRequest(seekerId: string, requestId: string) {
