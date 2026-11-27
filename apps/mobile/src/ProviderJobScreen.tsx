@@ -581,10 +581,14 @@ export function ProviderJobScreen(p: Props) {
       || ["COMPLETED", "CANCELLED"].includes(currentJob.status)
       || dismissedActiveJobIds.includes(activeProviderJobId))) {
       setActiveProviderJobId(null);
+      if (currentJob?.status === "CANCELLED") {
+        setNotice("This service was cancelled. You are back on Provider Home.");
+        p.onBack();
+      }
     }
     // An active engagement always takes priority over the dashboard/list.
     // Completed and cancelled jobs remain outside the restored workspace.
-  }, [p.mode, myJobs, dismissedActiveJobIds, activeProviderJobId, providerSelectionWatch, providerOfferReview?.status]);
+  }, [p.mode, myJobs, dismissedActiveJobIds, activeProviderJobId, providerSelectionWatch, providerOfferReview?.status, p.onBack]);
 
   const loadServiceChat = useCallback(async (requestId: string) => {
     const loadVersion = ++serviceChatLoadVersionRef.current;
