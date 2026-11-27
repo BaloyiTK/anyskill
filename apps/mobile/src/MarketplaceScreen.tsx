@@ -159,6 +159,7 @@ export function MarketplaceScreen(p: Props) {
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
   const [responseMessage, setResponseMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [seekerRequestsLoaded, setSeekerRequestsLoaded] = useState(false);
   const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;createdAt:string;notified:number;wave:number;exhausted:boolean}|null>(null);
   const [scheduleDateTime, setScheduleDateTime] = useState(() => new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16));
   const [notice, setNotice] = useState("");
@@ -229,6 +230,48 @@ export function MarketplaceScreen(p: Props) {
       const serverNow = result.find((item) => item.jobEngagement?.serverNow)?.jobEngagement?.serverNow;
       if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
       setMyRequests(result);
+      setSeekerRequestsLoaded(true);
+
+      // Restore an already-selected service immediately on first load. Do not
+      // briefly expose the new-request form while the background poll catches up.
+      const activeJourney = result.find((item) =>
+        item.jobEngagement
+        && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(item.jobEngagement.status),
+      );
+      if (activeJourney?.jobEngagement) {
+        const engagement = activeJourney.jobEngagement;
+        const selectedOffer = activeJourney.providerResponses.find((offer) => offer.id === engagement.responseId)
+          ?? activeJourney.providerResponses.find((offer) => offer.status === "SELECTED");
+        const profile = selectedOffer?.provider.providerProfile;
+        setJourneyScreen((current) => ({ ...(current?.requestId === activeJourney.id ? current : {}),
+          requestId: activeJourney.id,
+          responseId: selectedOffer?.id ?? engagement.responseId ?? "",
+          title: activeJourney.title,
+          location: activeJourney.location,
+          latitude: activeJourney.latitude,
+          longitude: activeJourney.longitude,
+          providerName: profile?.publicName ?? "Your selected Provider",
+          providerSkills: profile?.skillCategories ?? [],
+          phone: selectedOffer?.provider.phone ?? profile?.phone ?? null,
+          liveLatitude: profile?.liveLatitude ?? null,
+          liveLongitude: profile?.liveLongitude ?? null,
+          liveLocationUpdatedAt: profile?.liveLocationUpdatedAt ?? null,
+          providerEnRouteAt: engagement.providerEnRouteAt ?? null,
+          providerArrivedAt: engagement.providerArrivedAt ?? null,
+          assessmentStartedAt: engagement.assessmentStartedAt ?? null,
+          assessmentCompletedAt: engagement.assessmentCompletedAt ?? null,
+          completionSubmissions: engagement.completionSubmissions ?? [],
+          engagementStatus: engagement.status ?? "ASSESSMENT_PENDING",
+          estimatedTotal: engagement.estimatedTotal == null ? null : Number(engagement.estimatedTotal),
+          estimatedHours: engagement.estimatedHours == null ? null : Number(engagement.estimatedHours),
+          estimateNotes: engagement.estimateNotes ?? null,
+          hourlyRate: selectedOffer?.hourlyRateAtOffer == null ? Number(engagement.hourlyRate) : Number(selectedOffer.hourlyRateAtOffer),
+          assessmentFee: selectedOffer?.assessmentFeeAtOffer == null ? Number(engagement.assessmentFee) : Number(selectedOffer.assessmentFeeAtOffer),
+        }));
+      } else {
+        setJourneyScreen(null);
+      }
+
       const activeOfferRequest = activeOfferIdRef.current
         ? result.find((item) => item.status === "OPEN" && item.providerResponses.some((offer) => offer.id === activeOfferIdRef.current && offer.status === "OFFERED"))
         : undefined;
@@ -1009,6 +1052,10 @@ export function MarketplaceScreen(p: Props) {
 
   const submitRequest = async () => {
     setError(""); setNotice(""); setVerificationPrompt(false);
+    if (matchingRequest || journeyScreen || hasActiveSeekerRequest) {
+      setError("You already have an active service request. Continue with your existing service instead.");
+      return;
+    }
     if (title.trim().length < 5) { setError("Enter a request title with at least 5 characters."); return; }
     if (category.trim().length < 2) { setError("Choose a skill from the suggestions or use Add skill before publishing."); return; }
     if (deliveryMode !== "REMOTE" && (requestLatitude == null || requestLongitude == null)) { setError("Choose the exact job location on the map, use your saved Home Location, or use current GPS. Select Remote if the work does not need a physical location."); return; }
@@ -1578,6 +1625,10 @@ export function MarketplaceScreen(p: Props) {
   const matchingRequestOffers = matchingRequest
     ? myRequests.find((request) => request.id === matchingRequest.id)?.providerResponses.filter((offer) => ["OFFERED", "SELECTED"].includes(offer.status)).length ?? 0
     : 0;
+  const hasActiveSeekerRequest = myRequests.some((request) =>
+    request.status === "OPEN"
+    || (request.jobEngagement && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(request.jobEngagement.status)),
+  );
 
   return <View style={s.container}>
     <View style={s.header}>
@@ -1590,7 +1641,16 @@ export function MarketplaceScreen(p: Props) {
       <Pressable onPress={() => p.onModeChange("provider")} style={[s.modeButton, p.mode === "provider" && s.modeActive]}><Text style={[s.modeText, p.mode === "provider" && s.modeTextActive]}>Skill Provider</Text></Pressable>
     </View>
     <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-      {p.mode === "seeker" ? <>
+      {p.mode === "seeker" ? !seekerRequestsLoaded ? <View style={{ alignItems: "center", paddingVertical: 48 }}>
+        <ActivityIndicator size="large" color={C.primary} />
+        <Text style={s.helper}>Checking for your active service request...</Text>
+        {error ? <Text style={s.error}>{error}</Text> : null}
+        <Secondary label="Retry loading request" onPress={() => void loadMyRequests()} />
+      </View> : matchingRequest || journeyScreen || hasActiveSeekerRequest ? <View style={{ alignItems: "center", paddingVertical: 36 }}>
+        <ActivityIndicator size="large" color={C.primary} />
+        <Text style={s.section}>Restoring your active service</Text>
+        <Text style={s.helper}>{matchingRequest ? "Your existing request is being matched. The Matching screen is open." : "Your existing service is being restored. You cannot submit another request while it is active."}</Text>
+      </View> : <>
         <Text style={s.section}>Create a service request</Text>
         <Text style={s.helper}>Describe the work you need done. You can prepare your request before verification; publishing requires verified identity.</Text>
         {!p.verified && <View style={s.notice}><Text style={s.noticeTitle}>Verification required to publish</Text><Text style={s.noticeText}>You can complete this request form now. AnySkill will only publish it after your identity is verified.</Text></View>}
