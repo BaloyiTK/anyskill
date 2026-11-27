@@ -1622,9 +1622,6 @@ export function MarketplaceScreen(p: Props) {
     finally { setJobActionBusy(false); }
   };
 
-  const matchingRequestOffers = matchingRequest
-    ? myRequests.find((request) => request.id === matchingRequest.id)?.providerResponses.filter((offer) => ["OFFERED", "SELECTED"].includes(offer.status)).length ?? 0
-    : 0;
   const hasActiveSeekerRequest = myRequests.some((request) =>
     request.status === "OPEN"
     || (request.jobEngagement && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(request.jobEngagement.status)),
@@ -1704,14 +1701,6 @@ export function MarketplaceScreen(p: Props) {
         <Primary label={busy ? "Publishing request..." : "Service request"} onPress={submitRequest} disabled={busy} />
         <Text style={s.helper}>You can tap Publish service request at any time. If anything required is missing, AnySkill will explain what to complete. On-site and Either requests need a selected map location; Remote requests do not.</Text>
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
-        {matchingRequest && <View style={s.notice}>
-          <Text style={s.noticeTitle}>Request published: {matchingRequest.title}</Text>
-          <Text style={s.noticeText}>{matchingRequest.notified > 0
-            ? `Matching wave ${matchingRequest.wave}: ${matchingRequest.notified} Provider${matchingRequest.notified === 1 ? "" : "s"} notified. ${matchingRequestOffers} offer${matchingRequestOffers === 1 ? "" : "s"} received so far.`
-            : matchingRequest.exhausted
-              ? "No eligible, verified and available Providers matched this request yet. You can keep the request open and check again later."
-              : "Your request was saved. Provider matching is being prepared."}</Text>
-        </View>}
         </> : <>
         <Text style={s.section}>Your Provider profile</Text>
         <Text style={s.helper}>Tell AnySkill what work you do and where you can do it. Matching uses these details and your availability. Live GPS is used only while Available for on-site matching.</Text>
