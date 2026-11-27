@@ -258,7 +258,7 @@ export function MarketplaceScreen(p: Props) {
           liveLocationUpdatedAt: profile?.liveLocationUpdatedAt ?? null,
           providerEnRouteAt: engagement.providerEnRouteAt ?? null,
           providerArrivedAt: engagement.providerArrivedAt ?? null,
-seekerArrivalConfirmedAt: engagement.seekerArrivalConfirmedAt ?? null,
+          seekerArrivalConfirmedAt: engagement.seekerArrivalConfirmedAt ?? null,
           assessmentStartedAt: engagement.assessmentStartedAt ?? null,
           assessmentCompletedAt: engagement.assessmentCompletedAt ?? null,
           completionSubmissions: engagement.completionSubmissions ?? [],
@@ -419,7 +419,7 @@ seekerArrivalConfirmedAt: engagement.seekerArrivalConfirmedAt ?? null,
                 liveLocationUpdatedAt: profile?.liveLocationUpdatedAt ?? null,
                 providerEnRouteAt: engagement.providerEnRouteAt ?? null,
                 providerArrivedAt: engagement.providerArrivedAt ?? null,
-seekerArrivalConfirmedAt: engagement.seekerArrivalConfirmedAt ?? null,
+          seekerArrivalConfirmedAt: engagement.seekerArrivalConfirmedAt ?? null,
                 assessmentStartedAt: engagement.assessmentStartedAt ?? null,
                 assessmentCompletedAt: engagement.assessmentCompletedAt ?? null,
                 completionSubmissions: engagement.completionSubmissions ?? [],
@@ -1199,7 +1199,7 @@ seekerArrivalConfirmedAt: engagement.seekerArrivalConfirmedAt ?? null,
       setMyJobs((jobs) => jobs.map((job) => job.request.id === requestId
         ? { ...job, providerArrivedAt: result.providerArrivedAt }
         : job));
-      setNotice("Your arrival has been confirmed and the Seeker has been notified.");
+      setNotice("Your arrival report has been sent to the Seeker. Wait for them to confirm before starting the assessment.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not confirm your arrival.");
     } finally {
