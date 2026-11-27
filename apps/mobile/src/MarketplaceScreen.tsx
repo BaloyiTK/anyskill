@@ -168,14 +168,7 @@ export function MarketplaceScreen(p: Props) {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [verificationPrompt, setVerificationPrompt] = useState(false);
-  const [providerPublicName, setProviderPublicName] = useState("");
-  const [providerAssessmentFee, setProviderAssessmentFee] = useState("0");
-  const [providerSkills, setProviderSkills] = useState("");
-  const [providerAreas, setProviderAreas] = useState("");
-  const [providerModes, setProviderModes] = useState("ONSITE");
   const [providerAvailable, setProviderAvailable] = useState(false);
-  const [providerProfileLoaded, setProviderProfileLoaded] = useState(false);
-  const [savingProfile, setSavingProfile] = useState(false);
   const [notifications, setNotifications] = useState<Array<{id:string;title:string;body:string;readAt:string|null;createdAt:string}>>([]);
 
   const searchSkills = useCallback(async (query: string) => {
@@ -1112,22 +1105,10 @@ export function MarketplaceScreen(p: Props) {
   };
 
   const loadProviderProfile = useCallback(async () => {
-    setProviderProfileLoaded(false);
     try {
-      const profile = await apiRequest<{
-        publicName: string; assessmentFee: string | number;
-        skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable: boolean;
-      } | null>("/marketplace/provider-profile", {}, true);
-      if (profile) {
-        setProviderPublicName(profile.publicName || "");
-        setProviderAssessmentFee(String(profile.assessmentFee ?? 0));
-        setProviderSkills(profile.skillCategories.join(", "));
-        setProviderAreas(profile.serviceAreas.join(", "));
-        setProviderModes(profile.deliveryModes.join(", "));
-        setProviderAvailable(profile.isAvailable);
-      }
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not load Provider profile."); }
-    finally { setProviderProfileLoaded(true); }
+      const profile = await apiRequest<{ isAvailable: boolean } | null>("/marketplace/provider-profile", {}, true);
+      setProviderAvailable(profile?.isAvailable ?? false);
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not load Provider availability."); }
   }, []);
   async function loadHomeLocation() {
     try {
@@ -1565,78 +1546,6 @@ export function MarketplaceScreen(p: Props) {
     };
   }, [p.mode, providerAvailable, providerHasEnRouteJob]);
 
-  const saveProviderProfile = async () => {
-    setSavingProfile(true); setError(""); setNotice("");
-    try {
-      let firstFix: { latitude: number; longitude: number; accuracy: number } | null = null;
-      if (providerAvailable && Platform.OS !== "web") {
-        const position = await getInitialProviderLocation();
-        firstFix = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy ?? 1000,
-        };
-      } else if (providerAvailable && Platform.OS === "web") {
-        if (!navigator.geolocation) throw new Error("This browser does not support location sharing.");
-        firstFix = await new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(
-            (position) => resolve({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-            }),
-            () => reject(new Error("Allow browser location access and wait for a reliable GPS fix before going online.")),
-            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
-          );
-        });
-        if (!firstFix || firstFix.accuracy > 50) throw new Error("GPS accuracy must be 50 m or better before going online.");
-      }
-
-      const profilePayload = {
-        publicName: providerPublicName.trim(),
-        assessmentFee: Number(providerAssessmentFee),
-        skillCategories: providerSkills.split(",").map((v) => v.trim()).filter(Boolean),
-        serviceAreas: providerAreas.split(",").map((v) => v.trim()).filter(Boolean),
-        deliveryModes: providerModes.split(",").map((v) => v.trim()).filter(Boolean),
-        isAvailable: providerAvailable,
-        ...(firstFix ? {
-          latitude: Number(firstFix.latitude.toFixed(7)),
-          longitude: Number(firstFix.longitude.toFixed(7)),
-          accuracyM: Number(firstFix.accuracy.toFixed(1)),
-        } : {}),
-      };
-      const profile = await apiRequest<{isAvailable:boolean}>("/marketplace/provider-profile", {
-        method: "POST",
-        body: JSON.stringify(profilePayload),
-      }, true);
-
-      if (profile.isAvailable && Platform.OS !== "web") {
-        try {
-          await startProviderLocationUpdates();
-        } catch (startError) {
-          await apiRequest("/marketplace/provider-profile", {
-            method: "POST",
-            body: JSON.stringify({
-              ...profilePayload,
-              isAvailable: false,
-              latitude: undefined,
-              longitude: undefined,
-              accuracyM: undefined,
-            }),
-          }, true);
-          setProviderAvailable(false);
-          throw startError;
-        }
-      } else if (!profile.isAvailable && Platform.OS !== "web") {
-        await stopProviderLocationUpdates();
-      }
-      setNotice(profile.isAvailable
-        ? "Provider profile saved. Live location sharing is active, including while the app is in the background."
-        : "Provider profile saved. You are currently offline; live location sharing has stopped.");
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not save Provider profile."); }
-    finally { setSavingProfile(false); }
-  };
-
   const cancelLiveRequest = async () => {
     if (!matchingRequest || jobActionBusy) return;
     setJobActionBusy(true); setError("");
@@ -1747,24 +1656,6 @@ export function MarketplaceScreen(p: Props) {
         <Text style={s.helper}>You can tap Publish service request at any time. If anything required is missing, AnySkill will explain what to complete. On-site and Either requests need a selected map location; Remote requests do not.</Text>
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
         </> : <>
-        <Text style={s.section}>Your Provider profile</Text>
-        <Text style={s.helper}>Tell AnySkill what work you do and where you can do it. Matching uses these details and your availability. Live GPS is used only while Available for on-site matching.</Text>
-        <Text style={s.label}>Public Provider name</Text>
-        <TextInput value={providerPublicName} onChangeText={setProviderPublicName} placeholder="e.g. Tiyani's Plumbing Services" style={s.input} />
-        <Text style={s.label}>Assessment / call-out fee (ZAR)</Text>
-        <TextInput value={providerAssessmentFee} onChangeText={setProviderAssessmentFee} placeholder="0.00" keyboardType="decimal-pad" style={s.input} />
-        <Text style={s.helper}>Your hourly rate is configured separately for each skill under Profile → My Skills. The assessment fee is saved with each offer.</Text>
-        <Text style={s.label}>Skill categories (comma-separated)</Text>
-        <TextInput value={providerSkills} onChangeText={setProviderSkills} placeholder="e.g. Plumbing, Electrical, Painting" style={s.input} />
-        <Text style={s.label}>Service areas (comma-separated)</Text>
-        <TextInput value={providerAreas} onChangeText={setProviderAreas} placeholder="e.g. Rosebank, Sandton, Johannesburg" style={s.input} />
-        <Text style={s.label}>Delivery modes (ONSITE, REMOTE, EITHER)</Text>
-        <TextInput value={providerModes} onChangeText={setProviderModes} placeholder="ONSITE, REMOTE" style={s.input} />
-        <Text style={s.helper}>{providerAvailable ? "AnySkill requests location permission when you go online and keeps your live location updated in the background." : "Live location is not currently being shared."}</Text>
-        <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
-          <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
-        </Pressable>
-        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim() || providerPublicName.trim().length < 2 || !Number.isFinite(Number(providerAssessmentFee)) || Number(providerAssessmentFee) < 0} />
         <Text style={s.section}>Selected jobs and assessments</Text>
         <Secondary label="Refresh selected jobs" onPress={() => void loadMyJobs()} />
         {myJobs.map((job) => <View key={job.id} style={s.card}>
