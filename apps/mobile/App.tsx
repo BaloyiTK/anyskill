@@ -1546,27 +1546,6 @@ export default function App() {
             onComplete={async () => { await navigateHome(); }}
           />}
 
-          {false && screen === "dashboard" && account && mode === "seeker" && <ProviderJobScreen
-        platformHeader={platformHeader}
-        mode={mode}
-        verified={verified}
-        pendingRequestId={pendingAcceptRequestId}
-        onModeChange={(nextMode) => { void switchMarketplaceMode(nextMode); }}
-        onBack={() => setScreen("dashboard")}
-        onProviderJobCompleted={() => {
-          setActiveTab("home");
-          setScreen("dashboard");
-        }}
-        onIdentityRequired={(requestId) => {
-          setPendingAcceptRequestId(requestId);
-          setMessage("Identity verification is required before you can accept this request. Your request has been saved so you can return to it after approval.");
-          setScreen("dashboard");
-        }}
-        onStartVerification={() => { void startIdentityVerification(); }}
-        initialProviderJobId={pendingProviderJobId}
-        onProviderJobOpened={() => setPendingProviderJobId(null)}
-      />}
-
       {screen === "provider-job" && account && mode === "provider" && <ProviderJobScreen
         platformHeader={platformHeader}
         mode="provider"
