@@ -12,7 +12,7 @@ type AccountType = "INDIVIDUAL" | "BUSINESS";
 type MarketplaceRole = "SEEKER" | "PROVIDER";
 type Qualification = { name: string; attachmentUrl: string; attachmentName?: string };
 type SkillPortfolio = { title: string; description: string; links: string[]; imageUrls: string[]; linkTitle?: string; linkUrl?: string; imagePreviews?: string[] };
-type SkillEntry = { category: string; description: string; yearsOfExperience: string; licencesQualifications: Qualification[]; portfolio: SkillPortfolio[] };
+type SkillEntry = { category: string; description: string; yearsOfExperience: string; hourlyRate: string; licencesQualifications: Qualification[]; portfolio: SkillPortfolio[] };
 type Payload = {
   profile: Record<string, string> & { marketplaceRoles?: MarketplaceRole[] };
   skills: SkillEntry[];
@@ -31,7 +31,7 @@ type Payload = {
 };
 
 const empty: Payload = { profile: {}, skills: [], portfolio: [], percentage: 0, sections: { profile: false, skills: false, portfolio: false } };
-const emptySkill = (): SkillEntry => ({ category: "", description: "", yearsOfExperience: "", licencesQualifications: [], portfolio: [] });
+const emptySkill = (): SkillEntry => ({ category: "", description: "", yearsOfExperience: "", hourlyRate: "", licencesQualifications: [], portfolio: [] });
 const SKILL_CATALOGUE = ["Accounting", "Automotive Repair", "Beauty Therapy", "Carpentry", "Cleaning", "Driving", "Electrical", "Graphic Design", "Hairdressing", "Landscaping", "Painting", "Photography", "Plumbing", "Software Development", "Tutoring", "Web Development"];
 const colors = { ink: "#0B2545", muted: "#5D6D80", primary: "#0066CC", green: "#4CAF50", forest: "#1B5E20", border: "#DCE5EF", surface: "#FFFFFF", bg: "#F6F8FA", hero: "#0B2545", soft: "#EAF3FF" };
 
@@ -141,7 +141,7 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
       setContactJobTitle(profile.contactJobTitle ?? ""); setContactEmail(profile.contactEmail ?? ""); setContactPhone(profile.contactPhone ?? "");
       setHomeLatitude(home?.homeLatitude == null ? "" : String(home.homeLatitude));
       setHomeLongitude(home?.homeLongitude == null ? "" : String(home.homeLongitude));
-      const restored: SkillEntry[] = Array.isArray(result.skills) ? (result.skills as unknown[]).map((item: any): SkillEntry => ({ category: String(item?.category ?? ""), description: String(item?.description ?? ""), yearsOfExperience: String(item?.yearsOfExperience ?? ""), licencesQualifications: Array.isArray(item?.licencesQualifications) ? item.licencesQualifications.map((q: any) => ({ name: String(q?.name ?? ""), attachmentUrl: String(q?.attachmentUrl ?? q?.url ?? "") })) : Array.isArray(item?.supportingDocuments) ? item.supportingDocuments.map((q: any) => ({ name: String(q?.name ?? ""), attachmentUrl: String(q?.url ?? "") })) : [], portfolio: Array.isArray(item?.portfolio) ? item.portfolio.map((v: any) => ({ title: String(v?.title ?? ""), description: String(v?.description ?? ""), links: Array.isArray(v?.links) ? v.links.map(String) : [], imageUrls: Array.isArray(v?.imageUrls) ? v.imageUrls.map(String) : [], linkTitle: String(v?.linkTitle ?? ""), linkUrl: String(v?.linkUrl ?? "") })) : [] })) : [];
+      const restored: SkillEntry[] = Array.isArray(result.skills) ? (result.skills as unknown[]).map((item: any): SkillEntry => ({ category: String(item?.category ?? ""), description: String(item?.description ?? ""), yearsOfExperience: String(item?.yearsOfExperience ?? ""), hourlyRate: String(item?.hourlyRate ?? ""), licencesQualifications: Array.isArray(item?.licencesQualifications) ? item.licencesQualifications.map((q: any) => ({ name: String(q?.name ?? ""), attachmentUrl: String(q?.attachmentUrl ?? q?.url ?? "") })) : Array.isArray(item?.supportingDocuments) ? item.supportingDocuments.map((q: any) => ({ name: String(q?.name ?? ""), attachmentUrl: String(q?.url ?? "") })) : [], portfolio: Array.isArray(item?.portfolio) ? item.portfolio.map((v: any) => ({ title: String(v?.title ?? ""), description: String(v?.description ?? ""), links: Array.isArray(v?.links) ? v.links.map(String) : [], imageUrls: Array.isArray(v?.imageUrls) ? v.imageUrls.map(String) : [], linkTitle: String(v?.linkTitle ?? ""), linkUrl: String(v?.linkUrl ?? "") })) : [] })) : [];
       if (Array.isArray(result.portfolio) && result.portfolio.length) {
         const legacyPortfolio = result.portfolio.map((v: any) => ({ title: String(v?.title ?? ""), description: String(v?.description ?? ""), links: [], imageUrls: [] }));
         const firstRestoredSkill = restored[0];
@@ -799,6 +799,9 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
               <View style={st.searchField}><Text style={st.searchGlyph}>⌕</Text><TextInput value={skill.category} onChangeText={(value) => { updateSkill({ category: value }); setSkillSearch(value); }} placeholder="Search skills, e.g. Electrical" placeholderTextColor="#93A099" style={st.searchFieldInput}/></View>
               {skillSearch.trim() ? <View style={st.optionPanel}>{SKILL_CATALOGUE.filter((name) => name.toLowerCase().includes(skillSearch.toLowerCase()) && !skills.some((item, index) => index !== selectedSkillIndex && item.category.trim().toLowerCase() === name.toLowerCase())).slice(0, 6).map((name) => <Pressable key={name} style={st.option} onPress={() => { updateSkill({ category: name }); setSkillSearch(""); }}><Text style={st.optionText}>{name}</Text></Pressable>)}<Text style={st.optionHint}>Not listed? Keep your own skill name.</Text></View> : null}
               {Field("Skill overview / description", skill.description, (value) => updateSkill({ description: value }), true)}
+              <Text style={st.label}>Hourly rate (ZAR)</Text>
+              <TextInput value={skill.hourlyRate} onChangeText={(value) => updateSkill({ hourlyRate: value.replace(/[^0-9.]/g, "") })} placeholder="e.g. 350.00" keyboardType="decimal-pad" placeholderTextColor="#93A099" style={st.searchFieldInput}/>
+              <Text style={st.help}>Set the hourly rate for this skill. You can change it later under Profile → My Skills.</Text>
               <Text style={st.label}>Years of experience</Text>
               <View style={st.experienceOptions}>{experienceOptions.map((option) => <Pressable key={option} accessibilityRole="button" accessibilityState={{ selected: skill.yearsOfExperience === option }} onPress={() => updateSkill({ yearsOfExperience: option })} style={[st.experienceOption, skill.yearsOfExperience === option && st.experienceOptionSelected]}><Text style={[st.experienceOptionText, skill.yearsOfExperience === option && st.experienceOptionTextSelected]}>{option}</Text></Pressable>)}</View>
             </View>

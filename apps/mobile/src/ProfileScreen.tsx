@@ -8,6 +8,7 @@ type ProfileSkill = {
   category: string;
   description?: string;
   yearsOfExperience?: string | number;
+  hourlyRate?: string | number | null;
   licencesQualifications?: Array<{ name: string; attachmentUrl: string; attachmentName?: string }>;
   portfolio?: Array<{ title: string; description: string; links?: string[]; imageUrls?: string[]; linkTitle?: string; linkUrl?: string }>;
   isPaused?: boolean;
@@ -132,7 +133,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const addSkill = (category: string) => {
     const normalized = category.trim();
     if (!normalized || skillDraft.length >= 5 || skillDraft.some((skill) => skill.category?.trim().toLowerCase() === normalized.toLowerCase())) return;
-    setSkillDraft((current) => [...current, { category: normalized, description: "", yearsOfExperience: "", licencesQualifications: [], portfolio: [] }]);
+    setSkillDraft((current) => [...current, { category: normalized, description: "", yearsOfExperience: "", hourlyRate: "", licencesQualifications: [], portfolio: [] }]);
     setSkillSearch(""); setSkillError("");
   };
   const cleanedSkillDraft = () => skillDraft.map((skill) => ({
@@ -181,6 +182,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
       { id: "skills", title: "Skills & Portfolio", summary: `${skillNames.length} skills · ${approvedSkillCount} approved · ${pendingSkillCount} pending · ${rejectedSkillCount} rejected`, detail: skillNames.length ? skills.map((skill) => {
         const review = profile?.skillReviewStatuses?.find((item) => item.category.trim().toLowerCase() === skill.category.trim().toLowerCase());
         const parts = [`${skill.category} — ${statusLabel(review?.status ?? "NOT_SUBMITTED")}`];
+        if (skill.hourlyRate != null && String(skill.hourlyRate).trim()) parts.push(`Rate: R${skill.hourlyRate}/hour`);
         if (skill.yearsOfExperience) parts.push(`Experience: ${skill.yearsOfExperience}`);
         if (skill.description) parts.push(skill.description);
         if (review?.decisionReason) parts.push(`Review feedback: ${review.decisionReason}`);
@@ -188,7 +190,6 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
       }).join("\n\n") + `\n\n${portfolioCount} portfolio entries` : "No skills have been added yet. Add your skills and supporting details here." },
       { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("\n") : "Your service locations will appear here when configured." },
       { id: "availability", title: "Availability", summary: provider?.isAvailable ? "Online" : "Offline", detail: provider?.isAvailable ? "You are currently available to receive matching service requests." : "You are currently offline and will not receive new matching requests." },
-      { id: "pricing", title: "Pricing", summary: provider?.hourlyRate != null ? `R${provider.hourlyRate} per hour` : "Not configured", detail: provider?.hourlyRate != null ? `Hourly rate: R${provider.hourlyRate}\nAssessment fee: R${provider.assessmentFee ?? 0}` : "Your service pricing has not been configured." },
     ] : [
       { id: "payments", title: "Payment methods", summary: "Manage payment options", detail: "Payment methods will be displayed here when payment management is available." },
       { id: "addresses", title: "Addresses & locations", summary: location || "No saved address", detail: location || "Your saved addresses and preferred service locations will appear here." },
@@ -325,6 +326,9 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                 {review?.decisionReason ? <View style={styles.reviewFeedback}><Text style={styles.reviewFeedbackTitle}>Reviewer feedback</Text><Text style={styles.reviewFeedbackText}>{review.decisionReason}</Text></View> : null}
                 <Text style={styles.fieldLabel}>Skill description</Text>
                 {isReadOnly ? <Text style={styles.drawerReadValue}>{skill.description || "Not provided"}</Text> : <TextInput value={skill.description ?? ""} onChangeText={(value) => updateSkill(selectedSkillIndex, { description: value })} placeholder="Describe the work you can do" placeholderTextColor="#82949A" style={[styles.skillSearchInput, styles.skillMultiline]} multiline/>}
+                <Text style={styles.fieldLabel}>Hourly rate (ZAR)</Text>
+                {isReadOnly ? <Text style={styles.drawerReadValue}>{skill.hourlyRate != null && String(skill.hourlyRate).trim() ? `R${skill.hourlyRate} / hour` : "Not configured"}</Text> : <TextInput value={String(skill.hourlyRate ?? "")} onChangeText={(value) => updateSkill(selectedSkillIndex, { hourlyRate: value.replace(/[^0-9.]/g, "") })} placeholder="e.g. 350.00" keyboardType="decimal-pad" style={styles.skillSearchInput}/>}
+                <Text style={styles.drawerReadMuted}>This rate applies only to {skill.category} and is used as the default when you send an offer.</Text>
                 <Text style={styles.fieldLabel}>Years of experience</Text>
                 {isReadOnly ? <Text style={styles.drawerReadValue}>{String(skill.yearsOfExperience || "Not provided")}</Text> : <TextInput value={String(skill.yearsOfExperience ?? "")} onChangeText={(value) => updateSkill(selectedSkillIndex, { yearsOfExperience: value })} placeholder="e.g. 3 years" placeholderTextColor="#82949A" style={styles.skillSearchInput}/>}
                 <View style={styles.subsectionHeader}><Text style={styles.subsectionTitle}>Qualifications & licences</Text>{!isReadOnly ? <Pressable onPress={() => updateSkill(selectedSkillIndex, { licencesQualifications: [...(skill.licencesQualifications ?? []), { name: "", attachmentUrl: "" }] })}><Text style={styles.inlineAdd}>＋ Add</Text></Pressable> : null}</View>

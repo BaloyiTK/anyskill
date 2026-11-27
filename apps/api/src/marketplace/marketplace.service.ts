@@ -2013,7 +2013,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           select: {
             identityVerification: true,
             providerRoleStatus: true,
-            providerProfile: { select: { hourlyRate: true, assessmentFee: true } },
+            providerProfile: { select: { assessmentFee: true } },
           },
         });
         if (!provider || provider.identityVerification !== "VERIFIED") {
@@ -2055,9 +2055,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           throw new ConflictException("You already have another incoming request or pending offer. Respond to it before accepting another request.");
         }
 
-        if (!provider.providerProfile?.hourlyRate) {
-          throw new ConflictException("Complete your Provider profile and set your hourly rate before sending an offer.");
-        }
         const approvedSkill = await tx.providerSkill.findFirst({
           where: {
             userId: providerId,
@@ -2065,13 +2062,17 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             status: "APPROVED",
             isPaused: false,
           },
-          select: { id: true },
+          select: { id: true, hourlyRate: true },
         });
         if (!approvedSkill) {
           throw new ForbiddenException({
             code: "APPROVED_SKILL_REQUIRED",
             message: "Your requested skill is no longer approved. Update your skills or wait for approval before responding.",
           });
+        }
+
+        if (approvedSkill.hourlyRate == null || approvedSkill.hourlyRate.lessThanOrEqualTo(0)) {
+          throw new ConflictException("Set an hourly rate for this skill in Profile → My Skills before sending an offer.");
         }
 
         // Compare-and-set the match before creating an offer. A stale or
@@ -2086,8 +2087,8 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         const response = await tx.providerResponse.create({
           data: {
             requestId, providerId, message: input.message?.trim() || null, status: "OFFERED",
-            hourlyRateAtOffer: provider.providerProfile.hourlyRate,
-            assessmentFeeAtOffer: provider.providerProfile.assessmentFee,
+            hourlyRateAtOffer: approvedSkill.hourlyRate,
+            assessmentFeeAtOffer: provider.providerProfile?.assessmentFee ?? 0,
           },
           select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true },
         });

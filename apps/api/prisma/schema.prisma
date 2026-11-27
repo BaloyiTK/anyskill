@@ -324,6 +324,7 @@ model ProviderSkill {
   id             String             @id @default(uuid()) @db.Uuid
   userId         String             @db.Uuid @map("user_id")
   category       String             @db.VarChar(100)
+  hourlyRate     Decimal?           @map("hourly_rate") @db.Decimal(10, 2)
   details        Json?
   status         ProviderSkillStatus @default(PENDING)
   isPaused       Boolean            @default(false) @map("is_paused")

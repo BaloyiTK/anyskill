@@ -46,6 +46,10 @@ export class OnboardingService {
       if (!skill || typeof skill !== "object" || Array.isArray(skill)) throw new BadRequestException("Each skill must be an object.");
       const item = skill as Record<string, unknown>;
       if (typeof item.category !== "string" || item.category.trim().length < 2 || item.category.length > 100) throw new BadRequestException("Each skill needs a valid category.");
+      if (item.hourlyRate !== undefined && item.hourlyRate !== null && item.hourlyRate !== "") {
+        const rate = Number(item.hourlyRate);
+        if (!Number.isFinite(rate) || rate <= 0 || rate > 1000000 || !/^\\d+(\\.\\d{1,2})?$/.test(String(item.hourlyRate))) throw new BadRequestException("Each skill needs a valid hourly rate greater than R0, with up to two decimal places.");
+      }
       if (item.description !== undefined && (typeof item.description !== "string" || item.description.length > 2000)) throw new BadRequestException("Skill descriptions must be 2,000 characters or fewer.");
       if (item.yearsOfExperience !== undefined && !(typeof item.yearsOfExperience === "string" || (typeof item.yearsOfExperience === "number" && Number.isFinite(item.yearsOfExperience)))) throw new BadRequestException("Years of experience must be text or a number.");
       if (item.licencesQualifications !== undefined && (!Array.isArray(item.licencesQualifications) || item.licencesQualifications.length > 20)) throw new BadRequestException("Each skill can have up to 20 licences or qualifications.");
@@ -123,7 +127,7 @@ export class OnboardingService {
       const details = skill.details && typeof skill.details === "object" && !Array.isArray(skill.details)
         ? skill.details as Record<string, unknown>
         : {};
-      return { ...details, category: typeof details.category === "string" && details.category.trim() ? details.category : skill.category };
+      return { ...details, category: typeof details.category === "string" && details.category.trim() ? details.category : skill.category, hourlyRate: details.hourlyRate ?? (skill.hourlyRate == null ? "" : String(skill.hourlyRate)) };
     });
     const draftCategories = new Set(draftSkills.map((skill: any) => String(skill?.category ?? "").trim().toLocaleLowerCase("en-ZA")).filter(Boolean));
     const skills: unknown[] = [
@@ -177,11 +181,12 @@ export class OnboardingService {
         // Pause state is independent of approval and is stored on the authoritative skill record.
         for (const skill of input.skills as Array<Record<string, unknown>>) {
           const category = typeof skill.category === "string" ? skill.category.trim().toLocaleLowerCase("en-ZA") : "";
-          if (!category || typeof skill.isPaused !== "boolean") continue;
-          await tx.providerSkill.updateMany({
-            where: { userId, category },
-            data: { isPaused: skill.isPaused },
-          });
+          if (!category) continue;
+          const update: Prisma.ProviderSkillUpdateManyMutationInput = {
+            ...(typeof skill.isPaused === "boolean" ? { isPaused: skill.isPaused } : {}),
+            ...(skill.hourlyRate !== undefined ? { hourlyRate: skill.hourlyRate === null || skill.hourlyRate === "" ? null : new Prisma.Decimal(String(skill.hourlyRate)) } : {}),
+          };
+          if (Object.keys(update).length) await tx.providerSkill.updateMany({ where: { userId, category }, data: update });
         }
         const activeApprovedSkills = await tx.providerSkill.findMany({
           where: { userId, status: "APPROVED", isPaused: false },
@@ -263,6 +268,12 @@ export class OnboardingService {
     // draft. Provider access remains pending until a reviewer approves it.
     const submittedAt = new Date();
     const wantsProvider = requestedRoles.has("PROVIDER");
+    if (wantsProvider && skillDetails.some((skill) => {
+      const rate = Number(skill.hourlyRate);
+      return !Number.isFinite(rate) || rate <= 0 || rate > 1000000 || !/^\\d+(\\.\\d{1,2})?$/.test(String(skill.hourlyRate ?? ""));
+    })) {
+      throw new BadRequestException("Set a valid hourly rate for every skill before submitting your Provider application.");
+    }
     await this.prisma.$transaction(async (tx) => {
       // Atomically claim the first submission so concurrent submit calls
       // cannot send duplicate welcome emails. Later submissions still refresh
@@ -311,17 +322,21 @@ export class OnboardingService {
             where: { userId_category: { userId, category } },
             select: { status: true, details: true },
           });
+          const hourlyRate = new Prisma.Decimal(String(skill.hourlyRate));
           const reviewDetails = JSON.parse(JSON.stringify(skill)) as Record<string, unknown>;
           delete reviewDetails.isPaused;
+          delete reviewDetails.hourlyRate;
           if (!existingSkill) {
             await tx.providerSkill.create({
-              data: { userId, category, details: reviewDetails as Prisma.InputJsonValue },
+              data: { userId, category, hourlyRate, details: reviewDetails as Prisma.InputJsonValue },
             });
             submittedSkillCategories.push(category);
             continue;
           }
+          await tx.providerSkill.update({ where: { userId_category: { userId, category } }, data: { hourlyRate } });
           const existingReviewDetails = JSON.parse(JSON.stringify(existingSkill.details ?? {})) as Record<string, unknown>;
           delete existingReviewDetails.isPaused;
+          delete existingReviewDetails.hourlyRate;
           const detailsChanged = JSON.stringify(existingReviewDetails) !== JSON.stringify(reviewDetails);
           if (existingSkill.status === "REJECTED" || (existingSkill.status === "APPROVED" && detailsChanged)) {
             await tx.providerSkill.update({
@@ -339,7 +354,7 @@ export class OnboardingService {
           } else if (existingSkill.status === "PENDING") {
             await tx.providerSkill.update({
               where: { userId_category: { userId, category } },
-              data: { details: reviewDetails as Prisma.InputJsonValue, submittedAt },
+              data: { details: reviewDetails as Prisma.InputJsonValue, hourlyRate, submittedAt },
             });
           }
         }
