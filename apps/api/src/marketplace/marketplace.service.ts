@@ -952,7 +952,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.$transaction(async (tx) => {
       const job = await tx.jobEngagement.findUnique({
         where: { requestId },
-        select: { id: true, providerId: true, seekerId: true, status: true, providerArrivedAt: true, seekerArrivalConfirmedAt: true, assessmentStartedAt: true, request: { select: { title: true } } },
+        select: { id: true, providerId: true, seekerId: true, status: true, providerArrivedAt: true, seekerArrivalConfirmedAt: true, assessmentStartedAt: true, assessmentRequired: true, request: { select: { title: true } } },
       });
       if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
       if (job.assessmentRequired === false) throw new ConflictException("This offer does not require an assessment. Start the agreed work after the Seeker confirms your arrival.");
