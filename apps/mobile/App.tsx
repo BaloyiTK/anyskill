@@ -70,7 +70,7 @@ async function configureIncomingRequestNotifications() {
   }
 }
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding" | "profile-check";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding" | "profile-check" | "service-check";
 type UserMode = "seeker" | "provider";
 type AppTab = "home" | "activities" | "notifications" | "account";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
@@ -254,35 +254,45 @@ export default function App() {
       return;
     }
 
-    // Authentication must restore an active service workspace, not always
-    // route returning users to Home. Read persisted engagement state from the API.
+    // Restore the active marketplace workspace before showing Home. An OPEN
+    // Seeker request remains active while Providers are being matched and while
+    // offers await the Seeker's decision; it does not need a JobEngagement yet.
+    setScreen("service-check");
     try {
       const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
       const activeMode = (roles.activeMode ?? initialMode ?? account?.initialMode ?? "SEEKER").toLowerCase();
       if (activeMode === "provider") {
         const jobs = await apiRequest<Array<{ status: string }>>("/marketplace/my-jobs", {}, true);
-        const hasActiveJob = jobs.some((job) =>
-          ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(job.status),
-        );
-        if (hasActiveJob) {
+        const activeStatuses = ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"];
+        if (jobs.some((job) => activeStatuses.includes(job.status))) {
           setMode("provider");
           setScreen("marketplace");
           return;
         }
       } else {
-        const requests = await apiRequest<Array<{ jobEngagement?: { status?: string } | null }>>("/marketplace/my-requests", {}, true);
-        const hasActiveJourney = requests.some((request) =>
-          !!request.jobEngagement
-          && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(request.jobEngagement.status ?? ""),
+        const requests = await apiRequest<Array<{
+          status: string;
+          jobEngagement?: { status?: string } | null;
+          providerResponses?: Array<{ status: string }>;
+        }>>("/marketplace/my-requests", {}, true);
+        const activeStatuses = ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"];
+        const hasActiveRequest = requests.some((request) =>
+          request.status === "OPEN"
+          || (request.jobEngagement != null && activeStatuses.includes(request.jobEngagement.status ?? "")),
         );
-        if (hasActiveJourney) {
+        if (hasActiveRequest) {
           setMode("seeker");
           setScreen("marketplace");
           return;
         }
       }
     } catch (e) {
+      // A failed lookup is not an empty request list. Keep the user on a
+      // dedicated retry screen so they cannot accidentally create a duplicate.
       console.warn("[AnySkill marketplace] Could not restore active service on startup.", e);
+      setError(e instanceof Error ? e.message : "We could not check your active service request. Please try again.");
+      setScreen("service-check");
+      return;
     }
     setScreen("dashboard");
   };
@@ -1277,6 +1287,25 @@ export default function App() {
               catch (e) { setError(e instanceof Error ? e.message : "Could not reload your account. Please try again."); }
               finally { setBusy(false); }
             }} disabled={busy} />
+            <Secondary label="Sign out" onPress={() => { void logout(); }} />
+          </View>}
+
+          {screen === "service-check" && <View style={s.form}>
+            <Text style={s.kicker}>SERVICE RESTORATION</Text>
+            <Text style={s.formTitle}>Checking your active service request</Text>
+            <Text style={s.subtitle}>{error || "Please wait while AnySkill restores your existing request or active job."}</Text>
+            {error ? <Primary label={busy ? "Please wait..." : "Retry loading request"} onPress={async () => {
+              feedback(); setBusy(true);
+              try {
+                await routeAfterAuthentication(
+                  account?.initialMode,
+                  account?.seekerRoleStatus === "ACTIVE" || account?.providerRoleStatus === "ACTIVE",
+                );
+              } catch (e) {
+                setError(e instanceof Error ? e.message : "Could not restore your active service. Please try again.");
+                setScreen("service-check");
+              } finally { setBusy(false); }
+            }} disabled={busy} /> : <ActivityIndicator color={C.primary} />}
             <Secondary label="Sign out" onPress={() => { void logout(); }} />
           </View>}
 
