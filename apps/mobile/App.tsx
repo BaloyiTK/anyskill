@@ -1275,16 +1275,14 @@ export default function App() {
     return (
       <SafeAreaProvider>
         <SafeAreaView style={s.startupScreen}>
-          <StatusBar barStyle="light-content" backgroundColor="#0B2545" />
+          <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
           <Image
             source={require("./assets/branding/anyskill-logo.png")}
             style={s.startupLogo}
             resizeMode="contain"
-            tintColor="#FFFFFF"
-            accessibilityLabel="AnySkill"
+            accessibilityLabel="AnySkill logo"
           />
-          <ActivityIndicator size="large" color="#FFFFFF" style={s.startupSpinner} />
-          <Text style={s.startupStatus}>Checking account status…</Text>
+          <ActivityIndicator size="large" color="#0077C8" style={s.startupSpinner} />
         </SafeAreaView>
       </SafeAreaProvider>
     );
@@ -1804,10 +1802,9 @@ function ModeCard(p: { title: string; description: string; selected: boolean; on
 
 const s = StyleSheet.create({
   flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
-  startupScreen: { flex: 1, backgroundColor: "#0B2545", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
-  startupLogo: { width: 230, height: 90 },
-  startupSpinner: { marginTop: 34 },
-  startupStatus: { color: "#FFFFFF", fontSize: 14, fontWeight: "700", letterSpacing: 0.3, marginTop: 16 },
+  startupScreen: { flex: 1, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
+  startupLogo: { width: 280, height: 280 },
+  startupSpinner: { marginTop: -4 },
   content: { flexGrow: 1, paddingHorizontal: 10, paddingTop: 0, paddingBottom: 32 },
   brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20, paddingTop: 14, paddingLeft: 12, paddingRight: 12 },
   brandLogo: { width: 150, height: 52, alignSelf: "flex-start" },
