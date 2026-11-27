@@ -506,7 +506,8 @@ export function ProviderJobScreen(p: Props) {
     setNotice(wasCancelled
       ? "The Skill Seeker cancelled the entire service request. You are back at Provider Home and ready for the next request."
       : "The Skill Seeker declined your offer. You are back at Provider Home and ready for the next request.");
-  }, [p.mode, providerOfferReview, requests]);
+    p.onBack();
+  }, [p.mode, providerOfferReview, requests, p.onBack]);
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerSelectionWatch) return;
@@ -1314,6 +1315,7 @@ export function ProviderJobScreen(p: Props) {
             setJourneyScreen(null);
             await loadMyRequests();
             setNotice("Service cancelled. You can now match with another Provider.");
+            p.onBack();
           })
           .catch((e) => setError(e instanceof Error ? e.message : "Could not cancel this service."));
       } },

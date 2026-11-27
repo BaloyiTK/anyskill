@@ -300,8 +300,9 @@ export default function App() {
         const jobs = await apiRequest<Array<{ status: string }>>("/marketplace/my-jobs", {}, true);
         const activeStatuses = ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"];
         if (jobs.some((job) => activeStatuses.includes(job.status))) {
+          // Restore to Home; Activities is opened only by an explicit Provider tab tap.
           setMode("provider");
-          setActiveTab("activities");
+          setActiveTab("home");
           setScreen("dashboard");
           return;
         }
@@ -1569,8 +1570,8 @@ export default function App() {
         verified={verified}
         pendingRequestId={pendingAcceptRequestId}
         onModeChange={(nextMode) => { void switchMarketplaceMode(nextMode); }}
-        onBack={() => { setActiveTab("activities"); setScreen("dashboard"); }}
-        onProviderJobCompleted={() => { setActiveTab("activities"); setScreen("dashboard"); }}
+        onBack={() => { setActiveTab("home"); setScreen("dashboard"); feedback(); }}
+        onProviderJobCompleted={() => { setActiveTab("home"); setScreen("dashboard"); feedback(); }}
         onIdentityRequired={(requestId) => { setPendingAcceptRequestId(requestId); setScreen("dashboard"); }}
         onStartVerification={() => { void startIdentityVerification(); }}
         initialProviderJobId={pendingProviderJobId}
