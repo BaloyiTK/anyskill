@@ -1501,6 +1501,10 @@ export default function App() {
         pendingRequestId={pendingAcceptRequestId}
         onModeChange={(nextMode) => { void switchMarketplaceMode(nextMode); }}
         onBack={() => setScreen("dashboard")}
+        onProviderJobCompleted={() => {
+          setActiveTab("home");
+          setScreen("dashboard");
+        }}
         onIdentityRequired={(requestId) => {
           setPendingAcceptRequestId(requestId);
           setMessage("Identity verification is required before you can accept this request. Your request has been saved so you can return to it after approval.");
