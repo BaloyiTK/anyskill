@@ -7,7 +7,7 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MarketplaceAccessGuard, RequireIdentityFor } from "../identity/marketplace-access.guard";
 import { MarketplaceRoleGuard, RequireMarketplaceRole } from "./marketplace-role.guard";
 import {
-  CreateServiceRequestDto,
+  CreateServiceRequestDto, RespondToRequestDto,
   UpdateHomeLocationDto, UpdateLiveLocationDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
@@ -116,8 +116,9 @@ export class MarketplaceController {
   acceptRequest(
     @CurrentUser() user: AuthenticatedUser,
     @Param("requestId", new ParseUUIDPipe()) requestId: string,
+    @Body() dto: RespondToRequestDto,
   ) {
-    return this.marketplace.respondToRequest(user.id, requestId);
+    return this.marketplace.respondToRequest(user.id, requestId, dto);
   }
 
 

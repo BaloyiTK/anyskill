@@ -15,7 +15,7 @@ import { PrismaService } from "../database/prisma.service";
 import { MailService } from "../mail/mail.service";
 import { LiveProviderMapService } from "./live-provider-map.service";
 import {
-  CreateServiceRequestDto,
+  CreateServiceRequestDto, RespondToRequestDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
   SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, OpenJobDisputeDto, PostJobDisputeMessageDto, ResolveJobDisputeDto,
@@ -2000,7 +2000,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { success: true, requestId, status: "DECLINED", matching };
   }
 
-  async respondToRequest(providerId: string, requestId: string) {
+  async respondToRequest(providerId: string, requestId: string, input: RespondToRequestDto = {}) {
     try {
       return await this.prisma.$transaction(async (tx) => {
         // Serialize acceptance with cancellation and Seeker selection. Those
@@ -2106,12 +2106,18 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         if (claimed.count !== 1) {
           throw new ConflictException("This incoming request is no longer awaiting your response. Refresh and try again.");
         }
-        // The Provider's approved skill rate and assessment fee are configured
-        // in the database. A configured assessment fee means this offer follows
-        // the assessment/estimate journey; a zero fee uses the one-hour
-        // no-assessment journey. The client supplies no pricing or offer data.
-        const assessmentFee = Number(provider.providerProfile?.assessmentFee ?? 0);
-        const assessmentRequired = assessmentFee > 0;
+        // Assessment need and assessment price are separate Provider decisions.
+        // A zero-fee assessment is still a full assessment/estimate journey.
+        // Older clients that omit these fields default to assessment required
+        // and retain the Provider's configured profile fee.
+        const assessmentRequired = input.assessmentRequired ?? true;
+        const configuredAssessmentFee = Number(provider.providerProfile?.assessmentFee ?? 0);
+        const assessmentFee = assessmentRequired
+          ? input.assessmentFee ?? configuredAssessmentFee
+          : 0;
+        if (!Number.isFinite(assessmentFee) || assessmentFee < 0 || assessmentFee > 1000000) {
+          throw new BadRequestException("Enter a valid assessment fee of R0 or more.");
+        }
         const response = await tx.providerResponse.create({
           data: {
             requestId,
@@ -2119,7 +2125,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             message: null,
             status: "OFFERED",
             hourlyRateAtOffer: approvedSkill.hourlyRate,
-            assessmentFeeAtOffer: assessmentRequired ? assessmentFee : 0,
+            assessmentFeeAtOffer: assessmentFee,
             assessmentRequiredAtOffer: assessmentRequired,
           },
           select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, assessmentRequiredAtOffer: true, createdAt: true },

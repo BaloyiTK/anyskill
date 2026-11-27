@@ -3,6 +3,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsDateString,
+  IsBoolean,
   IsIn,
   IsOptional,
   IsString,
@@ -66,6 +67,18 @@ export class CreateServiceRequestDto {
   @IsString()
   @MaxLength(2000)
   instructions?: string;
+}
+
+export class RespondToRequestDto {
+  @IsOptional()
+  @IsBoolean()
+  assessmentRequired?: boolean;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1000000)
+  assessmentFee?: number;
 }
 
 export class ScheduleServiceRequestDto {
