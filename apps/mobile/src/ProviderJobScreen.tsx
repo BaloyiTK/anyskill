@@ -1239,6 +1239,32 @@ export function ProviderJobScreen(p: Props) {
     }
   };
 
+  const startAssessment = async (requestId: string) => {
+    if (jobActionBusy) return;
+    setJobActionBusy(true); setError(""); setNotice("");
+    try {
+      const result = await apiRequest<{success:boolean;requestId:string;assessmentStartedAt:string}>(
+        "/marketplace/requests/" + requestId + "/assessment/start",
+        { method: "POST" },
+        true,
+      );
+      if (!result.success || result.requestId !== requestId || !result.assessmentStartedAt) {
+        throw new Error("AnySkill did not confirm that the assessment has started. Refresh the service and try again.");
+      }
+      setMyJobs((jobs) => jobs.map((job) => job.request.id === requestId
+        ? { ...job, assessmentStartedAt: result.assessmentStartedAt }
+        : job));
+      setAssessmentDraftSaveStatus("Not saved yet");
+      setAssessmentDraftAutosaveEnabled(true);
+      setNotice("Assessment started. Record your findings and estimated hours below.");
+      await loadMyJobs();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not start the assessment.");
+    } finally {
+      setJobActionBusy(false);
+    }
+  };
+
   const confirmProviderArrival = async (requestId: string) => {
     if (jobActionBusy) return;
     setJobActionBusy(true); setError(""); setNotice("");
@@ -1862,6 +1888,9 @@ export function ProviderJobScreen(p: Props) {
               <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900" }}>ASSESSMENT & APPROVAL</Text>
               <Text style={{ color: "#15251E", fontSize: 14, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? (job.assessmentCompletedAt ? "Assessment done · submit final estimate" : job.assessmentStartedAt ? "Assessment in progress" : job.providerArrivedAt && !job.seekerArrivalConfirmedAt ? "Waiting for Seeker to confirm arrival" : "Waiting to start assessment") : job.status === "ESTIMATE_SUBMITTED" ? "Estimate sent to the Seeker" : job.status === "ESTIMATE_REJECTED" ? "Revise the estimate" : "Seeker approved the estimate"}</Text>
               <Text style={{ color: "#40584B", fontSize: 11, lineHeight: 17, marginTop: 4 }}>{job.status === "ASSESSMENT_PENDING" ? (job.assessmentCompletedAt ? "Assessment is complete. Submit the final hours and price for the Seeker to approve before work starts." : job.assessmentStartedAt ? "You are assessing the requested work. Mark Assessment Done when finished." : job.providerArrivedAt && !job.seekerArrivalConfirmedAt ? "The Provider has reported arrival. Wait for the Seeker to confirm before starting the assessment." : "The Seeker must confirm your arrival before you can start the assessment.") : job.status === "ESTIMATE_SUBMITTED" ? "Wait for the Seeker's decision. Main work remains locked until approval." : job.status === "ESTIMATE_REJECTED" ? "Review the Seeker's feedback and submit a revised estimate." : "You may start only the work covered by the approved estimate."}</Text>
+              {job.status === "ASSESSMENT_PENDING" && job.assessmentRequired !== false && !job.assessmentStartedAt && job.providerArrivedAt && job.seekerArrivalConfirmedAt ? <Pressable onPress={() => void startAssessment(job.request.id)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 12, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 14, opacity: jobActionBusy ? 0.55 : 1 }}>
+                {jobActionBusy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 14 }}>Start Assessment</Text>}
+              </Pressable> : null}
               {(job.status === "ASSESSMENT_PENDING" && !!job.assessmentStartedAt) || job.status === "ESTIMATE_REJECTED" ? <>
                 <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>Estimated work hours</Text>
                 <TextInput value={estimateHours} onChangeText={setEstimateHours} keyboardType="decimal-pad" placeholder="e.g. 2" style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 11, minHeight: 48, paddingHorizontal: 12, color: "#15251E", marginTop: 6 }} />
