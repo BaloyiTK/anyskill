@@ -12,7 +12,7 @@ import {
   AccountSummary, apiRequest, clearTokens, IdentitySummary, saveTokens, signOut,
   AppNotification, fetchNotifications, markNotificationRead,
 } from "./src/api";
-import { MarketplaceScreen } from "./src/MarketplaceScreen";
+import { ProviderJobScreen } from "./src/ProviderJobScreen";
 import { IncomingRequestScreen } from "./src/IncomingRequestScreen";
 import { ProviderHomeScreen } from "./src/ProviderHomeScreen";
 import { ProviderActivitiesScreen } from "./src/ProviderActivitiesScreen";
@@ -70,7 +70,7 @@ async function configureIncomingRequestNotifications() {
   }
 }
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "provider-job" | "onboarding" | "profile-check" | "service-check";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "provider-job" | "onboarding" | "profile-check" | "service-check";
 type UserMode = "seeker" | "provider";
 type AppTab = "home" | "activities" | "notifications" | "account";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
@@ -318,7 +318,7 @@ export default function App() {
         );
         if (hasActiveRequest) {
           setMode("seeker");
-          setScreen("marketplace");
+          setScreen("dashboard");
           return;
         }
       }
@@ -530,8 +530,8 @@ export default function App() {
     if (!requestId) return;
     setActiveTab("home");
     autoSwitchMarketplaceMode("seeker");
-    setScreen("marketplace");
-    setMessage("A Provider has accepted your request and sent an offer. Review the offer in AnySkill.");
+    setScreen("dashboard");
+    setMessage("A Provider has sent an offer. Check your Seeker activities for the update.");
   };
 
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
@@ -561,7 +561,7 @@ export default function App() {
     if (typeof data.requestId === "string" && data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
       setActiveTab("home");
       autoSwitchMarketplaceMode("seeker");
-      setScreen("marketplace");
+      setScreen("dashboard");
       setMessage("Your Provider cancelled the service. Find another Provider to continue.");
       return;
     }
@@ -673,7 +673,7 @@ export default function App() {
         return;
       }
       if (data.type === "SERVICE_CANCELLED_BY_PROVIDER") {
-        setActiveTab("home"); autoSwitchMarketplaceMode("seeker"); setScreen("marketplace");
+        setActiveTab("home"); autoSwitchMarketplaceMode("seeker"); setScreen("dashboard");
         setMessage("Your Provider cancelled the service. Find another Provider to continue.");
         return;
       }
@@ -1546,7 +1546,7 @@ export default function App() {
             onComplete={async () => { await navigateHome(); }}
           />}
 
-          {screen === "marketplace" && account && mode === "seeker" && <MarketplaceScreen
+          {false && screen === "dashboard" && account && mode === "seeker" && <ProviderJobScreen
         platformHeader={platformHeader}
         mode={mode}
         verified={verified}
@@ -1567,7 +1567,7 @@ export default function App() {
         onProviderJobOpened={() => setPendingProviderJobId(null)}
       />}
 
-      {screen === "provider-job" && account && mode === "provider" && <MarketplaceScreen
+      {screen === "provider-job" && account && mode === "provider" && <ProviderJobScreen
         platformHeader={platformHeader}
         mode="provider"
         verified={verified}
@@ -1614,7 +1614,7 @@ export default function App() {
             setMessage("Activate your Seeker role to request services. Your existing role remains unchanged.");
           } else if (profileComplete && verified) {
             void switchMarketplaceMode("seeker");
-            setScreen("marketplace");
+            setScreen("dashboard");
           } else {
             setScreen("onboarding");
           }

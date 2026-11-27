@@ -86,7 +86,7 @@ function formatWorkDuration(milliseconds: number) {
   return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
 }
 
-export function MarketplaceScreen(p: Props) {
+export function ProviderJobScreen(p: Props) {
   const insets = useSafeAreaInsets();
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [myRequests, setMyRequests] = useState<SeekerRequest[]>([]);
@@ -1836,7 +1836,7 @@ export function MarketplaceScreen(p: Props) {
           {jobActionBusy ? <ActivityIndicator color="#B42318" /> : <Text style={{ color: "#B42318", fontWeight: "900" }}>Withdraw my offer</Text>}
         </Pressable> : null}
         <Pressable onPress={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }} style={{ borderWidth: 1, borderColor: "#D5E1D9", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 22, backgroundColor: "#FFFFFF" }}>
-          <Text style={{ color: "#176B55", fontWeight: "900" }}>Back to marketplace</Text>
+          <Text style={{ color: "#176B55", fontWeight: "900" }}>Back to Provider Activities</Text>
         </Pressable>
       </View>
     </Modal>
