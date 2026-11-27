@@ -4,7 +4,7 @@ import { exchangeCodeAsync, ResponseType } from "expo-auth-session";
 import { useAuthRequest } from "expo-auth-session/providers/google";
 import * as Notifications from "expo-notifications";
 import {
-  ActivityIndicator, Image, KeyboardAvoidingView, Linking, Platform, Pressable,
+  ActivityIndicator, Animated, Easing, Image, KeyboardAvoidingView, Linking, Platform, Pressable,
   ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -103,6 +103,40 @@ const C = {
   primary: "#176B55", border: "#E1E8E3", soft: "#E8F4ED",
   warning: "#FFF6E4", warningInk: "#78551A", danger: "#A12D2D",
 };
+
+function StartupLoader() {
+  const rotation = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.timing(rotation, {
+        toValue: 1,
+        duration: 900,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [rotation]);
+
+  return (
+    <Animated.View
+      accessibilityLabel="Loading"
+      style={[
+        s.startupSpinner,
+        {
+          transform: [{
+            rotate: rotation.interpolate({
+              inputRange: [0, 1],
+              outputRange: ["0deg", "360deg"],
+            }),
+          }],
+        },
+      ]}
+    />
+  );
+}
 
 export default function App() {
   const [startupChecking, setStartupChecking] = useState(true);
@@ -1282,7 +1316,7 @@ export default function App() {
             resizeMode="contain"
             accessibilityLabel="AnySkill logo"
           />
-          <ActivityIndicator size="large" color="#0077C8" style={s.startupSpinner} />
+          <StartupLoader />
         </SafeAreaView>
       </SafeAreaProvider>
     );
@@ -1804,7 +1838,7 @@ const s = StyleSheet.create({
   flex: { flex: 1 }, safe: { flex: 1, backgroundColor: C.bg },
   startupScreen: { flex: 1, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
   startupLogo: { width: 280, height: 280 },
-  startupSpinner: { marginTop: -4 },
+  startupSpinner: { width: 28, height: 28, marginTop: -4, borderWidth: 3, borderRadius: 14, borderColor: "#0077C8", borderTopColor: "transparent" },
   content: { flexGrow: 1, paddingHorizontal: 10, paddingTop: 0, paddingBottom: 32 },
   brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 20, paddingTop: 14, paddingLeft: 12, paddingRight: 12 },
   brandLogo: { width: 150, height: 52, alignSelf: "flex-start" },
