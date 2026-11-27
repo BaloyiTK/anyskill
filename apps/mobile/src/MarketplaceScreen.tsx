@@ -167,7 +167,6 @@ export function MarketplaceScreen(p: Props) {
   const [error, setError] = useState("");
   const [verificationPrompt, setVerificationPrompt] = useState(false);
   const [providerPublicName, setProviderPublicName] = useState("");
-  const [providerHourlyRate, setProviderHourlyRate] = useState("");
   const [providerAssessmentFee, setProviderAssessmentFee] = useState("0");
   const [providerSkills, setProviderSkills] = useState("");
   const [providerAreas, setProviderAreas] = useState("");
@@ -1112,12 +1111,11 @@ export function MarketplaceScreen(p: Props) {
     setProviderProfileLoaded(false);
     try {
       const profile = await apiRequest<{
-        publicName: string; hourlyRate: string | number | null; assessmentFee: string | number;
+        publicName: string; assessmentFee: string | number;
         skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable: boolean;
       } | null>("/marketplace/provider-profile", {}, true);
       if (profile) {
         setProviderPublicName(profile.publicName || "");
-        setProviderHourlyRate(profile.hourlyRate == null ? "" : String(profile.hourlyRate));
         setProviderAssessmentFee(String(profile.assessmentFee ?? 0));
         setProviderSkills(profile.skillCategories.join(", "));
         setProviderAreas(profile.serviceAreas.join(", "));
@@ -1592,7 +1590,6 @@ export function MarketplaceScreen(p: Props) {
 
       const profilePayload = {
         publicName: providerPublicName.trim(),
-        hourlyRate: Number(providerHourlyRate),
         assessmentFee: Number(providerAssessmentFee),
         skillCategories: providerSkills.split(",").map((v) => v.trim()).filter(Boolean),
         serviceAreas: providerAreas.split(",").map((v) => v.trim()).filter(Boolean),
@@ -1750,11 +1747,9 @@ export function MarketplaceScreen(p: Props) {
         <Text style={s.helper}>Tell AnySkill what work you do and where you can do it. Matching uses these details and your availability. Live GPS is used only while Available for on-site matching.</Text>
         <Text style={s.label}>Public Provider name</Text>
         <TextInput value={providerPublicName} onChangeText={setProviderPublicName} placeholder="e.g. Tiyani's Plumbing Services" style={s.input} />
-        <Text style={s.label}>Hourly rate (ZAR)</Text>
-        <TextInput value={providerHourlyRate} onChangeText={setProviderHourlyRate} placeholder="e.g. 350.00" keyboardType="decimal-pad" style={s.input} />
         <Text style={s.label}>Assessment / call-out fee (ZAR)</Text>
         <TextInput value={providerAssessmentFee} onChangeText={setProviderAssessmentFee} placeholder="0.00" keyboardType="decimal-pad" style={s.input} />
-        <Text style={s.helper}>The Seeker sees these charges before choosing you. Your hourly rate and assessment fee are saved with each offer, so later profile edits do not change an existing offer.</Text>
+        <Text style={s.helper}>Your hourly rate is configured separately for each skill under Profile → My Skills. The assessment fee is saved with each offer.</Text>
         <Text style={s.label}>Skill categories (comma-separated)</Text>
         <TextInput value={providerSkills} onChangeText={setProviderSkills} placeholder="e.g. Plumbing, Electrical, Painting" style={s.input} />
         <Text style={s.label}>Service areas (comma-separated)</Text>
@@ -1765,7 +1760,7 @@ export function MarketplaceScreen(p: Props) {
         <Pressable onPress={() => setProviderAvailable((value) => !value)} style={s.availability}>
           <Text style={s.availabilityText}>{providerAvailable ? "● Available for matching" : "○ Not available for matching"}</Text>
         </Pressable>
-        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim() || providerPublicName.trim().length < 2 || !(Number(providerHourlyRate) > 0) || !Number.isFinite(Number(providerAssessmentFee)) || Number(providerAssessmentFee) < 0} />
+        <Primary label="Save Provider profile" onPress={saveProviderProfile} disabled={savingProfile || !providerProfileLoaded || !providerSkills.trim() || providerPublicName.trim().length < 2 || !Number.isFinite(Number(providerAssessmentFee)) || Number(providerAssessmentFee) < 0} />
         <Text style={s.section}>Selected jobs and assessments</Text>
         <Secondary label="Refresh selected jobs" onPress={() => void loadMyJobs()} />
         {myJobs.map((job) => <View key={job.id} style={s.card}>

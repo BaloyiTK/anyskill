@@ -5,7 +5,8 @@ import { getInitialProviderLocation, startProviderLocationUpdates, stopProviderL
 
 type ProviderProfile = {
   publicName: string;
-  hourlyRate: string | number | null;
+  hourlyRate?: string | number | null;
+  skillRates?: Array<{ category: string; hourlyRate: string | number | null }>;
   assessmentFee: string | number;
   skillCategories: string[];
   serviceAreas: string[];
@@ -162,7 +163,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
       const firstFix = next ? await getInitialProviderLocation() : null;
       const profilePayload = {
         publicName: profile.publicName,
-        hourlyRate: Number(profile.hourlyRate),
+        ...(profile.hourlyRate == null ? {} : { hourlyRate: Number(profile.hourlyRate) }),
         assessmentFee: Number(profile.assessmentFee),
         skillCategories: profile.skillCategories,
         serviceAreas: profile.serviceAreas,
@@ -213,7 +214,8 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
   // The API returns only approved, unpaused skills. Never fall back to draft skills here.
   const activeSkills = profile?.skillCategories ?? [];
-  const canToggle = Boolean(profile && Number(profile.hourlyRate) >= 1 && (profile.isAvailable || activeSkills.length > 0));
+  const hasPricedActiveSkill = activeSkills.some((category) => (profile?.skillRates ?? []).some((skill) => skill.category.trim().toLowerCase() === category.trim().toLowerCase() && Number(skill.hourlyRate) >= 1));
+  const canToggle = Boolean(profile && (profile.isAvailable || hasPricedActiveSkill));
   const isOnline = Boolean(profile?.isAvailable);
 
   return (
@@ -272,7 +274,7 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
             <Text style={styles.setupText}>
               {!profile
                 ? "Complete your Provider service profile before going online."
-                : "Add a valid hourly rate (at least R1.00) before going online."}
+                : "Set an hourly rate for every active skill under Profile → My Skills before going online."}
             </Text>
             <Pressable accessibilityRole="button" onPress={onManageProfile} style={styles.setupLink}>
               <Text style={styles.setupLinkText}>Complete service profile</Text>

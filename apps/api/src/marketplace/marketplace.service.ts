@@ -239,7 +239,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const requestedSkillCategories = [...new Set(input.skillCategories.map(normalise).filter(Boolean))];
     const approvedSkillsForProfile = await this.prisma.providerSkill.findMany({
       where: { userId, status: "APPROVED", isPaused: false },
-      select: { category: true },
+      select: { category: true, hourlyRate: true },
     });
     const approvedCategoryMap = new Map(approvedSkillsForProfile.map((skill) => [normalise(skill.category), skill.category]));
     const skillCategories = requestedSkillCategories
@@ -249,6 +249,12 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     const deliveryModes = [...new Set(input.deliveryModes)];
     if (input.isAvailable && skillCategories.length === 0) {
       throw new ConflictException("Add at least one approved, active skill category before becoming available.");
+    }
+    if (input.isAvailable && skillCategories.some((category) => {
+      const skill = approvedSkillsForProfile.find((item) => normalise(item.category) === normalise(category));
+      return skill?.hourlyRate == null || Number(skill.hourlyRate) < 0.01;
+    })) {
+      throw new ConflictException("Set an hourly rate for every active skill under Profile → My Skills before going online.");
     }
     if (deliveryModes.length === 0) {
       throw new ConflictException("Choose at least one delivery mode.");
@@ -278,7 +284,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       create: {
         userId,
         publicName: input.publicName.trim(),
-        hourlyRate: input.hourlyRate,
+        hourlyRate: input.hourlyRate ?? null,
         assessmentFee: input.assessmentFee,
         skillCategories,
         serviceAreas,
@@ -289,7 +295,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       },
       update: {
         publicName: input.publicName.trim(),
-        hourlyRate: input.hourlyRate,
+        ...(input.hourlyRate != null ? { hourlyRate: input.hourlyRate } : {}),
         assessmentFee: input.assessmentFee,
         skillCategories,
         serviceAreas,
@@ -379,7 +385,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (!profile) return null;
     const approvedSkills = await this.prisma.providerSkill.findMany({
       where: { userId, status: "APPROVED", isPaused: false },
-      select: { category: true },
+      select: { category: true, hourlyRate: true },
     });
     const activeSkillCategories = approvedSkills.map((skill) => skill.category);
     const [overallGroups, skillGroups] = await Promise.all([
@@ -410,6 +416,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return {
       ...profile,
       skillCategories: activeSkillCategories,
+      skillRates: approvedSkills.map((skill) => ({ category: skill.category, hourlyRate: skill.hourlyRate })),
       ratings: {
         overall: overall == null ? 5 : Number(overall.toFixed(1)),
         overallReviewCount: overallCount,

@@ -87,10 +87,11 @@ export class UpdateProviderProfileDto {
   @MaxLength(80)
   publicName!: string;
 
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(1)
   @Max(1000000)
-  hourlyRate!: number;
+  hourlyRate?: number;
 
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
