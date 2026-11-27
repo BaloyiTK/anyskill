@@ -447,6 +447,7 @@ model JobEngagement {
   status                JobEngagementStatus @default(ASSESSMENT_PENDING)
   providerEnRouteAt     DateTime?           @map("provider_en_route_at")
   providerArrivedAt      DateTime?           @map("provider_arrived_at")
+  seekerArrivalConfirmedAt DateTime?         @map("seeker_arrival_confirmed_at")
   assessmentStartedAt    DateTime?           @map("assessment_started_at")
   assessmentCompletedAt  DateTime?           @map("assessment_completed_at")
   assessmentDraftHours   Decimal?            @map("assessment_draft_hours") @db.Decimal(8, 2)
