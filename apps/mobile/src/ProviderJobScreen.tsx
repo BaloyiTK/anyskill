@@ -164,7 +164,7 @@ export function ProviderJobScreen(p: Props) {
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
   const [busy, setBusy] = useState(false);
   const [seekerRequestsLoaded, setSeekerRequestsLoaded] = useState(false);
-  const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;createdAt:string;notified:number;wave:number;exhausted:boolean}|null>(null);
+  const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;deliveryMode:string;createdAt:string;notified:number;wave:number;exhausted:boolean}|null>(null);
   const [scheduleDateTime, setScheduleDateTime] = useState(() => new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 16));
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -245,6 +245,8 @@ export function ProviderJobScreen(p: Props) {
           location: activeJourney.location,
           latitude: activeJourney.latitude,
           longitude: activeJourney.longitude,
+          deliveryMode: activeJourney.deliveryMode,
+          assessmentRequired: engagement.assessmentRequired !== false,
           providerName: profile?.publicName ?? "Your selected Provider",
           providerSkills: profile?.skillCategories ?? [],
           phone: selectedOffer?.provider.phone ?? profile?.phone ?? null,
@@ -279,6 +281,7 @@ export function ProviderJobScreen(p: Props) {
       );
       setMatchingRequest(active ? {
         id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
+        deliveryMode: active.deliveryMode,
         createdAt: active.matchingStartedAt, notified: active._count?.matches ?? 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
       } : null);
     } catch (e) {
@@ -406,6 +409,8 @@ export function ProviderJobScreen(p: Props) {
                 location: activeJourney.location,
                 latitude: activeJourney.latitude,
                 longitude: activeJourney.longitude,
+                deliveryMode: activeJourney.deliveryMode,
+                assessmentRequired: engagement.assessmentRequired !== false,
                 providerName: profile?.publicName ?? "Your selected Provider",
                 providerSkills: profile?.skillCategories ?? [],
                 phone: selectedOffer?.provider.phone ?? profile?.phone ?? null,
