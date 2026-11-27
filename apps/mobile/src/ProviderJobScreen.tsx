@@ -166,7 +166,6 @@ export function ProviderJobScreen(p: Props) {
   const [error, setError] = useState("");
   const [verificationPrompt, setVerificationPrompt] = useState(false);
   const [providerAvailable, setProviderAvailable] = useState(false);
-  const [notifications, setNotifications] = useState<Array<{id:string;title:string;body:string;readAt:string|null;createdAt:string}>>([]);
 
   const searchSkills = useCallback(async (query: string) => {
     try {
@@ -1640,63 +1639,6 @@ export function ProviderJobScreen(p: Props) {
         <Text style={s.helper}>You can tap Publish service request at any time. If anything required is missing, AnySkill will explain what to complete. On-site and Either requests need a selected map location; Remote requests do not.</Text>
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
         </> : <>
-        <Text style={s.section}>Notifications</Text>
-        {notifications.slice(0,4).map((item) => <View key={item.id} style={s.notificationCard}>
-          <Text style={s.cardTitle}>{item.title}</Text><Text style={s.meta}>{item.body}</Text>
-        </View>)}
-        <Text style={s.section}>Incoming service requests</Text>
-        <Text style={s.helper}>A Skill Seeker has requested a service that matches your skills. Review the request and send an offer if you are available. Identity verification is required before your offer can be sent.</Text>
-        {!p.verified && <View style={s.notice}><Text style={s.noticeTitle}>You can explore available work</Text><Text style={s.noticeText}>When you tap Accept, AnySkill will ask you to verify your identity first. The request can be reopened after approval if it is still available.</Text></View>}
-        <Secondary label="Refresh requests" onPress={() => void loadRequests()} />
-        {busy && <ActivityIndicator style={{ marginTop: 16 }} color={C.primary} />}
-        {requests.map((request) => {
-          const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
-          const initials = seekerName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "S";
-          const mapLatitude = request.providerLocation?.latitude ?? request.latitude;
-          const mapLongitude = request.providerLocation?.longitude ?? request.longitude;
-          const hasJobPin = request.latitude != null && request.longitude != null;
-          const hasMapCenter = mapLatitude != null && mapLongitude != null;
-          return <View key={request.id} style={[s.card, request.id === p.pendingRequestId && s.highlight]}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 13 }}>
-              {request.seeker?.profilePhotoUrl
-                ? <Image source={{ uri: request.seeker.profilePhotoUrl }} style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: "#EAF3FF" }} />
-                : <View style={{ width: 58, height: 58, borderRadius: 29, backgroundColor: "#DCEBFA", alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#0B2545", fontSize: 19, fontWeight: "900" }}>{initials}</Text></View>}
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: C.ink, fontSize: 15, fontWeight: "900" }}>{seekerName}</Text>
-                <Text style={s.meta}>Skill Seeker · Requesting your help</Text>
-                <Text style={s.meta}>AnySkill rating: {(request.seeker.rating?.overall ?? 5).toFixed(1)} ★ {request.seeker.rating?.isRated ? "(" + request.seeker.rating.reviewCount + " reviews)" : "(new · not yet rated)"}</Text>
-                <Text style={{ color: request.seeker?.identityVerified ? "#1B5E20" : C.warningInk, fontSize: 11, fontWeight: "800", marginTop: 4 }}>
-                  {request.seeker?.identityVerified ? "✓ Identity verified" : "Identity not verified"}
-                </Text>
-              </View>
-            </View>
-            <Text style={s.cardTitle}>{request.title}</Text>
-            <Text style={s.meta}>{request.skillCategory} · {request.deliveryMode === "ONSITE" ? "On-site" : request.deliveryMode === "REMOTE" ? "Remote" : "On-site or remote"}</Text>
-            <Text style={s.body}>{request.description}</Text>
-            {request.instructions ? <View style={s.offerCard}><Text style={s.offerTitle}>Special notes</Text><Text style={s.body}>{request.instructions}</Text></View> : null}
-            {request.imageUrls?.length ? <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-              {request.imageUrls.slice(0, 4).map((uri, index) => <Image key={uri + index} source={{ uri }} style={{ width: 76, height: 76, borderRadius: 9, backgroundColor: "#E8EDF2" }} />)}
-            </View> : null}
-            <View style={{ backgroundColor: "#F1F6F2", borderRadius: 14, padding: 14, marginTop: 14 }}>
-              <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900", letterSpacing: 1 }}>SERVICE REQUEST DETAILS</Text>
-              {request.location ? <Text style={{ color: "#24352D", fontSize: 13, fontWeight: "700", marginTop: 8 }}>📍 Job area: {request.location}</Text> : null}
-              {request.preferredStartAt ? <Text style={{ color: "#66756D", fontSize: 12, marginTop: 7 }}>Preferred time: {new Date(request.preferredStartAt).toLocaleString()}</Text> : null}
-            </View>
-            {request.deliveryMode !== "REMOTE" && hasJobPin && hasMapCenter ? <>
-              <Text style={s.sectionSmall}>Your location and job location</Text>
-              <MapPinPicker latitude={mapLatitude!} longitude={mapLongitude!} selectedLatitude={request.latitude} selectedLongitude={request.longitude} onSelect={() => undefined} readOnly showCenterMarker={!!request.providerLocation} />
-              <Text style={s.meta}>{request.providerLocation ? "Blue dot: your current location · Pin: Seeker's job location" : "Your live location is unavailable. Showing the job pin only."}</Text>
-              <Text style={{ color: C.primary, fontWeight: "900", fontSize: 14, marginTop: 5 }}>
-                {request.distanceKm != null ? `${request.distanceKm.toFixed(1)} km straight-line distance to the job` : "Distance unavailable — enable fresh location sharing while Available"}
-              </Text>
-            </> : request.deliveryMode !== "REMOTE" ? <Text style={s.meta}>Job map and distance will appear when location coordinates are available.</Text> : <Text style={s.meta}>Remote request · no travel required.</Text>}
-            {request.myResponse?.status === "OFFERED" ? <Pressable onPress={() => { const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker"; setProviderSelectionWatch({ requestId: request.id, responseId: request.myResponse!.id }); setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: request.myResponse!.id, status: "OFFERED" }); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>OFFER SENT · AWAITING SEEKER REVIEW</Text><Text style={{ color: "#53645A", fontSize: 12, marginTop: 5 }}>Tap to view your offer status.</Text></Pressable> : request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <>
-              <Text style={s.helper}>Your offer is generated from your approved hourly rate and assessment settings saved in your Provider profile. No pricing details need to be entered here.</Text>
-              <Primary label={busy ? "Sending offer..." : "Send offer"} onPress={() => void acceptRequest(request)} disabled={busy} />
-            </>}
-          </View>;
-        })}
-        {!busy && requests.length === 0 && <Text style={s.helper}>No open requests are available right now. Pull to refresh or check again later.</Text>}
       </>}
       {notice ? <Text style={s.success}>{notice}</Text> : null}
       {error ? <Text style={s.error}>{error}</Text> : null}
