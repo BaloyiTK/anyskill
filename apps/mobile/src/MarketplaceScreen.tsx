@@ -2064,7 +2064,6 @@ export function MarketplaceScreen(p: Props) {
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 18 }}>
             <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE REQUEST</Text>
             <Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900", marginTop: 6 }}>{job.request.title}</Text>
-            <Text style={{ color: "#176B55", fontWeight: "800", fontSize: 12, marginTop: 4 }}>{job.status.replaceAll("_", " ")}</Text>
             <Text style={{ color: "#53645A", fontSize: 13, lineHeight: 20, marginTop: 10 }}>{job.request.description}</Text>
             {["ASSESSMENT_PENDING","ESTIMATE_SUBMITTED","ESTIMATE_REJECTED","ESTIMATE_APPROVED"].includes(job.status) ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 13, marginTop: 13 }}>
               <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900" }}>ASSESSMENT & APPROVAL</Text>
@@ -2243,20 +2242,12 @@ export function MarketplaceScreen(p: Props) {
           </View> : null}
 
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 20, padding: 17, marginTop: 14, borderWidth: 1, borderColor: "#E2EAE5" }}>
-            <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>HOURLY RATE ACCEPTED · ASSESSMENT ONLY</Text>
-            <Text style={{ color: "#172820", fontSize: 28, fontWeight: "900", marginTop: 9 }}>{journeyScreen?.hourlyRate == null ? "Rate unavailable" : "R " + journeyScreen.hourlyRate.toFixed(2)}<Text style={{ color: "#718078", fontSize: 13, fontWeight: "700" }}> / hour</Text></Text>
-            <View style={{ height: 1, backgroundColor: "#E8EEE9", marginVertical: 13 }} />
-            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-              <Text style={{ color: "#66756D", fontSize: 12 }}>Assessment / call-out fee</Text>
-              <Text style={{ color: "#26372E", fontSize: 12, fontWeight: "900" }}>{journeyScreen?.assessmentFee == null ? "Not available" : journeyScreen.assessmentFee === 0 ? "No fee" : "R " + journeyScreen.assessmentFee.toFixed(2)}</Text>
-            </View>
-            <Text style={{ color: "#829087", fontSize: 11, lineHeight: 17, marginTop: 12 }}>Your first approval locked in the Provider’s hourly rate only. It does not approve the total job cost. After assessment, the Provider will calculate the hours needed and submit the labour total (hours × this rate), plus any agreed assessment fee, for your separate approval.</Text>
+            <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>ASSESSMENT / CALL-OUT FEE</Text>
+            <Text style={{ color: "#172820", fontSize: 24, fontWeight: "900", marginTop: 9 }}>{journeyScreen?.assessmentFee == null ? "Not available" : journeyScreen.assessmentFee === 0 ? "No fee" : "R " + journeyScreen.assessmentFee.toFixed(2)}</Text>
           </View>
 
-          {journeyScreen?.providerEnRouteAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 14 }}>
-            <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>LIVE SERVICE UPDATE</Text>
-            <Text style={{ color: "#244536", fontSize: 13, lineHeight: 20, marginTop: 6 }}>{journeyScreen?.providerArrivedAt ? journeyScreen.seekerArrivalConfirmedAt ? "You confirmed that your Provider has arrived. The assessment can now begin." : "Your Provider has reported arriving. Please confirm their arrival below before the assessment can begin." : "Your Provider is on the way. We'll update you when they arrive."}</Text>
-            {journeyScreen?.providerArrivedAt && !journeyScreen.seekerArrivalConfirmedAt ? <Primary label={jobActionBusy ? "Confirming..." : "Confirm Provider Arrival"} onPress={() => void confirmProviderArrival(journeyScreen.requestId)} disabled={jobActionBusy} /> : null}
+          {journeyScreen?.providerArrivedAt && !journeyScreen.seekerArrivalConfirmedAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 14 }}>
+            <Primary label={jobActionBusy ? "Confirming..." : "Confirm Provider Arrival"} onPress={() => void confirmProviderArrival(journeyScreen.requestId)} disabled={jobActionBusy} />
           </View> : null}
 
           {journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? <View style={{ backgroundColor: "#F1F8F3", borderRadius: 20, borderWidth: 1, borderColor: "#B9DCC8", padding: 17, marginTop: 14 }}>
