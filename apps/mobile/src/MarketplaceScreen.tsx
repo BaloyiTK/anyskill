@@ -2186,24 +2186,39 @@ export function MarketplaceScreen(p: Props) {
 
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 20, padding: 17, marginTop: 14, borderWidth: 1, borderColor: "#E2EAE5" }}>
             <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>SERVICE PROGRESS</Text>
-            {[
-              { title: "Provider selected", detail: "You've chosen your Provider", done: true },
-              { title: "Provider travelling", detail: "We'll notify you when they're on the way", done: !!journeyScreen?.providerEnRouteAt },
-              { title: "Assessment", detail: journeyScreen?.assessmentCompletedAt ? "Assessment completed" : journeyScreen?.assessmentStartedAt ? "Assessment in progress" : journeyScreen?.providerArrivedAt ? journeyScreen.seekerArrivalConfirmedAt ? "You confirmed arrival · assessment can begin" : "Waiting for you to confirm Provider arrival" : "Starts after the Provider arrives", done: !!journeyScreen?.assessmentCompletedAt },
-              { title: "Final estimate", detail: journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? "Ready for your approval" : journeyScreen?.engagementStatus === "ESTIMATE_APPROVED" || journeyScreen?.engagementStatus === "IN_PROGRESS" ? "Approved by you" : "Provider submits this after assessment", done: ["ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING"].includes(journeyScreen?.engagementStatus ?? "") },
-              { title: "Main work", detail: journeyScreen?.engagementStatus === "IN_PROGRESS" ? "Work is in progress" : journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? "Work submitted for your review" : "Only begins after you approve the estimate", done: ["IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(journeyScreen?.engagementStatus ?? "") },
-            ].map((step, index, steps) => <View key={step.title} style={{ flexDirection: "row", minHeight: index === steps.length - 1 ? 42 : 58 }}>
-              <View style={{ width: 27, alignItems: "center" }}>
-                <View style={{ width: 23, height: 23, borderRadius: 12, backgroundColor: step.done ? "#176B55" : "#EEF2EF", borderWidth: step.done ? 0 : 1, borderColor: "#D9E2DC", alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ color: step.done ? "#FFFFFF" : "#7B8981", fontSize: 11, fontWeight: "900" }}>{step.done ? "✓" : String(index + 1)}</Text>
-                </View>
-                {index < steps.length - 1 ? <View style={{ width: 2, flex: 1, minHeight: 28, backgroundColor: step.done ? "#A7D3B8" : "#E5EBE7" }} /> : null}
-              </View>
-              <View style={{ flex: 1, paddingLeft: 11, paddingBottom: 12 }}>
-                <Text style={{ color: step.done ? "#176B55" : "#26372E", fontSize: 13, fontWeight: "900" }}>{step.title}</Text>
-                <Text style={{ color: "#748179", fontSize: 11, lineHeight: 16, marginTop: 3 }}>{step.detail}</Text>
-              </View>
-            </View>)}
+            {(() => {
+              const status = journeyScreen?.engagementStatus ?? "";
+              const workStarted = ["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(status);
+              const estimateApproved = ["ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(status);
+              const estimateStage = !!journeyScreen?.assessmentCompletedAt || ["ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED"].includes(status);
+              const assessmentStage = !!journeyScreen?.providerArrivedAt || !!journeyScreen?.assessmentStartedAt;
+              const activeIndex = workStarted ? 4 : estimateApproved || estimateStage ? 3 : assessmentStage ? 2 : 1;
+              const steps = [
+                { title: "Provider selected", detail: "You've chosen your Provider", done: true },
+                { title: "Provider travelling", detail: journeyScreen?.providerArrivedAt ? "Provider has arrived" : journeyScreen?.providerEnRouteAt ? "Provider is on the way" : "We'll notify you when they're on the way", done: !!journeyScreen?.providerArrivedAt },
+                { title: "Assessment", detail: journeyScreen?.assessmentCompletedAt ? "Assessment completed" : journeyScreen?.assessmentStartedAt ? "Assessment in progress" : journeyScreen?.providerArrivedAt ? journeyScreen.seekerArrivalConfirmedAt ? "Arrival confirmed · assessment can begin" : "Waiting for you to confirm Provider arrival" : "Starts after the Provider arrives", done: !!journeyScreen?.assessmentCompletedAt },
+                { title: "Final estimate", detail: status === "ESTIMATE_SUBMITTED" ? "Ready for your approval" : status === "ESTIMATE_REJECTED" ? "Provider is revising the estimate" : estimateApproved ? "Approved by you" : "Provider submits this after assessment", done: estimateApproved },
+                { title: "Main work", detail: status === "IN_PROGRESS" ? "Work is in progress" : status === "COMPLETION_PENDING" ? "Work submitted for your review" : status === "COMPLETED" ? "Work completed" : "Only begins after you approve the estimate", done: workStarted },
+              ];
+              return steps.map((step, index) => {
+                const active = index === activeIndex && !step.done;
+                return <View key={step.title} style={{ flexDirection: "row", minHeight: index === steps.length - 1 ? 42 : 66, backgroundColor: active ? "#F0F8F3" : "transparent", borderRadius: 12, borderWidth: active ? 1 : 0, borderColor: active ? "#8BC6A1" : "transparent", paddingHorizontal: active ? 8 : 0, paddingTop: active ? 8 : 0, marginBottom: active ? 5 : 0 }}>
+                  <View style={{ width: 27, alignItems: "center" }}>
+                    <View style={{ width: 25, height: 25, borderRadius: 13, backgroundColor: step.done ? "#176B55" : active ? "#176B55" : "#EEF2EF", borderWidth: active ? 2 : step.done ? 0 : 1, borderColor: active ? "#A9D9B9" : "#D9E2DC", alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ color: step.done || active ? "#FFFFFF" : "#7B8981", fontSize: 11, fontWeight: "900" }}>{step.done ? "✓" : String(index + 1)}</Text>
+                    </View>
+                    {index < steps.length - 1 ? <View style={{ width: 2, flex: 1, minHeight: 28, backgroundColor: step.done ? "#A7D3B8" : "#E5EBE7" }} /> : null}
+                  </View>
+                  <View style={{ flex: 1, paddingLeft: 11, paddingBottom: 12 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <Text style={{ color: step.done ? "#176B55" : active ? "#14563F" : "#26372E", fontSize: 13, fontWeight: "900", flexShrink: 1 }}>{step.title}</Text>
+                      {step.done ? <Text style={{ color: "#176B55", fontSize: 9, fontWeight: "900", letterSpacing: 0.7 }}>COMPLETED</Text> : active ? <Text style={{ color: "#176B55", backgroundColor: "#D9F0E1", overflow: "hidden", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, fontSize: 9, fontWeight: "900", letterSpacing: 0.6 }}>CURRENT STEP</Text> : <Text style={{ color: "#9AA59E", fontSize: 9, fontWeight: "800", letterSpacing: 0.6 }}>UP NEXT</Text>}
+                    </View>
+                    <Text style={{ color: active ? "#40584B" : "#748179", fontSize: 11, lineHeight: 16, marginTop: 3 }}>{step.detail}</Text>
+                  </View>
+                </View>;
+              });
+            })()}
           </View>
 
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 20, padding: 17, marginTop: 14, borderWidth: 1, borderColor: "#E2EAE5" }}>
