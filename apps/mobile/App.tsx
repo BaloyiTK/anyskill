@@ -70,7 +70,7 @@ async function configureIncomingRequestNotifications() {
   }
 }
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding" | "profile-check" | "service-check";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "provider-job" | "onboarding" | "profile-check" | "service-check";
 type UserMode = "seeker" | "provider";
 type AppTab = "home" | "activities" | "notifications" | "account";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
@@ -587,7 +587,8 @@ export default function App() {
           setPendingAcceptRequestId(requestId);
           setActiveTab("home");
           autoSwitchMarketplaceMode("provider");
-          setScreen("marketplace");
+          setActiveTab("activities");
+          setScreen("dashboard");
         }).catch((e) => {
           setError(e instanceof Error ? e.message : "Could not accept this request.");
           openMatchedRequest(requestId);
@@ -1546,7 +1547,7 @@ export default function App() {
             onComplete={async () => { await navigateHome(); }}
           />}
 
-          {screen === "marketplace" && account && <MarketplaceScreen
+          {screen === "marketplace" && account && mode === "seeker" && <MarketplaceScreen
         platformHeader={platformHeader}
         mode={mode}
         verified={verified}
@@ -1562,6 +1563,20 @@ export default function App() {
           setMessage("Identity verification is required before you can accept this request. Your request has been saved so you can return to it after approval.");
           setScreen("dashboard");
         }}
+        onStartVerification={() => { void startIdentityVerification(); }}
+        initialProviderJobId={pendingProviderJobId}
+        onProviderJobOpened={() => setPendingProviderJobId(null)}
+      />}
+
+      {screen === "provider-job" && account && mode === "provider" && <MarketplaceScreen
+        platformHeader={platformHeader}
+        mode="provider"
+        verified={verified}
+        pendingRequestId={pendingAcceptRequestId}
+        onModeChange={(nextMode) => { void switchMarketplaceMode(nextMode); }}
+        onBack={() => { setActiveTab("activities"); setScreen("dashboard"); }}
+        onProviderJobCompleted={() => { setActiveTab("activities"); setScreen("dashboard"); }}
+        onIdentityRequired={(requestId) => { setPendingAcceptRequestId(requestId); setScreen("dashboard"); }}
         onStartVerification={() => { void startIdentityVerification(); }}
         initialProviderJobId={pendingProviderJobId}
         onProviderJobOpened={() => setPendingProviderJobId(null)}
@@ -1615,7 +1630,7 @@ export default function App() {
                 setPendingProviderJobId(requestId);
                 setMode("provider");
                 setActiveTab("activities");
-                setScreen("marketplace");
+                setScreen("provider-job");
                 feedback();
               }} />
             : screen === "dashboard" && account && activeTab === "activities" ? <View style={s.form}>
@@ -1779,10 +1794,10 @@ export default function App() {
         onAccepted={(requestId) => {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(requestId);
-          setMessage("Request accepted. Continue to your Provider workspace.");
-          setActiveTab("home");
+          setMessage("Offer sent. It is awaiting the Seeker decision. Track it in Provider Activities.");
+          setActiveTab("activities");
           setMode("provider");
-          setScreen("marketplace");
+          setScreen("dashboard");
         }}
       />
       </SafeAreaView>
