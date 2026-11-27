@@ -480,6 +480,14 @@ export default function App() {
     setPendingIncomingPushId(requestId);
   };
 
+  const openProviderOffer = (requestId: string) => {
+    if (!requestId) return;
+    setActiveTab("home");
+    autoSwitchMarketplaceMode("seeker");
+    setScreen("marketplace");
+    setMessage("A Provider has accepted your request and sent an offer. Review the offer in AnySkill.");
+  };
+
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data as { type?: string; requestId?: string };
     const responseKey = response.notification.request.identifier + ":" + response.actionIdentifier;
@@ -490,6 +498,10 @@ export default function App() {
       if (oldest) handledNotificationResponses.current.delete(oldest);
     }
 
+    if (typeof data.requestId === "string" && data.type === "PROVIDER_RESPONSE") {
+      openProviderOffer(data.requestId);
+      return;
+    }
     if (typeof data.requestId === "string" && data.type === "PROVIDER_OFFER_DECLINED") {
       setActiveIncomingRequestId(null);
       setPendingAcceptRequestId(null);
@@ -601,6 +613,10 @@ export default function App() {
 
     const received = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as { type?: string; requestId?: string };
+      if (data.type === "PROVIDER_RESPONSE" && typeof data.requestId === "string") {
+        openProviderOffer(data.requestId);
+        return;
+      }
       if (data.type === "PROVIDER_OFFER_DECLINED") {
         setActiveIncomingRequestId(null);
         setPendingAcceptRequestId(null);
