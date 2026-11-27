@@ -2464,8 +2464,40 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { requestId: request.id, status: "OFFERED" },
       });
       if (responses > 0) {
+        // A Provider has already sent an offer; the Seeker's separate offer
+        // response window is now authoritative and must not be advanced here.
         await this.prisma.serviceRequest.update({ where: { id: request.id }, data: { matchingNextAt: null } });
       } else {
+        // Expire the timed-out Provider match before dispatching the next one.
+        // This releases the Provider for other requests and makes the expiry
+        // visible in their notification history.
+        const expiredMatches = await this.prisma.requestMatch.findMany({
+          where: {
+            requestId: request.id,
+            status: "NOTIFIED",
+            notifiedAt: { lte: new Date(now.getTime() - RESPONSE_WINDOW_MS) },
+          },
+          select: { providerId: true },
+        });
+        const expiredProviderIds = [...new Set(expiredMatches.map((match) => match.providerId).filter((id): id is string => Boolean(id)))];
+        await this.prisma.requestMatch.updateMany({
+          where: {
+            requestId: request.id,
+            status: "NOTIFIED",
+            notifiedAt: { lte: new Date(now.getTime() - RESPONSE_WINDOW_MS) },
+          },
+          data: { status: "EXPIRED" },
+        });
+        if (expiredProviderIds.length > 0) {
+          await this.prisma.appNotification.createMany({
+            data: expiredProviderIds.map((providerId) => ({
+              userId: providerId,
+              title: "Service request window expired",
+              body: "The response window has expired. You have been returned to Provider Home while AnySkill continues searching for the Seeker.",
+              data: { type: "MATCHED_REQUEST_EXPIRED", requestId: request.id },
+            })),
+          });
+        }
         await this.dispatchNextWave(request.id, request.matchingWave + 1);
       }
     }

@@ -13,9 +13,9 @@ type IncomingRequest = {
   alreadyResponded: boolean;
   responseDeadlineAt: string | null;
 };
-type Props = { platformHeader: ReactNode; requestId: string | null; onClose: () => void; onAccepted: (requestId: string) => void };
+type Props = { platformHeader: ReactNode; requestId: string | null; onClose: () => void; onExpired: (requestId: string) => void; onAccepted: (requestId: string) => void };
 
-export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAccepted }: Props) {
+export function IncomingRequestScreen({ platformHeader, requestId, onClose, onExpired, onAccepted }: Props) {
   const insets = useSafeAreaInsets();
   const [request, setRequest] = useState<IncomingRequest | null>(null);
   const [loading, setLoading] = useState(false);
@@ -25,6 +25,7 @@ export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAc
   const [secondsRemaining, setSecondsRemaining] = useState(0);
   const actionInProgressRef = useRef(false);
   const pollInFlightRef = useRef(false);
+  const expiredRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!requestId) { setRequest(null); setError(""); return; }
@@ -63,7 +64,18 @@ export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAc
     return () => clearInterval(timer);
   }, [request?.responseDeadlineAt]);
 
-  const expired = Boolean(request?.responseDeadlineAt && secondsRemaining <= 0);
+  const expired = Boolean(request?.responseDeadlineAt && new Date(request.responseDeadlineAt).getTime() <= Date.now());
+
+  useEffect(() => {
+    if (!requestId || !expired || expiredRequestIdRef.current === requestId) return;
+    expiredRequestIdRef.current = requestId;
+    onExpired(requestId);
+  }, [requestId, expired, onExpired]);
+
+  useEffect(() => {
+    if (!requestId) expiredRequestIdRef.current = null;
+  }, [requestId]);
+
   const respond = async (choice: "accept" | "decline") => {
     if (!requestId || action || expired) return;
     actionInProgressRef.current = true;

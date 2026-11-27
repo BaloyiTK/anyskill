@@ -138,6 +138,42 @@ test("declining an offer fails closed when selection or cancellation already cha
   assert.equal(dispatched, false);
 });
 
+test("an expired Provider response is released, notified, and matching advances", async () => {
+  const calls = [];
+  const now = new Date();
+  const prisma = {
+    serviceRequest: {
+      findMany: async () => [{ id: "request-1", matchingWave: 2 }],
+      updateMany: async (args) => { calls.push(["claim", args]); return { count: 1 }; },
+      update: async (args) => { calls.push(["request-update", args]); },
+    },
+    providerResponse: { count: async () => 0 },
+    requestMatch: {
+      findMany: async (args) => {
+        calls.push(["expired-matches", args]);
+        return [{ providerId: "provider-1" }];
+      },
+      updateMany: async (args) => { calls.push(["expire-matches", args]); return { count: 1 }; },
+    },
+    appNotification: {
+      createMany: async (args) => { calls.push(["notify", args]); },
+    },
+  };
+  const service = new MarketplaceService(prisma, {});
+  service.dispatchNextWave = async (...args) => { calls.push(["dispatch", args]); return { notified: 1, wave: 3 }; };
+
+  await service.expandExpiredWaves();
+
+  const expiredQuery = calls.find(([name]) => name === "expired-matches")[1];
+  assert.equal(expiredQuery.where.status, "NOTIFIED");
+  assert.ok(expiredQuery.where.notifiedAt.lte instanceof Date);
+  assert.deepEqual(calls.find(([name]) => name === "expire-matches")[1].data, { status: "EXPIRED" });
+  assert.equal(calls.find(([name]) => name === "notify")[1].data[0].userId, "provider-1");
+  assert.equal(calls.find(([name]) => name === "notify")[1].data[0].data.type, "MATCHED_REQUEST_EXPIRED");
+  assert.deepEqual(calls.find(([name]) => name === "dispatch")[1], ["request-1", 3]);
+  assert.ok(calls.findIndex(([name]) => name === "notify") < calls.findIndex(([name]) => name === "dispatch"));
+});
+
 test("initial matching failure leaves the newly created request queued for worker recovery", async () => {
   let createArgs;
   const service = new MarketplaceService({

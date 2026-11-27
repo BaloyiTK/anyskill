@@ -1800,6 +1800,16 @@ export default function App() {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(null);
         }}
+        onExpired={(requestId) => {
+          dismissedIncomingRequestIds.current.add(requestId);
+          setActiveIncomingRequestId(null);
+          setPendingAcceptRequestId(null);
+          setPendingIncomingPushId(null);
+          setActiveTab("home");
+          setMode("provider");
+          setScreen("dashboard");
+          setMessage("This service request's response window expired. You are back on Provider Home while AnySkill continues searching for the Seeker.");
+        }}
         onAccepted={(requestId) => {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(null);
