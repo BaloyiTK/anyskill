@@ -2202,6 +2202,7 @@ export function MarketplaceScreen(p: Props) {
             {(() => {
               const status = journeyScreen?.engagementStatus ?? "";
               const workStarted = ["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(status);
+              const workCompleted = status === "COMPLETED";
               const estimateApproved = ["ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(status);
               const estimateStage = !!journeyScreen?.assessmentCompletedAt || ["ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED"].includes(status);
               const assessmentStage = !!journeyScreen?.providerArrivedAt || !!journeyScreen?.assessmentStartedAt;
@@ -2211,7 +2212,7 @@ export function MarketplaceScreen(p: Props) {
                 { title: "Provider travelling", detail: journeyScreen?.providerArrivedAt ? "Provider has arrived" : journeyScreen?.providerEnRouteAt ? "Provider is on the way" : "We'll notify you when they're on the way", done: !!journeyScreen?.providerArrivedAt },
                 { title: "Assessment", detail: journeyScreen?.assessmentCompletedAt ? "Assessment completed" : journeyScreen?.assessmentStartedAt ? "Assessment in progress" : journeyScreen?.providerArrivedAt ? journeyScreen.seekerArrivalConfirmedAt ? "Arrival confirmed · assessment can begin" : "Waiting for you to confirm Provider arrival" : "Starts after the Provider arrives", done: !!journeyScreen?.assessmentCompletedAt },
                 { title: "Assessed hours & final price", detail: status === "ESTIMATE_SUBMITTED" ? "Review the assessed hours and total calculated at your agreed hourly rate. Approve before main work begins." : status === "ESTIMATE_REJECTED" ? "Provider is revising the estimated hours and total for your approval" : estimateApproved ? "You approved the assessed hours and final job price" : "After assessment, the Provider calculates the required hours and submits the total for your approval", done: estimateApproved },
-                { title: "Main work", detail: status === "IN_PROGRESS" ? "Work is in progress" : status === "COMPLETION_PENDING" ? "Work submitted for your review" : status === "COMPLETED" ? "Work completed" : "Only begins after you approve the estimate", done: workStarted },
+                { title: "Main work", detail: status === "IN_PROGRESS" ? "Work is in progress" : status === "COMPLETION_PENDING" ? "Work submitted for your review" : status === "COMPLETED" ? "Work completed" : "Only begins after you approve the estimate", done: workCompleted },
               ];
               return steps.map((step, index) => {
                 const active = index === activeIndex && !step.done;
