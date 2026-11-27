@@ -18,7 +18,7 @@ function makeService({ mailFailure = false, alreadySubmittedAt = null, activeMar
       phoneDialCode: "+27",
       phone: "821234567",
     },
-    skills: [{ category: "electrician", portfolio: [{ title: "Completed installation" }] }],
+    skills: [{ category: "electrician", hourlyRate: "250", portfolio: [{ title: "Completed installation" }] }],
     portfolio: [],
     submittedAt: alreadySubmittedAt,
   };
@@ -168,6 +168,7 @@ test("profile management restores saved Provider skill details when the onboardi
     providerSkill: {
       findMany: async () => [{
         category: "plumbing",
+        hourlyRate: 275,
         details: { category: "Plumbing", description: "Repairs and installations", yearsOfExperience: "8 years", portfolio: [{ title: "Bathroom installation" }] },
         status: "APPROVED",
         decisionReason: null,
@@ -182,6 +183,7 @@ test("profile management restores saved Provider skill details when the onboardi
   assert.equal(result.skills.length, 1);
   assert.equal(result.skills[0].category, "Plumbing");
   assert.equal(result.skills[0].yearsOfExperience, "8 years");
+  assert.equal(result.skills[0].hourlyRate, "275");
   assert.equal(result.skillReviewStatuses[0].status, "APPROVED");
   assert.ok(result.skillReviewStatuses[0].reviewedAt);
 });
@@ -194,7 +196,7 @@ test("profile management merges legacy submitted skills with draft details witho
     providerRoleApplication: { findUnique: async () => null },
     providerSkill: {
       findMany: async () => [
-        { category: "plumbing", details: { category: "Plumbing", description: "Old submitted detail" }, status: "APPROVED", decisionReason: null, submittedAt: null, reviewedAt: null },
+        { category: "plumbing", hourlyRate: 260, details: { category: "Plumbing", description: "Old submitted detail" }, status: "APPROVED", decisionReason: null, submittedAt: null, reviewedAt: null },
         { category: "electrical", details: { category: "Electrical", description: "Wiring and repairs" }, status: "PENDING", decisionReason: null, submittedAt: null, reviewedAt: null },
       ],
     },
@@ -204,6 +206,7 @@ test("profile management merges legacy submitted skills with draft details witho
 
   assert.deepEqual(result.skills.map((skill) => skill.category), ["Plumbing", "Electrical"]);
   assert.equal(result.skills[0].description, "Updated draft");
+  assert.equal(result.skills[0].hourlyRate, "260");
   assert.equal(result.skills[1].description, "Wiring and repairs");
 });
 
