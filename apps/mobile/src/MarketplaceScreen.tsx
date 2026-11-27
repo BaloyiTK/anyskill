@@ -65,6 +65,7 @@ type Props = {
   onBack: () => void;
   onIdentityRequired: (requestId: string) => void;
   onStartVerification: () => void;
+  onProviderJobCompleted?: () => void;
   initialProviderJobId?: string | null;
   onProviderJobOpened?: () => void;
 };
@@ -539,6 +540,23 @@ export function MarketplaceScreen(p: Props) {
         : current,
     );
   }, [p.mode, requests, myJobs, providerSelectionWatch]);
+
+  const providerCompletionNavigatedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (p.mode !== "provider" || !activeProviderJobId) return;
+    const completedJob = myJobs.find((job) =>
+      job.request.id === activeProviderJobId && job.status === "COMPLETED",
+    );
+    if (!completedJob || providerCompletionNavigatedRef.current === completedJob.request.id) return;
+
+    // The Seeker's approval is the completion gate. Once the persisted job
+    // status reaches COMPLETED, leave the service workspace and return the
+    // Provider to Home so they can wait for another request.
+    providerCompletionNavigatedRef.current = completedJob.request.id;
+    setActiveProviderJobId(null);
+    p.onProviderJobCompleted?.();
+  }, [p.mode, activeProviderJobId, myJobs, p.onProviderJobCompleted]);
 
   useEffect(() => {
     if (p.mode !== "provider") return;
