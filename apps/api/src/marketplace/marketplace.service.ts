@@ -2111,7 +2111,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         // Older clients that omit these fields default to assessment required
         // and retain the Provider's configured profile fee.
         const configuredAssessmentFee = Number(provider.providerProfile?.assessmentFee ?? 0);
-        const assessmentRequired = input.assessmentRequired ?? configuredAssessmentFee > 0;
+        const assessmentRequired = input.assessmentRequired ?? true;
         const assessmentFee = assessmentRequired
           ? input.assessmentFee ?? configuredAssessmentFee
           : 0;
