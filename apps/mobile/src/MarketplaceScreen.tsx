@@ -2193,7 +2193,7 @@ export function MarketplaceScreen(p: Props) {
           {journeyScreen?.providerEnRouteAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 14 }}>
             <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>LIVE SERVICE UPDATE</Text>
             <Text style={{ color: "#244536", fontSize: 13, lineHeight: 20, marginTop: 6 }}>{journeyScreen?.providerArrivedAt ? "Your Provider has arrived at the service location." : "Your Provider is on the way. We'll update you when they arrive."}</Text>
-          </View>}
+          </View> : null}
 
           {journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? <View style={{ backgroundColor: "#F1F8F3", borderRadius: 20, borderWidth: 1, borderColor: "#B9DCC8", padding: 17, marginTop: 14 }}>
             <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900", letterSpacing: 1.1 }}>YOUR APPROVAL IS REQUIRED</Text>
