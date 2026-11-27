@@ -319,7 +319,7 @@ test("Provider acceptance claims the live match before creating and notifying th
       updateMany: async (args) => { calls.push(["match-claim", args]); return { count: 1 }; },
     },
     user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { hourlyRate: 250, assessmentFee: 30 } }) },
-    providerSkill: { findFirst: async () => ({ id: "skill-1" }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 350 }) },
     providerResponse: { create: async (args) => { calls.push(["offer", args]); return { id: "offer-1", status: "OFFERED" }; } },
     appNotification: { create: async (args) => { calls.push(["seeker-notification", args]); } },
   };
@@ -332,6 +332,9 @@ test("Provider acceptance claims the live match before creating and notifying th
   });
   assert.equal(calls.findIndex((item) => Array.isArray(item) && item[0] === "match-claim")
     < calls.findIndex((item) => Array.isArray(item) && item[0] === "offer"), true);
+  const offerData = calls.find((item) => Array.isArray(item) && item[0] === "offer")[1].data;
+  assert.equal(offerData.hourlyRateAtOffer, 350, "The offer must use the requested skill rate, not the legacy Provider-wide rate.");
+  assert.equal(offerData.assessmentFeeAtOffer, 30);
   assert.equal(calls.find((item) => Array.isArray(item) && item[0] === "seeker-notification")[1].data.data.responseId, "offer-1");
 });
 
@@ -345,7 +348,7 @@ test("Provider acceptance fails closed when the match compare-and-set loses a ra
       updateMany: async () => ({ count: 0 }),
     },
     user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { hourlyRate: 250 } }) },
-    providerSkill: { findFirst: async () => ({ id: "skill-1" }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 250 }) },
     providerResponse: { create: async () => { offerCreated = true; } },
   };
   await assert.rejects(

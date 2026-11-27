@@ -2078,7 +2078,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           });
         }
 
-        if (approvedSkill.hourlyRate == null || approvedSkill.hourlyRate.lessThanOrEqualTo(0)) {
+        if (approvedSkill.hourlyRate == null || !Number.isFinite(Number(approvedSkill.hourlyRate)) || Number(approvedSkill.hourlyRate) < 0.01) {
           throw new ConflictException("Set an hourly rate for this skill in Profile → My Skills before sending an offer.");
         }
 
