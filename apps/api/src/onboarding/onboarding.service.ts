@@ -48,7 +48,7 @@ export class OnboardingService {
       if (typeof item.category !== "string" || item.category.trim().length < 2 || item.category.length > 100) throw new BadRequestException("Each skill needs a valid category.");
       if (item.hourlyRate !== undefined && item.hourlyRate !== null && item.hourlyRate !== "") {
         const rate = Number(item.hourlyRate);
-        if (!Number.isFinite(rate) || rate <= 0 || rate > 1000000 || !/^\\d+(\\.\\d{1,2})?$/.test(String(item.hourlyRate))) throw new BadRequestException("Each skill needs a valid hourly rate greater than R0, with up to two decimal places.");
+        if (!Number.isFinite(rate) || rate <= 0 || rate > 1000000 || !/^\d+(\.\d{1,2})?$/.test(String(item.hourlyRate))) throw new BadRequestException("Each skill needs a valid hourly rate greater than R0, with up to two decimal places.");
       }
       if (item.description !== undefined && (typeof item.description !== "string" || item.description.length > 2000)) throw new BadRequestException("Skill descriptions must be 2,000 characters or fewer.");
       if (item.yearsOfExperience !== undefined && !(typeof item.yearsOfExperience === "string" || (typeof item.yearsOfExperience === "number" && Number.isFinite(item.yearsOfExperience)))) throw new BadRequestException("Years of experience must be text or a number.");
@@ -274,7 +274,7 @@ export class OnboardingService {
     const wantsProvider = requestedRoles.has("PROVIDER");
     if (wantsProvider && skillDetails.some((skill) => {
       const rate = Number(skill.hourlyRate);
-      return !Number.isFinite(rate) || rate <= 0 || rate > 1000000 || !/^\\d+(\\.\\d{1,2})?$/.test(String(skill.hourlyRate ?? ""));
+      return !Number.isFinite(rate) || rate <= 0 || rate > 1000000 || !/^\d+(\.\d{1,2})?$/.test(String(skill.hourlyRate ?? ""));
     })) {
       throw new BadRequestException("Set a valid hourly rate for every skill before submitting your Provider application.");
     }
