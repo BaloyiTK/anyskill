@@ -319,7 +319,7 @@ test("Provider acceptance claims the live match before creating and notifying th
       updateMany: async (args) => { calls.push(["match-claim", args]); return { count: 1 }; },
     },
     user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { hourlyRate: 250, assessmentFee: 30, assessmentRequired: true } }) },
-    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 350 }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 350, assessmentFee: 30, assessmentRequired: true }) },
     providerResponse: { create: async (args) => { calls.push(["offer", args]); return { id: "offer-1", status: "OFFERED" }; } },
     appNotification: { create: async (args) => { calls.push(["seeker-notification", args]); } },
   };
@@ -340,7 +340,7 @@ test("Provider acceptance claims the live match before creating and notifying th
   assert.equal(calls.find((item) => Array.isArray(item) && item[0] === "seeker-notification")[1].data.data.responseId, "offer-1");
 });
 
-test("Provider acceptance builds a no-assessment offer from the saved profile and skill rate", async () => {
+test("Provider acceptance builds a no-assessment offer from that skill's saved settings", async () => {
   const calls = [];
   const tx = {
     $queryRaw: async () => [],
@@ -353,7 +353,7 @@ test("Provider acceptance builds a no-assessment offer from the saved profile an
       updateMany: async () => ({ count: 1 }),
     },
     user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { assessmentFee: 0, assessmentRequired: false } }) },
-    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 425 }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 425, assessmentFee: 0, assessmentRequired: false }) },
     providerResponse: { create: async (args) => { calls.push(args); return { id: "offer-1", status: "OFFERED" }; } },
     appNotification: { create: async () => {} },
   };
@@ -384,7 +384,7 @@ test("Provider can require a free assessment when accepting a request", async ()
       updateMany: async () => ({ count: 1 }),
     },
     user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { assessmentFee: 0, assessmentRequired: true } }) },
-    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 425 }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 425, assessmentFee: 0, assessmentRequired: true }) },
     providerResponse: { create: async (args) => { calls.push(args); return { id: "offer-1", status: "OFFERED" }; } },
     appNotification: { create: async () => {} },
   };

@@ -50,6 +50,11 @@ export class OnboardingService {
         const rate = Number(item.hourlyRate);
         if (!Number.isFinite(rate) || rate <= 0 || rate > 1000000 || !/^\d+(\.\d{1,2})?$/.test(String(item.hourlyRate))) throw new BadRequestException("Each skill needs a valid hourly rate greater than R0, with up to two decimal places.");
       }
+      if (item.assessmentRequired !== undefined && typeof item.assessmentRequired !== "boolean") throw new BadRequestException("Assessment required must be Yes or No for each skill.");
+      if (item.assessmentFee !== undefined && item.assessmentFee !== null && item.assessmentFee !== "") {
+        const fee = Number(item.assessmentFee);
+        if (!Number.isFinite(fee) || fee < 0 || fee > 1000000 || !/^\\d+(\\.\\d{1,2})?$/.test(String(item.assessmentFee))) throw new BadRequestException("Each skill needs a valid assessment fee of R0 or more, with up to two decimal places.");
+      }
       if (item.description !== undefined && (typeof item.description !== "string" || item.description.length > 2000)) throw new BadRequestException("Skill descriptions must be 2,000 characters or fewer.");
       if (item.yearsOfExperience !== undefined && !(typeof item.yearsOfExperience === "string" || (typeof item.yearsOfExperience === "number" && Number.isFinite(item.yearsOfExperience)))) throw new BadRequestException("Years of experience must be text or a number.");
       if (item.licencesQualifications !== undefined && (!Array.isArray(item.licencesQualifications) || item.licencesQualifications.length > 20)) throw new BadRequestException("Each skill can have up to 20 licences or qualifications.");
@@ -115,7 +120,7 @@ export class OnboardingService {
       this.prisma.providerRoleApplication.findUnique({ where: { userId }, select: { status: true } }),
       this.prisma.providerSkill.findMany({
         where: { userId },
-        select: { category: true, hourlyRate: true, details: true, status: true, isPaused: true, decisionReason: true, submittedAt: true, reviewedAt: true },
+        select: { category: true, hourlyRate: true, assessmentRequired: true, assessmentFee: true, details: true, status: true, isPaused: true, decisionReason: true, submittedAt: true, reviewedAt: true },
         orderBy: [{ category: "asc" }],
       }),
     ]);
@@ -127,14 +132,14 @@ export class OnboardingService {
       const details = skill.details && typeof skill.details === "object" && !Array.isArray(skill.details)
         ? skill.details as Record<string, unknown>
         : {};
-      return { ...details, category: typeof details.category === "string" && details.category.trim() ? details.category : skill.category, hourlyRate: details.hourlyRate ?? (skill.hourlyRate == null ? "" : String(skill.hourlyRate)) };
+      return { ...details, category: typeof details.category === "string" && details.category.trim() ? details.category : skill.category, hourlyRate: details.hourlyRate ?? (skill.hourlyRate == null ? "" : String(skill.hourlyRate)), assessmentRequired: skill.assessmentRequired, assessmentFee: String(skill.assessmentFee ?? 0) };
     });
     const persistedSkillByCategory = new Map(providerSkills.map((skill) => [skill.category.trim().toLocaleLowerCase("en-ZA"), skill]));
     const draftCategories = new Set(draftSkills.map((skill: any) => String(skill?.category ?? "").trim().toLocaleLowerCase("en-ZA")).filter(Boolean));
     const skills: unknown[] = [
       ...draftSkills.map((skill: any) => {
         const saved = persistedSkillByCategory.get(String(skill?.category ?? "").trim().toLocaleLowerCase("en-ZA"));
-        return { ...skill, hourlyRate: skill?.hourlyRate ?? (saved?.hourlyRate == null ? "" : String(saved.hourlyRate)) };
+        return { ...skill, hourlyRate: skill?.hourlyRate ?? (saved?.hourlyRate == null ? "" : String(saved.hourlyRate)), assessmentRequired: skill?.assessmentRequired ?? saved?.assessmentRequired ?? true, assessmentFee: skill?.assessmentFee ?? String(saved?.assessmentFee ?? 0) };
       }),
       ...restoredProviderSkills.filter((skill) => !draftCategories.has(String(skill.category ?? "").trim().toLocaleLowerCase("en-ZA"))),
     ];
@@ -189,6 +194,8 @@ export class OnboardingService {
           const update: Prisma.ProviderSkillUpdateManyMutationInput = {
             ...(typeof skill.isPaused === "boolean" ? { isPaused: skill.isPaused } : {}),
             ...(skill.hourlyRate !== undefined ? { hourlyRate: skill.hourlyRate === null || skill.hourlyRate === "" ? null : new Prisma.Decimal(String(skill.hourlyRate)) } : {}),
+            ...(typeof skill.assessmentRequired === "boolean" ? { assessmentRequired: skill.assessmentRequired } : {}),
+            ...(skill.assessmentFee !== undefined ? { assessmentFee: new Prisma.Decimal(String(skill.assessmentFee == null || skill.assessmentFee === "" ? 0 : skill.assessmentFee)) } : {}),
           };
           if (Object.keys(update).length) await tx.providerSkill.updateMany({ where: { userId, category }, data: update });
         }
@@ -330,17 +337,21 @@ export class OnboardingService {
           const reviewDetails = JSON.parse(JSON.stringify(skill)) as Record<string, unknown>;
           delete reviewDetails.isPaused;
           delete reviewDetails.hourlyRate;
+          delete reviewDetails.assessmentRequired;
+          delete reviewDetails.assessmentFee;
           if (!existingSkill) {
             await tx.providerSkill.create({
-              data: { userId, category, hourlyRate, details: reviewDetails as Prisma.InputJsonValue },
+              data: { userId, category, hourlyRate, assessmentRequired: typeof skill.assessmentRequired === "boolean" ? skill.assessmentRequired : true, assessmentFee: new Prisma.Decimal(String(skill.assessmentFee == null || skill.assessmentFee === "" ? 0 : skill.assessmentFee)), details: reviewDetails as Prisma.InputJsonValue },
             });
             submittedSkillCategories.push(category);
             continue;
           }
-          await tx.providerSkill.update({ where: { userId_category: { userId, category } }, data: { hourlyRate } });
+          await tx.providerSkill.update({ where: { userId_category: { userId, category } }, data: { hourlyRate, assessmentRequired: typeof skill.assessmentRequired === "boolean" ? skill.assessmentRequired : true, assessmentFee: new Prisma.Decimal(String(skill.assessmentFee == null || skill.assessmentFee === "" ? 0 : skill.assessmentFee)) } });
           const existingReviewDetails = JSON.parse(JSON.stringify(existingSkill.details ?? {})) as Record<string, unknown>;
           delete existingReviewDetails.isPaused;
           delete existingReviewDetails.hourlyRate;
+          delete existingReviewDetails.assessmentRequired;
+          delete existingReviewDetails.assessmentFee;
           const detailsChanged = JSON.stringify(existingReviewDetails) !== JSON.stringify(reviewDetails);
           if (existingSkill.status === "REJECTED" || (existingSkill.status === "APPROVED" && detailsChanged)) {
             await tx.providerSkill.update({
@@ -358,7 +369,7 @@ export class OnboardingService {
           } else if (existingSkill.status === "PENDING") {
             await tx.providerSkill.update({
               where: { userId_category: { userId, category } },
-              data: { details: reviewDetails as Prisma.InputJsonValue, hourlyRate, submittedAt },
+              data: { details: reviewDetails as Prisma.InputJsonValue, hourlyRate, submittedAt, assessmentRequired: typeof skill.assessmentRequired === "boolean" ? skill.assessmentRequired : true, assessmentFee: new Prisma.Decimal(String(skill.assessmentFee == null || skill.assessmentFee === "" ? 0 : skill.assessmentFee)) },
             });
           }
         }

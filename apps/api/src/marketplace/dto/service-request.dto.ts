@@ -69,16 +69,6 @@ export class CreateServiceRequestDto {
   instructions?: string;
 }
 
-export class UpdateProviderAssessmentSettingsDto {
-  @IsBoolean()
-  assessmentRequired!: boolean;
-
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  @Max(1000000)
-  assessmentFee!: number;
-}
-
 export class ScheduleServiceRequestDto {
   @IsDateString()
   preferredStartAt!: string;

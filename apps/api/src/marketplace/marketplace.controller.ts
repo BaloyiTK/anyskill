@@ -8,7 +8,7 @@ import { MarketplaceAccessGuard, RequireIdentityFor } from "../identity/marketpl
 import { MarketplaceRoleGuard, RequireMarketplaceRole } from "./marketplace-role.guard";
 import {
   CreateServiceRequestDto,
-  UpdateHomeLocationDto, UpdateLiveLocationDto, UpdateProviderAssessmentSettingsDto,
+  UpdateHomeLocationDto, UpdateLiveLocationDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
   SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, ScheduleServiceRequestDto, SubmitProviderReviewDto, SubmitSeekerReviewDto, OpenJobDisputeDto, PostJobDisputeMessageDto, ResolveJobDisputeDto,
@@ -422,11 +422,6 @@ export class MarketplaceController {
     return this.marketplace.updateProviderProfile(user.id, dto);
   }
 
-  @Patch("marketplace/provider-profile/assessment-settings")
-  @RequireMarketplaceRole("PROVIDER")
-  updateProviderAssessmentSettings(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateProviderAssessmentSettingsDto) {
-    return this.marketplace.updateProviderAssessmentSettings(user.id, dto);
-  }
 
   @Post("notifications/devices")
   registerPushDevice(@CurrentUser() user: AuthenticatedUser, @Body() dto: RegisterPushDeviceDto) {

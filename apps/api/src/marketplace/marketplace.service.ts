@@ -17,7 +17,7 @@ import { LiveProviderMapService } from "./live-provider-map.service";
 import {
   CreateServiceRequestDto,
   RegisterPushDeviceDto,
-  UpdateProviderProfileDto, UpdateProviderAssessmentSettingsDto,
+  UpdateProviderProfileDto,
   SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, OpenJobDisputeDto, PostJobDisputeMessageDto, ResolveJobDisputeDto,
   UpdateHomeLocationDto, UpdateLiveLocationDto, ScheduleServiceRequestDto, SubmitProviderReviewDto, SubmitSeekerReviewDto,
 } from "./dto/service-request.dto";
@@ -213,18 +213,6 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (result.count !== 1) throw new NotFoundException("Create your Provider profile before sharing live location.");
     this.liveProviderMap.notifyChanged();
     return { isAvailable: profile.isAvailable, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
-  }
-
-  async updateProviderAssessmentSettings(userId: string, input: UpdateProviderAssessmentSettingsDto) {
-    const changed = await this.prisma.providerProfile.updateMany({
-      where: { userId },
-      data: { assessmentRequired: input.assessmentRequired, assessmentFee: input.assessmentFee },
-    });
-    if (changed.count !== 1) throw new NotFoundException("Create your Provider profile before changing assessment settings.");
-    return this.prisma.providerProfile.findUnique({
-      where: { userId },
-      select: { assessmentRequired: true, assessmentFee: true },
-    });
   }
 
   async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
@@ -2047,7 +2035,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           select: {
             identityVerification: true,
             providerRoleStatus: true,
-            providerProfile: { select: { assessmentFee: true, assessmentRequired: true } },
+            providerProfile: { select: { id: true } },
           },
         });
         if (!provider || provider.identityVerification !== "VERIFIED") {
@@ -2096,7 +2084,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
             status: "APPROVED",
             isPaused: false,
           },
-          select: { id: true, hourlyRate: true },
+          select: { id: true, hourlyRate: true, assessmentRequired: true, assessmentFee: true },
         });
         if (!approvedSkill) {
           throw new ForbiddenException({
@@ -2118,10 +2106,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         if (claimed.count !== 1) {
           throw new ConflictException("This incoming request is no longer awaiting your response. Refresh and try again.");
         }
-        // Both settings are saved in the Provider profile before a request arrives.
-        // Acceptance only snapshots those settings; R0 does not mean no assessment.
-        const assessmentRequired = provider.providerProfile?.assessmentRequired !== false;
-        const assessmentFee = Number(provider.providerProfile?.assessmentFee ?? 0);
+        // Assessment settings are saved independently on this exact Provider skill.
+        // R0 is a free assessment, not a signal to skip the assessment stage.
+        const assessmentRequired = approvedSkill.assessmentRequired !== false;
+        const assessmentFee = Number(approvedSkill.assessmentFee ?? 0);
         if (!Number.isFinite(assessmentFee) || assessmentFee < 0 || assessmentFee > 1000000) {
           throw new BadRequestException("Enter a valid assessment fee of R0 or more.");
         }
