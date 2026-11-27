@@ -67,7 +67,7 @@ test("accept cannot create an offer after the provider match has expired or been
     providerResponse: { create: async () => { responseCreated = true; } },
   };
   await assert.rejects(
-    serviceWith(tx).respondToRequest("provider-1", "request-1", {}),
+    serviceWith(tx).respondToRequest("provider-1", "request-1"),
     (error) => error.getStatus?.() === 409,
   );
   assert.equal(responseCreated, false);
@@ -294,7 +294,7 @@ test("accept revalidates active Provider status and approved skill before creati
       appNotification: { create: async () => {} },
     };
     await assert.rejects(
-      serviceWith(tx).respondToRequest("provider-1", "request-1", {}),
+      serviceWith(tx).respondToRequest("provider-1", "request-1"),
       (error) => error.getStatus?.() === 403,
     );
     assert.equal(responseCreated, false);
@@ -323,7 +323,7 @@ test("Provider acceptance claims the live match before creating and notifying th
     providerResponse: { create: async (args) => { calls.push(["offer", args]); return { id: "offer-1", status: "OFFERED" }; } },
     appNotification: { create: async (args) => { calls.push(["seeker-notification", args]); } },
   };
-  const result = await serviceWith(tx).respondToRequest("provider-1", "request-1", { message: "Available" });
+  const result = await serviceWith(tx).respondToRequest("provider-1", "request-1");
   assert.deepEqual(result, { id: "offer-1", status: "OFFERED" });
   assert.equal(calls[0], "request-lock");
   assert.deepEqual(calls.find((item) => Array.isArray(item) && item[0] === "match-claim")[1], {
@@ -335,7 +335,39 @@ test("Provider acceptance claims the live match before creating and notifying th
   const offerData = calls.find((item) => Array.isArray(item) && item[0] === "offer")[1].data;
   assert.equal(offerData.hourlyRateAtOffer, 350, "The offer must use the requested skill rate, not the legacy Provider-wide rate.");
   assert.equal(offerData.assessmentFeeAtOffer, 30);
+  assert.equal(offerData.assessmentRequiredAtOffer, true);
+  assert.equal(offerData.message, null);
   assert.equal(calls.find((item) => Array.isArray(item) && item[0] === "seeker-notification")[1].data.data.responseId, "offer-1");
+});
+
+test("Provider acceptance builds a no-assessment offer from the saved profile and skill rate", async () => {
+  const calls = [];
+  const tx = {
+    $queryRaw: async () => [],
+    serviceRequest: {
+      findUnique: async () => ({ id: "request-1", seekerId: "seeker-1", skillCategory: "Plumber", status: "OPEN" }),
+      updateMany: async () => ({ count: 1 }),
+    },
+    requestMatch: {
+      findUnique: async () => ({ id: "match-1", status: "NOTIFIED", notifiedAt: new Date() }),
+      updateMany: async () => ({ count: 1 }),
+    },
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { assessmentFee: 0 } }) },
+    providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 425 }) },
+    providerResponse: { create: async (args) => { calls.push(args); return { id: "offer-1", status: "OFFERED" }; } },
+    appNotification: { create: async () => {} },
+  };
+  const result = await serviceWith(tx).respondToRequest("provider-1", "request-1");
+  assert.deepEqual(result, { id: "offer-1", status: "OFFERED" });
+  assert.deepEqual(calls[0].data, {
+    requestId: "request-1",
+    providerId: "provider-1",
+    message: null,
+    status: "OFFERED",
+    hourlyRateAtOffer: 425,
+    assessmentFeeAtOffer: 0,
+    assessmentRequiredAtOffer: false,
+  });
 });
 
 test("Provider acceptance fails closed when the match compare-and-set loses a race", async () => {
@@ -352,7 +384,7 @@ test("Provider acceptance fails closed when the match compare-and-set loses a ra
     providerResponse: { create: async () => { offerCreated = true; } },
   };
   await assert.rejects(
-    serviceWith(tx).respondToRequest("provider-1", "request-1", {}),
+    serviceWith(tx).respondToRequest("provider-1", "request-1"),
     (error) => error.getStatus?.() === 409,
   );
   assert.equal(offerCreated, false);

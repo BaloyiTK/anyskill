@@ -8,7 +8,6 @@ import { MarketplaceAccessGuard, RequireIdentityFor } from "../identity/marketpl
 import { MarketplaceRoleGuard, RequireMarketplaceRole } from "./marketplace-role.guard";
 import {
   CreateServiceRequestDto,
-  ProviderResponseDto,
   UpdateHomeLocationDto, UpdateLiveLocationDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
@@ -111,9 +110,8 @@ export class MarketplaceController {
   acceptRequest(
     @CurrentUser() user: AuthenticatedUser,
     @Param("requestId", new ParseUUIDPipe()) requestId: string,
-    @Body() dto: ProviderResponseDto,
   ) {
-    return this.marketplace.respondToRequest(user.id, requestId, dto);
+    return this.marketplace.respondToRequest(user.id, requestId);
   }
 
 

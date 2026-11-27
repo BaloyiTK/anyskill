@@ -73,18 +73,7 @@ export class ScheduleServiceRequestDto {
   preferredStartAt!: string;
 }
 
-export class ProviderResponseDto {
-  @IsOptional()
-  @IsIn([true, false])
-  assessmentRequired?: boolean;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  message?: string;
-}
-
- 
 export class UpdateProviderProfileDto {
   @IsString()
   @MinLength(2)

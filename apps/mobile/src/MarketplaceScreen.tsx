@@ -158,9 +158,6 @@ export function MarketplaceScreen(p: Props) {
   const [savedHomeLocation, setSavedHomeLocation] = useState<{homeLocationLabel:string|null;homeLatitude:number|null;homeLongitude:number|null} | null>(null);
   const [locationBusy, setLocationBusy] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
-  const [responseMessage, setResponseMessage] = useState("");
-  const [offerAssessmentRequired, setOfferAssessmentRequired] = useState(true);
-  const [noAssessmentAcknowledged, setNoAssessmentAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [seekerRequestsLoaded, setSeekerRequestsLoaded] = useState(false);
   const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;createdAt:string;notified:number;wave:number;exhausted:boolean}|null>(null);
@@ -698,14 +695,10 @@ export function MarketplaceScreen(p: Props) {
     try {
       const response = await apiRequest<{id:string;status:string}>(`/marketplace/requests/${request.id}/accept`, {
         method: "POST",
-        body: JSON.stringify({ message: responseMessage.trim() || undefined, assessmentRequired: offerAssessmentRequired }),
       }, true);
       const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
       setProviderSelectionWatch({ requestId: request.id, responseId: response.id });
       setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: response.id, status: response.status });
-      setResponseMessage("");
-      setOfferAssessmentRequired(true);
-      setNoAssessmentAcknowledged(false);
       setNotice("");
       await loadRequests();
     } catch (e) {
@@ -1698,14 +1691,8 @@ export function MarketplaceScreen(p: Props) {
               </Text>
             </> : request.deliveryMode !== "REMOTE" ? <Text style={s.meta}>Job map and distance will appear when location coordinates are available.</Text> : <Text style={s.meta}>Remote request · no travel required.</Text>}
             {request.myResponse?.status === "OFFERED" ? <Pressable onPress={() => { const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker"; setProviderSelectionWatch({ requestId: request.id, responseId: request.myResponse!.id }); setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: request.myResponse!.id, status: "OFFERED" }); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>OFFER SENT · AWAITING SEEKER REVIEW</Text><Text style={{ color: "#53645A", fontSize: 12, marginTop: 5 }}>Tap to view your offer status.</Text></Pressable> : request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <>
-              <Text style={s.label}>Message to the Skill Seeker (optional)</Text>
-              <TextInput value={responseMessage} onChangeText={setResponseMessage} placeholder="Introduce yourself and explain how you can help..." multiline maxLength={500} style={[s.input, s.multiline]} />
-              <Text style={s.label}>Assessment</Text>
-              <Pressable onPress={() => { setOfferAssessmentRequired(true); setNoAssessmentAcknowledged(false); }} style={{ borderWidth: 1, borderColor: offerAssessmentRequired ? C.primary : C.border, borderRadius: 12, padding: 12, marginBottom: 8 }}><Text style={{ color: C.ink, fontWeight: "800" }}>Assessment required</Text><Text style={s.helper}>Assess the work and submit a final estimate for Seeker approval.</Text></Pressable>
-              <Pressable onPress={() => { setOfferAssessmentRequired(false); setNoAssessmentAcknowledged(false); }} style={{ borderWidth: 1, borderColor: !offerAssessmentRequired ? C.primary : C.border, borderRadius: 12, padding: 12, marginBottom: 8 }}><Text style={{ color: C.ink, fontWeight: "800" }}>No assessment</Text><Text style={s.helper}>Hourly work is capped at one billable hour, even if it takes longer.</Text></Pressable>
-              {!offerAssessmentRequired ? <Pressable onPress={() => setNoAssessmentAcknowledged((value) => !value)} style={{ flexDirection: "row", alignItems: "flex-start", padding: 12, backgroundColor: "#FFF6E4", borderRadius: 12, marginBottom: 10 }}><Text style={{ color: C.warningInk, fontSize: 18, marginRight: 9 }}>{noAssessmentAcknowledged ? "☑" : "□"}</Text><Text style={{ color: C.warningInk, flex: 1, fontSize: 12, lineHeight: 18 }}>I accept that this offer is limited to one billable hour. I cannot charge for additional time, even if the work takes longer.</Text></Pressable> : null}
-              <Text style={s.helper}>The assessment fee is R0 when assessment is not required.</Text>
-              <Primary label={busy ? "Sending offer..." : "Send offer"} onPress={() => void acceptRequest(request)} disabled={busy || (!offerAssessmentRequired && !noAssessmentAcknowledged)} />
+              <Text style={s.helper}>Your offer is generated from your approved hourly rate and assessment settings saved in your Provider profile. No pricing details need to be entered here.</Text>
+              <Primary label={busy ? "Sending offer..." : "Send offer"} onPress={() => void acceptRequest(request)} disabled={busy} />
             </>}
           </View>;
         })}

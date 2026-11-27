@@ -16,7 +16,6 @@ import { MailService } from "../mail/mail.service";
 import { LiveProviderMapService } from "./live-provider-map.service";
 import {
   CreateServiceRequestDto,
-  ProviderResponseDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
   SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, OpenJobDisputeDto, PostJobDisputeMessageDto, ResolveJobDisputeDto,
@@ -1989,7 +1988,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { success: true, requestId, status: "DECLINED", matching };
   }
 
-  async respondToRequest(providerId: string, requestId: string, input: ProviderResponseDto) {
+  async respondToRequest(providerId: string, requestId: string) {
     try {
       return await this.prisma.$transaction(async (tx) => {
         // Serialize acceptance with cancellation and Seeker selection. Those
@@ -2095,12 +2094,21 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         if (claimed.count !== 1) {
           throw new ConflictException("This incoming request is no longer awaiting your response. Refresh and try again.");
         }
+        // The Provider's approved skill rate and assessment fee are configured
+        // in the database. A configured assessment fee means this offer follows
+        // the assessment/estimate journey; a zero fee uses the one-hour
+        // no-assessment journey. The client supplies no pricing or offer data.
+        const assessmentFee = Number(provider.providerProfile?.assessmentFee ?? 0);
+        const assessmentRequired = assessmentFee > 0;
         const response = await tx.providerResponse.create({
           data: {
-            requestId, providerId, message: input.message?.trim() || null, status: "OFFERED",
+            requestId,
+            providerId,
+            message: null,
+            status: "OFFERED",
             hourlyRateAtOffer: approvedSkill.hourlyRate,
-            assessmentFeeAtOffer: input.assessmentRequired === false ? 0 : provider.providerProfile?.assessmentFee ?? 0,
-            assessmentRequiredAtOffer: input.assessmentRequired !== false,
+            assessmentFeeAtOffer: assessmentRequired ? assessmentFee : 0,
+            assessmentRequiredAtOffer: assessmentRequired,
           },
           select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, assessmentRequiredAtOffer: true, createdAt: true },
         });

@@ -70,7 +70,7 @@ export function IncomingRequestScreen({ platformHeader, requestId, onClose, onAc
     setAction(choice); setError("");
     try {
       if (choice === "accept") {
-        await apiRequest("/marketplace/requests/" + requestId + "/accept", { method: "POST", body: JSON.stringify({}) }, true);
+        await apiRequest("/marketplace/requests/" + requestId + "/accept", { method: "POST" }, true);
         onAccepted(requestId);
       } else {
         await apiRequest("/marketplace/requests/" + requestId + "/decline", { method: "POST" }, true);

@@ -582,7 +582,6 @@ export default function App() {
       if (response.actionIdentifier === "ACCEPT_REQUEST") {
         void apiRequest("/marketplace/requests/" + requestId + "/accept", {
           method: "POST",
-          body: JSON.stringify({}),
         }, true).then(() => {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(requestId);
