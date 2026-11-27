@@ -2144,7 +2144,7 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>YOUR SELECTED PROVIDER</Text>
             <View style={{ flexDirection: "row", alignItems: "center", marginTop: 14 }}>
               <View style={{ width: 54, height: 54, borderRadius: 18, backgroundColor: "#E5F1E9", alignItems: "center", justifyContent: "center" }}>
-                <Text style={{ color: "#176B55", fontSize: 21, fontWeight: "900" }}>{(journeyScreen?.providerName ?? "P").trim().split(/\\s+/).slice(0,2).map((part) => part[0]?.toUpperCase()).join("")}</Text>
+                <Text style={{ color: "#176B55", fontSize: 21, fontWeight: "900" }}>{(journeyScreen?.providerName ?? "P").trim().split(/\s+/).slice(0,2).map((part) => part[0]?.toUpperCase()).join("")}</Text>
               </View>
               <View style={{ flex: 1, marginLeft: 13 }}>
                 <Text style={{ color: "#172820", fontSize: 18, fontWeight: "900" }}>{journeyScreen?.providerName ?? "Your selected Provider"}</Text>
