@@ -69,6 +69,8 @@ type Props = {
   initialProviderJobId?: string | null;
   initialProviderJobs?: ProviderJob[] | null;
   onProviderJobOpened?: () => void;
+  pendingOfferRequestId?: string | null;
+  onPendingOfferReady?: (requestId: string) => void;
 };
 const C = { ink: "#15251E", muted: "#66756D", primary: "#176B55", border: "#E1E8E3", surface: "#FFFFFF", warning: "#FFF6E4", warningInk: "#78551A", bg: "#F5F7F5" };
 
@@ -468,6 +470,17 @@ export function ProviderJobScreen(p: Props) {
 
   useEffect(() => {
     if (p.mode !== "provider") return;
+    if (p.pendingOfferRequestId) {
+      const pendingRequest = requests.find((item) => item.id === p.pendingOfferRequestId);
+      const pendingResponse = pendingRequest?.myResponse;
+      if (pendingRequest && pendingResponse) {
+        const seekerName = [pendingRequest.seeker?.firstName, pendingRequest.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
+        setProviderSelectionWatch({ requestId: pendingRequest.id, responseId: pendingResponse.id });
+        setProviderOfferReview({ requestId: pendingRequest.id, title: pendingRequest.title, skillCategory: pendingRequest.skillCategory, seekerName, responseId: pendingResponse.id, status: pendingResponse.status });
+        p.onPendingOfferReady?.(pendingRequest.id);
+      }
+      return;
+    }
     const responseUpdates = requests.filter((item) => item.myResponse);
     if (!responseUpdates.length) return;
     if (!providerOfferReview) {
@@ -484,7 +497,7 @@ export function ProviderJobScreen(p: Props) {
     if (updated.myResponse.status !== providerOfferReview.status) {
       setProviderOfferReview({ ...providerOfferReview, status: updated.myResponse.status });
     }
-  }, [p.mode, requests, dismissedProviderOfferIds, providerOfferReview]);
+  }, [p.mode, p.pendingOfferRequestId, p.onPendingOfferReady, requests, dismissedProviderOfferIds, providerOfferReview]);
 
   useEffect(() => {
     if (p.mode !== "provider" || !providerSelectionWatch) return;

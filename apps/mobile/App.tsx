@@ -177,6 +177,8 @@ export default function App() {
   const [pendingIncomingPushId, setPendingIncomingPushId] = useState<string | null>(null);
   const [activeIncomingRequestId, setActiveIncomingRequestId] = useState<string | null>(null);
   const [pendingProviderJobId, setPendingProviderJobId] = useState<string | null>(null);
+  const [pendingProviderOfferRequestId, setPendingProviderOfferRequestId] = useState<string | null>(null);
+  const [providerOfferPreparing, setProviderOfferPreparing] = useState(false);
   const [initialProviderJobs, setInitialProviderJobs] = useState<ProviderJob[] | null>(null);
   const dismissedIncomingRequestIds = useRef<Set<string>>(new Set());
   const handledNotificationResponses = useRef<Set<string>>(new Set());
@@ -600,6 +602,8 @@ export default function App() {
         }, true).then(() => {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(null);
+          setPendingProviderOfferRequestId(requestId);
+          setProviderOfferPreparing(true);
           setMode("provider");
           setActiveTab("home");
           setScreen("provider-job");
@@ -1575,6 +1579,13 @@ export default function App() {
         initialProviderJobId={pendingProviderJobId}
         initialProviderJobs={initialProviderJobs}
         onProviderJobOpened={() => { setPendingProviderJobId(null); setInitialProviderJobs(null); }}
+        pendingOfferRequestId={pendingProviderOfferRequestId}
+        onPendingOfferReady={(requestId) => {
+          if (pendingProviderOfferRequestId === requestId) {
+            setPendingProviderOfferRequestId(null);
+            setProviderOfferPreparing(false);
+          }
+        }}
       />}
 
       {screen === "dashboard" && account && activeTab === "home" && mode === "provider" && (
@@ -1792,13 +1803,15 @@ export default function App() {
         onAccepted={(requestId) => {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(null);
+          setPendingProviderOfferRequestId(requestId);
+          setProviderOfferPreparing(true);
           setMessage("Your offer has been sent and is awaiting the Seeker's approval.");
           setActiveTab("home");
           setMode("provider");
           setScreen("provider-job");
         }}
       />
-      {(startupChecking || navigationPreparing) && <View pointerEvents="auto" style={s.startupOverlay}>
+      {(startupChecking || navigationPreparing || providerOfferPreparing) && <View pointerEvents="auto" style={s.startupOverlay}>
         <SafeAreaView style={s.startupScreen}>
           <StatusBar barStyle="dark-content" />
           <Image
