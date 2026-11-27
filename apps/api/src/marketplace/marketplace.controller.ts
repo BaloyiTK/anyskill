@@ -285,6 +285,13 @@ export class MarketplaceController {
     return this.marketplace.markProviderArrived(user.id, requestId);
   }
 
+  @Post("marketplace/requests/:requestId/confirm-provider-arrival")
+  @UseGuards(MarketplaceAccessGuard)
+  @RequireMarketplaceRole("SEEKER")
+  confirmProviderArrival(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string) {
+    return this.marketplace.confirmProviderArrival(user.id, requestId);
+  }
+
   @Post("marketplace/requests/:requestId/assessment/start")
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("PROVIDER_ACCEPT_REQUEST")
