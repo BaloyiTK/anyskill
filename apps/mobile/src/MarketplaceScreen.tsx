@@ -2087,7 +2087,8 @@ export function MarketplaceScreen(p: Props) {
             {job.status === "ESTIMATE_APPROVED" ? <Pressable onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 16, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 }}>{jobActionBusy ? "Starting work..." : "Start work"}</Text></Pressable> : null}
             {job.status === "IN_PROGRESS" ? <>
               <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 13, marginTop: 14 }}>
-                <Text style={{ color: "#176B55", fontWeight: "900" }}>✓ Work has started</Text>
+                <Text style={{ color: "#176B55", fontWeight: "900", letterSpacing: 0.8 }}>SERVICE IN PROGRESS</Text>
+                <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>The service is underway. Your work timer is running and the Seeker can see this live status.</Text>
               </View>
               <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 14 }}>When the agreed work is finished, submit completion notes. Photos are optional, but you can capture or upload up to 8 photos if useful. The Seeker must approve before payment can be recorded.</Text>
               <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>Completion notes</Text>
