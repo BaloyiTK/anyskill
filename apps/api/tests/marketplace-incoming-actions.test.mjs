@@ -1009,3 +1009,25 @@ test("remote Seeker confirmation records the second half of the remote-ready gat
   assert.ok(result.seekerArrivalConfirmedAt instanceof Date);
   assert.equal(calls[1][1].data.data.type, "PROVIDER_REMOTE_READY_CONFIRMED");
 });
+
+test("live location updates are rejected after the Seeker confirms arrival", async () => {
+  let locationUpdated = false;
+  const service = new MarketplaceService({
+    providerProfile: {
+      findUnique: async () => ({ userId: "provider-1", isAvailable: true }),
+      updateMany: async () => { locationUpdated = true; return { count: 1 }; },
+    },
+    jobEngagement: {
+      findFirst: async (args) => {
+        assert.equal(args.where.providerId, "provider-1");
+        assert.deepEqual(args.where.seekerArrivalConfirmedAt, { not: null });
+        return { id: "job-1" };
+      },
+    },
+  }, {});
+  await assert.rejects(
+    service.updateProviderLiveLocation("provider-1", { latitude: -26.2, longitude: 28.0, accuracyM: 10 }),
+    (error) => error.getStatus?.() === 409 && /stops after the Seeker confirms/i.test(error.message),
+  );
+  assert.equal(locationUpdated, false);
+});

@@ -187,6 +187,19 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     if (input.accuracyM > MAX_LIVE_LOCATION_ACCURACY_M) throw new ConflictException("GPS accuracy is too low. Wait for a more accurate location fix (50 m or better).");
     const profile = await this.prisma.providerProfile.findUnique({ where: { userId }, select: { userId: true, isAvailable: true } });
     if (!profile) throw new NotFoundException("Create your Provider profile before sharing live location.");
+    // Once the Seeker confirms arrival/readiness, live tracking must stop even
+    // if a native OS background task is still queued or the Provider is online.
+    const confirmedJourney = await this.prisma.jobEngagement.findFirst({
+      where: {
+        providerId: userId,
+        seekerArrivalConfirmedAt: { not: null },
+        status: { in: ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS"] },
+      },
+      select: { id: true },
+    });
+    if (confirmedJourney) {
+      throw new ConflictException("Live location sharing stops after the Seeker confirms arrival or remote readiness.");
+    }
     // A Provider may go offline for new matching while still sharing location
     // for a service where they explicitly tapped "I'm coming".
     if (!profile.isAvailable) {
@@ -194,6 +207,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: {
           providerId: userId,
           providerEnRouteAt: { not: null },
+          seekerArrivalConfirmedAt: null,
           status: { in: ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS"] },
         },
         select: { id: true },
