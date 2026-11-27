@@ -2235,6 +2235,13 @@ export function MarketplaceScreen(p: Props) {
             })()}
           </View>
 
+          {journeyScreen?.engagementStatus === "COMPLETED" && journeyScreen.latitude != null && journeyScreen.longitude != null ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
+            <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900", letterSpacing: 1.1 }}>COMPLETED SERVICE LOCATION</Text>
+            <View style={{ marginTop: 12, borderRadius: 14, overflow: "hidden" }}>
+              <MapPinPicker latitude={journeyScreen.latitude} longitude={journeyScreen.longitude} selectedLatitude={journeyScreen.latitude} selectedLongitude={journeyScreen.longitude} onSelect={() => undefined} readOnly showCenterMarker={journeyScreen.liveLatitude != null && journeyScreen.liveLongitude != null} liveLatitude={journeyScreen.liveLatitude} liveLongitude={journeyScreen.liveLongitude} />
+            </View>
+          </View> : null}
+
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 20, padding: 17, marginTop: 14, borderWidth: 1, borderColor: "#E2EAE5" }}>
             <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>HOURLY RATE ACCEPTED · ASSESSMENT ONLY</Text>
             <Text style={{ color: "#172820", fontSize: 28, fontWeight: "900", marginTop: 9 }}>{journeyScreen?.hourlyRate == null ? "Rate unavailable" : "R " + journeyScreen.hourlyRate.toFixed(2)}<Text style={{ color: "#718078", fontSize: 13, fontWeight: "700" }}> / hour</Text></Text>
