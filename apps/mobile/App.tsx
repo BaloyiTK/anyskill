@@ -70,7 +70,7 @@ async function configureIncomingRequestNotifications() {
   }
 }
 
-type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "provider-job" | "onboarding" | "profile-check" | "service-check";
+type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "provider-job" | "seeker-request" | "onboarding" | "profile-check" | "service-check";
 type UserMode = "seeker" | "provider";
 type AppTab = "home" | "activities" | "notifications" | "account";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
@@ -1140,8 +1140,8 @@ export default function App() {
     } finally { setBusy(false); }
   };
 
-  const switchMarketplaceMode = async (nextMode: UserMode) => {
-    if (busy) return;
+  const switchMarketplaceMode = async (nextMode: UserMode): Promise<boolean> => {
+    if (busy) return false;
     feedback(); setBusy(true);
     try {
       const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles/active-mode", {
@@ -1151,8 +1151,10 @@ export default function App() {
       setRoleSummary(roles);
       if (roles.activeMode) setMode(roles.activeMode.toLowerCase() as UserMode);
       setMessage(`Switched to ${nextMode === "seeker" ? "Seeker" : "Provider"} mode.`);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not switch marketplace mode.");
+      return false;
     } finally { setBusy(false); }
   };
 
@@ -1546,6 +1548,21 @@ export default function App() {
             onComplete={async () => { await navigateHome(); }}
           />}
 
+      {screen === "seeker-request" && account && mode === "seeker" && roleSummary?.seekerStatus === "ACTIVE" && <ProviderJobScreen
+        platformHeader={platformHeader}
+        mode="seeker"
+        verified={verified}
+        pendingRequestId={pendingAcceptRequestId}
+        onModeChange={(nextMode) => { void switchMarketplaceMode(nextMode); }}
+        onBack={() => { setActiveTab("home"); setScreen("dashboard"); feedback(); }}
+        onIdentityRequired={(requestId) => {
+          setPendingAcceptRequestId(requestId);
+          setMessage("Identity verification is required before continuing. Your request has been saved so you can return after approval.");
+          setScreen("dashboard");
+        }}
+        onStartVerification={() => { void startIdentityVerification(); }}
+      />}
+
       {screen === "provider-job" && account && mode === "provider" && <ProviderJobScreen
         platformHeader={platformHeader}
         mode="provider"
@@ -1592,8 +1609,10 @@ export default function App() {
             setScreen("dashboard");
             setMessage("Activate your Seeker role to request services. Your existing role remains unchanged.");
           } else if (profileComplete && verified) {
-            void switchMarketplaceMode("seeker");
-            setScreen("dashboard");
+            void (async () => {
+              const switched = await switchMarketplaceMode("seeker");
+              if (switched) setScreen("seeker-request");
+            })();
           } else {
             setScreen("onboarding");
           }
