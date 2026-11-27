@@ -1762,7 +1762,12 @@ export function MarketplaceScreen(p: Props) {
             <TextInput value={estimateNotes} onChangeText={setEstimateNotes} placeholder="Explain the assessment and work required..." multiline style={[s.input, s.multiline]} />
             <Primary label="Submit job estimate" onPress={() => void submitEstimate(job.request.id)} disabled={jobActionBusy || !(Number(estimateHours) > 0) || estimateNotes.trim().length < 10} />
           </> : null}
-          {job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
+          {job.status === "ESTIMATE_SUBMITTED" ? <View style={{ backgroundColor: "#FFF8E8", borderWidth: 1, borderColor: "#E8CB86", borderRadius: 14, padding: 13, marginTop: 10 }}>
+            <Text style={{ color: "#805B16", fontSize: 10, fontWeight: "900", letterSpacing: 1 }}>FINAL ESTIMATE SENT · AWAITING SEEKER</Text>
+            <Text style={{ color: "#15251E", fontSize: 22, fontWeight: "900", marginTop: 6 }}>R {(Number(job.estimatedTotal ?? 0) + Number(job.assessmentFee ?? 0)).toFixed(2)}</Text>
+            <Text style={{ color: "#53645A", fontSize: 11, lineHeight: 17, marginTop: 4 }}>{Number(job.estimatedHours ?? 0).toFixed(2)} hours × R {Number(job.hourlyRate).toFixed(2)}/hour = R {Number(job.estimatedTotal ?? 0).toFixed(2)} labour + R {Number(job.assessmentFee).toFixed(2)} assessment fee</Text>
+            <Text style={{ color: "#805B16", fontSize: 11, lineHeight: 17, marginTop: 7 }}>The Seeker must approve this final price. Do not start the main work while approval is pending.</Text>
+          </View> : job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
           {job.agreedWorkTotal != null && Number(job.approvedAdditionalAmount ?? 0) > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(job.agreedWorkTotal).toFixed(2)}</Text> : null}
           {job.status === "ESTIMATE_APPROVED" ? <Primary label="Start work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
           {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED", "DISPUTED"].includes(job.status) ? <>
@@ -2253,8 +2258,8 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 19 }}>Estimated labour: {journeyScreen.estimatedHours == null ? "—" : journeyScreen.estimatedHours.toFixed(2) + " hours"} × agreed hourly rate R {Number(journeyScreen.hourlyRate ?? 0).toFixed(2)} = R {Number(journeyScreen.estimatedTotal ?? 0).toFixed(2)}</Text>
             <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 19, marginTop: 3 }}>Agreed assessment fee: R {Number(journeyScreen.assessmentFee ?? 0).toFixed(2)}</Text>
             {journeyScreen.estimateNotes ? <Text style={{ color: "#26372E", fontSize: 12, lineHeight: 19, marginTop: 12 }}>{journeyScreen.estimateNotes}</Text> : null}
-            <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 12 }}>You accepted the Provider's rate when selecting the offer. Approving here confirms the assessed hours, scope and final total. Main work cannot start until you approve.</Text>
-            <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "800", marginTop: 12 }}>Use the approval button near the top of this tracking screen after reviewing this breakdown.</Text>
+            <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 12 }}>You accepted the Provider's rate when selecting the offer. This is a separate decision: approving confirms the assessed hours, scope and final total. Main work remains locked until you approve.</Text>
+            <Primary label={jobActionBusy ? "Processing approval..." : "Approve final price"} onPress={() => void decideEstimate(journeyScreen.requestId, true)} disabled={jobActionBusy} />
           </View> : null}
 
           {journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? journeyScreen.completionSubmissions.filter((submission) => submission.status === "PENDING").map((submission) => <View key={submission.id} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2EAE5", borderRadius: 20, padding: 17, marginTop: 14 }}>
