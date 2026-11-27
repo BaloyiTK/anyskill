@@ -1799,7 +1799,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit this estimate.");
-      if (!job.assessmentRequired) throw new ConflictException("This no-assessment offer has a fixed one-hour billing cap and does not accept a later estimate.");
+      if (job.assessmentRequired === false) throw new ConflictException("This no-assessment offer has a fixed one-hour billing cap and does not accept a later estimate.");
       if (!["ASSESSMENT_PENDING", "ESTIMATE_REJECTED"].includes(job.status)) throw new ConflictException("An estimate cannot be submitted at this stage.");
       if (job.status === "ASSESSMENT_PENDING" && !job.assessmentCompletedAt) throw new ConflictException("Complete the assessment before submitting the final estimate.");
       const hours = new Prisma.Decimal(input.estimatedHours);
