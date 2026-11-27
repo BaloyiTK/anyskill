@@ -1275,7 +1275,7 @@ export default function App() {
     return (
       <SafeAreaProvider>
         <SafeAreaView style={s.startupScreen}>
-          <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+          <StatusBar barStyle="dark-content" />
           <Image
             source={require("./assets/branding/anyskill-logo.png")}
             style={s.startupLogo}
