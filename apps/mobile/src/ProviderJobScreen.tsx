@@ -523,12 +523,12 @@ export function ProviderJobScreen(p: Props) {
     setDismissedActiveJobIds((ids) => ids.filter((id) => id !== selectedJob.request.id));
     setActiveProviderJobId(selectedJob.request.id);
     setProviderSelectionWatch(null);
-    // Keep a distinct approval screen visible. The Provider must explicitly
-    // confirm departure (onsite) or continue (remote) before entering the workspace.
+    // The pending-approval screen ends as soon as the Seeker selects this
+    // Provider. Move directly into the assessment-requirement/service workspace.
     setProviderOfferReview((current) =>
       current?.requestId === selectedJob.request.id
       && current.responseId === selectedJob.responseId
-        ? { ...current, status: "SELECTED" }
+        ? null
         : current,
     );
   }, [p.mode, requests, myJobs, providerSelectionWatch]);
@@ -1768,7 +1768,7 @@ export function ProviderJobScreen(p: Props) {
         })() : null}
       </View>
     </Modal>
-    <Modal visible={p.mode === "provider" && providerOfferReview !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
+    <Modal visible={p.mode === "provider" && providerOfferReview !== null && providerOfferReview.status !== "SELECTED"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
       <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 10, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12, justifyContent: "center" }}>
         {p.platformHeader}
         <View style={{ alignItems: "center" }}>
