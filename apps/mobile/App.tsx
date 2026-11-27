@@ -300,10 +300,11 @@ export default function App() {
         const jobs = await apiRequest<Array<{ status: string }>>("/marketplace/my-jobs", {}, true);
         const activeStatuses = ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"];
         if (jobs.some((job) => activeStatuses.includes(job.status))) {
-          // Restore to Home; Activities is opened only by an explicit Provider tab tap.
+          // Restore the Provider's persisted service workspace after reload.
+          // Activities remains opt-in and is opened only by an explicit tab tap.
           setMode("provider");
           setActiveTab("home");
-          setScreen("dashboard");
+          setScreen("provider-job");
           return;
         }
       } else {
