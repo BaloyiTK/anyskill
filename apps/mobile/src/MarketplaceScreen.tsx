@@ -2192,7 +2192,7 @@ export function MarketplaceScreen(p: Props) {
               const estimateApproved = ["ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED"].includes(status);
               const estimateStage = !!journeyScreen?.assessmentCompletedAt || ["ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED"].includes(status);
               const assessmentStage = !!journeyScreen?.providerArrivedAt || !!journeyScreen?.assessmentStartedAt;
-              const activeIndex = workStarted ? 4 : estimateApproved || estimateStage ? 3 : assessmentStage ? 2 : 1;
+              const activeIndex = workStarted || estimateApproved ? 4 : estimateStage ? 3 : assessmentStage ? 2 : 1;
               const steps = [
                 { title: "Provider selected", detail: "You've chosen your Provider", done: true },
                 { title: "Provider travelling", detail: journeyScreen?.providerArrivedAt ? "Provider has arrived" : journeyScreen?.providerEnRouteAt ? "Provider is on the way" : "We'll notify you when they're on the way", done: !!journeyScreen?.providerArrivedAt },
