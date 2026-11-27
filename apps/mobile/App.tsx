@@ -1569,7 +1569,7 @@ export default function App() {
 
       {screen === "dashboard" && account && activeTab === "home" && mode === "provider" && (
         verified && roleSummary?.providerStatus === "ACTIVE"
-          ? <ProviderHomeScreen onManageProfile={() => { setMode("provider"); setScreen("marketplace"); }} />
+          ? <ProviderHomeScreen onManageProfile={() => { setActiveTab("account"); setShowAccountSettings(false); setScreen("dashboard"); feedback(); }} />
           : <View style={s.form}>
               <Text style={s.kicker}>PROVIDER ACCESS</Text>
               <Text style={s.formTitle}>Your Provider workspace is not available yet</Text>
