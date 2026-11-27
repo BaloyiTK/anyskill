@@ -1222,7 +1222,7 @@ export default function App() {
             method: "POST",
             body: JSON.stringify({
               publicName: providerProfile.publicName,
-              hourlyRate: Number(providerProfile.hourlyRate),
+              ...(providerProfile.hourlyRate == null ? {} : { hourlyRate: Number(providerProfile.hourlyRate) }),
               assessmentFee: Number(providerProfile.assessmentFee),
               skillCategories: providerProfile.skillCategories,
               serviceAreas: providerProfile.serviceAreas,

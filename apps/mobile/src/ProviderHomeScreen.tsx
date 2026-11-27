@@ -214,8 +214,8 @@ export function ProviderHomeScreen({ onManageProfile }: Props) {
 
   // The API returns only approved, unpaused skills. Never fall back to draft skills here.
   const activeSkills = profile?.skillCategories ?? [];
-  const hasPricedActiveSkill = activeSkills.some((category) => (profile?.skillRates ?? []).some((skill) => skill.category.trim().toLowerCase() === category.trim().toLowerCase() && Number(skill.hourlyRate) >= 1));
-  const canToggle = Boolean(profile && (profile.isAvailable || hasPricedActiveSkill));
+  const hasPricedActiveSkills = activeSkills.length > 0 && activeSkills.every((category) => (profile?.skillRates ?? []).some((skill) => skill.category.trim().toLowerCase() === category.trim().toLowerCase() && Number(skill.hourlyRate) >= 1));
+  const canToggle = Boolean(profile && (profile.isAvailable || hasPricedActiveSkills));
   const isOnline = Boolean(profile?.isAvailable);
 
   return (
