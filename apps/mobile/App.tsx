@@ -10,7 +10,6 @@ import {
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import {
   AccountSummary, apiRequest, clearTokens, IdentitySummary, saveTokens, signOut,
-  AppNotification, fetchNotifications, markNotificationRead,
 } from "./src/api";
 import { MarketplaceScreen } from "./src/MarketplaceScreen";
 import { IncomingRequestScreen } from "./src/IncomingRequestScreen";
@@ -72,7 +71,7 @@ async function configureIncomingRequestNotifications() {
 
 type Screen = "welcome" | "register" | "login" | "verify-email" | "verify-otp" | "complete-registration" | "forgot-password" | "reset-password-otp" | "reset-password" | "dashboard" | "marketplace" | "onboarding" | "profile-check" | "service-check";
 type UserMode = "seeker" | "provider";
-type AppTab = "home" | "activities" | "notifications" | "account";
+type AppTab = "home" | "activities" | "account";
 type Tokens = { accessToken: string; refreshToken: string; tokenType: "Bearer"; expiresIn: number };
 type MarketplaceRoleSummary = {
   seekerStatus: string;
@@ -161,8 +160,6 @@ export default function App() {
   const [providerApplicationPortfolio, setProviderApplicationPortfolio] = useState("");
   const [providerApplicationQualifications, setProviderApplicationQualifications] = useState("");
   const [identity, setIdentity] = useState<IdentitySummary | null>(null);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [profileComplete, setProfileComplete] = useState(false);
@@ -349,18 +346,6 @@ export default function App() {
     }
   };
 
-  const loadNotifications = async () => {
-    if (!account) return;
-    setNotificationsLoading(true);
-    try {
-      setNotifications(await fetchNotifications());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load notifications.");
-    } finally {
-      setNotificationsLoading(false);
-    }
-  };
-
   const loadAccount = async () => {
     const me = await apiRequest<AccountSummary>("/auth/me", {}, true);
     setAccount(me);
@@ -431,11 +416,6 @@ export default function App() {
     void registerDevice();
     return () => { cancelled = true; };
   }, [account?.id]);
-
-  useEffect(() => {
-    if (!account || activeTab !== "notifications") return;
-    void loadNotifications();
-  }, [account?.id, activeTab]);
 
   // Provider approvals can be completed by an administrator while the app is
   // already open. Refresh role and identity state on the Home tab so a Provider
@@ -611,9 +591,8 @@ export default function App() {
       openMatchedRequest(requestId);
       return;
     }
-    setActiveTab("notifications");
+    setActiveTab("home");
     setScreen("dashboard");
-    void loadNotifications();
   };
 
   useEffect(() => {
@@ -1252,7 +1231,6 @@ export default function App() {
       setAccount(null);
       setRoleSummary(null);
       setIdentity(null);
-      setNotifications([]);
       setProfileComplete(false);
       setDeleteConfirmation("");
       setShowDeleteConfirmation(false);
@@ -1637,40 +1615,6 @@ export default function App() {
                 />
               </View> : null}
 
-          {screen === "dashboard" && account && activeTab === "notifications" && <View style={s.form}>
-            <Text style={s.kicker}>UPDATES</Text>
-            <Text style={s.formTitle}>Notifications</Text>
-            <Text style={s.subtitle}>Job updates, verification decisions and important account messages.</Text>
-            {notificationsLoading && <ActivityIndicator color={C.primary} />}
-            {!notificationsLoading && notifications.length === 0 && (
-              <View style={s.emptyState}>
-                <Text style={s.emptyStateIcon}>♧</Text>
-                <Text style={s.emptyStateTitle}>You're all caught up</Text>
-                <Text style={s.emptyStateText}>New updates will appear here.</Text>
-              </View>
-            )}
-            {notifications.map((item) => (
-              <Pressable
-                key={item.id}
-                accessibilityRole="button"
-                onPress={() => {
-                  if (item.readAt) return;
-                  void markNotificationRead(item.id).then(() => {
-                    setNotifications((current) => current.map((entry) => entry.id === item.id ? { ...entry, readAt: new Date().toISOString() } : entry));
-                  }).catch((e) => setError(e instanceof Error ? e.message : "Could not update notification."));
-                }}
-                style={[s.notificationCard, !item.readAt && s.notificationUnread]}
-              >
-                <View style={s.notificationHeader}>
-                  <Text style={s.notificationTitle}>{item.title}</Text>
-                  {!item.readAt && <View style={s.unreadDot} />}
-                </View>
-                <Text style={s.notificationBody}>{item.body}</Text>
-                <Text style={s.notificationDate}>{new Date(item.createdAt).toLocaleString()}</Text>
-              </Pressable>
-            ))}
-          </View>}
-
           {screen === "dashboard" && account && activeTab === "account" && (showAccountSettings ? <View style={s.form}>
             <Secondary label="Back to profile" onPress={() => setShowAccountSettings(false)} />
             <Text style={s.kicker}>ACCOUNT SETTINGS</Text>
@@ -1766,7 +1710,6 @@ export default function App() {
       {account && <View style={s.bottomTabBar}>
         <BottomTab label="Home" icon="⌂" selected={activeTab === "home"} onPress={() => { void navigateHome(); }} />
         <BottomTab label="Activities" icon="▤" selected={activeTab === "activities"} onPress={() => { setActiveTab("activities"); setScreen("dashboard"); feedback(); }} />
-        <BottomTab label="Notifications" icon="♧" selected={activeTab === "notifications"} onPress={() => { setActiveTab("notifications"); setScreen("dashboard"); feedback(); }} />
         <BottomTab label="Profile" icon="●" selected={activeTab === "account"} onPress={() => { setActiveTab("account"); setShowAccountSettings(false); setScreen("dashboard"); feedback(); }} />
       </View>}
       <IncomingRequestScreen
