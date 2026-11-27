@@ -1406,7 +1406,13 @@ export function ProviderJobScreen(p: Props) {
     if (p.mode !== "provider") return;
     hasLoadedIncomingRequestsRef.current = false;
     void loadRequests(); void loadProviderProfile(); void loadMyJobs();
-    const refreshIncoming = setInterval(() => { void loadRequests(); }, 8000);
+    const refreshIncoming = setInterval(() => {
+      void loadRequests();
+      // The Seeker confirms arrival from a separate session. Refresh the active
+      // engagement too, otherwise the Provider keeps a stale confirmation flag
+      // and the Start Assessment button remains hidden until a manual reload.
+      void loadMyJobs();
+    }, 8000);
     return () => clearInterval(refreshIncoming);
   }, [p.mode, loadRequests, loadProviderProfile, loadMyJobs]);
 
