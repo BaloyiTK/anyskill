@@ -40,7 +40,7 @@ type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[];
 type DisputeMessage = { id: string; author: { id: string }; body: string; createdAt: string; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}> };
 type JobDispute = { id: string; status: string; reason: string; resolutionNote: string | null; resolvedAt: string | null; messages: DisputeMessage[] };
 type JobEngagement = { id: string; responseId?: string | null; providerId?: string | null; paymentStatus?: string; paymentSimulatedAt?: string | null; providerPayoutStatus?: string; providerPayoutSimulatedAt?: string | null; assessmentDraftHours?: string | number | null; assessmentDraftNotes?: string | null; assessmentDraftUpdatedAt?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; assessmentRequired?: boolean; seekerArrivalConfirmedAt?: string | null; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; providerArrivedAt?: string | null; assessmentStartedAt?: string | null; assessmentCompletedAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
-type ProviderJob = JobEngagement & {
+export type ProviderJob = JobEngagement & {
   responseId: string;
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
   seeker?: { firstName: string; lastName: string; profilePhotoUrl: string | null; phone: string | null; identityVerified: boolean };
@@ -67,6 +67,7 @@ type Props = {
   onStartVerification: () => void;
   onProviderJobCompleted?: () => void;
   initialProviderJobId?: string | null;
+  initialProviderJobs?: ProviderJob[] | null;
   onProviderJobOpened?: () => void;
 };
 const C = { ink: "#15251E", muted: "#66756D", primary: "#176B55", border: "#E1E8E3", surface: "#FFFFFF", warning: "#FFF6E4", warningInk: "#78551A", bg: "#F5F7F5" };
@@ -105,8 +106,9 @@ export function ProviderJobScreen(p: Props) {
   // happen later, and the selected job must still take priority over older jobs.
   const [providerSelectionWatch, setProviderSelectionWatch] = useState<{requestId:string;responseId:string}|null>(null);
   const [dismissedProviderOfferIds, setDismissedProviderOfferIds] = useState<string[]>([]);
-  const [myJobs, setMyJobs] = useState<ProviderJob[]>([]);
-  const [activeProviderJobId, setActiveProviderJobId] = useState<string | null>(null);
+  const [myJobs, setMyJobs] = useState<ProviderJob[]>(p.initialProviderJobs ?? []);
+  const [providerJobsLoaded, setProviderJobsLoaded] = useState(Boolean(p.initialProviderJobs));
+  const [activeProviderJobId, setActiveProviderJobId] = useState<string | null>(p.initialProviderJobId ?? null);
   const [dismissedActiveJobIds, setDismissedActiveJobIds] = useState<string[]>([]);
   const [serviceChatMessages, setServiceChatMessages] = useState<ServiceChatMessage[]>([]);
   const [serviceChatDraft, setServiceChatDraft] = useState("");
@@ -1157,7 +1159,11 @@ export function ProviderJobScreen(p: Props) {
       const serverNow = result.find((item) => item.serverNow)?.serverNow;
       if (serverNow) setClockOffsetMs(Date.parse(serverNow) - (requestStartedAt + receivedAt) / 2);
       setMyJobs(result);
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not load selected jobs."); }
+      setProviderJobsLoaded(true);
+    } catch (e) {
+      setProviderJobsLoaded(false);
+      setError(e instanceof Error ? e.message : "Could not load selected jobs.");
+    }
   }, []);
 
   const cancelProviderJob = (requestId: string, title: string) => {
@@ -1637,6 +1643,15 @@ export function ProviderJobScreen(p: Props) {
     request.status === "OPEN"
     || (request.jobEngagement && ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(request.jobEngagement.status)),
   );
+
+  if (p.mode === "provider" && !providerJobsLoaded) {
+    return <View style={[s.container, { flex: 1, justifyContent: "center", padding: 24 }]}>
+      <ActivityIndicator color={C.primary} size="large" />
+      <Text style={{ color: C.ink, fontSize: 17, fontWeight: "900", textAlign: "center", marginTop: 18 }}>Restoring your service</Text>
+      <Text style={{ color: C.muted, fontSize: 13, lineHeight: 20, textAlign: "center", marginTop: 8 }}>{error || "Loading your saved service stage. Please wait."}</Text>
+      {error ? <Primary label="Retry loading service" onPress={() => { setError(""); void loadMyJobs(); }} /> : null}
+    </View>;
+  }
 
   return <View style={s.container}>
     <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">

@@ -12,7 +12,7 @@ import {
   AccountSummary, apiRequest, clearTokens, IdentitySummary, saveTokens, signOut,
   AppNotification, fetchNotifications, markNotificationRead,
 } from "./src/api";
-import { ProviderJobScreen } from "./src/ProviderJobScreen";
+import { ProviderJobScreen, type ProviderJob } from "./src/ProviderJobScreen";
 import { IncomingRequestScreen } from "./src/IncomingRequestScreen";
 import { ProviderHomeScreen } from "./src/ProviderHomeScreen";
 import { ProviderActivitiesScreen } from "./src/ProviderActivitiesScreen";
@@ -170,6 +170,7 @@ export default function App() {
   const [pendingIncomingPushId, setPendingIncomingPushId] = useState<string | null>(null);
   const [activeIncomingRequestId, setActiveIncomingRequestId] = useState<string | null>(null);
   const [pendingProviderJobId, setPendingProviderJobId] = useState<string | null>(null);
+  const [initialProviderJobs, setInitialProviderJobs] = useState<ProviderJob[] | null>(null);
   const dismissedIncomingRequestIds = useRef<Set<string>>(new Set());
   const handledNotificationResponses = useRef<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -297,11 +298,16 @@ export default function App() {
       const roles = await apiRequest<MarketplaceRoleSummary>("/marketplace/roles", {}, true);
       const activeMode = (roles.activeMode ?? initialMode ?? account?.initialMode ?? "SEEKER").toLowerCase();
       if (activeMode === "provider") {
-        const jobs = await apiRequest<Array<{ status: string }>>("/marketplace/my-jobs", {}, true);
+        const jobs = await apiRequest<ProviderJob[] | null>("/marketplace/my-jobs", {}, true);
+        if (!Array.isArray(jobs)) {
+          throw new Error("The active Provider services could not be loaded. Please retry.");
+        }
         const activeStatuses = ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"];
-        if (jobs.some((job) => activeStatuses.includes(job.status))) {
-          // Restore the Provider's persisted service workspace after reload.
-          // Activities remains opt-in and is opened only by an explicit tab tap.
+        const activeJob = jobs.find((job) => activeStatuses.includes(job.status));
+        if (activeJob) {
+          // Preload the full persisted engagement before leaving the launch screen.
+          setInitialProviderJobs(jobs);
+          setPendingProviderJobId(activeJob.request.id);
           setMode("provider");
           setActiveTab("home");
           setScreen("provider-job");
@@ -1576,7 +1582,8 @@ export default function App() {
         onIdentityRequired={(requestId) => { setPendingAcceptRequestId(requestId); setScreen("dashboard"); }}
         onStartVerification={() => { void startIdentityVerification(); }}
         initialProviderJobId={pendingProviderJobId}
-        onProviderJobOpened={() => setPendingProviderJobId(null)}
+        initialProviderJobs={initialProviderJobs}
+        onProviderJobOpened={() => { setPendingProviderJobId(null); setInitialProviderJobs(null); }}
       />}
 
       {screen === "dashboard" && account && activeTab === "home" && mode === "provider" && (
