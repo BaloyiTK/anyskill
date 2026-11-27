@@ -340,6 +340,7 @@ export function ProviderJobScreen(p: Props) {
       title: nextRequest.title,
       skillCategory: nextRequest.skillCategory,
       location: nextRequest.location,
+      deliveryMode: nextRequest.deliveryMode,
       createdAt: nextRequest.matchingStartedAt,
       notified: nextRequest._count?.matches ?? 0,
       wave: nextRequest.matchingWave ?? 1,
@@ -446,6 +447,7 @@ export function ProviderJobScreen(p: Props) {
             );
             setMatchingRequest(active ? {
               id: active.id, title: active.title, skillCategory: active.skillCategory, location: active.location,
+              deliveryMode: active.deliveryMode,
               createdAt: active.matchingStartedAt, notified: active._count?.matches ?? 0, wave: active.matchingWave ?? 1, exhausted: !!active.matchingExhaustedAt,
             } : null);
           }
@@ -1125,7 +1127,7 @@ export function ProviderJobScreen(p: Props) {
       }, true);
       setMatchingRequest({
         id: published.id, title: published.title, skillCategory: published.skillCategory,
-        location: published.location, createdAt: published.matchingStartedAt, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
+        location: published.location, deliveryMode, createdAt: published.matchingStartedAt, notified: published.matching?.notified ?? 0, wave: published.matching?.wave ?? 1, exhausted: published.matching?.exhausted ?? false,
       });
       setTitle(""); setCategory(""); setSkillQuery(""); setDescription(""); setInstructions(""); setLocation(""); setRequestLatitude(null); setRequestLongitude(null); setSearchRadiusKm(10);
       await loadMyRequests();
