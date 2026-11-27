@@ -760,7 +760,7 @@ test("Provider going online immediately retries recent open requests for an appr
     providerSkill: {
       findMany: async (args) => {
         calls.push(["approved-skills", args]);
-        return [{ category: "Plumber" }];
+        return [{ category: "Plumber", hourlyRate: 250 }];
       },
     },
     serviceRequest: {
