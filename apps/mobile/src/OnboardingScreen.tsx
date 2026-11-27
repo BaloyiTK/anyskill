@@ -848,10 +848,8 @@ export function OnboardingScreen(p: { identityStatus: string; initialMode: Marke
         <Text style={st.heading}>Review and submit</Text><Text style={st.help}>Submitting saves the information currently available. It does not make your profile mandatory or grant identity-verified permissions. You can edit drafts later.</Text>
         <View style={st.card}>
           <Text style={st.status}>Profile: {status("profile")}</Text>
-          <Text style={st.status}>Identity: {identityApproved ? "Verified" : verificationPending ? "Pending review" : identityStatus.replace(/_/g, " ")}</Text>
-          {isProvider ? <Text style={st.status}>Skill reviews: {allSkillsApproved ? "All submitted skills approved" : skillsPending ? "One or more skills pending review" : data.skillReviewStatuses?.some((skill) => skill.status === "REJECTED") ? "Changes requested on one or more skills" : status("skills")}</Text> : null}
-          <Text style={st.status}>{identityApproved ? "Identity gate: passed" : "Identity gate: pending — service requests and request acceptance remain locked"}</Text>
-          {isProvider ? <Text style={st.status}>{allSkillsApproved ? "Provider skill gate: passed" : "Provider skill gate: pending — incoming requests cannot be accepted until the requested skill is approved and the Provider account is active"}</Text> : <Text style={st.status}>Seeker access: service requests become available after identity approval and account activation.</Text>}
+          <Text style={st.status}>Identity: {identityApproved ? "Verified" : verificationPending ? "Pending review — service access remains locked until identity approval and account activation" : identityStatus.replace(/_/g, " ") + " — service access remains locked until identity approval and account activation"}</Text>
+          {isProvider ? <Text style={st.status}>Skill reviews: {allSkillsApproved ? "All submitted skills approved" : (skillsPending ? "One or more skills pending review" : data.skillReviewStatuses?.some((skill) => skill.status === "REJECTED") ? "Changes requested on one or more skills" : status("skills")) + " — incoming requests require the requested skill to be approved and the Provider account to be active"}</Text> : null}
         </View>
 
       </>}
