@@ -17,7 +17,7 @@ import { LiveProviderMapService } from "./live-provider-map.service";
 import {
   CreateServiceRequestDto, RespondToRequestDto,
   RegisterPushDeviceDto,
-  UpdateProviderProfileDto,
+  UpdateProviderProfileDto, UpdateProviderAssessmentSettingsDto,
   SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, OpenJobDisputeDto, PostJobDisputeMessageDto, ResolveJobDisputeDto,
   UpdateHomeLocationDto, UpdateLiveLocationDto, ScheduleServiceRequestDto, SubmitProviderReviewDto, SubmitSeekerReviewDto,
 } from "./dto/service-request.dto";
@@ -215,6 +215,18 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { isAvailable: profile.isAvailable, liveLocationUpdatedAt: updatedAt, liveAccuracyM: input.accuracyM };
   }
 
+  async updateProviderAssessmentSettings(userId: string, input: UpdateProviderAssessmentSettingsDto) {
+    const changed = await this.prisma.providerProfile.updateMany({
+      where: { userId },
+      data: { assessmentRequired: input.assessmentRequired, assessmentFee: input.assessmentFee },
+    });
+    if (changed.count !== 1) throw new NotFoundException("Create your Provider profile before changing assessment settings.");
+    return this.prisma.providerProfile.findUnique({
+      where: { userId },
+      select: { assessmentRequired: true, assessmentFee: true },
+    });
+  }
+
   async updateProviderProfile(userId: string, input: UpdateProviderProfileDto) {
     if (input.isAvailable) {
       const user = await this.prisma.user.findUnique({
@@ -379,7 +391,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
   async getProviderProfile(userId: string) {
     const profile = await this.prisma.providerProfile.findUnique({
       where: { userId },
-      select: { publicName: true, hourlyRate: true, assessmentFee: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, updatedAt: true },
+      select: { publicName: true, hourlyRate: true, assessmentFee: true, assessmentRequired: true, skillCategories: true, serviceAreas: true, deliveryModes: true, isAvailable: true, maxTravelDistanceKm: true, updatedAt: true },
     });
     if (!profile) return null;
     const approvedSkills = await this.prisma.providerSkill.findMany({
@@ -2000,7 +2012,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     return { success: true, requestId, status: "DECLINED", matching };
   }
 
-  async respondToRequest(providerId: string, requestId: string, input: RespondToRequestDto = {}) {
+  async respondToRequest(providerId: string, requestId: string) {
     try {
       return await this.prisma.$transaction(async (tx) => {
         // Serialize acceptance with cancellation and Seeker selection. Those
@@ -2035,7 +2047,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           select: {
             identityVerification: true,
             providerRoleStatus: true,
-            providerProfile: { select: { assessmentFee: true } },
+            providerProfile: { select: { assessmentFee: true, assessmentRequired: true } },
           },
         });
         if (!provider || provider.identityVerification !== "VERIFIED") {
@@ -2106,15 +2118,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         if (claimed.count !== 1) {
           throw new ConflictException("This incoming request is no longer awaiting your response. Refresh and try again.");
         }
-        // Assessment need and assessment price are separate Provider decisions.
-        // A zero-fee assessment is still a full assessment/estimate journey.
-        // Older clients that omit these fields default to assessment required
-        // and retain the Provider's configured profile fee.
-        const configuredAssessmentFee = Number(provider.providerProfile?.assessmentFee ?? 0);
-        const assessmentRequired = input.assessmentRequired ?? true;
-        const assessmentFee = assessmentRequired
-          ? input.assessmentFee ?? configuredAssessmentFee
-          : 0;
+        // Both settings are saved in the Provider profile before a request arrives.
+        // Acceptance only snapshots those settings; R0 does not mean no assessment.
+        const assessmentRequired = provider.providerProfile?.assessmentRequired !== false;
+        const assessmentFee = Number(provider.providerProfile?.assessmentFee ?? 0);
         if (!Number.isFinite(assessmentFee) || assessmentFee < 0 || assessmentFee > 1000000) {
           throw new BadRequestException("Enter a valid assessment fee of R0 or more.");
         }

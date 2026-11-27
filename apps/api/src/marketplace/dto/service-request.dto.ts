@@ -69,16 +69,14 @@ export class CreateServiceRequestDto {
   instructions?: string;
 }
 
-export class RespondToRequestDto {
-  @IsOptional()
+export class UpdateProviderAssessmentSettingsDto {
   @IsBoolean()
-  assessmentRequired?: boolean;
+  assessmentRequired!: boolean;
 
-  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(1000000)
-  assessmentFee?: number;
+  assessmentFee!: number;
 }
 
 export class ScheduleServiceRequestDto {

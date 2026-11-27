@@ -318,7 +318,7 @@ test("Provider acceptance claims the live match before creating and notifying th
       findUnique: async () => ({ id: "match-1", status: "NOTIFIED", notifiedAt: new Date() }),
       updateMany: async (args) => { calls.push(["match-claim", args]); return { count: 1 }; },
     },
-    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { hourlyRate: 250, assessmentFee: 30 } }) },
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { hourlyRate: 250, assessmentFee: 30, assessmentRequired: true } }) },
     providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 350 }) },
     providerResponse: { create: async (args) => { calls.push(["offer", args]); return { id: "offer-1", status: "OFFERED" }; } },
     appNotification: { create: async (args) => { calls.push(["seeker-notification", args]); } },
@@ -352,12 +352,12 @@ test("Provider acceptance builds a no-assessment offer from the saved profile an
       findUnique: async () => ({ id: "match-1", status: "NOTIFIED", notifiedAt: new Date() }),
       updateMany: async () => ({ count: 1 }),
     },
-    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { assessmentFee: 0 } }) },
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { assessmentFee: 0, assessmentRequired: false } }) },
     providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 425 }) },
     providerResponse: { create: async (args) => { calls.push(args); return { id: "offer-1", status: "OFFERED" }; } },
     appNotification: { create: async () => {} },
   };
-  const result = await serviceWith(tx).respondToRequest("provider-1", "request-1", { assessmentRequired: false, assessmentFee: 0 });
+  const result = await serviceWith(tx).respondToRequest("provider-1", "request-1");
   assert.deepEqual(result, { id: "offer-1", status: "OFFERED" });
   assert.deepEqual(calls[0].data, {
     requestId: "request-1",
@@ -383,12 +383,12 @@ test("Provider can require a free assessment when accepting a request", async ()
       findUnique: async () => ({ id: "match-1", status: "NOTIFIED", notifiedAt: new Date() }),
       updateMany: async () => ({ count: 1 }),
     },
-    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { assessmentFee: 0 } }) },
+    user: { findUnique: async () => ({ identityVerification: "VERIFIED", providerRoleStatus: "ACTIVE", providerProfile: { assessmentFee: 0, assessmentRequired: true } }) },
     providerSkill: { findFirst: async () => ({ id: "skill-1", hourlyRate: 425 }) },
     providerResponse: { create: async (args) => { calls.push(args); return { id: "offer-1", status: "OFFERED" }; } },
     appNotification: { create: async () => {} },
   };
-  await serviceWith(tx).respondToRequest("provider-1", "request-1", { assessmentRequired: true, assessmentFee: 0 });
+  await serviceWith(tx).respondToRequest("provider-1", "request-1");
   assert.equal(calls[0].data.assessmentRequiredAtOffer, true);
   assert.equal(calls[0].data.assessmentFeeAtOffer, 0);
 });

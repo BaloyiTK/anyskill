@@ -349,6 +349,7 @@ model ProviderProfile {
   publicName      String   @default("") @map("public_name") @db.VarChar(80)
   hourlyRate      Decimal? @map("hourly_rate") @db.Decimal(10, 2)
   assessmentFee   Decimal  @default(0) @map("assessment_fee") @db.Decimal(10, 2)
+  assessmentRequired Boolean @default(true) @map("assessment_required")
   skillCategories String[] @default([]) @map("skill_categories")
   serviceAreas    String[] @default([]) @map("service_areas")
   deliveryModes   String[] @default(["ONSITE"]) @map("delivery_modes")

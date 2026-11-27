@@ -7,8 +7,8 @@ import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { MarketplaceAccessGuard, RequireIdentityFor } from "../identity/marketplace-access.guard";
 import { MarketplaceRoleGuard, RequireMarketplaceRole } from "./marketplace-role.guard";
 import {
-  CreateServiceRequestDto, RespondToRequestDto,
-  UpdateHomeLocationDto, UpdateLiveLocationDto,
+  CreateServiceRequestDto,
+  UpdateHomeLocationDto, UpdateLiveLocationDto, UpdateProviderAssessmentSettingsDto,
   RegisterPushDeviceDto,
   UpdateProviderProfileDto,
   SelectProviderDto, SubmitEstimateDto, DecideEstimateDto, RequestAdditionalHoursDto, DecideAdditionalHoursDto, SubmitJobCompletionDto, DecideJobCompletionDto, ScheduleServiceRequestDto, SubmitProviderReviewDto, SubmitSeekerReviewDto, OpenJobDisputeDto, PostJobDisputeMessageDto, ResolveJobDisputeDto,
@@ -116,9 +116,8 @@ export class MarketplaceController {
   acceptRequest(
     @CurrentUser() user: AuthenticatedUser,
     @Param("requestId", new ParseUUIDPipe()) requestId: string,
-    @Body() dto: RespondToRequestDto,
   ) {
-    return this.marketplace.respondToRequest(user.id, requestId, dto);
+    return this.marketplace.respondToRequest(user.id, requestId);
   }
 
 
@@ -421,6 +420,12 @@ export class MarketplaceController {
   @RequireMarketplaceRole("PROVIDER")
   updateProviderProfile(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateProviderProfileDto) {
     return this.marketplace.updateProviderProfile(user.id, dto);
+  }
+
+  @Patch("marketplace/provider-profile/assessment-settings")
+  @RequireMarketplaceRole("PROVIDER")
+  updateProviderAssessmentSettings(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateProviderAssessmentSettingsDto) {
+    return this.marketplace.updateProviderAssessmentSettings(user.id, dto);
   }
 
   @Post("notifications/devices")

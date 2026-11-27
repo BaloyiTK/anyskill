@@ -24,6 +24,7 @@ type ProviderProfile = {
   publicName?: string;
   hourlyRate?: string | number | null;
   assessmentFee?: string | number | null;
+  assessmentRequired?: boolean;
   serviceAreas?: string[];
   isAvailable?: boolean;
   skillCategories?: string[];
@@ -70,6 +71,11 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const [savingSkills, setSavingSkills] = useState(false);
   const [skillError, setSkillError] = useState("");
   const [skillMessage, setSkillMessage] = useState("");
+  const [assessmentRequired, setAssessmentRequired] = useState(true);
+  const [assessmentFeeDraft, setAssessmentFeeDraft] = useState("0");
+  const [savingAssessment, setSavingAssessment] = useState(false);
+  const [assessmentError, setAssessmentError] = useState("");
+  const [assessmentMessage, setAssessmentMessage] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -83,6 +89,8 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
       setProfile(onboarding);
       setIdentity(verification);
       setProvider(providerProfile);
+      setAssessmentRequired(providerProfile?.assessmentRequired !== false);
+      setAssessmentFeeDraft(String(providerProfile?.assessmentFee ?? 0));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your profile.");
     } finally {
@@ -171,6 +179,28 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
     } catch (e) { setSkillError(e instanceof Error ? e.message : "Could not submit your skills for review."); }
     finally { setSavingSkills(false); }
   };
+  const saveAssessmentSettings = async () => {
+    const fee = Number(assessmentFeeDraft.trim().replace(",", "."));
+    if (!Number.isFinite(fee) || fee < 0 || fee > 1000000) {
+      setAssessmentError("Enter a valid assessment fee of R0 or more.");
+      setAssessmentMessage("");
+      return;
+    }
+    setSavingAssessment(true); setAssessmentError(""); setAssessmentMessage("");
+    try {
+      const updated = await apiRequest<Pick<ProviderProfile, "assessmentRequired" | "assessmentFee">>(
+        "/marketplace/provider-profile/assessment-settings",
+        { method: "PATCH", body: JSON.stringify({ assessmentRequired, assessmentFee: fee }) },
+        true,
+      );
+      setProvider((current) => current ? { ...current, ...updated } : current);
+      setAssessmentFeeDraft(String(updated.assessmentFee ?? fee));
+      setAssessmentMessage("Your assessment settings have been saved.");
+    } catch (e) {
+      setAssessmentError(e instanceof Error ? e.message : "Could not save assessment settings.");
+    } finally { setSavingAssessment(false); }
+  };
+
   const personName = [profile?.profile?.firstName, profile?.profile?.lastName].filter(Boolean).join(" ");
   const location = [profile?.profile?.suburb, profile?.profile?.city, profile?.profile?.province, profile?.profile?.country].filter(Boolean).join(", ");
   const roleStatus = mode === "provider" ? providerStatus : seekerStatus;
@@ -188,6 +218,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
         if (review?.decisionReason) parts.push(`Review feedback: ${review.decisionReason}`);
         return parts.join("\n");
       }).join("\n\n") + `\n\n${portfolioCount} portfolio entries` : "No skills have been added yet. Add your skills and supporting details here." },
+      { id: "assessment", title: "Assessment settings", summary: (provider?.assessmentRequired === false ? "No assessment" : "Assessment required") + " · R" + String(provider?.assessmentFee ?? 0) + " fee", detail: "Choose whether your services require an assessment. The assessment fee is independent: R0 means the assessment is free, not that it is skipped." },
       { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("\n") : "Your service locations will appear here when configured." },
       { id: "availability", title: "Availability", summary: provider?.isAvailable ? "Online" : "Offline", detail: provider?.isAvailable ? "You are currently available to receive matching service requests." : "You are currently offline and will not receive new matching requests." },
     ] : [
@@ -240,6 +271,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
         const isExpanded = expanded === item.id;
         const isIdentity = item.id === "identity";
         const isSkills = item.id === "skills";
+        const isAssessment = item.id === "assessment";
         return (
           <View key={item.id} style={styles.rowCard}>
             <Pressable accessibilityRole="button" accessibilityState={{ expanded: isExpanded }} onPress={() => setExpanded(isExpanded ? null : item.id)} style={styles.rowButton}>
@@ -251,7 +283,27 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
               <Text style={styles.chevron}>{isExpanded ? "−" : "+"}</Text>
             </Pressable>
             {isExpanded ? <View style={styles.detail}>
-              {!isSkills ? <Text style={styles.detailText}>{item.detail}</Text> : null}
+              {!isSkills && !isAssessment ? <Text style={styles.detailText}>{item.detail}</Text> : null}
+              {isAssessment ? <View style={styles.assessmentSettings}>
+                <Text style={styles.detailText}>{item.detail}</Text>
+                <Text style={styles.fieldLabel}>Does your service require an assessment?</Text>
+                <View style={styles.assessmentChoices}>
+                  <Pressable accessibilityRole="button" accessibilityState={{ selected: assessmentRequired }} onPress={() => { setAssessmentRequired(true); setAssessmentMessage(""); }} style={[styles.assessmentChoice, assessmentRequired && styles.assessmentChoiceSelected]}>
+                    <Text style={[styles.assessmentChoiceText, assessmentRequired && styles.assessmentChoiceTextSelected]}>Assessment required</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityState={{ selected: !assessmentRequired }} onPress={() => { setAssessmentRequired(false); setAssessmentMessage(""); }} style={[styles.assessmentChoice, !assessmentRequired && styles.assessmentChoiceSelected]}>
+                    <Text style={[styles.assessmentChoiceText, !assessmentRequired && styles.assessmentChoiceTextSelected]}>No assessment</Text>
+                  </Pressable>
+                </View>
+                <Text style={styles.fieldLabel}>Assessment fee (R)</Text>
+                <TextInput value={assessmentFeeDraft} onChangeText={(value) => { setAssessmentFeeDraft(value); setAssessmentMessage(""); }} keyboardType="decimal-pad" placeholder="0.00" style={styles.assessmentFeeInput} />
+                <Text style={styles.helper}>Enter R0 if you assess for free. The assessment can still be used to determine the work required, estimated hours and final price.</Text>
+                {assessmentError ? <Text accessibilityRole="alert" style={styles.skillError}>{assessmentError}</Text> : null}
+                {assessmentMessage ? <Text style={styles.skillSuccess}>{assessmentMessage}</Text> : null}
+                <Pressable accessibilityRole="button" disabled={savingAssessment} onPress={() => { void saveAssessmentSettings(); }} style={[styles.detailAction, savingAssessment && styles.skillDisabled]}>
+                  <Text style={styles.detailActionText}>{savingAssessment ? "Saving…" : "Save assessment settings"}</Text>
+                </Pressable>
+              </View> : null}
               {isIdentity && !identityVerified ? <Pressable accessibilityRole="button" onPress={onStartVerification} style={styles.detailAction}><Text style={styles.detailActionText}>Open verification</Text></Pressable> : null}
               {isSkills ? <View style={styles.skillManager}>
                 {skills.length ? skills.map((skill, index) => {
@@ -412,6 +464,13 @@ const styles = StyleSheet.create({
   detailAction: { alignSelf: "flex-start", backgroundColor: colors.primary, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
   detailActionText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
   skillManager: { gap: 9 },
+  assessmentSettings: { gap: 10 },
+  assessmentChoices: { flexDirection: "row", gap: 8 },
+  assessmentChoice: { flex: 1, minHeight: 42, borderWidth: 1, borderColor: colors.border, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 8, backgroundColor: "#FFFFFF" },
+  assessmentChoiceSelected: { borderColor: colors.primary, backgroundColor: "#EAF3F8" },
+  assessmentChoiceText: { color: colors.muted, fontSize: 10, fontWeight: "800", textAlign: "center" },
+  assessmentChoiceTextSelected: { color: colors.primary },
+  assessmentFeeInput: { minHeight: 44, borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 11, color: colors.ink, fontSize: 12, backgroundColor: "#FFFFFF" },
   skillLimitHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },
   skillEditorTitle: { color: colors.ink, fontSize: 13, fontWeight: "900" },
   skillCard: { borderWidth: 1, borderColor: colors.border, borderRadius: 13, padding: 11, gap: 8, backgroundColor: "#FBFDFE" },
