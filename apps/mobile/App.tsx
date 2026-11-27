@@ -586,8 +586,8 @@ export default function App() {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(null);
           setMode("provider");
-          setActiveTab("activities");
-          setScreen("dashboard");
+          setActiveTab("home");
+          setScreen("provider-job");
         }).catch((e) => {
           setError(e instanceof Error ? e.message : "Could not accept this request.");
           openMatchedRequest(requestId);
@@ -1791,10 +1791,10 @@ export default function App() {
         onAccepted={(requestId) => {
           setActiveIncomingRequestId(null);
           setPendingAcceptRequestId(null);
-          setMessage("Offer sent. It is awaiting the Seeker decision. Track it in Provider Activities.");
-          setActiveTab("activities");
+          setMessage("Your offer has been sent and is awaiting the Seeker's approval.");
+          setActiveTab("home");
           setMode("provider");
-          setScreen("dashboard");
+          setScreen("provider-job");
         }}
       />
       </SafeAreaView>
