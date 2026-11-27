@@ -846,3 +846,15 @@ test("Provider going online immediately retries recent open requests for an appr
   ]);
   assert.deepEqual(calls.find(([name]) => name === "dispatch")[1], ["request-1", 1]);
 });
+
+
+test("Provider offer review lists only the current Provider open offers", async () => {
+  const expected = [{ id: "offer-1", requestId: "request-1", status: "OFFERED" }];
+  const prisma = { providerResponse: { findMany: async (args) => {
+    assert.deepEqual(args.where, { providerId: "provider-1", status: "OFFERED", request: { status: "OPEN" } });
+    assert.deepEqual(args.orderBy, { createdAt: "desc" });
+    return expected;
+  } } };
+  const service = new MarketplaceService(prisma, {});
+  assert.deepEqual(await service.listMyOffers("provider-1"), expected);
+});

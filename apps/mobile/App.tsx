@@ -584,9 +584,8 @@ export default function App() {
           method: "POST",
         }, true).then(() => {
           setActiveIncomingRequestId(null);
-          setPendingAcceptRequestId(requestId);
-          setActiveTab("home");
-          autoSwitchMarketplaceMode("provider");
+          setPendingAcceptRequestId(null);
+          setMode("provider");
           setActiveTab("activities");
           setScreen("dashboard");
         }).catch((e) => {
@@ -1793,7 +1792,7 @@ export default function App() {
         }}
         onAccepted={(requestId) => {
           setActiveIncomingRequestId(null);
-          setPendingAcceptRequestId(requestId);
+          setPendingAcceptRequestId(null);
           setMessage("Offer sent. It is awaiting the Seeker decision. Track it in Provider Activities.");
           setActiveTab("activities");
           setMode("provider");
