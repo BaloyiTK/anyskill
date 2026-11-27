@@ -357,7 +357,7 @@ test("Provider acceptance builds a no-assessment offer from the saved profile an
     providerResponse: { create: async (args) => { calls.push(args); return { id: "offer-1", status: "OFFERED" }; } },
     appNotification: { create: async () => {} },
   };
-  const result = await serviceWith(tx).respondToRequest("provider-1", "request-1");
+  const result = await serviceWith(tx).respondToRequest("provider-1", "request-1", { assessmentRequired: false, assessmentFee: 0 });
   assert.deepEqual(result, { id: "offer-1", status: "OFFERED" });
   assert.deepEqual(calls[0].data, {
     requestId: "request-1",
