@@ -301,7 +301,8 @@ export default function App() {
         const activeStatuses = ["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"];
         if (jobs.some((job) => activeStatuses.includes(job.status))) {
           setMode("provider");
-          setScreen("marketplace");
+          setActiveTab("activities");
+          setScreen("dashboard");
           return;
         }
       } else {
@@ -1614,6 +1615,7 @@ export default function App() {
             ? <ProviderActivitiesScreen onOpenJob={(requestId) => {
                 setPendingProviderJobId(requestId);
                 setMode("provider");
+                setActiveTab("activities");
                 setScreen("marketplace");
                 feedback();
               }} />

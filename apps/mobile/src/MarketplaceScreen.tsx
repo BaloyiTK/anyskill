@@ -1647,106 +1647,6 @@ export function MarketplaceScreen(p: Props) {
         <Text style={s.helper}>You can tap Publish service request at any time. If anything required is missing, AnySkill will explain what to complete. On-site and Either requests need a selected map location; Remote requests do not.</Text>
         {verificationPrompt && <View style={s.notice}><Text style={s.noticeTitle}>Verify before publishing</Text><Text style={s.noticeText}>Your request details are still on this screen. Start identity verification from your account, then return here to publish.</Text><Secondary label="Go to identity verification" onPress={p.onStartVerification} /></View>}
         </> : <>
-        <Text style={s.section}>Selected jobs and assessments</Text>
-        <Secondary label="Refresh selected jobs" onPress={() => void loadMyJobs()} />
-        {myJobs.map((job) => <View key={job.id} style={s.card}>
-          <Text style={s.cardTitle}>{job.request.title}</Text>
-          <Text style={s.meta}>Status: {job.status.replaceAll("_", " ")}</Text>
-          {job.request.location ? <Text style={s.meta}>Job location: {job.request.location}</Text> : null}
-          {job.request.latitude != null && job.request.longitude != null ? <Text style={s.meta}>Job pin: {job.request.latitude.toFixed(5)}, {job.request.longitude.toFixed(5)}</Text> : null}
-          <Text style={s.meta}>Agreed rate: R {Number(job.hourlyRate).toFixed(2)} / hour · Assessment fee: R {Number(job.assessmentFee).toFixed(2)}</Text>
-          {job.assessmentRequired === false ? <Text style={{ color: "#78551A", backgroundColor: "#FFF6E4", padding: 11, borderRadius: 10, fontSize: 12, lineHeight: 18, marginTop: 8 }}>No assessment was selected. This job is capped at one billable hour. You cannot charge for additional time, even if the work takes longer.</Text> : null}
-          {(job.status === "ASSESSMENT_PENDING" && !!job.assessmentCompletedAt) || job.status === "ESTIMATE_REJECTED" ? <>
-            <Text style={s.helper}>Complete the assessment, then submit the estimated hours and a clear explanation. The Seeker must approve before work begins.</Text>
-            <TextInput value={estimateHours} onChangeText={setEstimateHours} keyboardType="decimal-pad" placeholder="Estimated hours" style={s.input} />
-            <TextInput value={estimateNotes} onChangeText={setEstimateNotes} placeholder="Explain the assessment and work required..." multiline style={[s.input, s.multiline]} />
-            <Primary label="Submit job estimate" onPress={() => void submitEstimate(job.request.id)} disabled={jobActionBusy || !(Number(estimateHours) > 0) || estimateNotes.trim().length < 10} />
-          </> : null}
-          {job.status === "ESTIMATE_SUBMITTED" ? <View style={{ backgroundColor: "#FFF8E8", borderWidth: 1, borderColor: "#E8CB86", borderRadius: 14, padding: 13, marginTop: 10 }}>
-            <Text style={{ color: "#805B16", fontSize: 10, fontWeight: "900", letterSpacing: 1 }}>FINAL ESTIMATE SENT · AWAITING SEEKER</Text>
-            <Text style={{ color: "#15251E", fontSize: 22, fontWeight: "900", marginTop: 6 }}>R {(Number(job.estimatedTotal ?? 0) + Number(job.assessmentFee ?? 0)).toFixed(2)}</Text>
-            <Text style={{ color: "#53645A", fontSize: 11, lineHeight: 17, marginTop: 4 }}>{Number(job.estimatedHours ?? 0).toFixed(2)} hours × R {Number(job.hourlyRate).toFixed(2)}/hour = R {Number(job.estimatedTotal ?? 0).toFixed(2)} labour + R {Number(job.assessmentFee).toFixed(2)} assessment fee</Text>
-            <Text style={{ color: "#805B16", fontSize: 11, lineHeight: 17, marginTop: 7 }}>The Seeker must approve this final price. Do not start the main work while approval is pending.</Text>
-          </View> : job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
-          {job.agreedWorkTotal != null && Number(job.approvedAdditionalAmount ?? 0) > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(job.agreedWorkTotal).toFixed(2)}</Text> : null}
-          {job.status === "ESTIMATE_APPROVED" || (job.status === "ASSESSMENT_PENDING" && job.assessmentRequired === false && !!job.seekerArrivalConfirmedAt) ? <Primary label="Start work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
-          {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED", "DISPUTED"].includes(job.status) ? <>
-            <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(job, clockNow + clockOffsetMs))}</Text>
-            <Text style={s.meta}>{job.workPausedAt ? "ON BREAK · timer paused" : job.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting Seeker review" : job.status === "COMPLETED" ? "Final recorded working time" : job.status === "DISPUTED" ? "Timer paused · under dispute review" : "Work timer running"}</Text>
-          </> : null}
-          {job.status === "IN_PROGRESS" ? <Secondary label={job.adjustments.some((adjustment) => adjustment.status === "PENDING") ? "Awaiting extra-hours decision" : job.workPausedAt ? "Resume work" : "Take a break"} onPress={() => void changeWorkBreak(job.request.id, !job.workPausedAt)} disabled={jobActionBusy || job.adjustments.some((adjustment) => adjustment.status === "PENDING")} /> : null}
-          {job.status === "IN_PROGRESS" && job.assessmentRequired !== false && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
-            <Text style={s.helper}>Need more time? Explain why and request approval before doing the extra work.</Text>
-            <TextInput value={extraHours} onChangeText={setExtraHours} keyboardType="decimal-pad" placeholder="Additional hours" style={s.input} />
-            <TextInput value={extraReason} onChangeText={setExtraReason} placeholder="Explain why extra hours are required..." multiline style={[s.input, s.multiline]} />
-            <Primary label="Request additional hours" onPress={() => void requestExtraHours(job.request.id)} disabled={jobActionBusy || !(Number(extraHours) > 0) || extraReason.trim().length < 10} />
-          </> : null}
-          {job.adjustments.map((adjustment) => <Text key={adjustment.id} style={s.meta}>Extra hours request: {Number(adjustment.requestedHours).toFixed(2)} · R {Number(adjustment.requestedAmount).toFixed(2)} · {adjustment.status}</Text>)}
-{job.status === "IN_PROGRESS" ? <>
-            <Text style={s.helper}>When the agreed work is finished, submit completion notes and photo evidence. The Seeker must approve before the job is marked completed.</Text>
-            <Text style={s.label}>Completion notes</Text>
-            <TextInput value={completionNotes} onChangeText={setCompletionNotes} placeholder="Summarise the work completed, tests performed and any handover details..." multiline style={[s.input, s.multiline]} />
-            <Text style={s.label}>Photo evidence (up to 8 photos, 10 MB each)</Text>
-            <View style={{ flexDirection: "row", gap: 8 }}><View style={{ flex: 1 }}><Secondary label="Capture photo" onPress={() => void pickCompletionEvidence("camera")} disabled={uploadingEvidence} /></View><View style={{ flex: 1 }}><Secondary label="Upload photos" onPress={() => void pickCompletionEvidence("library")} disabled={uploadingEvidence} /></View></View>
-            {completionEvidenceAssets.map((asset) => <Text key={asset.id} style={s.meta}>✓ {asset.name} · {(asset.sizeBytes / 1024 / 1024).toFixed(1)} MB</Text>)}
-            <Primary label="Submit job completion" onPress={() => void submitCompletion(job.request.id)} disabled={jobActionBusy || uploadingEvidence || completionNotes.trim().length < 20} />
-          </> : null}
-          {job.status === "COMPLETION_PENDING" ? <>
-            <Text style={s.helper}>If you disagree with a completion review or need platform intervention, open a formal dispute. The job timer remains paused.</Text>
-            <TextInput value={disputeReasonDraft} onChangeText={setDisputeReasonDraft} placeholder="Explain the issue and the outcome you are requesting (minimum 20 characters)." multiline maxLength={2000} style={[s.input,s.multiline]} />
-            <Secondary label={uploadingDisputeEvidence ? "Uploading dispute evidence..." : "Attach dispute evidence"} onPress={() => void pickDisputeEvidence()} disabled={uploadingDisputeEvidence || jobActionBusy} />
-            {disputeEvidenceAssets.map((asset) => <Text key={asset.id} style={s.meta}>✓ {asset.name}</Text>)}
-            <Primary label="Open dispute with AnySkill" onPress={() => void openJobDispute(job.request.id)} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReasonDraft.trim().length < 20} />
-          </> : null}
-          {job.disputes?.[0] ? <View style={s.offerCard}>
-            <Text style={s.offerTitle}>AnySkill dispute · {job.disputes[0].status.replaceAll("_"," ")}</Text>
-            {job.disputes[0].messages.map((message) => <View key={message.id} style={s.offerCard}>
-              <Text style={s.meta}>{message.author.id === job.providerId ? "Your response" : "Seeker response"} · {new Date(message.createdAt).toLocaleString()}</Text>
-              <Text style={s.body}>{message.body}</Text>
-              {message.evidenceAssets?.map((asset) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open dispute evidence."); } }}><Text style={s.response}>View evidence · {asset.originalName}</Text></Pressable>)}
-            </View>)}
-            {job.disputes[0].resolutionNote ? <Text style={s.body}>Resolution: {job.disputes[0].resolutionNote}</Text> : null}
-            {["OPEN","UNDER_REVIEW"].includes(job.disputes[0].status) ? <>
-              <TextInput value={disputeReplyDraft} onChangeText={setDisputeReplyDraft} placeholder="Add your response (minimum 10 characters)." multiline maxLength={2000} style={[s.input,s.multiline]} />
-              <Secondary label={uploadingDisputeEvidence ? "Uploading..." : "Attach response evidence"} onPress={() => void pickDisputeEvidence()} disabled={uploadingDisputeEvidence || jobActionBusy} />
-              <Primary label="Send dispute response" onPress={() => void replyToJobDispute(job.request.id,job.disputes?.[0]?.id ?? "")} disabled={jobActionBusy || uploadingDisputeEvidence || disputeReplyDraft.trim().length < 10} />
-            </> : null}
-          </View> : null}
-          {job.status === "COMPLETED" ? <>
-            <Text style={s.response}>The Seeker approved this job's completion.</Text>
-            <Text style={s.offerTitle}>Final approved amount: R {Number(job.finalAmountDue ?? 0).toFixed(2)}</Text>
-            <View style={s.offerCard}>
-              <Text style={s.offerTitle}>Your job earnings and payment status</Text>
-              <Text style={s.meta}>Your job earnings (90%): R {(Number(job.finalAmountDue ?? 0) * 0.9).toFixed(2)}</Text>
-              <Text style={s.meta}>AnySkill commission (10%): R {(Number(job.finalAmountDue ?? 0) - Number((Number(job.finalAmountDue ?? 0) * 0.9).toFixed(2))).toFixed(2)}</Text>
-              <Text style={s.meta}>Successful Seeker debit: {isPaymentConfirmed(job.paymentStatus) ? "TRUE" : "FALSE"}</Text>
-              <Text style={s.meta}>Provider bank payout: {job.providerPayoutStatus === "COMPLETED" || job.providerPayoutStatus === "SIMULATED_SENT" ? "PROCESSED" : job.providerPayoutStatus === "PENDING" ? "PENDING PROCESSING" : "NOT PROCESSED"}</Text>
-              <Text style={s.meta}>Your job earnings are recorded from completion, regardless of payment status. AnySkill can process the 90% payout after a successful debit; the payout is only complete once the transfer is confirmed.</Text>
-            </View>
-            {isPaymentConfirmed(job.paymentStatus) && job.seekerReview && job.review ? <Text style={s.response}>Both parties have rated each other. This service is now closed.</Text> : null}
-            {isPaymentConfirmed(job.paymentStatus) && job.seekerReview ? <View style={s.offerCard}>
-              <Text style={s.offerTitle}>Your submitted rating of the Skill Seeker</Text>
-              <Text style={s.meta}>{job.seekerReview.rating}.0 ★</Text>
-              {job.seekerReview.comment ? <Text style={s.body}>{job.seekerReview.comment}</Text> : null}
-            </View> : isPaymentConfirmed(job.paymentStatus) ? <View style={s.offerCard}>
-              <Text style={s.offerTitle}>Rate your Skill Seeker</Text>
-              <Text style={s.meta}>Rate communication, cooperation, professionalism and reliability.</Text>
-              {seekerRatingDraft?.requestId !== job.request.id ? <Primary label="Rate this Skill Seeker" onPress={() => setSeekerRatingDraft({requestId:job.request.id,rating:5,comment:""})} /> : <>
-                <Text style={s.label}>Overall Skill Seeker rating</Text>
-                <View style={s.choiceRow}>{[1,2,3,4,5].map((value) => <Pressable key={"seeker-"+value} onPress={() => setSeekerRatingDraft((draft) => draft ? {...draft,rating:value} : draft)} style={[s.choice,(seekerRatingDraft.rating===value)&&s.choiceActive]}><Text style={[s.choiceText,(seekerRatingDraft.rating===value)&&s.choiceTextActive]}>{value} ★</Text></Pressable>)}</View>
-                <TextInput value={seekerRatingDraft.comment} onChangeText={(comment) => setSeekerRatingDraft((draft) => draft ? {...draft,comment} : draft)} placeholder="Optional feedback about working with this Seeker..." multiline style={[s.input,s.multiline]} />
-                <Primary label="Submit Seeker rating" onPress={() => void submitSeekerRating(job.request.id)} disabled={jobActionBusy} />
-              </>}
-            </View> : null}
-          </> : null}
-          {job.completionSubmissions.map((submission) => <View key={submission.id} style={s.offerCard}>
-            <Text style={s.meta}>Completion submission · {submission.status} · {new Date(submission.submittedAt).toLocaleString()}</Text>
-            <Text style={s.body}>{submission.notes}</Text>
-            {submission.evidenceAssets?.map((asset, index) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); const { Linking } = await import("react-native"); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open evidence photo."); } }}><Text style={s.response}>View submitted photo {index + 1} · {asset.originalName}</Text></Pressable>)}
-            {submission.reviewNote ? <Text style={s.meta}>Seeker feedback: {submission.reviewNote}</Text> : null}
-          </View>)}
-        </View>)}
-        {!myJobs.length ? <Text style={s.helper}>No selected jobs yet. When a Seeker selects your offer, the assessment will appear here.</Text> : null}
         <Text style={s.section}>Notifications</Text>
         {notifications.slice(0,4).map((item) => <View key={item.id} style={s.notificationCard}>
           <Text style={s.cardTitle}>{item.title}</Text><Text style={s.meta}>{item.body}</Text>
@@ -1953,7 +1853,7 @@ export function MarketplaceScreen(p: Props) {
         </Pressable>
       </View>
     </Modal>
-    <Modal visible={p.mode === "provider" && activeProviderJobId !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (activeProviderJobId) setDismissedActiveJobIds((ids) => [...ids, activeProviderJobId]); setActiveProviderJobId(null); }}>
+    <Modal visible={p.mode === "provider" && activeProviderJobId !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (activeProviderJobId) setDismissedActiveJobIds((ids) => [...ids, activeProviderJobId]); setActiveProviderJobId(null); p.onBack(); }}>
       {(() => {
         const job = myJobs.find((item) => item.request.id === activeProviderJobId);
         if (!job) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F5F7F5" }}><ActivityIndicator color="#176B55" /><Text style={{ color: "#66756D", marginTop: 12 }}>Loading your accepted service...</Text></View>;
@@ -1964,7 +1864,7 @@ export function MarketplaceScreen(p: Props) {
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 12, paddingBottom: insets.bottom + 16 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>SERVICE WORKSPACE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? "Assessment required" : job.status === "ESTIMATE_SUBMITTED" ? "Estimate awaiting review" : job.status === "ESTIMATE_REJECTED" ? "Estimate revision required" : job.status === "ESTIMATE_APPROVED" ? "Ready to start work" : job.status === "IN_PROGRESS" ? "Service in progress" : job.status === "COMPLETION_PENDING" ? "Completion awaiting review" : job.status === "COMPLETED" ? "Service completed" : job.status === "CANCELLED" ? "Service cancelled" : "Selected service"}</Text></View>
-            <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Minimise</Text></Pressable>
+            <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Back to Activities</Text></Pressable>
           </View>
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 18 }}>
             <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE REQUEST</Text>
@@ -2041,7 +1941,7 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#176B55", fontWeight: "900" }}>Open service chat</Text>
           </Pressable>
           {["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(job.status) ? <Pressable onPress={() => cancelProviderJob(job.request.id, job.request.title)} style={{ backgroundColor: "#FFF7F7", borderWidth: 1, borderColor: "#E7B8B8", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text></Pressable> : null}
-          <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Back to selected jobs</Text></Pressable>
+          <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Back to Activities</Text></Pressable>
           </ScrollView>
         </View>;
       })()}
