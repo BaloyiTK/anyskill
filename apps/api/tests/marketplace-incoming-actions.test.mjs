@@ -427,6 +427,19 @@ test("Seeker selection creates one engagement and notifies only after the exact 
   assert.equal(calls.find((item) => Array.isArray(item) && item[0] === "job")[1].data.hourlyRate, 250);
 });
 
+test("no-assessment hourly jobs reject all additional-hours requests", async () => {
+  const job = { id: "job-1", providerId: "provider-1", status: "IN_PROGRESS", assessmentRequired: false, workSegmentStartedAt: new Date(), workPausedAt: null, workAccumulatedMs: 0 };
+  const tx = {
+    $queryRaw: async () => [],
+    jobEngagement: { findUnique: async () => job },
+    jobCostAdjustment: { count: async () => 0, create: async () => { throw new Error("An adjustment must not be created"); } },
+  };
+  await assert.rejects(
+    serviceWith(tx).requestAdditionalHours("provider-1", "request-1", { additionalHours: 1, reason: "The work is taking longer than expected" }),
+    (error) => error.getStatus?.() === 409 && /capped at one billable hour/i.test(error.message),
+  );
+});
+
 test("notification recovery uses the start time of the active delivery attempt", async () => {
   const calls = [];
   const prisma = {

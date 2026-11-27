@@ -637,7 +637,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           orderBy: { createdAt: "asc" },
           select: {
             id: true, providerId: true, status: true, message: true, createdAt: true,
-            hourlyRateAtOffer: true, assessmentFeeAtOffer: true,
+            hourlyRateAtOffer: true, assessmentFeeAtOffer: true, assessmentRequiredAtOffer: true,
             provider: {
               select: {
                 phone: true,
@@ -955,6 +955,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         select: { id: true, providerId: true, seekerId: true, status: true, providerArrivedAt: true, seekerArrivalConfirmedAt: true, assessmentStartedAt: true, request: { select: { title: true } } },
       });
       if (!job || job.providerId !== providerId || !job.seekerId) throw new NotFoundException("This selected service could not be found.");
+      if (job.assessmentRequired === false) throw new ConflictException("This offer does not require an assessment. Start the agreed work after the Seeker confirms your arrival.");
       if (job.status !== "ASSESSMENT_PENDING" || !job.providerArrivedAt || !job.seekerArrivalConfirmedAt) throw new ConflictException("Wait for the Seeker to confirm your arrival before starting the assessment.");
       if (job.assessmentStartedAt) return { success: true, requestId, assessmentStartedAt: job.assessmentStartedAt };
       const assessmentStartedAt = new Date();
@@ -1163,7 +1164,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
 
       const offer = await tx.providerResponse.findFirst({
         where: { id: responseId, requestId, status: "OFFERED" },
-        select: { id: true, providerId: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true },
+        select: { id: true, providerId: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, assessmentRequiredAtOffer: true },
       });
       if (!offer || !offer.providerId) throw new NotFoundException("This Provider offer is no longer available.");
 
@@ -1243,11 +1244,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
         where: { requestId, providerId: offer.providerId },
         data: { status: "RESPONDED" },
       });
+      const assessmentRequired = offer.assessmentRequiredAtOffer !== false;
       await tx.jobEngagement.create({
         data: {
           requestId, responseId: offer.id, seekerId, providerId: offer.providerId,
           hourlyRate: offer.hourlyRateAtOffer,
-          assessmentFee: offer.assessmentFeeAtOffer ?? 0,
+          assessmentFee: assessmentRequired ? offer.assessmentFeeAtOffer ?? 0 : 0,
+          assessmentRequired,
+          ...(!assessmentRequired ? { estimatedHours: 1, estimatedTotal: offer.hourlyRateAtOffer, finalAmountDue: offer.hourlyRateAtOffer, finalApprovedAt: new Date() } : {}),
         },
       });
       await tx.appNotification.create({
@@ -1258,14 +1262,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           data: { type: "PROVIDER_SELECTED", requestId, responseId: offer.id },
         },
       });
-      await tx.appNotification.create({
-        data: {
-          userId: offer.providerId,
-          title: "Assessment required",
-          body: `Your offer was selected for: ${request.title}. Complete the assessment and submit an estimate before starting work.`,
-          data: { type: "ASSESSMENT_REQUIRED", requestId },
-        },
-      });
+      if (assessmentRequired) {
+        await tx.appNotification.create({ data: { userId: offer.providerId, title: "Assessment required", body: `Your offer was selected for: ${request.title}. Complete the assessment and submit an estimate before starting work.`, data: { type: "ASSESSMENT_REQUIRED", requestId } } });
+      } else {
+        await tx.appNotification.create({ data: { userId: offer.providerId, title: "One-hour service selected", body: `Your offer was selected for: ${request.title}. This no-assessment hourly job is capped at one billable hour.`, data: { type: "ONE_HOUR_NO_ASSESSMENT_SELECTED", requestId } } });
+      }
       return { success: true, requestId, selectedResponseId: offer.id, selectedProviderId: offer.providerId, status: "ASSESSMENT_PENDING" };
     });
   }
@@ -1798,6 +1799,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can submit this estimate.");
+      if (!job.assessmentRequired) throw new ConflictException("This no-assessment offer has a fixed one-hour billing cap and does not accept a later estimate.");
       if (!["ASSESSMENT_PENDING", "ESTIMATE_REJECTED"].includes(job.status)) throw new ConflictException("An estimate cannot be submitted at this stage.");
       if (job.status === "ASSESSMENT_PENDING" && !job.assessmentCompletedAt) throw new ConflictException("Complete the assessment before submitting the final estimate.");
       const hours = new Prisma.Decimal(input.estimatedHours);
@@ -1845,10 +1847,11 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       const job = await tx.jobEngagement.findUnique({ where: { requestId } });
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can start this job.");
-      if (job.status !== "ESTIMATE_APPROVED") throw new ConflictException("The Seeker must approve the estimate before work can start.");
+      const noAssessmentStart = job.status === "ASSESSMENT_PENDING" && job.assessmentRequired === false && !!job.seekerArrivalConfirmedAt;
+      if (job.status !== "ESTIMATE_APPROVED" && !noAssessmentStart) throw new ConflictException("The Seeker must confirm arrival for a no-assessment job or approve the estimate before work can start.");
       const now = new Date();
       const claimed = await tx.jobEngagement.updateMany({
-        where: { id: job.id, status: "ESTIMATE_APPROVED" },
+        where: { id: job.id, status: job.status, ...(noAssessmentStart ? { assessmentRequired: false, seekerArrivalConfirmedAt: { not: null } } : {}) },
         data: { status: "IN_PROGRESS", workStartedAt: now, workAccumulatedMs: 0, workSegmentStartedAt: now, workPausedAt: null, workEndedAt: null },
       });
       if (claimed.count !== 1) throw new ConflictException("The job status changed. Refresh and try again.");
@@ -1908,6 +1911,7 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       if (!job) throw new NotFoundException("Selected job not found.");
       if (!job.providerId || job.providerId !== providerId) throw new ForbiddenException("Only the selected Provider can request extra hours.");
       if (job.status !== "IN_PROGRESS") throw new ConflictException("Extra hours can only be requested while work is in progress.");
+      if (job.assessmentRequired === false) throw new ConflictException("This no-assessment hourly offer is capped at one billable hour. Additional hours cannot be requested or charged.");
       if (!job.workSegmentStartedAt || job.workPausedAt) throw new ConflictException("Additional hours can only be requested while the work timer is running.");
       // Claim the active timer state before creating the request so a concurrent break cannot
       // make an additional-hours request slip through after the timer has been paused.
@@ -2095,9 +2099,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
           data: {
             requestId, providerId, message: input.message?.trim() || null, status: "OFFERED",
             hourlyRateAtOffer: approvedSkill.hourlyRate,
-            assessmentFeeAtOffer: provider.providerProfile?.assessmentFee ?? 0,
+            assessmentFeeAtOffer: input.assessmentRequired === false ? 0 : provider.providerProfile?.assessmentFee ?? 0,
+            assessmentRequiredAtOffer: input.assessmentRequired !== false,
           },
-          select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, createdAt: true },
+          select: { id: true, requestId: true, status: true, message: true, hourlyRateAtOffer: true, assessmentFeeAtOffer: true, assessmentRequiredAtOffer: true, createdAt: true },
         });
         const requestUpdated = await tx.serviceRequest.updateMany({
           where: { id: requestId, seekerId: request.seekerId, status: "OPEN" },

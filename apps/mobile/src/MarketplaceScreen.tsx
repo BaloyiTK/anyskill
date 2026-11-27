@@ -39,7 +39,7 @@ type JobAdjustment = { id: string; requestedHours: string | number; requestedAmo
 type CompletionSubmission = { id: string; notes: string; evidenceUrls: string[]; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}>; status: string; reviewNote: string | null; submittedAt: string; reviewedAt: string | null };
 type DisputeMessage = { id: string; author: { id: string }; body: string; createdAt: string; evidenceAssets?: Array<{id:string;originalName:string;contentType:string;sizeBytes:number}> };
 type JobDispute = { id: string; status: string; reason: string; resolutionNote: string | null; resolvedAt: string | null; messages: DisputeMessage[] };
-type JobEngagement = { id: string; responseId?: string | null; providerId?: string | null; paymentStatus?: string; paymentSimulatedAt?: string | null; providerPayoutStatus?: string; providerPayoutSimulatedAt?: string | null; assessmentDraftHours?: string | number | null; assessmentDraftNotes?: string | null; assessmentDraftUpdatedAt?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; seekerArrivalConfirmedAt?: string | null; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; providerArrivedAt?: string | null; assessmentStartedAt?: string | null; assessmentCompletedAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
+type JobEngagement = { id: string; responseId?: string | null; providerId?: string | null; paymentStatus?: string; paymentSimulatedAt?: string | null; providerPayoutStatus?: string; providerPayoutSimulatedAt?: string | null; assessmentDraftHours?: string | number | null; assessmentDraftNotes?: string | null; assessmentDraftUpdatedAt?: string | null; status: string; finalAmountDue?: string | number | null; finalApprovedAt?: string | null; review?: { id: string; skillRating: number; platformRating: number; comment: string | null } | null; seekerReview?: {id:string;rating:number;comment:string|null}|null; hourlyRate: string | number; assessmentFee: string | number; assessmentRequired?: boolean; seekerArrivalConfirmedAt?: string | null; estimatedHours: string | number | null; estimatedTotal: string | number | null; estimateNotes: string | null; estimateDecisionNote: string | null; providerEnRouteAt?: string | null; providerArrivedAt?: string | null; assessmentStartedAt?: string | null; assessmentCompletedAt?: string | null; workStartedAt?: string | null; workAccumulatedMs?: number; workSegmentStartedAt?: string | null; workPausedAt?: string | null; workEndedAt?: string | null; serverNow?: string; adjustments: JobAdjustment[]; completionSubmissions: CompletionSubmission[]; disputes?: JobDispute[]; agreedWorkTotal?: number; approvedAdditionalAmount?: number; approvedAdditionalHours?: number };
 type ProviderJob = JobEngagement & {
   responseId: string;
   request: { id: string; title: string; description: string; location: string | null; latitude: number | null; longitude: number | null; instructions?: string | null; preferredStartAt?: string | null; deliveryMode?: string; };
@@ -52,7 +52,7 @@ type SeekerRequest = {
   status: string; createdAt: string; matchingStartedAt: string; preferredStartAt: string | null; matchingWave: number; matchingNextAt: string | null; matchingExhaustedAt: string | null; _count?: { matches: number }; jobEngagement: JobEngagement | null;
   providerResponses: Array<{
     id: string; providerId: string; status: string; message: string | null; createdAt: string;
-    hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null;
+    hourlyRateAtOffer: string | number | null; assessmentFeeAtOffer: string | number | null; assessmentRequiredAtOffer?: boolean;
     provider: { phone?: string | null; providerProfile: { publicName: string; hourlyRate: string | number | null; assessmentFee: string | number; skillCategories: string[]; serviceAreas: string[]; deliveryModes: string[]; isAvailable?: boolean; phone?: string | null; liveLatitude?: number | null; liveLongitude?: number | null; liveLocationUpdatedAt?: string | null; identityVerified?: boolean; experience?: string | null; distanceKm?: number | null; ratings?: {overall:number;overallReviewCount:number;overallIsRated:boolean;requestedSkill:number;requestedSkillReviewCount:number;requestedSkillIsRated:boolean} } | null };
   }>;
 };
@@ -159,6 +159,8 @@ export function MarketplaceScreen(p: Props) {
   const [locationBusy, setLocationBusy] = useState(false);
   const [deliveryMode, setDeliveryMode] = useState<"ONSITE" | "REMOTE" | "EITHER">("ONSITE");
   const [responseMessage, setResponseMessage] = useState("");
+  const [offerAssessmentRequired, setOfferAssessmentRequired] = useState(true);
+  const [noAssessmentAcknowledged, setNoAssessmentAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [seekerRequestsLoaded, setSeekerRequestsLoaded] = useState(false);
   const [matchingRequest, setMatchingRequest] = useState<{id:string;title:string;skillCategory:string;location:string|null;createdAt:string;notified:number;wave:number;exhausted:boolean}|null>(null);
@@ -703,12 +705,14 @@ export function MarketplaceScreen(p: Props) {
     try {
       const response = await apiRequest<{id:string;status:string}>(`/marketplace/requests/${request.id}/accept`, {
         method: "POST",
-        body: JSON.stringify({ message: responseMessage.trim() || undefined }),
+        body: JSON.stringify({ message: responseMessage.trim() || undefined, assessmentRequired: offerAssessmentRequired }),
       }, true);
       const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker";
       setProviderSelectionWatch({ requestId: request.id, responseId: response.id });
       setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: response.id, status: response.status });
       setResponseMessage("");
+      setOfferAssessmentRequired(true);
+      setNoAssessmentAcknowledged(false);
       setNotice("");
       await loadRequests();
     } catch (e) {
@@ -1769,6 +1773,7 @@ export function MarketplaceScreen(p: Props) {
           {job.request.location ? <Text style={s.meta}>Job location: {job.request.location}</Text> : null}
           {job.request.latitude != null && job.request.longitude != null ? <Text style={s.meta}>Job pin: {job.request.latitude.toFixed(5)}, {job.request.longitude.toFixed(5)}</Text> : null}
           <Text style={s.meta}>Agreed rate: R {Number(job.hourlyRate).toFixed(2)} / hour · Assessment fee: R {Number(job.assessmentFee).toFixed(2)}</Text>
+          {job.assessmentRequired === false ? <Text style={{ color: "#78551A", backgroundColor: "#FFF6E4", padding: 11, borderRadius: 10, fontSize: 12, lineHeight: 18, marginTop: 8 }}>No assessment was selected. This job is capped at one billable hour. You cannot charge for additional time, even if the work takes longer.</Text> : null}
           {(job.status === "ASSESSMENT_PENDING" && !!job.assessmentCompletedAt) || job.status === "ESTIMATE_REJECTED" ? <>
             <Text style={s.helper}>Complete the assessment, then submit the estimated hours and a clear explanation. The Seeker must approve before work begins.</Text>
             <TextInput value={estimateHours} onChangeText={setEstimateHours} keyboardType="decimal-pad" placeholder="Estimated hours" style={s.input} />
@@ -1782,13 +1787,13 @@ export function MarketplaceScreen(p: Props) {
             <Text style={{ color: "#805B16", fontSize: 11, lineHeight: 17, marginTop: 7 }}>The Seeker must approve this final price. Do not start the main work while approval is pending.</Text>
           </View> : job.estimatedTotal != null ? <Text style={s.cardTitle}>Estimate: R {Number(job.estimatedTotal).toFixed(2)} for {Number(job.estimatedHours).toFixed(2)} hours</Text> : null}
           {job.agreedWorkTotal != null && Number(job.approvedAdditionalAmount ?? 0) > 0 ? <Text style={s.cardTitle}>Agreed total incl. approved extra hours: R {Number(job.agreedWorkTotal).toFixed(2)}</Text> : null}
-          {job.status === "ESTIMATE_APPROVED" ? <Primary label="Start work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
+          {job.status === "ESTIMATE_APPROVED" || (job.status === "ASSESSMENT_PENDING" && job.assessmentRequired === false && !!job.seekerArrivalConfirmedAt) ? <Primary label="Start work" onPress={() => void startWork(job.request.id)} disabled={jobActionBusy} /> : null}
           {["IN_PROGRESS", "COMPLETION_PENDING", "COMPLETED", "DISPUTED"].includes(job.status) ? <>
             <Text style={s.cardTitle}>Working time: {formatWorkDuration(getWorkElapsedMs(job, clockNow + clockOffsetMs))}</Text>
             <Text style={s.meta}>{job.workPausedAt ? "ON BREAK · timer paused" : job.status === "COMPLETION_PENDING" ? "Timer stopped · awaiting Seeker review" : job.status === "COMPLETED" ? "Final recorded working time" : job.status === "DISPUTED" ? "Timer paused · under dispute review" : "Work timer running"}</Text>
           </> : null}
           {job.status === "IN_PROGRESS" ? <Secondary label={job.adjustments.some((adjustment) => adjustment.status === "PENDING") ? "Awaiting extra-hours decision" : job.workPausedAt ? "Resume work" : "Take a break"} onPress={() => void changeWorkBreak(job.request.id, !job.workPausedAt)} disabled={jobActionBusy || job.adjustments.some((adjustment) => adjustment.status === "PENDING")} /> : null}
-          {job.status === "IN_PROGRESS" && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
+          {job.status === "IN_PROGRESS" && job.assessmentRequired !== false && !!job.workSegmentStartedAt && !job.workPausedAt ? <>
             <Text style={s.helper}>Need more time? Explain why and request approval before doing the extra work.</Text>
             <TextInput value={extraHours} onChangeText={setExtraHours} keyboardType="decimal-pad" placeholder="Additional hours" style={s.input} />
             <TextInput value={extraReason} onChangeText={setExtraReason} placeholder="Explain why extra hours are required..." multiline style={[s.input, s.multiline]} />
@@ -1913,8 +1918,12 @@ export function MarketplaceScreen(p: Props) {
             {request.myResponse?.status === "OFFERED" ? <Pressable onPress={() => { const seekerName = [request.seeker?.firstName, request.seeker?.lastName].filter(Boolean).join(" ") || "Skill Seeker"; setProviderSelectionWatch({ requestId: request.id, responseId: request.myResponse!.id }); setProviderOfferReview({ requestId: request.id, title: request.title, skillCategory: request.skillCategory, seekerName, responseId: request.myResponse!.id, status: "OFFERED" }); }} style={{ backgroundColor: "#EAF4EE", borderRadius: 12, padding: 13, marginTop: 12 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>OFFER SENT · AWAITING SEEKER REVIEW</Text><Text style={{ color: "#53645A", fontSize: 12, marginTop: 5 }}>Tap to view your offer status.</Text></Pressable> : request.alreadyResponded ? <Text style={s.response}>You have already responded to this request.</Text> : <>
               <Text style={s.label}>Message to the Skill Seeker (optional)</Text>
               <TextInput value={responseMessage} onChangeText={setResponseMessage} placeholder="Introduce yourself and explain how you can help..." multiline maxLength={500} style={[s.input, s.multiline]} />
-              <Text style={s.helper}>Review the request details, then send your offer. Your profile rate and assessment fee will be included.</Text>
-              <Primary label={busy ? "Sending offer..." : "Send offer"} onPress={() => void acceptRequest(request)} disabled={busy} />
+              <Text style={s.label}>Assessment</Text>
+              <Pressable onPress={() => { setOfferAssessmentRequired(true); setNoAssessmentAcknowledged(false); }} style={{ borderWidth: 1, borderColor: offerAssessmentRequired ? C.primary : C.border, borderRadius: 12, padding: 12, marginBottom: 8 }}><Text style={{ color: C.ink, fontWeight: "800" }}>Assessment required</Text><Text style={s.helper}>Assess the work and submit a final estimate for Seeker approval.</Text></Pressable>
+              <Pressable onPress={() => { setOfferAssessmentRequired(false); setNoAssessmentAcknowledged(false); }} style={{ borderWidth: 1, borderColor: !offerAssessmentRequired ? C.primary : C.border, borderRadius: 12, padding: 12, marginBottom: 8 }}><Text style={{ color: C.ink, fontWeight: "800" }}>No assessment</Text><Text style={s.helper}>Hourly work is capped at one billable hour, even if it takes longer.</Text></Pressable>
+              {!offerAssessmentRequired ? <Pressable onPress={() => setNoAssessmentAcknowledged((value) => !value)} style={{ flexDirection: "row", alignItems: "flex-start", padding: 12, backgroundColor: "#FFF6E4", borderRadius: 12, marginBottom: 10 }}><Text style={{ color: C.warningInk, fontSize: 18, marginRight: 9 }}>{noAssessmentAcknowledged ? "☑" : "□"}</Text><Text style={{ color: C.warningInk, flex: 1, fontSize: 12, lineHeight: 18 }}>I accept that this offer is limited to one billable hour. I cannot charge for additional time, even if the work takes longer.</Text></Pressable> : null}
+              <Text style={s.helper}>The assessment fee is R0 when assessment is not required.</Text>
+              <Primary label={busy ? "Sending offer..." : "Send offer"} onPress={() => void acceptRequest(request)} disabled={busy || (!offerAssessmentRequired && !noAssessmentAcknowledged)} />
             </>}
           </View>;
         })}
@@ -1973,8 +1982,9 @@ export function MarketplaceScreen(p: Props) {
                   <View style={{ backgroundColor: "#15251E", borderRadius: 16, padding: 16, marginTop: 8 }}><Text style={{ color: "#C8D9D0", fontSize: 10, fontWeight: "900" }}>PROVIDER'S HOURLY RATE</Text><Text style={{ color: "#FFFFFF", fontSize: 26, fontWeight: "900", marginTop: 5 }}>{activeOffer.hourlyRateAtOffer == null ? "To be confirmed" : `R ${Number(activeOffer.hourlyRateAtOffer).toFixed(2)}`}<Text style={{ color: "#D4E0D9", fontSize: 12 }}> / hr</Text></Text></View>
                   <View style={{ backgroundColor: "#EAF1EC", borderRadius: 14, padding: 14, marginTop: 9 }}>
                     <Text style={{ color: "#53645A", fontSize: 10, fontWeight: "900" }}>ASSESSMENT / CALL-OUT FEE</Text>
-                    <Text style={{ color: "#15251E", fontSize: 20, fontWeight: "900", marginTop: 5 }}>{activeOffer.assessmentFeeAtOffer == null ? "To be confirmed" : Number(activeOffer.assessmentFeeAtOffer) === 0 ? "No assessment fee" : `R ${Number(activeOffer.assessmentFeeAtOffer).toFixed(2)}`}</Text>
+                    <Text style={{ color: "#15251E", fontSize: 20, fontWeight: "900", marginTop: 5 }}>{activeOffer.assessmentRequiredAtOffer === false ? "R 0.00 · No assessment" : activeOffer.assessmentFeeAtOffer == null ? "To be confirmed" : Number(activeOffer.assessmentFeeAtOffer) === 0 ? "No assessment fee" : `R ${Number(activeOffer.assessmentFeeAtOffer).toFixed(2)}`}</Text>
                   </View>
+                  {activeOffer.assessmentRequiredAtOffer === false ? <Text style={{ color: "#78551A", fontSize: 12, lineHeight: 18, marginTop: 10, backgroundColor: "#FFF6E4", padding: 12, borderRadius: 12 }}>Important: This hourly offer is limited to one billable hour. Even if the work takes longer, the Provider cannot charge for extra time or request additional payment for this job.</Text> : null}
                   <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 10 }}>Review the Provider's rate and call-out fee before accepting. Any additional work or charges must be agreed with you before proceeding.</Text>
                   <Pressable onPress={() => setShowProviderProfile(true)} style={{ paddingVertical: 16, alignItems: "center" }}><Text style={{ color: "#176B55", fontWeight: "900" }}>View full Provider profile →</Text></Pressable>
                   <Text style={{ color: "#829087", fontSize: 10, textAlign: "center" }}>Identity verification confirms identity only.</Text>

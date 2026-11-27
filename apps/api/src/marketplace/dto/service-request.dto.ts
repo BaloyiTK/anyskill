@@ -75,6 +75,10 @@ export class ScheduleServiceRequestDto {
 
 export class ProviderResponseDto {
   @IsOptional()
+  @IsIn([true, false])
+  assessmentRequired?: boolean;
+
+  @IsOptional()
   @IsString()
   @MaxLength(2000)
   message?: string;
