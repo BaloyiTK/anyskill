@@ -523,10 +523,12 @@ export function ProviderJobScreen(p: Props) {
     setDismissedActiveJobIds((ids) => ids.filter((id) => id !== selectedJob.request.id));
     setActiveProviderJobId(selectedJob.request.id);
     setProviderSelectionWatch(null);
+    // Keep a distinct approval screen visible. The Provider must explicitly
+    // confirm departure (onsite) or continue (remote) before entering the workspace.
     setProviderOfferReview((current) =>
       current?.requestId === selectedJob.request.id
       && current.responseId === selectedJob.responseId
-        ? null
+        ? { ...current, status: "SELECTED" }
         : current,
     );
   }, [p.mode, requests, myJobs, providerSelectionWatch]);
@@ -1157,10 +1159,24 @@ export function ProviderJobScreen(p: Props) {
     ]);
   };
 
-  const markProviderEnRoute = async (requestId: string) => {
-    if (jobActionBusy) return;
+  const markProviderEnRoute = async (requestId: string): Promise<boolean> => {
+    if (jobActionBusy) return false;
     setJobActionBusy(true); setError(""); setNotice("");
+    let locationTrackingStarted = false;
     try {
+      // Obtain a fresh, accurate GPS fix before confirming departure. This keeps
+      // the Seeker's first live-location update tied to the actual trip.
+      const position = await getInitialProviderLocation();
+      await startProviderLocationUpdates();
+      locationTrackingStarted = true;
+      await apiRequest("/marketplace/provider-location/live", {
+        method: "POST",
+        body: JSON.stringify({
+          latitude: Number(position.coords.latitude.toFixed(7)),
+          longitude: Number(position.coords.longitude.toFixed(7)),
+          accuracyM: Number(position.coords.accuracy?.toFixed(1)),
+        }),
+      }, true);
       const result = await apiRequest<{success:boolean;requestId:string;providerEnRouteAt:string}>(
         "/marketplace/requests/" + requestId + "/provider-en-route",
         { method: "POST" }, true,
@@ -1172,8 +1188,13 @@ export function ProviderJobScreen(p: Props) {
         ? { ...job, providerEnRouteAt: result.providerEnRouteAt }
         : job));
       setNotice("The Seeker has been notified. Live location sharing is now active for this service.");
+      return true;
     } catch (e) {
+      if (locationTrackingStarted) {
+        try { await stopProviderLocationUpdates(); } catch { /* Keep the original departure error. */ }
+      }
       setError(e instanceof Error ? e.message : "Could not confirm that you are coming.");
+      return false;
     } finally {
       setJobActionBusy(false);
     }
@@ -1747,7 +1768,7 @@ export function ProviderJobScreen(p: Props) {
         })() : null}
       </View>
     </Modal>
-    <Modal visible={p.mode === "provider" && providerOfferReview !== null && providerOfferReview.status !== "SELECTED"} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
+    <Modal visible={p.mode === "provider" && providerOfferReview !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (providerOfferReview) setDismissedProviderOfferIds((ids) => [...ids, providerOfferReview.responseId]); setProviderOfferReview(null); }}>
       <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 10, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12, justifyContent: "center" }}>
         {p.platformHeader}
         <View style={{ alignItems: "center" }}>
@@ -1761,7 +1782,7 @@ export function ProviderJobScreen(p: Props) {
             {providerOfferReview?.status === "SELECTED" ? "The Seeker selected you!" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "This offer is no longer active" : "Your offer is being reviewed"}
           </Text>
           <Text style={{ color: "#66756D", fontSize: 14, lineHeight: 22, textAlign: "center", marginTop: 12 }}>
-            {providerOfferReview?.status === "SELECTED" ? "Congratulations. Your offer was accepted. Your active service workspace is opening with the Seeker's details, route and chat." : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "The Seeker did not proceed with this offer. You can continue exploring other available requests." : "Your offer has been sent to the Skill Seeker and is now being reviewed. They may compare it with other offers before choosing a Provider. You do not need to send it again."}
+            {providerOfferReview?.status === "SELECTED" ? "Your offer has been approved. Review the service details, then confirm when you are ready to travel to the Seeker." : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "The Seeker did not proceed with this offer. You can continue exploring other available requests." : "Your offer has been sent to the Skill Seeker and is now being reviewed. They may compare it with other offers before choosing a Provider. You do not need to send it again."}
           </Text>
         </View>
         <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#E1E8E3", padding: 18, marginTop: 30 }}>
@@ -1771,9 +1792,29 @@ export function ProviderJobScreen(p: Props) {
           <Text style={{ color: "#66756D", fontSize: 12, marginTop: 12 }}>Sent to {providerOfferReview?.seekerName}</Text>
           <View style={{ backgroundColor: "#F1F6F2", borderRadius: 11, padding: 12, marginTop: 15 }}>
             <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>{providerOfferReview?.status === "SELECTED" ? "SELECTED BY SEEKER" : providerOfferReview?.status === "WITHDRAWN" || providerOfferReview?.status === "DECLINED" ? "NOT SELECTED" : "AWAITING SEEKER REVIEW"}</Text>
-            <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{providerOfferReview?.status === "OFFERED" ? "AnySkill will update this screen when the Seeker makes a decision. Keep your app available for updates." : providerOfferReview?.status === "SELECTED" ? "Your accepted service workspace is ready." : "This offer has been closed. You can still respond to other matched requests."}</Text>
+            <Text style={{ color: "#53645A", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{providerOfferReview?.status === "OFFERED" ? "AnySkill will update this screen when the Seeker makes a decision. Keep your app available for updates." : providerOfferReview?.status === "SELECTED" ? "Onsite service: confirm that you are coming to start live location sharing. Remote service: continue directly to your workspace." : "This offer has been closed. You can still respond to other matched requests."}</Text>
           </View>
         </View>
+        {providerOfferReview?.status === "SELECTED" ? (() => {
+          const selectedJob = myJobs.find((job) => job.request.id === providerOfferReview.requestId && job.responseId === providerOfferReview.responseId);
+          const isOnsite = Boolean(selectedJob && selectedJob.request.deliveryMode !== "REMOTE" && selectedJob.request.latitude != null && selectedJob.request.longitude != null);
+          return <Pressable
+            onPress={() => {
+              if (!selectedJob) return;
+              if (isOnsite) {
+                void (async () => {
+                  const started = await markProviderEnRoute(selectedJob.request.id);
+                  if (started) setProviderOfferReview(null);
+                })();
+              } else {
+                setProviderOfferReview(null);
+              }
+            }}
+            disabled={jobActionBusy || !selectedJob}
+            style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 56, alignItems: "center", justifyContent: "center", marginTop: 18, opacity: jobActionBusy || !selectedJob ? 0.55 : 1 }}>
+            {jobActionBusy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{isOnsite ? "I'm coming" : "Continue to service workspace"}</Text>}
+          </Pressable>;
+        })() : null}
         {providerOfferReview?.status === "OFFERED" ? <Pressable onPress={() => void withdrawProviderOffer()} disabled={jobActionBusy} style={{ borderWidth: 1, borderColor: "#E7B8B4", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 18, backgroundColor: "#FFF8F7", opacity: jobActionBusy ? 0.55 : 1 }}>
           {jobActionBusy ? <ActivityIndicator color="#B42318" /> : <Text style={{ color: "#B42318", fontWeight: "900" }}>Withdraw my offer</Text>}
         </Pressable> : null}
@@ -1860,7 +1901,10 @@ export function ProviderJobScreen(p: Props) {
               <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17 }}>{providerRouteLoading ? "Calculating the full driving route from your current location..." : providerRoute?.requestId === job.request.id ? "The green line shows the full driving route from your current location to the Seeker's destination." : "The destination is pinned. The full route will appear when directions are available."}</Text>
             </> : job.seekerArrivalConfirmedAt && job.status !== "COMPLETED" ? <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 12 }}>Arrival confirmed. The map is hidden during assessment and service work.</Text> : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>This is a remote service or has no pinned physical destination. Navigation is not required.</Text>}
             {destinationReady && job.status === "ASSESSMENT_PENDING" && !job.providerEnRouteAt ? <Pressable onPress={() => void markProviderEnRoute(job.request.id)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "I'm coming"}</Text></Pressable> : null}
-            {destinationReady && job.providerEnRouteAt && !job.providerArrivedAt ? <Pressable onPress={() => navigationOpenedRequestIds.includes(job.request.id) ? void markProviderArrived(job.request.id) : void openProviderNavigation(job.request.id, job.request.latitude!, job.request.longitude!)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : navigationOpenedRequestIds.includes(job.request.id) ? "I've Arrived" : "Navigate to site"}</Text></Pressable> : null}
+            {destinationReady && job.providerEnRouteAt && !job.providerArrivedAt ? <View style={{ flexDirection: "row", gap: 10, marginTop: 13 }}>
+              <Pressable onPress={() => void openProviderNavigation(job.request.id, job.request.latitude!, job.request.longitude!)} disabled={jobActionBusy} style={{ flex: 1, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Navigate</Text></Pressable>
+              <Pressable onPress={() => void markProviderArrived(job.request.id)} disabled={jobActionBusy} style={{ flex: 1, backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "I've Arrived"}</Text></Pressable>
+            </View> : null}
             {job.providerArrivedAt && !job.seekerArrivalConfirmedAt ? <View style={{ backgroundColor: "#FFF6E4", borderRadius: 12, padding: 12, marginTop: 13 }}><Text style={{ color: "#78551A", fontSize: 12, fontWeight: "800" }}>Waiting for Seeker to confirm arrival</Text><Text style={{ color: "#78551A", fontSize: 11, lineHeight: 17, marginTop: 4 }}>The Seeker must confirm before you can start the assessment.</Text></View> : null}
             {job.providerArrivedAt && job.seekerArrivalConfirmedAt && !job.assessmentStartedAt ? <Pressable onPress={() => void updateAssessmentStage(job.request.id, "start")} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "Start assessing"}</Text></Pressable> : null}
             {job.assessmentStartedAt && !job.assessmentCompletedAt ? <Pressable onPress={() => void updateAssessmentStage(job.request.id, "complete")} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "Assessment Done"}</Text></Pressable> : null}
