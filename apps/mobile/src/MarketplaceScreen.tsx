@@ -2110,65 +2110,131 @@ export function MarketplaceScreen(p: Props) {
       })()}
     </Modal>
     <Modal visible={journeyScreen !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setJourneyScreen(null)}>
-      <View style={{ flex: 1, backgroundColor: "#F5F7F5", paddingHorizontal: 14, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}>
+      <View style={{ flex: 1, backgroundColor: "#F4F7F5", paddingTop: insets.top, paddingBottom: insets.bottom }}>
         {p.platformHeader}
-        <View style={{ flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }}>
-          <Pressable onPress={() => setJourneyScreen(null)}><Text style={{ color: "#176B55", fontWeight: "800" }}>Close</Text></Pressable>
-        </View>
-        <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.2, marginTop: 28 }}>ASSESSMENT PENDING</Text>
-        <Text style={{ color: "#15251E", fontSize: 28, lineHeight: 34, fontWeight: "900", marginTop: 8 }}>Your Provider has been selected</Text>
-        <Text style={{ color: "#66756D", fontSize: 13, lineHeight: 20, marginTop: 7 }}>Your selected Provider is confirmed. The assessment has not started yet. We’ll notify you when your Provider is on the way.</Text>
-        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#DCE7DF", padding: 15, marginTop: 16 }}>
-          <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900", letterSpacing: 0.8 }}>YOUR SELECTED PROVIDER</Text>
-          <Text style={{ color: "#15251E", fontSize: 18, fontWeight: "900", marginTop: 7 }}>{journeyScreen?.providerName ?? "Your selected Provider"}</Text>
-          {journeyScreen?.providerSkills?.length ? <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{journeyScreen.providerSkills.join(" · ")}</Text> : null}
-        </View>
-        <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 16 }}>
-          <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>ENGAGEMENT STATUS</Text>
-          <Text style={{ color: "#15251E", fontSize: 19, fontWeight: "900", marginTop: 6 }}>{journeyScreen?.engagementStatus === "IN_PROGRESS" ? "Work in progress" : journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? "Work completed · awaiting your review" : journeyScreen?.assessmentCompletedAt ? "Assessment completed" : journeyScreen?.assessmentStartedAt ? "Assessment in progress" : journeyScreen?.providerArrivedAt ? "Provider has arrived" : journeyScreen?.providerEnRouteAt ? "Provider is on the way" : "Assessment pending"}</Text>
-          <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>{journeyScreen?.engagementStatus === "IN_PROGRESS" ? "Your Provider has started the approved work. You can follow the service progress below." : journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? "Your Provider has submitted the work as complete. Please review the completion." : journeyScreen?.assessmentCompletedAt ? "Your Provider has completed the assessment and is preparing the final estimate for your approval." : journeyScreen?.assessmentStartedAt ? "Your Provider has started assessing the requested work. The final estimate will appear here when the assessment is complete." : journeyScreen?.providerArrivedAt ? "Your Provider has arrived and can now start the assessment." : journeyScreen?.providerEnRouteAt ? "Your Provider is travelling to your location. You will see the assessment status update here." : "Your Provider has been selected. The assessment will begin after arrival."} {journeyScreen?.engagementStatus === "IN_PROGRESS" ? "The approved work is now underway." : "No additional work can begin until you review and approve the estimate in AnySkill."}</Text>
-        </View>
-        <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#E1E8E3", padding: 15, marginTop: 12 }}>
-          <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>AGREED OFFER PRICING</Text>
-          <Text style={{ color: "#15251E", fontSize: 16, fontWeight: "900", marginTop: 7 }}>{journeyScreen?.hourlyRate == null ? "Hourly rate not available" : "R " + journeyScreen.hourlyRate.toFixed(2) + " / hour"}</Text>
-          <Text style={{ color: "#66756D", fontSize: 12, marginTop: 5 }}>{journeyScreen?.assessmentFee == null ? "Assessment fee not available" : journeyScreen.assessmentFee === 0 ? "No assessment / call-out fee" : "Assessment / call-out fee: R " + journeyScreen.assessmentFee.toFixed(2)}</Text>
-          <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 8 }}>These are the charges saved with the offer you selected. The final job estimate will be shown separately for your approval.</Text>
-        </View>
-        {journeyScreen?.providerEnRouteAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 12 }}><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900" }}>PROVIDER ON THE WAY</Text><Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 6 }}>Your Provider is on the way. We’ll keep you updated when they arrive.</Text></View> : <View style={{ backgroundColor: "#EAF4F8", borderRadius: 16, padding: 15, marginTop: 12 }}><Text style={{ color: "#17546A", fontSize: 12, fontWeight: "900" }}>WE’LL KEEP YOU UPDATED</Text><Text style={{ color: "#315E6D", fontSize: 12, lineHeight: 18, marginTop: 6 }}>We’ll notify you when your Provider is on the way. You do not need to keep checking this screen.</Text></View>}
-        {journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, borderWidth: 1, borderColor: "#B9DCC8", padding: 15, marginTop: 12 }}>
-          <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900" }}>FINAL PRICE FOR YOUR APPROVAL</Text>
-          <Text style={{ color: "#15251E", fontSize: 24, fontWeight: "900", marginTop: 7 }}>R {(Number(journeyScreen.estimatedTotal ?? 0) + Number(journeyScreen.assessmentFee ?? 0)).toFixed(2)}</Text>
-          <Text style={{ color: "#66756D", fontSize: 12, marginTop: 8 }}>Price breakdown</Text>
-          <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 19, marginTop: 4 }}>Labour: {journeyScreen.estimatedHours == null ? "—" : journeyScreen.estimatedHours.toFixed(2) + " hours"} × agreed rate R {Number(journeyScreen.hourlyRate ?? 0).toFixed(2)}/hour = R {Number(journeyScreen.estimatedTotal ?? 0).toFixed(2)}</Text>
-          <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 19 }}>Agreed assessment fee: R {Number(journeyScreen.assessmentFee ?? 0).toFixed(2)}</Text>
-          <Text style={{ color: "#15251E", fontSize: 14, fontWeight: "900", marginTop: 6 }}>Total price for your approval: R {(Number(journeyScreen.estimatedTotal ?? 0) + Number(journeyScreen.assessmentFee ?? 0)).toFixed(2)}</Text>
-          {journeyScreen.estimateNotes ? <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 8 }}>{journeyScreen.estimateNotes}</Text> : null}
-          <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 18, marginTop: 8 }}>You already accepted the Provider's hourly rate and assessment fee when selecting the offer. This approval confirms the assessed hours, scope and resulting total price. The Provider cannot start the main work until you approve it.</Text>
-          <Primary label="Approve final price" onPress={() => void decideEstimate(journeyScreen.requestId, true)} disabled={jobActionBusy} />
-        </View> : null}
-        {journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? journeyScreen.completionSubmissions.filter((submission) => submission.status === "PENDING").map((submission) => <View key={submission.id} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#B9DCC8", borderRadius: 16, padding: 15, marginTop: 12 }}>
-          <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 0.8 }}>WORK COMPLETION REVIEW</Text>
-          <Text style={{ color: "#15251E", fontSize: 18, fontWeight: "900", marginTop: 7 }}>Provider says the work is complete</Text>
-          <Text style={{ color: "#66756D", fontSize: 11, marginTop: 5 }}>Submitted {new Date(submission.submittedAt).toLocaleString()}</Text>
-          <Text style={{ color: "#15251E", fontSize: 14, lineHeight: 21, marginTop: 12 }}>{submission.notes}</Text>
-          {submission.evidenceAssets?.map((asset, index) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open evidence photo."); } }} style={{ marginTop: 10 }}><Text style={{ color: "#176B55", fontWeight: "800" }}>View photo evidence {index + 1} · {asset.originalName}</Text></Pressable>)}
-          {submission.evidenceUrls.map((url, index) => <Text key={url} style={{ color: "#66756D", fontSize: 11, marginTop: 6 }}>Legacy evidence link {index + 1}: {url}</Text>)}
-          <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 18, marginTop: 12 }}>Review the Provider's notes and any photos. Approving confirms the work is satisfactory. Payment remains a separate step.</Text>
-          <Text style={{ color: "#15251E", fontSize: 12, fontWeight: "800", marginTop: 12 }}>If requesting corrections, explain what still needs attention.</Text>
-          <TextInput value={completionReviewNote} onChangeText={setCompletionReviewNote} placeholder="Describe the work that needs correction (at least 10 characters)..." multiline style={{ borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 12, padding: 12, minHeight: 82, textAlignVertical: "top", marginTop: 7, color: "#15251E" }} />
-          <View style={{ gap: 10, marginTop: 12 }}>
-            <Primary label={jobActionBusy ? "Processing..." : "Approve work"} onPress={() => void reviewCompletion(journeyScreen.requestId, submission.id, true)} disabled={jobActionBusy} />
-            <Secondary label="Request corrections" onPress={() => { if (!jobActionBusy && completionReviewNote.trim().length >= 10) void reviewCompletion(journeyScreen.requestId, submission.id, false); }} />
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 12 }}>
+          <View>
+            <Text style={{ color: "#718078", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 }}>YOUR SERVICE</Text>
+            <Text style={{ color: "#172820", fontSize: 14, fontWeight: "800", marginTop: 3 }}>Request tracking</Text>
           </View>
-        </View>) : null}
-        <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
-          <Text style={{ color: "#176B55", fontWeight: "900" }}>Open service chat</Text>
-        </Pressable>
-        <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, padding: 14, marginTop: 18 }}>
-          <Text style={{ color: "#176B55", fontSize: 12, fontWeight: "900" }}>WHAT HAPPENS NEXT</Text>
-          <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 18, marginTop: 5 }}>The Provider must complete the assessment and submit an estimate. Work starts only after the estimate is approved in AnySkill.</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close service tracking" onPress={() => setJourneyScreen(null)} style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: "#E8EEEA", alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ color: "#34483D", fontSize: 20, fontWeight: "700" }}>×</Text>
+          </Pressable>
         </View>
-        <Pressable onPress={() => journeyScreen && cancelSeekerJourney(journeyScreen.requestId, journeyScreen.title)} style={{ backgroundColor: "#FFF7F7", borderWidth: 1, borderColor: "#E7B8B8", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 14 }}><Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text></Pressable>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
+          <View style={{ backgroundColor: "#123F32", borderRadius: 24, padding: 21, marginTop: 5, overflow: "hidden" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.13)", borderRadius: 30, paddingHorizontal: 11, paddingVertical: 7 }}>
+              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#9DE0B8", marginRight: 8 }} />
+              <Text style={{ color: "#D9F2E3", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>{journeyScreen?.engagementStatus === "IN_PROGRESS" ? "SERVICE IN PROGRESS" : journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? "AWAITING YOUR REVIEW" : journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? "ACTION REQUIRED" : journeyScreen?.engagementStatus === "ESTIMATE_APPROVED" ? "ESTIMATE APPROVED" : journeyScreen?.assessmentCompletedAt ? "ASSESSMENT COMPLETE" : journeyScreen?.assessmentStartedAt ? "ASSESSMENT UNDERWAY" : journeyScreen?.providerArrivedAt ? "PROVIDER ARRIVED" : journeyScreen?.providerEnRouteAt ? "PROVIDER ON THE WAY" : "PROVIDER SELECTED"}</Text>
+            </View>
+            <Text style={{ color: "#FFFFFF", fontSize: 29, lineHeight: 35, fontWeight: "900", letterSpacing: -0.8, marginTop: 19 }}>
+              {journeyScreen?.engagementStatus === "IN_PROGRESS" ? "Your service is underway" : journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? "Review the completed work" : journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? "Your estimate is ready" : journeyScreen?.engagementStatus === "ESTIMATE_REJECTED" ? "Estimate needs attention" : journeyScreen?.engagementStatus === "ESTIMATE_APPROVED" ? "You're ready to go" : journeyScreen?.assessmentCompletedAt ? "Assessment completed" : journeyScreen?.assessmentStartedAt ? "Your assessment is underway" : journeyScreen?.providerArrivedAt ? "Your Provider has arrived" : journeyScreen?.providerEnRouteAt ? "Your Provider is on the way" : "Your Provider is confirmed"}
+            </Text>
+            <Text style={{ color: "#D5E7DC", fontSize: 13, lineHeight: 21, marginTop: 9 }}>
+              {journeyScreen?.engagementStatus === "IN_PROGRESS" ? "The Provider has started the work covered by your approved estimate." : journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? "Your Provider has submitted the service for review. Check the notes and evidence below." : journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? "Review the assessment and final price below. The Provider can only begin the main work after you approve it." : journeyScreen?.engagementStatus === "ESTIMATE_REJECTED" ? "The Provider needs to review your feedback and submit a revised estimate." : journeyScreen?.engagementStatus === "ESTIMATE_APPROVED" ? "The final estimate is approved. The Provider can now begin the agreed work." : journeyScreen?.assessmentCompletedAt ? "Your Provider has finished assessing the work and is preparing the final estimate." : journeyScreen?.assessmentStartedAt ? "Your Provider is assessing the work. The final estimate will appear here when it is submitted." : journeyScreen?.providerArrivedAt ? "Your Provider is at the service location and can begin the assessment." : journeyScreen?.providerEnRouteAt ? "Your Provider is travelling to you. We'll keep this screen updated as the service progresses." : "The assessment has not started yet. We'll let you know when your Provider is on the way."}
+            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 22, paddingTop: 16, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.18)" }}>
+              <Text style={{ color: "#BFE3CC", fontSize: 11, fontWeight: "800" }}>ANY SKILL SERVICE</Text>
+              <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: "#82B99A", marginHorizontal: 9 }} />
+              <Text style={{ color: "#BFE3CC", fontSize: 11 }}>Updates appear here</Text>
+            </View>
+          </View>
+
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 20, padding: 17, marginTop: 14, borderWidth: 1, borderColor: "#E2EAE5" }}>
+            <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>YOUR SELECTED PROVIDER</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", marginTop: 14 }}>
+              <View style={{ width: 54, height: 54, borderRadius: 18, backgroundColor: "#E5F1E9", alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ color: "#176B55", fontSize: 21, fontWeight: "900" }}>{(journeyScreen?.providerName ?? "P").trim().split(/\\s+/).slice(0,2).map((part) => part[0]?.toUpperCase()).join("")}</Text>
+              </View>
+              <View style={{ flex: 1, marginLeft: 13 }}>
+                <Text style={{ color: "#172820", fontSize: 18, fontWeight: "900" }}>{journeyScreen?.providerName ?? "Your selected Provider"}</Text>
+                <Text style={{ color: "#66756D", fontSize: 12, marginTop: 4 }}>{journeyScreen?.providerSkills?.join(" · ") || "Your selected skill Provider"}</Text>
+                <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900", marginTop: 7 }}>✓ SELECTED BY YOU</Text>
+              </View>
+            </View>
+            <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#EDF5F0", borderRadius: 13, minHeight: 47, alignItems: "center", justifyContent: "center", marginTop: 16 }}>
+              <Text style={{ color: "#176B55", fontWeight: "900", fontSize: 13 }}>Message your Provider</Text>
+            </Pressable>
+          </View>
+
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 20, padding: 17, marginTop: 14, borderWidth: 1, borderColor: "#E2EAE5" }}>
+            <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>SERVICE PROGRESS</Text>
+            {[
+              { title: "Provider selected", detail: "You've chosen your Provider", done: true },
+              { title: "Provider travelling", detail: "We'll notify you when they're on the way", done: !!journeyScreen?.providerEnRouteAt },
+              { title: "Assessment", detail: journeyScreen?.assessmentCompletedAt ? "Assessment completed" : journeyScreen?.assessmentStartedAt ? "Assessment in progress" : journeyScreen?.providerArrivedAt ? "Provider arrived · assessment can begin" : "Starts after the Provider arrives", done: !!journeyScreen?.assessmentCompletedAt },
+              { title: "Final estimate", detail: journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? "Ready for your approval" : journeyScreen?.engagementStatus === "ESTIMATE_APPROVED" || journeyScreen?.engagementStatus === "IN_PROGRESS" ? "Approved by you" : "Provider submits this after assessment", done: ["ESTIMATE_APPROVED","IN_PROGRESS","COMPLETION_PENDING"].includes(journeyScreen?.engagementStatus ?? "") },
+              { title: "Main work", detail: journeyScreen?.engagementStatus === "IN_PROGRESS" ? "Work is in progress" : journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? "Work submitted for your review" : "Only begins after you approve the estimate", done: ["IN_PROGRESS","COMPLETION_PENDING","COMPLETED"].includes(journeyScreen?.engagementStatus ?? "") },
+            ].map((step, index, steps) => <View key={step.title} style={{ flexDirection: "row", minHeight: index === steps.length - 1 ? 42 : 58 }}>
+              <View style={{ width: 27, alignItems: "center" }}>
+                <View style={{ width: 23, height: 23, borderRadius: 12, backgroundColor: step.done ? "#176B55" : "#EEF2EF", borderWidth: step.done ? 0 : 1, borderColor: "#D9E2DC", alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ color: step.done ? "#FFFFFF" : "#7B8981", fontSize: 11, fontWeight: "900" }}>{step.done ? "✓" : String(index + 1)}</Text>
+                </View>
+                {index < steps.length - 1 ? <View style={{ width: 2, flex: 1, minHeight: 28, backgroundColor: step.done ? "#A7D3B8" : "#E5EBE7" }} /> : null}
+              </View>
+              <View style={{ flex: 1, paddingLeft: 11, paddingBottom: 12 }}>
+                <Text style={{ color: step.done ? "#176B55" : "#26372E", fontSize: 13, fontWeight: "900" }}>{step.title}</Text>
+                <Text style={{ color: "#748179", fontSize: 11, lineHeight: 16, marginTop: 3 }}>{step.detail}</Text>
+              </View>
+            </View>)}
+          </View>
+
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 20, padding: 17, marginTop: 14, borderWidth: 1, borderColor: "#E2EAE5" }}>
+            <Text style={{ color: "#7B8981", fontSize: 10, fontWeight: "900", letterSpacing: 1.2 }}>YOUR AGREED OFFER RATE</Text>
+            <Text style={{ color: "#172820", fontSize: 28, fontWeight: "900", marginTop: 9 }}>{journeyScreen?.hourlyRate == null ? "Rate unavailable" : "R " + journeyScreen.hourlyRate.toFixed(2)}<Text style={{ color: "#718078", fontSize: 13, fontWeight: "700" }}> / hour</Text></Text>
+            <View style={{ height: 1, backgroundColor: "#E8EEE9", marginVertical: 13 }} />
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={{ color: "#66756D", fontSize: 12 }}>Assessment / call-out fee</Text>
+              <Text style={{ color: "#26372E", fontSize: 12, fontWeight: "900" }}>{journeyScreen?.assessmentFee == null ? "Not available" : journeyScreen.assessmentFee === 0 ? "No fee" : "R " + journeyScreen.assessmentFee.toFixed(2)}</Text>
+            </View>
+            <Text style={{ color: "#829087", fontSize: 11, lineHeight: 17, marginTop: 12 }}>This is the rate saved from the offer you selected. It is not the final job total. Your Provider must assess the work and submit a separate estimate for your approval.</Text>
+          </View>
+
+          {journeyScreen?.providerEnRouteAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 16, padding: 15, marginTop: 14 }}>
+            <Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>LIVE SERVICE UPDATE</Text>
+            <Text style={{ color: "#244536", fontSize: 13, lineHeight: 20, marginTop: 6 }}>{journeyScreen?.providerArrivedAt ? "Your Provider has arrived at the service location." : "Your Provider is on the way. We'll update you when they arrive."}</Text>
+          </View> : <View style={{ backgroundColor: "#EEF5F8", borderRadius: 16, padding: 15, marginTop: 14 }}>
+            <Text style={{ color: "#24566A", fontSize: 11, fontWeight: "900", letterSpacing: 1 }}>WE'LL KEEP YOU UPDATED</Text>
+            <Text style={{ color: "#456675", fontSize: 12, lineHeight: 19, marginTop: 6 }}>You don't need to keep checking. AnySkill will notify you when your Provider is on the way, and this screen will reflect the latest service progress.</Text>
+          </View>}
+
+          {journeyScreen?.engagementStatus === "ESTIMATE_SUBMITTED" ? <View style={{ backgroundColor: "#F1F8F3", borderRadius: 20, borderWidth: 1, borderColor: "#B9DCC8", padding: 17, marginTop: 14 }}>
+            <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900", letterSpacing: 1.1 }}>YOUR APPROVAL IS REQUIRED</Text>
+            <Text style={{ color: "#172820", fontSize: 24, fontWeight: "900", marginTop: 8 }}>R {(Number(journeyScreen.estimatedTotal ?? 0) + Number(journeyScreen.assessmentFee ?? 0)).toFixed(2)}</Text>
+            <Text style={{ color: "#66756D", fontSize: 11, marginTop: 4 }}>Final assessed price</Text>
+            <View style={{ height: 1, backgroundColor: "#DCEAE0", marginVertical: 13 }} />
+            <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 19 }}>Labour: {journeyScreen.estimatedHours == null ? "—" : journeyScreen.estimatedHours.toFixed(2) + " hours"} × R {Number(journeyScreen.hourlyRate ?? 0).toFixed(2)} = R {Number(journeyScreen.estimatedTotal ?? 0).toFixed(2)}</Text>
+            <Text style={{ color: "#40584B", fontSize: 12, lineHeight: 19, marginTop: 3 }}>Agreed assessment fee: R {Number(journeyScreen.assessmentFee ?? 0).toFixed(2)}</Text>
+            {journeyScreen.estimateNotes ? <Text style={{ color: "#26372E", fontSize: 12, lineHeight: 19, marginTop: 12 }}>{journeyScreen.estimateNotes}</Text> : null}
+            <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 12 }}>You accepted the Provider's rate when selecting the offer. Approving here confirms the assessed hours, scope and final total. Main work cannot start until you approve.</Text>
+            <Primary label="Approve final estimate" onPress={() => void decideEstimate(journeyScreen.requestId, true)} disabled={jobActionBusy} />
+          </View> : null}
+
+          {journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? journeyScreen.completionSubmissions.filter((submission) => submission.status === "PENDING").map((submission) => <View key={submission.id} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2EAE5", borderRadius: 20, padding: 17, marginTop: 14 }}>
+            <Text style={{ color: "#176B55", fontSize: 10, fontWeight: "900", letterSpacing: 1 }}>COMPLETION REVIEW</Text>
+            <Text style={{ color: "#172820", fontSize: 19, fontWeight: "900", marginTop: 8 }}>Your Provider says the work is complete</Text>
+            <Text style={{ color: "#829087", fontSize: 10, marginTop: 5 }}>Submitted {new Date(submission.submittedAt).toLocaleString()}</Text>
+            <Text style={{ color: "#26372E", fontSize: 13, lineHeight: 21, marginTop: 13 }}>{submission.notes}</Text>
+            {submission.evidenceAssets?.map((asset, index) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open evidence photo."); } }} style={{ marginTop: 10 }}><Text style={{ color: "#176B55", fontWeight: "800" }}>View photo evidence {index + 1} · {asset.originalName}</Text></Pressable>)}
+            {submission.evidenceUrls.map((url, index) => <Text key={url} style={{ color: "#66756D", fontSize: 11, marginTop: 6 }}>Legacy evidence link {index + 1}: {url}</Text>)}
+            <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 13 }}>Review the Provider's notes and photos. Payment is handled separately from this completion approval.</Text>
+            <Text style={{ color: "#26372E", fontSize: 12, fontWeight: "800", marginTop: 13 }}>Need corrections? Explain what still needs attention.</Text>
+            <TextInput value={completionReviewNote} onChangeText={setCompletionReviewNote} placeholder="Describe the work that needs correction (at least 10 characters)..." multiline style={{ borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 13, padding: 13, minHeight: 84, textAlignVertical: "top", marginTop: 8, color: "#172820", backgroundColor: "#FAFCFA" }} />
+            <Primary label={jobActionBusy ? "Processing..." : "Approve completed work"} onPress={() => void reviewCompletion(journeyScreen.requestId, submission.id, true)} disabled={jobActionBusy} />
+            <Secondary label="Request corrections" onPress={() => { if (!jobActionBusy && completionReviewNote.trim().length >= 10) void reviewCompletion(journeyScreen.requestId, submission.id, false); }} />
+          </View>) : null}
+
+          <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#176B55", borderRadius: 15, minHeight: 55, alignItems: "center", justifyContent: "center", marginTop: 16 }}>
+            <Text style={{ color: "#FFFFFF", fontSize: 14, fontWeight: "900" }}>Open service chat</Text>
+          </Pressable>
+          <View style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: 15, marginTop: 14, borderWidth: 1, borderColor: "#E2EAE5" }}>
+            <Text style={{ color: "#26372E", fontSize: 12, fontWeight: "900" }}>WHAT HAPPENS NEXT</Text>
+            <Text style={{ color: "#718078", fontSize: 12, lineHeight: 19, marginTop: 6 }}>{journeyScreen?.engagementStatus === "IN_PROGRESS" ? "Follow the service here. Any additional work or charges must be agreed and approved before proceeding." : journeyScreen?.engagementStatus === "COMPLETION_PENDING" ? "Your approval confirms the work is complete. AnySkill records payment separately." : "Your Provider completes the assessment and submits the final estimate. You review and approve that estimate in AnySkill before the main work can begin."}</Text>
+          </View>
+          <Pressable onPress={() => journeyScreen && cancelSeekerJourney(journeyScreen.requestId, journeyScreen.title)} style={{ borderWidth: 1, borderColor: "#E7C6C3", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 14, backgroundColor: "#FFF9F8" }}>
+            <Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text>
+          </Pressable>
+        </ScrollView>
       </View>
     </Modal>
     <Modal visible={contactDrawerOpen} transparent animationType="slide" onRequestClose={() => setContactDrawerOpen(false)}>
