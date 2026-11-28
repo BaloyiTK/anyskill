@@ -85,7 +85,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const [paymentCheckoutVisible, setPaymentCheckoutVisible] = useState(false);
   const [paymentCheckoutUrl, setPaymentCheckoutUrl] = useState("");
   const [paymentCheckoutStatus, setPaymentCheckoutStatus] = useState<"loading" | "checking" | "success" | "cancelled" | "error">("loading");
-  const [paymentMethodIdsBeforeSetup, setPaymentMethodIdsBeforeSetup] = useState<string[]>([]);
+  const [paymentSetupReference, setPaymentSetupReference] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -198,24 +198,31 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
     } catch (e) { setPaymentError(e instanceof Error ? e.message : "Could not load saved cards."); }
     finally { setPaymentLoading(false); }
   };
-  const pollForSavedCard = async (existingIds: string[]) => {
-    for (let attempt = 0; attempt < 15; attempt += 1) {
+  const pollForSavedCard = async (merchantPaymentId: string) => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
       try {
-        const methods = await apiRequest<SavedPaymentMethod[]>("/marketplace/payment-methods", {}, true);
-        const newlySaved = methods.filter((method) => !existingIds.includes(method.id));
-        if (newlySaved.length > 0) {
+        const setup = await apiRequest<{ status: string; cardBrand?: string | null; lastFour?: string | null }>(
+          `/marketplace/payment-methods/payfast/setup/${encodeURIComponent(merchantPaymentId)}`, {}, true,
+        );
+        if (setup.status === "COMPLETE") {
+          const methods = await apiRequest<SavedPaymentMethod[]>("/marketplace/payment-methods", {}, true);
           setPaymentMethods(methods);
           setPaymentCheckoutStatus("success");
-          setPaymentNotice("PayFast confirmed your card registration. Your card is now saved in AnySkill.");
+          setPaymentNotice(`PayFast confirmed your ${setup.cardBrand || "payment"} card ending ${setup.lastFour || "••••"} registration. Your card is now saved in AnySkill.`);
+          return;
+        }
+        if (setup.status === "FAILED") {
+          setPaymentCheckoutStatus("error");
+          setPaymentError("PayFast could not complete card registration. No card has been saved.");
           return;
         }
       } catch {
-        // ITN processing and the saved-card list can become available a little later.
+        // ITN processing and status propagation can take a few seconds.
       }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
     setPaymentCheckoutStatus("error");
-    setPaymentError("PayFast returned to AnySkill, but the saved card is not confirmed yet. Do not retry repeatedly; refresh your payment methods in a moment.");
+    setPaymentError("PayFast returned to AnySkill, but confirmation is still pending. Refresh Payment Methods shortly; do not assume the card was saved.");
   };
 
   const handlePayFastNavigation = (url: string) => {
@@ -226,7 +233,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
     }
     if (url.includes("/marketplace/payments/payfast/return") && paymentCheckoutStatus === "loading") {
       setPaymentCheckoutStatus("checking");
-      void pollForSavedCard(paymentMethodIdsBeforeSetup);
+      void pollForSavedCard(paymentSetupReference);
     }
   };
 
@@ -234,10 +241,10 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
     if (!paymentConsent || paymentBusy) return;
     setPaymentBusy(true); setPaymentError(""); setPaymentNotice("");
     try {
-      const result = await apiRequest<{ checkoutUrl: string }>("/marketplace/payment-methods/payfast/setup", {
+      const result = await apiRequest<{ checkoutUrl: string; merchantPaymentId: string }>("/marketplace/payment-methods/payfast/setup", {
         method: "POST", body: JSON.stringify({ accepted: true }),
       }, true);
-      setPaymentMethodIdsBeforeSetup(paymentMethods.map((method) => method.id));
+      setPaymentSetupReference(result.merchantPaymentId);
       setPaymentCheckoutUrl(result.checkoutUrl);
       setPaymentCheckoutStatus("loading");
       setPaymentFormVisible(false);
