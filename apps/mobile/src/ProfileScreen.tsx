@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { apiRequest } from "./api";
 
@@ -17,6 +17,7 @@ type ProfileSkill = {
 };
 type SkillReviewStatus = { category: string; status: string; decisionReason?: string | null; submittedAt?: string | null; reviewedAt?: string | null };
 type Identity = { status?: string; latestCase?: { status?: string } | null };
+type SavedPaymentMethod = { id: string; provider: string; cardBrand?: string | null; lastFour?: string | null; status: string; isDefault: boolean; createdAt: string };
 type OnboardingProfile = {
   profile?: { firstName?: string; lastName?: string; phone?: string; suburb?: string; city?: string; province?: string; country?: string; marketplaceRoles?: string[] };
   skills?: ProfileSkill[];
@@ -73,25 +74,33 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const [savingSkills, setSavingSkills] = useState(false);
   const [skillError, setSkillError] = useState("");
   const [skillMessage, setSkillMessage] = useState("");
+  const [paymentMethods, setPaymentMethods] = useState<SavedPaymentMethod[]>([]);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentBusy, setPaymentBusy] = useState(false);
+  const [paymentConsent, setPaymentConsent] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
+  const [paymentNotice, setPaymentNotice] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [onboarding, verification, providerProfile] = await Promise.all([
+      const [onboarding, verification, providerProfile, savedMethods] = await Promise.all([
         apiRequest<OnboardingProfile>("/profile/onboarding", {}, true),
         apiRequest<Identity>("/identity-verification/status", {}, true),
         apiRequest<ProviderProfile | null>("/marketplace/provider-profile", {}, true).catch(() => null),
+        mode === "seeker" ? apiRequest<SavedPaymentMethod[]>("/marketplace/payment-methods", {}, true).catch(() => []) : Promise.resolve([]),
       ]);
       setProfile(onboarding);
       setIdentity(verification);
       setProvider(providerProfile);
+      setPaymentMethods(savedMethods);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your profile.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [mode]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -174,6 +183,46 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
     } catch (e) { setSkillError(e instanceof Error ? e.message : "Could not submit your skills for review."); }
     finally { setSavingSkills(false); }
   };
+  const refreshPaymentMethods = async () => {
+    setPaymentLoading(true); setPaymentError("");
+    try {
+      const methods = await apiRequest<SavedPaymentMethod[]>("/marketplace/payment-methods", {}, true);
+      setPaymentMethods(methods);
+      setPaymentNotice("Your saved payment methods have been refreshed.");
+    } catch (e) { setPaymentError(e instanceof Error ? e.message : "Could not load saved cards."); }
+    finally { setPaymentLoading(false); }
+  };
+  const addPaymentCard = async () => {
+    if (!paymentConsent || paymentBusy) return;
+    setPaymentBusy(true); setPaymentError(""); setPaymentNotice("");
+    try {
+      const result = await apiRequest<{ checkoutUrl: string }>("/marketplace/payment-methods/payfast/setup", {
+        method: "POST", body: JSON.stringify({ accepted: true }),
+      }, true);
+      await Linking.openURL(result.checkoutUrl);
+      setPaymentNotice("PayFast has opened securely. Complete card registration there, then return here and refresh your cards.");
+    } catch (e) { setPaymentError(e instanceof Error ? e.message : "Could not start secure card registration."); }
+    finally { setPaymentBusy(false); }
+  };
+  const chooseDefaultCard = async (methodId: string) => {
+    setPaymentBusy(true); setPaymentError(""); setPaymentNotice("");
+    try {
+      const result = await apiRequest<{ paymentMethods: SavedPaymentMethod[] }>(`/marketplace/payment-methods/${methodId}/default`, { method: "POST", body: "{}" }, true);
+      setPaymentMethods(result.paymentMethods);
+      setPaymentNotice("Your default payment card has been updated.");
+    } catch (e) { setPaymentError(e instanceof Error ? e.message : "Could not update your default card."); }
+    finally { setPaymentBusy(false); }
+  };
+  const removePaymentCard = async (methodId: string) => {
+    setPaymentBusy(true); setPaymentError(""); setPaymentNotice("");
+    try {
+      await apiRequest(`/marketplace/payment-methods/${methodId}`, { method: "DELETE" }, true);
+      await refreshPaymentMethods();
+      setPaymentNotice("The card was removed from your AnySkill profile.");
+    } catch (e) { setPaymentError(e instanceof Error ? e.message : "Could not remove this card."); }
+    finally { setPaymentBusy(false); }
+  };
+
   const personName = [profile?.profile?.firstName, profile?.profile?.lastName].filter(Boolean).join(" ");
   const location = [profile?.profile?.suburb, profile?.profile?.city, profile?.profile?.province, profile?.profile?.country].filter(Boolean).join(", ");
   const roleStatus = mode === "provider" ? providerStatus : seekerStatus;
@@ -195,7 +244,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
       { id: "areas", title: "Service areas", summary: provider?.serviceAreas?.length ? provider.serviceAreas.join(", ") : location || "Not configured", detail: provider?.serviceAreas?.length ? provider.serviceAreas.join("\n") : "Your service locations will appear here when configured." },
       { id: "availability", title: "Availability", summary: provider?.isAvailable ? "Online" : "Offline", detail: provider?.isAvailable ? "You are currently available to receive matching service requests." : "You are currently offline and will not receive new matching requests." },
     ] : [
-      { id: "payments", title: "Payment methods", summary: "Manage payment options", detail: "Payment methods will be displayed here when payment management is available." },
+      { id: "payments", title: "Payment methods", summary: paymentMethods.length ? `${paymentMethods.length} saved card${paymentMethods.length === 1 ? "" : "s"}` : "No saved cards", detail: "Manage the card PayFast can use when you approve completed service work." },
       { id: "addresses", title: "Addresses & locations", summary: location || "No saved address", detail: location || "Your saved addresses and preferred service locations will appear here." },
     ]),
   ];
@@ -244,6 +293,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
         const isExpanded = expanded === item.id;
         const isIdentity = item.id === "identity";
         const isSkills = item.id === "skills";
+        const isPayments = item.id === "payments";
         return (
           <View key={item.id} style={styles.rowCard}>
             <Pressable accessibilityRole="button" accessibilityState={{ expanded: isExpanded }} onPress={() => setExpanded(isExpanded ? null : item.id)} style={styles.rowButton}>
@@ -255,8 +305,32 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
               <Text style={styles.chevron}>{isExpanded ? "−" : "+"}</Text>
             </Pressable>
             {isExpanded ? <View style={styles.detail}>
-              {!isSkills ? <Text style={styles.detailText}>{item.detail}</Text> : null}
+              {!isSkills && !isPayments ? <Text style={styles.detailText}>{item.detail}</Text> : null}
               {isIdentity && !identityVerified ? <Pressable accessibilityRole="button" onPress={onStartVerification} style={styles.detailAction}><Text style={styles.detailActionText}>Open verification</Text></Pressable> : null}
+              {isPayments ? <View style={styles.paymentManager}>
+                <Text style={styles.detailText}>Cards are registered on PayFast's secure hosted page. AnySkill stores a protected token and masked card details, never your full card number or CVV.</Text>
+                {paymentMethods.length ? paymentMethods.map((method) => <View key={method.id} style={styles.paymentCard}>
+                  <View style={styles.paymentCardCopy}>
+                    <Text style={styles.paymentCardTitle}>{method.cardBrand || "Bank card"}{method.lastFour ? ` ending ••${method.lastFour}` : ""}</Text>
+                    <Text style={styles.paymentCardHint}>{method.isDefault ? "Default card · used for approved completed jobs" : "Saved card"}</Text>
+                  </View>
+                  {method.isDefault ? <View style={styles.statusBadge}><Text style={[styles.statusText, styles.goodText]}>DEFAULT</Text></View> : <Pressable disabled={paymentBusy} onPress={() => void chooseDefaultCard(method.id)} style={styles.paymentAction}><Text style={styles.paymentActionText}>Make default</Text></Pressable>}
+                  <Pressable disabled={paymentBusy} onPress={() => void removePaymentCard(method.id)} style={styles.paymentRemove}><Text style={styles.paymentRemoveText}>Remove</Text></Pressable>
+                </View>) : <Text style={styles.detailText}>No saved cards yet. Add a card so it is ready when you approve a completed job.</Text>}
+                <Pressable accessibilityRole="button" disabled={paymentBusy || paymentLoading} onPress={() => setPaymentConsent((value) => !value)} style={styles.paymentConsentRow}>
+                  <View style={[styles.paymentConsentBox, paymentConsent && styles.paymentConsentChecked]}><Text style={styles.paymentConsentTick}>{paymentConsent ? "✓" : ""}</Text></View>
+                  <Text style={styles.paymentConsentText}>I authorise AnySkill to securely save my PayFast card token for future service payments. I understand that my card will only be charged after I approve the Provider's completed work.</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" disabled={!paymentConsent || paymentBusy} onPress={() => void addPaymentCard()} style={[styles.detailAction, (!paymentConsent || paymentBusy) && styles.skillDisabled]}>
+                  <Text style={styles.detailActionText}>{paymentBusy ? "Opening PayFast…" : "＋ Add payment card"}</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" disabled={paymentLoading} onPress={() => void refreshPaymentMethods()} style={styles.paymentRefresh}>
+                  <Text style={styles.paymentRefreshText}>{paymentLoading ? "Refreshing…" : "I've completed setup — refresh cards"}</Text>
+                </Pressable>
+                <Text style={styles.skillLimitHint}>Card registration uses PayFast tokenization with a R0.00 initial amount. Some banks may show a temporary R1–R5 authorisation that is returned by the bank.</Text>
+                {!!paymentNotice && <Text style={styles.skillSuccess}>{paymentNotice}</Text>}
+                {!!paymentError && <Text style={styles.skillError}>{paymentError}</Text>}
+              </View> : null}
               {isSkills ? <View style={styles.skillManager}>
                 {skills.length ? skills.map((skill, index) => {
                   const review = reviewForSkill(skill.category);
@@ -423,6 +497,22 @@ const styles = StyleSheet.create({
   detailText: { color: colors.muted, fontSize: 11, lineHeight: 18 },
   detailAction: { alignSelf: "flex-start", backgroundColor: colors.primary, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
   detailActionText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
+  paymentManager: { gap: 10 },
+  paymentCard: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 11, backgroundColor: "#FFFFFF", flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
+  paymentCardCopy: { flex: 1, minWidth: 115, gap: 4 },
+  paymentCardTitle: { color: colors.ink, fontSize: 11, fontWeight: "900" },
+  paymentCardHint: { color: colors.muted, fontSize: 9 },
+  paymentAction: { backgroundColor: "#EAF3F8", borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7 },
+  paymentActionText: { color: colors.primary, fontSize: 9, fontWeight: "800" },
+  paymentRemove: { paddingHorizontal: 7, paddingVertical: 7 },
+  paymentRemoveText: { color: "#B33B3B", fontSize: 9, fontWeight: "800" },
+  paymentConsentRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, paddingVertical: 4 },
+  paymentConsentBox: { width: 21, height: 21, borderWidth: 1, borderColor: colors.border, borderRadius: 5, alignItems: "center", justifyContent: "center", backgroundColor: "#FFFFFF" },
+  paymentConsentChecked: { backgroundColor: colors.primary, borderColor: colors.primary },
+  paymentConsentTick: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+  paymentConsentText: { flex: 1, color: colors.muted, fontSize: 10, lineHeight: 15 },
+  paymentRefresh: { alignSelf: "flex-start", paddingVertical: 7 },
+  paymentRefreshText: { color: colors.primary, fontSize: 10, fontWeight: "800" },
   skillManager: { gap: 9 },
   assessmentChoices: { flexDirection: "row", gap: 8 },
   assessmentChoice: { flex: 1, minHeight: 42, borderWidth: 1, borderColor: colors.border, borderRadius: 10, alignItems: "center", justifyContent: "center", paddingHorizontal: 8, backgroundColor: "#FFFFFF" },
