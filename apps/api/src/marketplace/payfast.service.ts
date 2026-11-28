@@ -480,7 +480,7 @@ export class PayFastService {
             ...encrypted,
             status: "ACTIVE",
             cardBrand: body.card_type ?? existing.cardBrand,
-            lastFour: body.card_last_four && /^\\d{4}$/.test(body.card_last_four) ? body.card_last_four : existing.lastFour,
+            lastFour: body.card_last_four && /^\d{4}$/.test(body.card_last_four) ? body.card_last_four : existing.lastFour,
           },
         });
       } else {
@@ -491,7 +491,7 @@ export class PayFastService {
             tokenHash,
             ...encrypted,
             cardBrand: body.card_type ?? null,
-            lastFour: body.card_last_four && /^\\d{4}$/.test(body.card_last_four) ? body.card_last_four : null,
+            lastFour: body.card_last_four && /^\d{4}$/.test(body.card_last_four) ? body.card_last_four : null,
             isDefault: hasDefault === 0,
             consentAt: setup.consentAt,
             consentVersion: "ANY_SKILL_CARD_ON_FILE_V1",
@@ -500,7 +500,7 @@ export class PayFastService {
       }
       await tx.payFastCardSetup.update({
         where: { id: setup.id },
-        data: { status: "COMPLETE", completedAt, externalPaymentId: body.pf_payment_id ?? null, cardBrand: body.card_type ?? null, lastFour: body.card_last_four && /^\\d{4}$/.test(body.card_last_four) ? body.card_last_four : null },
+        data: { status: "COMPLETE", completedAt, externalPaymentId: body.pf_payment_id ?? null, cardBrand: body.card_type ?? null, lastFour: body.card_last_four && /^\d{4}$/.test(body.card_last_four) ? body.card_last_four : null },
       });
     });
     return { success: true, cardSetup: true, status: "COMPLETE" };
