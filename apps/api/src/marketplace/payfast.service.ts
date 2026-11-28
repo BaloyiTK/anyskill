@@ -357,6 +357,134 @@ export class PayFastService {
     return (await response.text()).trim() === "VALID";
   }
 
+  async getReconciliation() {
+    const staleBefore = new Date(Date.now() - 30 * 60_000);
+    const [checkouts, aggregates, paidJobs] = await Promise.all([
+      this.prisma.payFastCheckout.findMany({
+        where: { mode: "SANDBOX" },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: {
+          id: true,
+          merchantPaymentId: true,
+          amount: true,
+          currency: true,
+          status: true,
+          externalPaymentId: true,
+          createdAt: true,
+          completedAt: true,
+          failedAt: true,
+          failureReason: true,
+          engagement: {
+            select: {
+              requestId: true,
+              status: true,
+              finalAmountDue: true,
+              paymentStatus: true,
+              providerPayoutStatus: true,
+              financialTransactions: {
+                select: { transactionType: true, status: true, amount: true, externalReference: true, completedAt: true },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.jobFinancialTransaction.groupBy({
+        by: ["transactionType", "status"],
+        where: { mode: "PAYFAST_SANDBOX" },
+        _count: { _all: true },
+        _sum: { amount: true },
+      }),
+      this.prisma.jobEngagement.findMany({
+        where: { paymentStatus: "PAYFAST_PAID" },
+        orderBy: { updatedAt: "desc" },
+        take: 200,
+        select: {
+          requestId: true,
+          paymentStatus: true,
+          payfastCheckouts: { where: { mode: "SANDBOX", status: "COMPLETE" }, select: { id: true } },
+        },
+      }),
+    ]);
+
+    const issues: Array<Record<string, unknown>> = [];
+    for (const checkout of checkouts) {
+      const transactions = checkout.engagement.financialTransactions;
+      const seekerPayment = transactions.find((item) => item.transactionType === "SEEKER_PAYMENT");
+      const providerPayout = transactions.find((item) => item.transactionType === "PROVIDER_PAYOUT");
+      const commission = transactions.find((item) => item.transactionType === "PLATFORM_COMMISSION");
+      const reasons: string[] = [];
+      if (checkout.status === "PENDING" && checkout.createdAt < staleBefore) reasons.push("CHECKOUT_PENDING_OVER_30_MINUTES");
+      if (checkout.status === "COMPLETE" && checkout.engagement.paymentStatus !== "PAYFAST_PAID") reasons.push("CHECKOUT_COMPLETE_JOB_NOT_MARKED_PAID");
+      if (checkout.status === "COMPLETE" && (!seekerPayment || seekerPayment.status !== "COMPLETED")) reasons.push("COMPLETED_CHECKOUT_MISSING_COMPLETED_SEEKER_LEDGER_ENTRY");
+      if (checkout.status === "COMPLETE" && (!providerPayout || !commission)) reasons.push("COMPLETED_CHECKOUT_MISSING_SPLIT_LEDGER_ENTRIES");
+      if (checkout.status === "COMPLETE" && providerPayout && commission) {
+        const splitTotal = Number(providerPayout.amount) + Number(commission.amount);
+        if (Math.abs(splitTotal - Number(checkout.amount)) > 0.01) reasons.push("PROVIDER_PAYOUT_AND_COMMISSION_DO_NOT_MATCH_GROSS");
+      }
+      if (checkout.status === "PENDING" && checkout.engagement.paymentStatus !== "PAYFAST_PENDING") reasons.push("PENDING_CHECKOUT_JOB_STATUS_MISMATCH");
+      if (reasons.length) {
+        issues.push({
+          checkoutId: checkout.id,
+          merchantPaymentId: checkout.merchantPaymentId,
+          payfastPaymentId: checkout.externalPaymentId,
+          checkoutStatus: checkout.status,
+          amount: checkout.amount.toFixed(2),
+          currency: checkout.currency,
+          createdAt: checkout.createdAt,
+          requestId: checkout.engagement.requestId,
+          jobPaymentStatus: checkout.engagement.paymentStatus,
+          providerPayoutStatus: checkout.engagement.providerPayoutStatus,
+          reasons,
+        });
+      }
+    }
+
+    const paidJobsWithoutCompletedCheckout = paidJobs
+      .filter((job) => job.payfastCheckouts.length === 0)
+      .map((job) => ({ requestId: job.requestId, paymentStatus: job.paymentStatus }));
+
+    return {
+      generatedAt: new Date().toISOString(),
+      mode: "PAYFAST_SANDBOX",
+      livePaymentsEnabled: false,
+      window: { recentCheckoutLimit: 200, stalePendingMinutes: 30 },
+      summary: aggregates.map((item) => ({
+        transactionType: item.transactionType,
+        status: item.status,
+        count: item._count._all,
+        amount: item._sum.amount?.toFixed(2) ?? "0.00",
+        currency: "ZAR",
+      })),
+      recentCheckouts: checkouts.map((checkout) => ({
+        id: checkout.id,
+        merchantPaymentId: checkout.merchantPaymentId,
+        payfastPaymentId: checkout.externalPaymentId,
+        amount: checkout.amount.toFixed(2),
+        currency: checkout.currency,
+        status: checkout.status,
+        createdAt: checkout.createdAt,
+        completedAt: checkout.completedAt,
+        failedAt: checkout.failedAt,
+        failureReason: checkout.failureReason,
+        requestId: checkout.engagement.requestId,
+        jobStatus: checkout.engagement.status,
+        jobPaymentStatus: checkout.engagement.paymentStatus,
+        providerPayoutStatus: checkout.engagement.providerPayoutStatus,
+        ledger: checkout.engagement.financialTransactions.map((item) => ({
+          transactionType: item.transactionType,
+          status: item.status,
+          amount: item.amount.toFixed(2),
+          externalReference: item.externalReference,
+          completedAt: item.completedAt,
+        })),
+      })),
+      exceptions: issues,
+      paidJobsWithoutCompletedCheckout,
+      note: "This report is read-only. It never marks a payment as successful or a Provider payout as transferred. All successful payments must originate from a verified PayFast ITN.",
+    };
+  }
+
   async handleItn(body: PayFastItn, sourceIp: string) {
     const config = this.config();
     if (!sourceIp || !this.isAllowedPayFastIp(sourceIp)) {
