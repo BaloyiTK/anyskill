@@ -393,7 +393,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                     }}
                     onShouldStartLoadWithRequest={(request) => {
                       const url = request.url;
-                      return url === paymentCheckoutUrl || url.startsWith("https://www.payfast.co.za/") || url.startsWith("https://payfast.co.za/");
+                      return url === paymentCheckoutUrl || (() => { try { return new URL(url).hostname === "payfast.co.za" || new URL(url).hostname.endsWith(".payfast.co.za"); } catch { return false; } })();
                     }}
                     onError={() => { setPaymentCheckoutStatus("error"); setPaymentError("PayFast's secure onsite form could not load. No redirect was attempted."); }}
                     onHttpError={(event) => { if (event.nativeEvent.statusCode >= 400) { setPaymentCheckoutStatus("error"); setPaymentError("PayFast's secure onsite form could not load. No redirect was attempted."); } }}
