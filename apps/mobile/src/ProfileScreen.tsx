@@ -238,7 +238,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   };
 
   const addPaymentCard = async () => {
-    if (!paymentConsent || paymentBusy) return;
+    if (paymentBusy) return;
     setPaymentBusy(true); setPaymentError(""); setPaymentNotice("");
     try {
       const result = await apiRequest<{ checkoutUrl: string; merchantPaymentId: string }>("/marketplace/payment-methods/payfast/setup", {
@@ -365,8 +365,9 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                   {method.isDefault ? <View style={styles.statusBadge}><Text style={[styles.statusText, styles.goodText]}>DEFAULT</Text></View> : <Pressable disabled={paymentBusy} onPress={() => void chooseDefaultCard(method.id)} style={styles.paymentAction}><Text style={styles.paymentActionText}>Make default</Text></Pressable>}
                   <Pressable disabled={paymentBusy} onPress={() => void removePaymentCard(method.id)} style={styles.paymentRemove}><Text style={styles.paymentRemoveText}>Remove</Text></Pressable>
                 </View>) : <Text style={styles.detailText}>No saved cards yet. Add a card so it is ready when you approve a completed job.</Text>}
-                <Pressable accessibilityRole="button" disabled={paymentBusy} onPress={() => { setPaymentError(""); setPaymentNotice(""); setPaymentFormVisible(true); }} style={[styles.detailAction, paymentBusy && styles.skillDisabled]}>
-                  <Text style={styles.detailActionText}>＋ Add payment card</Text>
+                <Text style={styles.skillLimitHint}>By tapping Add payment card, you authorise AnySkill to save the PayFast payment token for future service payments. Your card is only charged after you approve completed work. Full card details and CVV are entered in PayFast's secure card form, never in AnySkill.</Text>
+                <Pressable accessibilityRole="button" disabled={paymentBusy} onPress={() => { setPaymentError(""); setPaymentNotice(""); void addPaymentCard(); }} style={[styles.detailAction, paymentBusy && styles.skillDisabled]}>
+                  <Text style={styles.detailActionText}>{paymentBusy ? "Opening secure card form…" : "＋ Add payment card"}</Text>
                 </Pressable>
                 <Pressable accessibilityRole="button" disabled={paymentLoading} onPress={() => void refreshPaymentMethods()} style={styles.paymentRefresh}>
                   <Text style={styles.paymentRefreshText}>{paymentLoading ? "Refreshing…" : "I've completed setup — refresh cards"}</Text>
