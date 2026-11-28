@@ -218,8 +218,6 @@ export class PayFastService {
         const fields: Record<string, string> = {
           merchant_id: config.merchantId,
           merchant_key: config.merchantKey,
-          return_url: this.withPaymentReference(`${config.publicApiUrl}/api/v1/marketplace/payments/payfast/return`, setup.merchantPaymentId),
-          cancel_url: this.withPaymentReference(`${config.publicApiUrl}/api/v1/marketplace/payments/payfast/cancel`, setup.merchantPaymentId),
           notify_url: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/itn`,
           email_address: setup.user.email,
           m_payment_id: setup.merchantPaymentId,
@@ -241,7 +239,7 @@ export class PayFastService {
           throw new BadGatewayException(payload?.error || "PayFast could not initialise its secure onsite card form. No card details were collected.");
         }
         const uuid = JSON.stringify(payload.uuid);
-        return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"><title>Add card securely</title><style>html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,sans-serif;background:#f4f8f9;color:#12313a}main{padding:20px;text-align:center}button{border:0;border-radius:10px;background:#075b78;color:#fff;padding:13px 20px;font-weight:700}</style><script src="https://www.payfast.co.za/onsite/engine.js"></script></head><body><main><p id="status">Opening PayFast secure card form…</p><button id="retry" type="button" hidden>Open secure card form</button></main><script>(function(){var uuid=${uuid};var status=document.getElementById("status");var retry=document.getElementById("retry");function open(){if(typeof window.payfast_do_onsite_payment!=="function"){status.textContent="The secure PayFast form could not load. Check your connection and try again.";retry.hidden=false;return;}window.payfast_do_onsite_payment({uuid:uuid});}retry.addEventListener("click",open);window.addEventListener("load",function(){setTimeout(open,150);});})();</script></body></html>`;
+        return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"><title>Add card securely</title><style>html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,sans-serif;background:#f4f8f9;color:#12313a}main{padding:16px;text-align:center}button{border:0;border-radius:10px;background:#075b78;color:#fff;padding:13px 20px;font-weight:700}</style><script src="https://www.payfast.co.za/onsite/engine.js"></script></head><body><main><p id="status">Loading PayFast's secure card form…</p><button id="retry" type="button" hidden>Try secure card form again</button></main><script>(function(){var uuid=${uuid};var status=document.getElementById("status");var retry=document.getElementById("retry");function open(){if(typeof window.payfast_do_onsite_payment!=="function"){status.textContent="PayFast's secure form could not load. No redirect was made.";retry.hidden=false;return;}window.payfast_do_onsite_payment({uuid:uuid},function(result){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(result===true?"PAYFAST_COMPLETE":"PAYFAST_CANCELLED");}status.textContent=result===true?"PayFast has completed card registration. Confirming with AnySkill…":"Card registration was closed. No card was saved.";});}retry.addEventListener("click",open);window.addEventListener("load",function(){setTimeout(open,150);});})();</script></body></html>`;
       }
       const config = this.config();
       const fields: Record<string, string> = {
