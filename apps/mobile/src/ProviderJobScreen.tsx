@@ -698,7 +698,11 @@ export function ProviderJobScreen(p: Props) {
 
   const activeProviderJobForRoute = myJobs.find((item) => item.request.id === activeProviderJobId);
   useEffect(() => {
+    // Do not request or render route data until the Provider explicitly confirms
+    // departure. Keep the route available while they are en route and hide it
+    // once the Seeker confirms arrival.
     if (p.mode !== "provider" || !activeProviderJobId || !activeProviderJobForRoute
+      || !activeProviderJobForRoute.providerEnRouteAt || activeProviderJobForRoute.seekerArrivalConfirmedAt
       || activeProviderJobForRoute.request.latitude == null || activeProviderJobForRoute.request.longitude == null
       || activeProviderJobForRoute.request.deliveryMode === "REMOTE") {
       setProviderRoute(null);
@@ -727,7 +731,7 @@ export function ProviderJobScreen(p: Props) {
     };
     void loadRoute();
     return () => { active = false; };
-  }, [p.mode, activeProviderJobId, activeProviderJobForRoute?.request.latitude, activeProviderJobForRoute?.request.longitude, activeProviderJobForRoute?.request.deliveryMode]);
+  }, [p.mode, activeProviderJobId, activeProviderJobForRoute?.providerEnRouteAt, activeProviderJobForRoute?.seekerArrivalConfirmedAt, activeProviderJobForRoute?.request.latitude, activeProviderJobForRoute?.request.longitude, activeProviderJobForRoute?.request.deliveryMode]);
 
   const acceptRequest = async (request: RequestItem) => {
     if (!p.verified) { p.onIdentityRequired(request.id); return; }
@@ -2016,12 +2020,12 @@ export function ProviderJobScreen(p: Props) {
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 14 }}>
             <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>{job.request.deliveryMode === "REMOTE" ? "REMOTE SERVICE READINESS" : "ROUTE TO SERVICE LOCATION"}</Text>
             <Text style={{ color: "#15251E", fontSize: 15, fontWeight: "800", marginTop: 7 }}>{job.request.location || "Pinned service destination"}</Text>
-            {destinationReady && (!job.seekerArrivalConfirmedAt || job.status === "COMPLETED") ? <>
+            {destinationReady && ((Boolean(job.providerEnRouteAt) && !job.seekerArrivalConfirmedAt) || job.status === "COMPLETED") ? <>
               <View style={{ marginTop: 12, borderRadius: 14, overflow: "hidden" }}>
                 <MapPinPicker latitude={job.request.latitude!} longitude={job.request.longitude!} selectedLatitude={job.request.latitude} selectedLongitude={job.request.longitude} onSelect={() => undefined} readOnly {...(providerRoute?.requestId === job.request.id ? { routeCoordinates: providerRoute.coordinates } : {})} liveLatitude={providerRoute?.requestId === job.request.id ? providerRoute.origin.latitude : null} liveLongitude={providerRoute?.requestId === job.request.id ? providerRoute.origin.longitude : null} />
               </View>
               <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17 }}>{providerRouteLoading ? "Calculating the full driving route from your current location..." : providerRoute?.requestId === job.request.id ? "The green line shows the full driving route from your current location to the Seeker's destination." : "The destination is pinned. The full route will appear when directions are available."}</Text>
-            </> : job.seekerArrivalConfirmedAt && job.status !== "COMPLETED" ? <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 12 }}>Arrival confirmed. The map is hidden during assessment and service work.</Text> : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>This is a remote service or has no pinned physical destination. Navigation is not required.</Text>}
+            </> : job.seekerArrivalConfirmedAt && job.status !== "COMPLETED" ? <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 12 }}>Arrival confirmed. The map is hidden during assessment and service work.</Text> : job.request.deliveryMode === "REMOTE" ? <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>This is a remote service. Confirm that you are ready instead of travelling to a physical destination.</Text> : !job.providerEnRouteAt ? <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>Your route and navigation controls will appear here after you select I'm Coming.</Text> : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>The route is not available for this service location.</Text>}
 
             {destinationReady && job.providerEnRouteAt && !job.providerArrivedAt ? <View style={{ flexDirection: "row", gap: 10, marginTop: 13 }}>
               <Pressable onPress={() => void openProviderNavigation(job.request.id, job.request.latitude!, job.request.longitude!)} disabled={jobActionBusy} style={{ flex: 1, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Navigate</Text></Pressable>
