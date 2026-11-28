@@ -481,7 +481,10 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
           {paymentCheckoutStatus === "checking" ? <ActivityIndicator color={colors.primary} /> : null}
           {paymentCheckoutStatus === "success" ? <Text style={styles.paymentCheckoutHint}>Your saved card is now available under Payment Methods.</Text> : null}
           {paymentCheckoutStatus === "cancelled" ? <Text style={styles.paymentCheckoutHint}>You can close this screen and try again whenever you are ready.</Text> : null}
-          {paymentCheckoutStatus === "error" ? <Text style={styles.paymentCheckoutHint}>Refresh Payment Methods before trying again. A return from PayFast alone does not prove that registration succeeded.</Text> : null}
+          {paymentCheckoutStatus === "error" ? <>
+            <Text style={styles.paymentCheckoutHint}>{paymentError || "PayFast has not confirmed this card registration yet. A return from PayFast alone does not prove that registration succeeded."}</Text>
+            <Pressable accessibilityRole="button" onPress={() => { setPaymentCheckoutStatus("checking"); setPaymentError(""); void pollForSavedCard(paymentSetupReference); }} style={styles.paymentCheckoutRetry}><Text style={styles.paymentCheckoutRetryText}>Check PayFast status again</Text></Pressable>
+          </> : null}
           <Pressable accessibilityRole="button" onPress={() => setPaymentCheckoutVisible(false)} style={styles.paymentCheckoutClose}><Text style={styles.paymentContinueText}>Return to AnySkill</Text></Pressable>
         </View> : null}
       </SafeAreaView>
@@ -624,6 +627,8 @@ const styles = StyleSheet.create({
   paymentCheckoutSuccess: { color: colors.green },
   paymentCheckoutFailure: { color: "#B33B3B" },
   paymentCheckoutHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },
+  paymentCheckoutRetry: { minHeight: 38, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border, borderRadius: 9 },
+  paymentCheckoutRetryText: { color: colors.primary, fontSize: 10, fontWeight: "800" },
   paymentCheckoutClose: { backgroundColor: colors.primary, borderRadius: 10, minHeight: 44, alignItems: "center", justifyContent: "center" },
   paymentModalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(5, 23, 31, 0.52)" },
   paymentModal: { backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden" },
