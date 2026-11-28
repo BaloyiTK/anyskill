@@ -1311,8 +1311,10 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException("This service does not have a physical destination.");
     }
     if (["COMPLETED", "CANCELLED"].includes(job.status)) throw new ConflictException("This service route is no longer active.");
-    const key = process.env.GOOGLE_PLACES_API_KEY?.trim();
-    if (!key) throw new ServiceUnavailableException("Google Maps route directions are not configured on the AnySkill API.");
+    // Directions has separate Google Cloud API enablement/restrictions from Places
+    // and Geocoding. Keep its server-side key isolated from the Places key.
+    const key = process.env.GOOGLE_DIRECTIONS_API_KEY?.trim();
+    if (!key) throw new ServiceUnavailableException("Google Maps route directions are not configured. Set GOOGLE_DIRECTIONS_API_KEY on the AnySkill API and enable the Directions API for that key.");
     const params = new URLSearchParams({
       origin: `${originLatitude},${originLongitude}`,
       destination: `${job.request.latitude},${job.request.longitude}`,
@@ -1327,9 +1329,14 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
     };
     const encoded = payload.routes?.[0]?.overview_polyline?.points;
     if (payload.status !== "OK" || !encoded) {
-      throw new BadGatewayException(payload.status === "ZERO_RESULTS"
-        ? "No driving route is available for this destination."
-        : "Google Maps route directions are unavailable. Check that the Directions API is enabled for the configured key.");
+      if (payload.status === "ZERO_RESULTS") {
+        throw new BadGatewayException("No driving route is available for this destination.");
+      }
+      const googleStatus = payload.status ?? "UNKNOWN_STATUS";
+      const googleMessage = (payload as { error_message?: string }).error_message;
+      throw new BadGatewayException(
+        `Google Maps Directions failed (${googleStatus})${googleMessage ? `: ${googleMessage}` : ". Check that the Directions API is enabled and permitted for GOOGLE_DIRECTIONS_API_KEY."}`,
+      );
     }
     const coordinates: Array<{ latitude: number; longitude: number }> = [];
     let index = 0, latitude = 0, longitude = 0;
