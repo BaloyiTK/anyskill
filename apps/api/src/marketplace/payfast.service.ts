@@ -194,8 +194,8 @@ export class PayFastService {
       const fields: Record<string, string> = {
         merchant_id: config.merchantId,
         merchant_key: config.merchantKey,
-        return_url: this.withPaymentReference(config.returnUrl, setup.merchantPaymentId),
-        cancel_url: this.withPaymentReference(config.cancelUrl, setup.merchantPaymentId),
+        return_url: this.withPaymentReference(`${config.publicApiUrl}/api/v1/marketplace/payments/payfast/return`, setup.merchantPaymentId),
+        cancel_url: this.withPaymentReference(`${config.publicApiUrl}/api/v1/marketplace/payments/payfast/cancel`, setup.merchantPaymentId),
         notify_url: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/itn`,
         email_address: setup.user.email,
         m_payment_id: setup.merchantPaymentId,
@@ -216,8 +216,8 @@ export class PayFastService {
     const fields: Record<string, string> = {
       merchant_id: config.merchantId,
       merchant_key: config.merchantKey,
-      return_url: this.withPaymentReference(config.returnUrl, checkout.merchantPaymentId),
-      cancel_url: this.withPaymentReference(config.cancelUrl, checkout.merchantPaymentId),
+      return_url: this.withPaymentReference(`${config.publicApiUrl}/api/v1/marketplace/payments/payfast/return`, checkout.merchantPaymentId),
+      cancel_url: this.withPaymentReference(`${config.publicApiUrl}/api/v1/marketplace/payments/payfast/cancel`, checkout.merchantPaymentId),
       notify_url: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/itn`,
       email_address: checkout.user.email,
       m_payment_id: checkout.merchantPaymentId,
