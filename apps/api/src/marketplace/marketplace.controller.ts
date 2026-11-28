@@ -250,6 +250,12 @@ export class MarketplaceController {
     return this.payfast.createSavedCardSetup(user.id);
   }
 
+  @Get("marketplace/payment-methods/payfast/setup/:merchantPaymentId")
+  @RequireMarketplaceRole("SEEKER")
+  getSavedCardSetupStatus(@CurrentUser() user: AuthenticatedUser, @Param("merchantPaymentId") merchantPaymentId: string) {
+    return this.payfast.getSavedCardSetupStatus(user.id, merchantPaymentId);
+  }
+
   @Post("marketplace/payment-methods/:paymentMethodId/default")
   @RequireMarketplaceRole("SEEKER")
   setDefaultSavedPaymentMethod(
