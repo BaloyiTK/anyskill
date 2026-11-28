@@ -375,6 +375,46 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                 <Text style={styles.skillLimitHint}>Card registration uses PayFast tokenization with a R0.00 initial amount. Some banks may show a temporary R1–R5 authorisation that is returned by the bank.</Text>
                 {!!paymentNotice && <Text style={styles.skillSuccess}>{paymentNotice}</Text>}
                 {!!paymentError && <Text style={styles.skillError}>{paymentError}</Text>}
+                {paymentCheckoutVisible ? <View style={styles.paymentInlinePanel}>
+                  <View style={styles.paymentCheckoutHeader}>
+                    <View style={styles.paymentModalCopy}>
+                      <Text style={styles.paymentModalEyebrow}>PAYFAST SECURE CARD FORM</Text>
+                      <Text style={styles.paymentModalTitle}>Add your card</Text>
+                      <Text style={styles.paymentModalSubtitle}>Card details are entered into PayFast's secure onsite form. You stay on this AnySkill profile screen.</Text>
+                    </View>
+                    <Pressable accessibilityRole="button" accessibilityLabel="Close secure card form" onPress={() => setPaymentCheckoutVisible(false)} style={styles.drawerClose}><Text style={styles.drawerCloseText}>×</Text></Pressable>
+                  </View>
+                  <WebView
+                    source={{ uri: paymentCheckoutUrl }}
+                    style={styles.paymentWebView}
+                    originWhitelist={["https://*"]}
+                    javaScriptEnabled
+                    domStorageEnabled
+                    sharedCookiesEnabled
+                    thirdPartyCookiesEnabled
+                    setSupportMultipleWindows={false}
+                    startInLoadingState
+                    onMessage={(event) => {
+                      if (event.nativeEvent.data === "PAYFAST_COMPLETE") {
+                        setPaymentCheckoutStatus("checking");
+                        void pollForSavedCard(paymentSetupReference);
+                      } else if (event.nativeEvent.data === "PAYFAST_CANCELLED") {
+                        setPaymentCheckoutStatus("cancelled");
+                        setPaymentNotice("Card registration was cancelled. No card has been saved.");
+                      }
+                    }}
+                    onShouldStartLoadWithRequest={(request) => {
+                      const url = request.url;
+                      return url === paymentCheckoutUrl || url.startsWith("https://www.payfast.co.za/") || url.startsWith("https://payfast.co.za/");
+                    }}
+                    onError={() => { setPaymentCheckoutStatus("error"); setPaymentError("PayFast's secure onsite form could not load. No redirect was attempted."); }}
+                    onHttpError={(event) => { if (event.nativeEvent.statusCode >= 400) { setPaymentCheckoutStatus("error"); setPaymentError("PayFast's secure onsite form could not load. No redirect was attempted."); } }}
+                  />
+                  {paymentCheckoutStatus === "checking" ? <View style={styles.paymentCheckoutStatus}><ActivityIndicator color={colors.primary}/><Text style={styles.paymentCheckoutHint}>Confirming card registration with PayFast…</Text></View> : null}
+                  {paymentCheckoutStatus === "success" ? <Text style={styles.skillSuccess}>Card successfully saved.</Text> : null}
+                  {paymentCheckoutStatus === "cancelled" ? <Text style={styles.paymentCheckoutHint}>Registration cancelled. No card was saved.</Text> : null}
+                  {paymentCheckoutStatus === "error" ? <Text style={styles.skillError}>{paymentError}</Text> : null}
+                </View> : null}
               </View> : null}
               {isSkills ? <View style={styles.skillManager}>
                 {skills.length ? skills.map((skill, index) => {
@@ -449,46 +489,6 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
           </View>
         </View>
       </View>
-    </Modal>
-    <Modal visible={paymentCheckoutVisible} animationType="slide" onRequestClose={() => setPaymentCheckoutVisible(false)} statusBarTranslucent>
-      <SafeAreaView style={styles.paymentCheckoutScreen} edges={["top", "bottom"]}>
-        <View style={styles.paymentCheckoutHeader}>
-          <View style={styles.paymentModalCopy}>
-            <Text style={styles.paymentModalEyebrow}>PAYFAST SECURE CHECKOUT</Text>
-            <Text style={styles.paymentModalTitle}>Add your card</Text>
-            <Text style={styles.paymentModalSubtitle}>Your card details are entered directly on PayFast. AnySkill does not receive your card number or CVV.</Text>
-          </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close PayFast checkout" onPress={() => setPaymentCheckoutVisible(false)} style={styles.drawerClose}><Text style={styles.drawerCloseText}>×</Text></Pressable>
-        </View>
-        <WebView
-          source={{ uri: paymentCheckoutUrl }}
-          style={styles.paymentWebView}
-          originWhitelist={["https://*"]}
-          javaScriptEnabled
-          domStorageEnabled
-          sharedCookiesEnabled
-          thirdPartyCookiesEnabled
-          setSupportMultipleWindows={false}
-          startInLoadingState
-          onNavigationStateChange={(navigation) => handlePayFastNavigation(navigation.url)}
-          onShouldStartLoadWithRequest={(request) => request.url.startsWith("https://")}
-          onError={() => { if (paymentCheckoutStatus === "loading") setPaymentCheckoutStatus("error"); }}
-          onHttpError={(event) => { if (event.nativeEvent.statusCode >= 400 && paymentCheckoutStatus === "loading") setPaymentCheckoutStatus("error"); }}
-        />
-        {paymentCheckoutStatus !== "loading" ? <View style={styles.paymentCheckoutStatus}>
-          <Text style={[styles.paymentCheckoutStatusText, paymentCheckoutStatus === "success" && styles.paymentCheckoutSuccess, paymentCheckoutStatus === "error" && styles.paymentCheckoutFailure]}>
-            {paymentCheckoutStatus === "checking" ? "Checking PayFast confirmation…" : paymentCheckoutStatus === "success" ? "Card successfully saved" : paymentCheckoutStatus === "cancelled" ? "Card registration cancelled" : "Confirmation not received yet"}
-          </Text>
-          {paymentCheckoutStatus === "checking" ? <ActivityIndicator color={colors.primary} /> : null}
-          {paymentCheckoutStatus === "success" ? <Text style={styles.paymentCheckoutHint}>Your saved card is now available under Payment Methods.</Text> : null}
-          {paymentCheckoutStatus === "cancelled" ? <Text style={styles.paymentCheckoutHint}>You can close this screen and try again whenever you are ready.</Text> : null}
-          {paymentCheckoutStatus === "error" ? <>
-            <Text style={styles.paymentCheckoutHint}>{paymentError || "PayFast has not confirmed this card registration yet. A return from PayFast alone does not prove that registration succeeded."}</Text>
-            <Pressable accessibilityRole="button" onPress={() => { setPaymentCheckoutStatus("checking"); setPaymentError(""); void pollForSavedCard(paymentSetupReference); }} style={styles.paymentCheckoutRetry}><Text style={styles.paymentCheckoutRetryText}>Check PayFast status again</Text></Pressable>
-          </> : null}
-          <Pressable accessibilityRole="button" onPress={() => setPaymentCheckoutVisible(false)} style={styles.paymentCheckoutClose}><Text style={styles.paymentContinueText}>Return to AnySkill</Text></Pressable>
-        </View> : null}
-      </SafeAreaView>
     </Modal>
     <Modal visible={skillDrawerVisible} transparent animationType="slide" onRequestClose={closeSkillDrawer} statusBarTranslucent>
       <KeyboardAvoidingView style={styles.skillDrawerBackdrop} behavior={Platform.OS === "ios" ? "padding" : "height"}>
