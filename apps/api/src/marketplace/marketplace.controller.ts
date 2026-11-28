@@ -27,6 +27,9 @@ class StartPayFastCheckoutDto {
 class ChargeSavedCardDto {
   @IsString() @MaxLength(64) paymentMethodId!: string;
 }
+class StartPayFastCardSetupDto {
+  @IsBoolean() accepted!: boolean;
+}
 
 class CreateMediaUploadDto {
   @IsString() @MaxLength(255) fileName!: string;
@@ -238,6 +241,22 @@ export class MarketplaceController {
   @RequireMarketplaceRole("SEEKER")
   listSavedPaymentMethods(@CurrentUser() user: AuthenticatedUser) {
     return this.payfast.listSavedPaymentMethods(user.id);
+  }
+
+  @Post("marketplace/payment-methods/payfast/setup")
+  @RequireMarketplaceRole("SEEKER")
+  startSavedCardSetup(@CurrentUser() user: AuthenticatedUser, @Body() dto: StartPayFastCardSetupDto) {
+    if (dto.accepted !== true) throw new BadRequestException("You must consent to securely saving this card for future AnySkill payments.");
+    return this.payfast.createSavedCardSetup(user.id);
+  }
+
+  @Post("marketplace/payment-methods/:paymentMethodId/default")
+  @RequireMarketplaceRole("SEEKER")
+  setDefaultSavedPaymentMethod(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param("paymentMethodId", new ParseUUIDPipe()) paymentMethodId: string,
+  ) {
+    return this.payfast.setDefaultSavedPaymentMethod(user.id, paymentMethodId);
   }
 
   @Delete("marketplace/payment-methods/:paymentMethodId")
