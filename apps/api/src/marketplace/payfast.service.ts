@@ -183,7 +183,34 @@ export class PayFastService {
       where: { merchantPaymentId },
       include: { user: { select: { email: true } } },
     });
-    if (!checkout || checkout.status !== "PENDING") {
+    if (!checkout) {
+      const setup = await this.prisma.payFastCardSetup.findUnique({
+        where: { merchantPaymentId },
+        include: { user: { select: { email: true } } },
+      });
+      if (!setup || setup.status !== "PENDING") {
+        throw new NotFoundException("This PayFast card setup has expired. Return to AnySkill and try again.");
+      }
+      const fields: Record<string, string> = {
+        merchant_id: config.merchantId,
+        merchant_key: config.merchantKey,
+        return_url: this.withPaymentReference(config.returnUrl, setup.merchantPaymentId),
+        cancel_url: this.withPaymentReference(config.cancelUrl, setup.merchantPaymentId),
+        notify_url: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/itn`,
+        email_address: setup.user.email,
+        m_payment_id: setup.merchantPaymentId,
+        amount: "0.00",
+        item_name: "AnySkill saved card setup",
+        item_description: "Securely register a card for future AnySkill service payments",
+        subscription_type: "2",
+      };
+      fields.signature = this.formSignature(fields, config.passphrase);
+      const inputs = Object.entries(fields)
+        .map(([name, value]) => `<input type="hidden" name="${this.escapeHtml(name)}" value="${this.escapeHtml(value)}">`)
+        .join("");
+      return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Save card securely with PayFast</title></head><body><main><p>Redirecting securely to PayFast…</p><form id="payfast" action="${config.sandboxHost}/eng/process" method="post">${inputs}<button type="submit">Continue to PayFast</button></form></main><script>document.getElementById("payfast").submit();</script></body></html>`;
+    }
+    if (checkout.status !== "PENDING") {
       throw new NotFoundException("This PayFast checkout has expired. Return to AnySkill and try again.");
     }
     const fields: Record<string, string> = {
@@ -216,6 +243,43 @@ export class PayFastService {
     return value.replace(/[&<>"']/g, (character) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     })[character]!);
+  }
+
+  async createSavedCardSetup(userId: string) {
+    const config = this.config();
+    this.tokenKey();
+    const existing = await this.prisma.payFastCardSetup.findFirst({
+      where: { userId, status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+    });
+    const setup = existing ?? await this.prisma.payFastCardSetup.create({
+      data: {
+        userId,
+        merchantPaymentId: `AS-CARD-${cryptoRandomId()}`,
+        status: "PENDING",
+        consentAt: new Date(),
+        consentVersion: "ANY_SKILL_CARD_ON_FILE_V1",
+      },
+    });
+    return {
+      checkoutUrl: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/checkout/${setup.merchantPaymentId}`,
+      merchantPaymentId: setup.merchantPaymentId,
+      amount: "0.00",
+      mode: "PAYFAST_SANDBOX",
+    };
+  }
+
+  async setDefaultSavedPaymentMethod(userId: string, methodId: string) {
+    const method = await this.prisma.savedPaymentMethod.findFirst({
+      where: { id: methodId, userId, provider: "PAYFAST", status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (!method) throw new NotFoundException("Saved card not found. Choose an active payment method.");
+    await this.prisma.$transaction(async (tx) => {
+      await tx.savedPaymentMethod.updateMany({ where: { userId, status: "ACTIVE" }, data: { isDefault: false } });
+      await tx.savedPaymentMethod.update({ where: { id: method.id }, data: { isDefault: true } });
+    });
+    return { success: true, paymentMethods: await this.listSavedPaymentMethods(userId) };
   }
 
   async listSavedPaymentMethods(userId: string) {
@@ -389,6 +453,59 @@ export class PayFastService {
     return (await response.text()).trim() === "VALID";
   }
 
+  private async completeSavedCardSetup(setup: { id: string; userId: string; status: string; consentAt: Date }, body: PayFastItn) {
+    if (setup.status === "COMPLETE") return { success: true, duplicate: true, cardSetup: true };
+    const gross = Number(body.amount_gross);
+    if (body.payment_status !== "COMPLETE" || !Number.isFinite(gross) || Math.abs(gross) > 0.009) {
+      await this.prisma.payFastCardSetup.updateMany({
+        where: { id: setup.id, status: "PENDING" },
+        data: { status: "FAILED", failedAt: new Date(), failureReason: "PayFast did not complete the zero-value card registration." },
+      });
+      return { success: true, cardSetup: true, status: "FAILED" };
+    }
+    const token = body.token;
+    if (!token) throw new BadRequestException("PayFast card registration notification did not include a token.");
+    const tokenHash = createHash("sha256").update(token, "utf8").digest("hex");
+    const encrypted = this.encryptToken(token);
+    const completedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.savedPaymentMethod.findUnique({ where: { tokenHash } });
+      if (existing && existing.userId !== setup.userId) {
+        throw new ConflictException("PayFast returned a payment token already linked to another AnySkill account.");
+      }
+      if (existing) {
+        await tx.savedPaymentMethod.update({
+          where: { id: existing.id },
+          data: {
+            ...encrypted,
+            status: "ACTIVE",
+            cardBrand: body.card_type ?? existing.cardBrand,
+            lastFour: body.card_last_four && /^\\d{4}$/.test(body.card_last_four) ? body.card_last_four : existing.lastFour,
+          },
+        });
+      } else {
+        const hasDefault = await tx.savedPaymentMethod.count({ where: { userId: setup.userId, status: "ACTIVE", isDefault: true } });
+        await tx.savedPaymentMethod.create({
+          data: {
+            userId: setup.userId,
+            tokenHash,
+            ...encrypted,
+            cardBrand: body.card_type ?? null,
+            lastFour: body.card_last_four && /^\\d{4}$/.test(body.card_last_four) ? body.card_last_four : null,
+            isDefault: hasDefault === 0,
+            consentAt: setup.consentAt,
+            consentVersion: "ANY_SKILL_CARD_ON_FILE_V1",
+          },
+        });
+      }
+      await tx.payFastCardSetup.update({
+        where: { id: setup.id },
+        data: { status: "COMPLETE", completedAt, externalPaymentId: body.pf_payment_id ?? null, cardBrand: body.card_type ?? null, lastFour: body.card_last_four && /^\\d{4}$/.test(body.card_last_four) ? body.card_last_four : null },
+      });
+    });
+    return { success: true, cardSetup: true, status: "COMPLETE" };
+  }
+
   async handleItn(body: PayFastItn, sourceIp: string) {
     const config = this.config();
     if (!sourceIp || !this.isAllowedPayFastIp(sourceIp)) {
@@ -409,6 +526,9 @@ export class PayFastService {
     }
     const merchantPaymentId = body.m_payment_id;
     if (!merchantPaymentId) throw new BadRequestException("PayFast merchant payment reference is missing.");
+    const cardSetup = await this.prisma.payFastCardSetup.findUnique({ where: { merchantPaymentId } });
+    if (cardSetup) return this.completeSavedCardSetup(cardSetup, body);
+
     const checkout = await this.prisma.payFastCheckout.findUnique({
       where: { merchantPaymentId },
       include: { engagement: true },
