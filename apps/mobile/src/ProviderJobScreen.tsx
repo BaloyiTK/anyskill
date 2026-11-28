@@ -1029,7 +1029,7 @@ export function ProviderJobScreen(p: Props) {
       const payment = result.paymentInitiation;
       setNotice(approved
         ? payment?.status === "PENDING_CONFIRMATION"
-          ? `Completion approved. A charge of R ${Number(payment.amount ?? result.finalAmountDue ?? 0).toFixed(2)}. PayFast confirmation is pending; the Provider's 90% payout follows successful confirmation.`
+          ? `Completion approved. A charge of R ${Number(payment.amount ?? result.finalAmountDue ?? 0).toFixed(2)} was initiated against your saved PayFast card. PayFast confirmation is pending; the Provider's 90% payout follows successful confirmation.`
           : payment?.status === "PAYMENT_METHOD_REQUIRED" || payment?.status === "PAYMENT_METHOD_SELECTION_REQUIRED"
             ? `Completion approved and Provider earnings recorded, but payment was not started: ${payment.message ?? "Set a default saved PayFast card in your profile."}`
             : payment?.status === "FAILED"
