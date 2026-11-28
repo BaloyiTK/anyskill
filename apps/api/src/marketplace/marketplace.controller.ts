@@ -259,8 +259,25 @@ export class MarketplaceController {
   @UseGuards(MarketplaceAccessGuard)
   @RequireIdentityFor("SEEKER_REVIEW_COMPLETION")
   @RequireMarketplaceRole("SEEKER")
-  decideJobCompletion(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Param("submissionId", new ParseUUIDPipe()) submissionId: string, @Body() dto: DecideJobCompletionDto) {
-    return this.marketplace.decideJobCompletion(user.id, requestId, submissionId, dto);
+  async decideJobCompletion(@CurrentUser() user: AuthenticatedUser, @Param("requestId", new ParseUUIDPipe()) requestId: string, @Param("submissionId", new ParseUUIDPipe()) submissionId: string, @Body() dto: DecideJobCompletionDto) {
+    const completion = await this.marketplace.decideJobCompletion(user.id, requestId, submissionId, dto);
+    if (!dto.approved || completion.jobStatus !== "COMPLETED") return completion;
+
+    // The Seeker is charged only after approving the Provider's completed work.
+    // Keep completion/earnings committed even if the saved-card debit needs attention.
+    try {
+      const paymentInitiation = await this.payfast.chargeDefaultSavedCard(user.id, requestId);
+      return { ...completion, paymentInitiation };
+    } catch (error) {
+      return {
+        ...completion,
+        paymentInitiation: {
+          success: false,
+          status: "FAILED",
+          message: error instanceof Error ? error.message : "The saved-card charge could not be initiated. Please review your payment method.",
+        },
+      };
+    }
   }
 
   @Get("marketplace/requests/:requestId/chat")
