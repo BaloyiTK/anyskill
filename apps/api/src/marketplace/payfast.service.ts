@@ -299,8 +299,10 @@ export class PayFastService {
 
   async createSavedCardSetup(userId: string) {
     const onsiteEnabled = process.env.PAYFAST_ONSITE_ENABLED?.trim().toLowerCase() === "true";
-    if (onsiteEnabled) this.onsiteConfig();
-    else this.config();
+    if (!onsiteEnabled) {
+      throw new ServiceUnavailableException("Embedded PayFast card registration is not enabled. AnySkill will not open the hosted PayFast checkout or redirect you.");
+    }
+    this.onsiteConfig();
     this.tokenKey();
     const existing = await this.prisma.payFastCardSetup.findFirst({
       where: { userId, status: "PENDING" },
