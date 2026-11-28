@@ -19,6 +19,7 @@ import { StaffRole } from "@prisma/client";
 import { MediaService } from "./media.service";
 import { GooglePlacesService } from "./google-places.service";
 import { PayFastService } from "./payfast.service";
+import { PeachPaymentsService } from "./peach-payments.service";
 import { IsInt, IsNumber, IsString, Max, MaxLength, Min } from "class-validator";
 
 class StartPayFastCheckoutDto {
@@ -28,6 +29,9 @@ class ChargeSavedCardDto {
   @IsString() @MaxLength(64) paymentMethodId!: string;
 }
 class StartPayFastCardSetupDto {
+  @IsBoolean() accepted!: boolean;
+}
+class StartPeachCardSetupDto {
   @IsBoolean() accepted!: boolean;
 }
 
@@ -56,7 +60,7 @@ class CursorQuery {
 @Controller()
 @UseGuards(JwtAuthGuard, MarketplaceRoleGuard)
 export class MarketplaceController {
-  constructor(private readonly marketplace: MarketplaceService, private readonly media: MediaService, private readonly payfast: PayFastService) {}
+  constructor(private readonly marketplace: MarketplaceService, private readonly media: MediaService, private readonly payfast: PayFastService, private readonly peach: PeachPaymentsService) {}
 
   @Get("profile/location/home")
   getHomeLocation(@CurrentUser() user: AuthenticatedUser) { return this.marketplace.getHomeLocation(user.id); }
@@ -254,6 +258,19 @@ export class MarketplaceController {
   @RequireMarketplaceRole("SEEKER")
   getSavedCardSetupStatus(@CurrentUser() user: AuthenticatedUser, @Param("merchantPaymentId") merchantPaymentId: string) {
     return this.payfast.getSavedCardSetupStatus(user.id, merchantPaymentId);
+  }
+
+  @Post("marketplace/payment-methods/peach/setup")
+  @RequireMarketplaceRole("SEEKER")
+  startPeachCardSetup(@CurrentUser() user: AuthenticatedUser, @Body() dto: StartPeachCardSetupDto) {
+    if (dto.accepted !== true) throw new BadRequestException("You must consent to securely saving this card for future AnySkill payments.");
+    return this.peach.createCardSetup(user.id);
+  }
+
+  @Get("marketplace/payment-methods/peach/setup/:setupIntentId")
+  @RequireMarketplaceRole("SEEKER")
+  getPeachCardSetupStatus(@CurrentUser() user: AuthenticatedUser, @Param("setupIntentId") setupIntentId: string) {
+    return this.peach.getCardSetupStatus(user.id, setupIntentId);
   }
 
   @Post("marketplace/payment-methods/:paymentMethodId/default")
