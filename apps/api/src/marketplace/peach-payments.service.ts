@@ -116,6 +116,35 @@ export class PeachPaymentsService {
     };
   }
 
+  async listSavedPaymentMethods(userId: string) {
+    return this.prisma.peachSavedPaymentMethod.findMany({
+      where: { userId, status: "ACTIVE" },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+      select: { id: true, cardBrand: true, lastFour: true, status: true, isDefault: true, createdAt: true },
+    }).then((items) => items.map((item) => ({ ...item, provider: "PEACH" })));
+  }
+
+  async setDefaultSavedPaymentMethod(userId: string, paymentMethodId: string) {
+    const method = await this.prisma.peachSavedPaymentMethod.findFirst({ where: { id: paymentMethodId, userId, status: "ACTIVE" } });
+    if (!method) return false;
+    await this.prisma.$transaction([
+      this.prisma.peachSavedPaymentMethod.updateMany({ where: { userId }, data: { isDefault: false } }),
+      this.prisma.peachSavedPaymentMethod.update({ where: { id: method.id }, data: { isDefault: true } }),
+    ]);
+    return true;
+  }
+
+  async removeSavedPaymentMethod(userId: string, paymentMethodId: string) {
+    const method = await this.prisma.peachSavedPaymentMethod.findFirst({ where: { id: paymentMethodId, userId } });
+    if (!method) return false;
+    await this.prisma.peachSavedPaymentMethod.update({ where: { id: method.id }, data: { status: "REMOVED", isDefault: false } });
+    if (method.isDefault) {
+      const next = await this.prisma.peachSavedPaymentMethod.findFirst({ where: { userId, status: "ACTIVE" }, orderBy: { createdAt: "desc" } });
+      if (next) await this.prisma.peachSavedPaymentMethod.update({ where: { id: next.id }, data: { isDefault: true } });
+    }
+    return true;
+  }
+
   async getCardSetupStatus(userId: string, setupIntentId: string) {
     const record = await this.prisma.peachCardSetup.findFirst({
       where: { userId, setupIntentId },
@@ -136,6 +165,24 @@ export class PeachPaymentsService {
           ...(failed ? { failedAt: new Date(), failureReason: "Peach Setup Intent did not succeed." } : {}),
         },
       });
+    }
+    if (complete) {
+      const paymentMethodId = String(remote.payment_method_id ?? remote.payment_method?.id ?? "");
+      if (paymentMethodId.startsWith("pm_")) {
+        const card = remote.payment_method?.card ?? remote.payment_method_data?.card ?? {};
+        await this.prisma.peachSavedPaymentMethod.upsert({
+          where: { peachPaymentMethodId: paymentMethodId },
+          create: {
+            userId,
+            peachPaymentMethodId: paymentMethodId,
+            cardBrand: typeof card.brand === "string" ? card.brand : null,
+            lastFour: typeof card.last4 === "string" ? card.last4 : null,
+            consentAt: record.consentAt,
+            isDefault: !(await this.prisma.peachSavedPaymentMethod.count({ where: { userId, status: "ACTIVE" } })),
+          },
+          update: { status: "ACTIVE" },
+        });
+      }
     }
     return { setupIntentId, status };
   }
