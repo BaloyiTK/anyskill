@@ -1017,13 +1017,24 @@ export function ProviderJobScreen(p: Props) {
   const reviewCompletion = async (requestId: string, submissionId: string, approved: boolean) => {
     setJobActionBusy(true); setError(""); setNotice("");
     try {
-      const result = await apiRequest<{jobStatus:string;paymentStatus:string;finalAmountDue:string|null;providerPayoutAmount:string|null;platformCommissionAmount:string|null;paymentMode:string|null}>(
+      const result = await apiRequest<{
+        jobStatus:string;paymentStatus:string;finalAmountDue:string|null;providerPayoutAmount:string|null;
+        platformCommissionAmount:string|null;paymentMode:string|null;
+        paymentInitiation?:{success:boolean;status:string;message?:string;amount?:string};
+      }>(
         `/marketplace/requests/${requestId}/completion/${submissionId}/decision`,
         { method: "POST", body: JSON.stringify({ approved, note: approved ? undefined : completionReviewNote.trim() }) },
         true,
       );
+      const payment = result.paymentInitiation;
       setNotice(approved
-        ? `Completion approved. Provider earnings of R ${Number(result.providerPayoutAmount ?? 0).toFixed(2)} (90%) and AnySkill commission of R ${Number(result.platformCommissionAmount ?? 0).toFixed(2)} (10%) have been recorded. Seeker debit is pending; Provider payout follows successful debit.`
+        ? payment?.status === "PENDING_CONFIRMATION"
+          ? `Completion approved. Your saved PayFast card was charged R ${Number(payment.amount ?? result.finalAmountDue ?? 0).toFixed(2)}. PayFast confirmation is pending; the Provider's 90% payout follows successful confirmation.`
+          : payment?.status === "PAYMENT_METHOD_REQUIRED" || payment?.status === "PAYMENT_METHOD_SELECTION_REQUIRED"
+            ? `Completion approved and Provider earnings recorded, but payment was not started: ${payment.message ?? "Set a default saved PayFast card in your profile."}`
+            : payment?.status === "FAILED"
+              ? `Completion approved, but the saved-card charge could not be started: ${payment.message ?? "Please update your PayFast payment method and retry."}`
+              : `Completion approved. Provider earnings of R ${Number(result.providerPayoutAmount ?? 0).toFixed(2)} (90%) and AnySkill commission of R ${Number(result.platformCommissionAmount ?? 0).toFixed(2)} (10%) have been recorded.`
         : "Corrections requested. The Provider can update the work and resubmit.");
       setCompletionReviewNote(""); await loadMyRequests();
     } catch (e) { setError(e instanceof Error ? e.message : "Could not review job completion."); }
@@ -2205,7 +2216,7 @@ export function ProviderJobScreen(p: Props) {
             <Text style={{ color: "#26372E", fontSize: 13, lineHeight: 21, marginTop: 13 }}>{submission.notes}</Text>
             {submission.evidenceAssets?.map((asset, index) => <Pressable key={asset.id} onPress={async () => { try { const result = await apiRequest<{url:string}>("/marketplace/media/" + asset.id + "/url", {}, true); await Linking.openURL(result.url); } catch (e) { setError(e instanceof Error ? e.message : "Could not open evidence photo."); } }} style={{ marginTop: 10 }}><Text style={{ color: "#176B55", fontWeight: "800" }}>View photo evidence {index + 1} · {asset.originalName}</Text></Pressable>)}
             {submission.evidenceUrls.map((url, index) => <Text key={url} style={{ color: "#66756D", fontSize: 11, marginTop: 6 }}>Legacy evidence link {index + 1}: {url}</Text>)}
-            <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 13 }}>Review the Provider's notes and photos. Payment is handled separately from this completion approval.</Text>
+            <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 13 }}>Review the Provider's notes and photos. When you approve completed work, AnySkill automatically charges your default saved PayFast card. The Provider's payout follows successful payment confirmation.</Text>
             <Text style={{ color: "#26372E", fontSize: 12, fontWeight: "800", marginTop: 13 }}>Need corrections? Explain what still needs attention.</Text>
             <TextInput value={completionReviewNote} onChangeText={setCompletionReviewNote} placeholder="Describe the work that needs correction (at least 10 characters)..." multiline style={{ borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 13, padding: 13, minHeight: 84, textAlignVertical: "top", marginTop: 8, color: "#172820", backgroundColor: "#FAFCFA" }} />
             <Primary label={jobActionBusy ? "Processing..." : "Approve completed work"} onPress={() => void reviewCompletion(journeyScreen.requestId, submission.id, true)} disabled={jobActionBusy} />
