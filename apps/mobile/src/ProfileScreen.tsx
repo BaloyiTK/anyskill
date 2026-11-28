@@ -80,6 +80,7 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const [paymentConsent, setPaymentConsent] = useState(false);
   const [paymentError, setPaymentError] = useState("");
   const [paymentNotice, setPaymentNotice] = useState("");
+  const [paymentFormVisible, setPaymentFormVisible] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -200,7 +201,8 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
         method: "POST", body: JSON.stringify({ accepted: true }),
       }, true);
       await Linking.openURL(result.checkoutUrl);
-      setPaymentNotice("PayFast has opened securely. Complete card registration there, then return here and refresh your cards.");
+      setPaymentFormVisible(false);
+      setPaymentNotice("PayFast has opened securely. Your card will appear here after PayFast confirms registration.");
     } catch (e) { setPaymentError(e instanceof Error ? e.message : "Could not start secure card registration."); }
     finally { setPaymentBusy(false); }
   };
@@ -317,12 +319,8 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
                   {method.isDefault ? <View style={styles.statusBadge}><Text style={[styles.statusText, styles.goodText]}>DEFAULT</Text></View> : <Pressable disabled={paymentBusy} onPress={() => void chooseDefaultCard(method.id)} style={styles.paymentAction}><Text style={styles.paymentActionText}>Make default</Text></Pressable>}
                   <Pressable disabled={paymentBusy} onPress={() => void removePaymentCard(method.id)} style={styles.paymentRemove}><Text style={styles.paymentRemoveText}>Remove</Text></Pressable>
                 </View>) : <Text style={styles.detailText}>No saved cards yet. Add a card so it is ready when you approve a completed job.</Text>}
-                <Pressable accessibilityRole="button" disabled={paymentBusy || paymentLoading} onPress={() => setPaymentConsent((value) => !value)} style={styles.paymentConsentRow}>
-                  <View style={[styles.paymentConsentBox, paymentConsent && styles.paymentConsentChecked]}><Text style={styles.paymentConsentTick}>{paymentConsent ? "✓" : ""}</Text></View>
-                  <Text style={styles.paymentConsentText}>I authorise AnySkill to securely save my PayFast card token for future service payments. I understand that my card will only be charged after I approve the Provider's completed work.</Text>
-                </Pressable>
-                <Pressable accessibilityRole="button" disabled={!paymentConsent || paymentBusy} onPress={() => void addPaymentCard()} style={[styles.detailAction, (!paymentConsent || paymentBusy) && styles.skillDisabled]}>
-                  <Text style={styles.detailActionText}>{paymentBusy ? "Opening PayFast…" : "＋ Add payment card"}</Text>
+                <Pressable accessibilityRole="button" disabled={paymentBusy} onPress={() => { setPaymentError(""); setPaymentNotice(""); setPaymentFormVisible(true); }} style={[styles.detailAction, paymentBusy && styles.skillDisabled]}>
+                  <Text style={styles.detailActionText}>＋ Add payment card</Text>
                 </Pressable>
                 <Pressable accessibilityRole="button" disabled={paymentLoading} onPress={() => void refreshPaymentMethods()} style={styles.paymentRefresh}>
                   <Text style={styles.paymentRefreshText}>{paymentLoading ? "Refreshing…" : "I've completed setup — refresh cards"}</Text>
@@ -368,6 +366,43 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
         <Text style={styles.settingsArrow}>›</Text>
       </Pressable>
     </ScrollView>
+    <Modal visible={paymentFormVisible} transparent animationType="slide" onRequestClose={() => { if (!paymentBusy) setPaymentFormVisible(false); }} statusBarTranslucent>
+      <View style={styles.paymentModalBackdrop}>
+        <View style={styles.paymentModal}>
+          <View style={styles.paymentModalHeader}>
+            <View style={styles.paymentModalCopy}>
+              <Text style={styles.paymentModalEyebrow}>SECURE PAYMENT METHOD</Text>
+              <Text style={styles.paymentModalTitle}>Add a payment card</Text>
+              <Text style={styles.paymentModalSubtitle}>Register a card securely with PayFast for future approved service payments.</Text>
+            </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close add card form" disabled={paymentBusy} onPress={() => setPaymentFormVisible(false)} style={styles.drawerClose}><Text style={styles.drawerCloseText}>×</Text></Pressable>
+          </View>
+          <View style={styles.paymentFormBody}>
+            <View style={styles.paymentAcceptedCards}>
+              <Text style={styles.paymentAcceptedTitle}>Accepted card types</Text>
+              <View style={styles.paymentBrandRow}>
+                <View style={styles.paymentBrand}><Text style={styles.paymentBrandVisa}>VISA</Text></View>
+                <View style={styles.paymentBrand}><Text style={styles.paymentBrandMaster}>mastercard</Text></View>
+              </View>
+            </View>
+            <View style={styles.paymentSecureNote}>
+              <Text style={styles.paymentSecureTitle}>Your card details stay with PayFast</Text>
+              <Text style={styles.paymentSecureText}>When you continue, PayFast securely displays the card-entry form. AnySkill never receives or stores your full card number or CVV. Only a protected payment token and masked card details are saved after PayFast confirms registration.</Text>
+            </View>
+            <Pressable accessibilityRole="button" disabled={paymentBusy || paymentLoading} onPress={() => setPaymentConsent((value) => !value)} style={styles.paymentConsentRow}>
+              <View style={[styles.paymentConsentBox, paymentConsent && styles.paymentConsentChecked]}><Text style={styles.paymentConsentTick}>{paymentConsent ? "✓" : ""}</Text></View>
+              <Text style={styles.paymentConsentText}>I authorise AnySkill to securely save my PayFast card token for future service payments. I understand that my card will only be charged after I approve the Provider's completed work.</Text>
+            </Pressable>
+            {!!paymentError && <Text style={styles.skillError}>{paymentError}</Text>}
+            <Pressable accessibilityRole="button" disabled={!paymentConsent || paymentBusy} onPress={() => void addPaymentCard()} style={[styles.paymentContinueButton, (!paymentConsent || paymentBusy) && styles.skillDisabled]}>
+              <Text style={styles.paymentContinueText}>{paymentBusy ? "Opening secure form…" : "Continue to secure card form"}</Text>
+            </Pressable>
+            <Pressable accessibilityRole="button" disabled={paymentBusy} onPress={() => setPaymentFormVisible(false)} style={styles.paymentCancelButton}><Text style={styles.paymentCancelText}>Cancel</Text></Pressable>
+            <Text style={styles.paymentFormFootnote}>Card registration does not pay for a job. Charges are only initiated after you approve completed work.</Text>
+          </View>
+        </View>
+      </View>
+    </Modal>
     <Modal visible={skillDrawerVisible} transparent animationType="slide" onRequestClose={closeSkillDrawer} statusBarTranslucent>
       <KeyboardAvoidingView style={styles.skillDrawerBackdrop} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close skill drawer" style={styles.skillDrawerDismiss} onPress={closeSkillDrawer}/>
@@ -498,6 +533,28 @@ const styles = StyleSheet.create({
   detailAction: { alignSelf: "flex-start", backgroundColor: colors.primary, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
   detailActionText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
   paymentManager: { gap: 10 },
+  paymentModalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(5, 23, 31, 0.52)" },
+  paymentModal: { backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden" },
+  paymentModalHeader: { backgroundColor: "#FFFFFF", paddingHorizontal: 18, paddingTop: 22, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  paymentModalCopy: { flex: 1, gap: 5 },
+  paymentModalEyebrow: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  paymentModalTitle: { color: colors.ink, fontSize: 21, fontWeight: "900" },
+  paymentModalSubtitle: { color: colors.muted, fontSize: 11, lineHeight: 17 },
+  paymentFormBody: { padding: 18, gap: 14 },
+  paymentAcceptedCards: { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: colors.border, borderRadius: 13, padding: 13, gap: 10 },
+  paymentAcceptedTitle: { color: colors.ink, fontSize: 11, fontWeight: "800" },
+  paymentBrandRow: { flexDirection: "row", gap: 8 },
+  paymentBrand: { minWidth: 78, height: 39, borderWidth: 1, borderColor: colors.border, borderRadius: 8, alignItems: "center", justifyContent: "center", paddingHorizontal: 10 },
+  paymentBrandVisa: { color: "#1A1F71", fontSize: 17, fontWeight: "900", fontStyle: "italic" },
+  paymentBrandMaster: { color: "#252525", fontSize: 11, fontWeight: "900" },
+  paymentSecureNote: { backgroundColor: "#EAF3F8", borderRadius: 12, padding: 13, gap: 6 },
+  paymentSecureTitle: { color: colors.primary, fontSize: 11, fontWeight: "900" },
+  paymentSecureText: { color: colors.ink, fontSize: 10, lineHeight: 16 },
+  paymentContinueButton: { backgroundColor: colors.primary, borderRadius: 11, minHeight: 48, alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
+  paymentContinueText: { color: "#FFFFFF", fontSize: 12, fontWeight: "900" },
+  paymentCancelButton: { minHeight: 40, alignItems: "center", justifyContent: "center" },
+  paymentCancelText: { color: colors.muted, fontSize: 11, fontWeight: "800" },
+  paymentFormFootnote: { color: colors.muted, fontSize: 9, lineHeight: 14, textAlign: "center" },
   paymentCard: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 11, backgroundColor: "#FFFFFF", flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
   paymentCardCopy: { flex: 1, minWidth: 115, gap: 4 },
   paymentCardTitle: { color: colors.ink, fontSize: 11, fontWeight: "900" },
