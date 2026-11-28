@@ -77,7 +77,7 @@ export class PayFastService {
     if (![publicApiUrl, returnUrl, cancelUrl].every((value) => /^https:\/\//i.test(value))) {
       throw new ServiceUnavailableException("PayFast public API, return and cancel URLs must use HTTPS.");
     }
-    return { merchantId, merchantKey, passphrase, publicApiUrl, returnUrl, cancelUrl };
+    return { merchantId, merchantKey, passphrase, publicApiUrl, returnUrl, cancelUrl, sandboxHost: "https://www.payfast.co.za" };
   }
 
   private tokenKey(): Buffer {
@@ -588,7 +588,12 @@ export class PayFastService {
   }
 
   async handleItn(body: PayFastItn, sourceIp: string) {
-    const config = this.config();
+    const merchantPaymentId = body.m_payment_id;
+    if (!merchantPaymentId) throw new BadRequestException("PayFast merchant payment reference is missing.");
+    const cardSetup = await this.prisma.payFastCardSetup.findUnique({ where: { merchantPaymentId } });
+    const config: PayFastConfig = cardSetup && process.env.PAYFAST_ONSITE_ENABLED?.trim().toLowerCase() === "true"
+      ? this.onsiteConfig()
+      : this.config();
     if (!sourceIp || !this.isAllowedPayFastIp(sourceIp)) {
       throw new ForbiddenException("PayFast notification source IP is not allowed.");
     }
@@ -605,9 +610,6 @@ export class PayFastService {
     if (!(await this.validateItnWithPayFast(body, config))) {
       throw new ForbiddenException("PayFast could not validate this transaction notification.");
     }
-    const merchantPaymentId = body.m_payment_id;
-    if (!merchantPaymentId) throw new BadRequestException("PayFast merchant payment reference is missing.");
-    const cardSetup = await this.prisma.payFastCardSetup.findUnique({ where: { merchantPaymentId } });
     if (cardSetup) return this.completeSavedCardSetup(cardSetup, body);
 
     const checkout = await this.prisma.payFastCheckout.findUnique({
