@@ -225,18 +225,6 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
     setPaymentError("PayFast returned to AnySkill, but confirmation is still pending. Refresh Payment Methods shortly; do not assume the card was saved.");
   };
 
-  const handlePayFastNavigation = (url: string) => {
-    if (url.includes("/marketplace/payments/payfast/cancel")) {
-      setPaymentCheckoutStatus("cancelled");
-      setPaymentNotice("Card registration was cancelled. No card has been saved.");
-      return;
-    }
-    if (url.includes("/marketplace/payments/payfast/return") && paymentCheckoutStatus === "loading") {
-      setPaymentCheckoutStatus("checking");
-      void pollForSavedCard(paymentSetupReference);
-    }
-  };
-
   const addPaymentCard = async () => {
     if (paymentBusy) return;
     setPaymentBusy(true); setPaymentError(""); setPaymentNotice("");
@@ -620,9 +608,10 @@ const styles = StyleSheet.create({
   detailAction: { alignSelf: "flex-start", backgroundColor: colors.primary, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
   detailActionText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
   paymentManager: { gap: 10 },
+  paymentInlinePanel: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, overflow: "hidden", backgroundColor: "#FFFFFF" },
   paymentCheckoutScreen: { flex: 1, backgroundColor: colors.bg },
   paymentCheckoutHeader: { backgroundColor: "#FFFFFF", paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", alignItems: "center", gap: 10 },
-  paymentWebView: { flex: 1, backgroundColor: "#FFFFFF" },
+  paymentWebView: { height: 460, backgroundColor: "#FFFFFF" },
   paymentCheckoutStatus: { padding: 15, backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: colors.border, gap: 8 },
   paymentCheckoutStatusText: { color: colors.ink, fontSize: 12, fontWeight: "900" },
   paymentCheckoutSuccess: { color: colors.green },
