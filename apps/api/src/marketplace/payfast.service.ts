@@ -67,14 +67,14 @@ export class PayFastService {
     const merchantId = process.env.PAYFAST_MERCHANT_ID?.trim();
     const merchantKey = process.env.PAYFAST_MERCHANT_KEY?.trim();
     const passphrase = process.env.PAYFAST_PASSPHRASE;
-    const publicApiUrl = process.env.PAYFAST_PUBLIC_API_URL?.trim().replace(/\\/$/, "");
+    const publicApiUrl = process.env.PAYFAST_PUBLIC_API_URL?.trim().replace(/\/$/, "");
     const returnUrl = process.env.PAYFAST_RETURN_URL?.trim();
     const cancelUrl = process.env.PAYFAST_CANCEL_URL?.trim();
     if (!merchantId || !merchantKey || !passphrase || !publicApiUrl || !returnUrl || !cancelUrl) {
       throw new ServiceUnavailableException("Live PayFast Onsite is not configured. Set the PAYFAST_* environment variables on the API.");
     }
-    if (!/^\\d{8}$/.test(merchantId)) throw new ServiceUnavailableException("PAYFAST_MERCHANT_ID must be the 8-digit live merchant ID.");
-    if (![publicApiUrl, returnUrl, cancelUrl].every((value) => /^https:\\/\\//i.test(value))) {
+    if (!/^\d{8}$/.test(merchantId)) throw new ServiceUnavailableException("PAYFAST_MERCHANT_ID must be the 8-digit live merchant ID.");
+    if (![publicApiUrl, returnUrl, cancelUrl].every((value) => /^https:\/\//i.test(value))) {
       throw new ServiceUnavailableException("PayFast public API, return and cancel URLs must use HTTPS.");
     }
     return { merchantId, merchantKey, passphrase, publicApiUrl, returnUrl, cancelUrl };
