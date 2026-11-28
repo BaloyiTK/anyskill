@@ -187,6 +187,9 @@ model User {
   payfastCheckouts           PayFastCheckout[]
   savedPaymentMethods        SavedPaymentMethod[]
   payFastCardSetups           PayFastCardSetup[]
+  peachCustomerId             String?                       @unique @map("peach_customer_id") @db.VarChar(100)
+  peachCardSetups             PeachCardSetup[]
+  peachSavedPaymentMethods    PeachSavedPaymentMethod[]
 
   @@index([identityVerification])
   @@map("users")
@@ -587,6 +590,43 @@ model SavedPaymentMethod {
 
   @@index([userId, status, createdAt])
   @@map("saved_payment_methods")
+}
+
+model PeachCardSetup {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @db.Uuid @map("user_id")
+  setupIntentId     String   @unique @map("setup_intent_id") @db.VarChar(120)
+  status            String   @default("PENDING") @db.VarChar(30)
+  consentAt         DateTime @map("consent_at")
+  consentVersion    String   @default("ANY_SKILL_CARD_ON_FILE_V1") @map("consent_version") @db.VarChar(40)
+  cardBrand         String?  @map("card_brand") @db.VarChar(40)
+  lastFour          String?  @map("last_four") @db.VarChar(4)
+  createdAt         DateTime @default(now()) @map("created_at")
+  completedAt       DateTime? @map("completed_at")
+  failedAt          DateTime? @map("failed_at")
+  failureReason     String?  @map("failure_reason") @db.VarChar(1000)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("peach_card_setups")
+}
+
+model PeachSavedPaymentMethod {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @db.Uuid @map("user_id")
+  peachPaymentMethodId String @unique @map("peach_payment_method_id") @db.VarChar(120)
+  cardBrand          String?  @map("card_brand") @db.VarChar(40)
+  lastFour           String?  @map("last_four") @db.VarChar(4)
+  status             String   @default("ACTIVE") @db.VarChar(20)
+  isDefault          Boolean  @default(false) @map("is_default")
+  consentAt          DateTime @map("consent_at")
+  consentVersion     String   @default("ANY_SKILL_CARD_ON_FILE_V1") @map("consent_version") @db.VarChar(40)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("peach_saved_payment_methods")
 }
 
 model SeekerReview {
