@@ -186,6 +186,7 @@ model User {
   disputeMessages           JobDisputeMessage[]
   payfastCheckouts           PayFastCheckout[]
   savedPaymentMethods        SavedPaymentMethod[]
+  payFastCardSetups           PayFastCardSetup[]
 
   @@index([identityVerification])
   @@map("users")
@@ -543,6 +544,27 @@ model PayFastCheckout {
   @@index([userId, status, createdAt])
   @@index([engagementId, status, createdAt])
   @@map("payfast_checkouts")
+}
+
+
+model PayFastCardSetup {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @db.Uuid @map("user_id")
+  merchantPaymentId String   @unique @map("merchant_payment_id") @db.VarChar(100)
+  status            String   @default("PENDING") @db.VarChar(30)
+  consentAt         DateTime @map("consent_at")
+  consentVersion    String   @default("ANY_SKILL_CARD_ON_FILE_V1") @map("consent_version") @db.VarChar(40)
+  externalPaymentId String?  @map("external_payment_id") @db.VarChar(100)
+  cardBrand         String?  @map("card_brand") @db.VarChar(40)
+  lastFour          String?  @map("last_four") @db.VarChar(4)
+  createdAt         DateTime @default(now()) @map("created_at")
+  completedAt       DateTime? @map("completed_at")
+  failedAt          DateTime? @map("failed_at")
+  failureReason     String?  @map("failure_reason") @db.VarChar(1000)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+  @@map("payfast_card_setups")
 }
 
 model SavedPaymentMethod {
