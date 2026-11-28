@@ -1,6 +1,5 @@
 import {
   BadGatewayException,
-  ConflictException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
@@ -41,7 +40,7 @@ export class PeachPaymentsService {
       response = await fetch(`${config.baseUrl}${path}`, {
         method,
         headers: {
-          Authorization: `Bearer ${config.apiKey}`,
+          "api-key": config.apiKey,
           "Content-Type": "application/json",
           Accept: "application/json",
         },
