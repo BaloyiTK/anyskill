@@ -319,10 +319,24 @@ export class PayFastService {
       status?: string; data?: { response?: boolean | number; message?: string; pf_payment_id?: string };
     };
     if (!response.ok || payload.data?.response !== true) {
+      let alreadyCompleted = false;
       await this.prisma.$transaction(async (tx) => {
-        await tx.payFastCheckout.update({ where: { id: checkout.id }, data: { status: "FAILED", failedAt: new Date(), failureReason: "PayFast token charge was not accepted." } });
+        const currentCheckout = await tx.payFastCheckout.findUnique({ where: { id: checkout.id } });
+        if (currentCheckout?.status === "COMPLETE") {
+          alreadyCompleted = true;
+          return;
+        }
+        const failedAt = new Date();
+        await tx.payFastCheckout.update({ where: { id: checkout.id }, data: { status: "FAILED", failedAt, failureReason: "PayFast token charge was not accepted." } });
         await tx.jobEngagement.updateMany({ where: { id: job.id, paymentStatus: "PAYFAST_PENDING" }, data: { paymentStatus: "UNPAID" } });
+        await tx.jobFinancialTransaction.updateMany({
+          where: { engagementId: job.id, transactionType: "SEEKER_PAYMENT", status: "PENDING" },
+          data: { mode: "PAYFAST_SANDBOX", status: "FAILED", externalProvider: "PAYFAST", failedAt, failureReason: "PayFast token charge was not accepted." },
+        });
       });
+      if (alreadyCompleted) {
+        return { success: true, status: "COMPLETE", merchantPaymentId, amount: amount.toFixed(2), mode: "PAYFAST_SANDBOX" };
+      }
       throw new BadGatewayException("PayFast could not accept the saved-card payment. No successful payment has been recorded.");
     }
     if (payload.data.pf_payment_id) {
