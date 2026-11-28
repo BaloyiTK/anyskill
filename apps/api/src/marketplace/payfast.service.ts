@@ -269,6 +269,24 @@ export class PayFastService {
     };
   }
 
+  async getSavedCardSetupStatus(userId: string, merchantPaymentId: string) {
+    if (!/^AS-CARD-[a-f0-9]{32}$/i.test(merchantPaymentId)) {
+      throw new BadRequestException("Invalid saved-card registration reference.");
+    }
+    const setup = await this.prisma.payFastCardSetup.findFirst({
+      where: { userId, merchantPaymentId },
+      select: { status: true, cardBrand: true, lastFour: true, completedAt: true, failedAt: true },
+    });
+    if (!setup) throw new NotFoundException("Saved-card registration was not found.");
+    return {
+      status: setup.status,
+      cardBrand: setup.cardBrand,
+      lastFour: setup.lastFour,
+      completedAt: setup.completedAt,
+      failedAt: setup.failedAt,
+    };
+  }
+
   async setDefaultSavedPaymentMethod(userId: string, methodId: string) {
     const method = await this.prisma.savedPaymentMethod.findFirst({
       where: { id: methodId, userId, provider: "PAYFAST", status: "ACTIVE" },
