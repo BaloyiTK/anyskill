@@ -1931,7 +1931,7 @@ export function ProviderJobScreen(p: Props) {
         </Pressable>
       </View>
     </Modal>
-    <Modal visible={p.mode === "provider" && activeProviderJobId !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { if (activeProviderJobId) setDismissedActiveJobIds((ids) => [...ids, activeProviderJobId]); setActiveProviderJobId(null); p.onBack(); }}>
+    <Modal visible={p.mode === "provider" && activeProviderJobId !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => { /* Keep the accepted service workspace open; use Cancel service for an explicit exit. */ }}>
       {(() => {
         const job = myJobs.find((item) => item.request.id === activeProviderJobId);
         if (!job) return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#F5F7F5" }}><ActivityIndicator color="#176B55" /><Text style={{ color: "#66756D", marginTop: 12 }}>Loading your accepted service...</Text></View>;
@@ -1942,7 +1942,18 @@ export function ProviderJobScreen(p: Props) {
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 12, paddingBottom: insets.bottom + 16 }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <View><Text style={{ color: "#176B55", fontSize: 11, fontWeight: "900", letterSpacing: 1.1 }}>SERVICE WORKSPACE</Text><Text style={{ color: "#15251E", fontSize: 25, fontWeight: "900", marginTop: 5 }}>{job.status === "ASSESSMENT_PENDING" ? job.assessmentRequired === false ? "Ready to start service" : "Assessment required" : job.status === "ESTIMATE_SUBMITTED" ? "Estimate awaiting review" : job.status === "ESTIMATE_REJECTED" ? "Estimate revision required" : job.status === "ESTIMATE_APPROVED" ? "Ready to start work" : job.status === "IN_PROGRESS" ? "Service in progress" : job.status === "COMPLETION_PENDING" ? "Completion awaiting review" : job.status === "COMPLETED" ? "Service completed" : job.status === "CANCELLED" ? "Service cancelled" : "Selected service"}</Text></View>
-            <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }}><Text style={{ color: "#176B55", fontWeight: "800" }}>Back to Activities</Text></Pressable>
+
+          </View>
+          {job.status === "ASSESSMENT_PENDING" && !job.providerEnRouteAt && !job.providerArrivedAt ? <Pressable onPress={() => job.request.deliveryMode === "REMOTE" ? void markProviderArrived(job.request.id) : destinationReady ? void markProviderEnRoute(job.request.id) : setError("A service location is required before confirming that you are coming.")} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 54, alignItems: "center", justifyContent: "center", marginTop: 14, opacity: jobActionBusy ? 0.55 : 1 }}>
+            {jobActionBusy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{job.request.deliveryMode === "REMOTE" ? "I'm Ready" : "I'm Coming"}</Text>}
+          </Pressable> : null}
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+            <Pressable onPress={() => setContactDrawerOpen(true)} style={{ flex: 1, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#176B55", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#176B55", fontWeight: "900" }}>Chat</Text>
+            </Pressable>
+            {["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(job.status) ? <Pressable onPress={() => cancelProviderJob(job.request.id, job.request.title)} style={{ flex: 1, backgroundColor: "#FFF7F7", borderWidth: 1, borderColor: "#E7B8B8", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text>
+            </Pressable> : null}
           </View>
           <View style={{ backgroundColor: "#FFFFFF", borderRadius: 18, borderWidth: 1, borderColor: "#DCE7DF", padding: 16, marginTop: 18 }}>
             <Text style={{ color: "#829087", fontSize: 10, fontWeight: "900" }}>SERVICE REQUEST</Text>
@@ -2011,8 +2022,7 @@ export function ProviderJobScreen(p: Props) {
               </View>
               <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17 }}>{providerRouteLoading ? "Calculating the full driving route from your current location..." : providerRoute?.requestId === job.request.id ? "The green line shows the full driving route from your current location to the Seeker's destination." : "The destination is pinned. The full route will appear when directions are available."}</Text>
             </> : job.seekerArrivalConfirmedAt && job.status !== "COMPLETED" ? <Text style={{ color: "#66756D", fontSize: 11, lineHeight: 17, marginTop: 12 }}>Arrival confirmed. The map is hidden during assessment and service work.</Text> : <Text style={{ color: "#66756D", fontSize: 12, lineHeight: 19, marginTop: 10 }}>This is a remote service or has no pinned physical destination. Navigation is not required.</Text>}
-            {destinationReady && job.status === "ASSESSMENT_PENDING" && !job.providerEnRouteAt ? <Pressable onPress={() => void markProviderEnRoute(job.request.id)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "I'm coming"}</Text></Pressable> : null}
-            {job.request.deliveryMode === "REMOTE" && job.status === "ASSESSMENT_PENDING" && !job.providerArrivedAt ? <Pressable onPress={() => void markProviderArrived(job.request.id)} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "I'm Ready to Start"}</Text></Pressable> : null}
+
             {destinationReady && job.providerEnRouteAt && !job.providerArrivedAt ? <View style={{ flexDirection: "row", gap: 10, marginTop: 13 }}>
               <Pressable onPress={() => void openProviderNavigation(job.request.id, job.request.latitude!, job.request.longitude!)} disabled={jobActionBusy} style={{ flex: 1, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Navigate</Text></Pressable>
               <Pressable onPress={() => void markProviderArrived(job.request.id)} disabled={jobActionBusy} style={{ flex: 1, backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "I've Arrived"}</Text></Pressable>
@@ -2025,11 +2035,8 @@ export function ProviderJobScreen(p: Props) {
             {job.assessmentStartedAt && !job.assessmentCompletedAt ? <Pressable onPress={() => void updateAssessmentStage(job.request.id, "complete")} disabled={jobActionBusy} style={{ backgroundColor: "#176B55", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13, opacity: jobActionBusy ? 0.55 : 1 }}><Text style={{ color: "#FFFFFF", fontWeight: "900" }}>{jobActionBusy ? "Updating..." : "Assessment Done"}</Text></Pressable> : null}
             {job.assessmentCompletedAt ? <View style={{ backgroundColor: "#EAF4EE", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 13 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>✓ Assessment Done</Text></View> : null}
           </View>
-          <Pressable onPress={() => setContactDrawerOpen(true)} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 14 }}>
-            <Text style={{ color: "#176B55", fontWeight: "900" }}>Open service chat</Text>
-          </Pressable>
-          {["ASSESSMENT_PENDING", "ESTIMATE_SUBMITTED", "ESTIMATE_REJECTED", "ESTIMATE_APPROVED", "IN_PROGRESS", "COMPLETION_PENDING", "DISPUTED"].includes(job.status) ? <Pressable onPress={() => cancelProviderJob(job.request.id, job.request.title)} style={{ backgroundColor: "#FFF7F7", borderWidth: 1, borderColor: "#E7B8B8", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#B42318", fontWeight: "900" }}>Cancel service</Text></Pressable> : null}
-          <Pressable onPress={() => { setDismissedActiveJobIds((ids) => [...ids, job.request.id]); setActiveProviderJobId(null); }} style={{ backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#DCE7DF", borderRadius: 14, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16 }}><Text style={{ color: "#176B55", fontWeight: "900" }}>Back to Activities</Text></Pressable>
+
+
           </ScrollView>
         </View>;
       })()}
