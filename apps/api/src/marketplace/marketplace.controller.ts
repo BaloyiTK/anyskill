@@ -243,8 +243,14 @@ export class MarketplaceController {
 
   @Get("marketplace/payment-methods")
   @RequireMarketplaceRole("SEEKER")
-  listSavedPaymentMethods(@CurrentUser() user: AuthenticatedUser) {
-    return this.payfast.listSavedPaymentMethods(user.id);
+  async listSavedPaymentMethods(@CurrentUser() user: AuthenticatedUser) {
+    const [payfastMethods, peachMethods] = await Promise.all([
+      this.payfast.listSavedPaymentMethods(user.id),
+      this.peach.listSavedPaymentMethods(user.id),
+    ]);
+    return [...payfastMethods, ...peachMethods].sort((a, b) =>
+      Number(b.isDefault) - Number(a.isDefault) || new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
   }
 
   @Post("marketplace/payment-methods/payfast/setup")
@@ -275,19 +281,25 @@ export class MarketplaceController {
 
   @Post("marketplace/payment-methods/:paymentMethodId/default")
   @RequireMarketplaceRole("SEEKER")
-  setDefaultSavedPaymentMethod(
+  async setDefaultSavedPaymentMethod(
     @CurrentUser() user: AuthenticatedUser,
     @Param("paymentMethodId", new ParseUUIDPipe()) paymentMethodId: string,
   ) {
+    if (await this.peach.setDefaultSavedPaymentMethod(user.id, paymentMethodId)) {
+      return { paymentMethods: await this.listSavedPaymentMethods(user) };
+    }
     return this.payfast.setDefaultSavedPaymentMethod(user.id, paymentMethodId);
   }
 
   @Delete("marketplace/payment-methods/:paymentMethodId")
   @RequireMarketplaceRole("SEEKER")
-  removeSavedPaymentMethod(
+  async removeSavedPaymentMethod(
     @CurrentUser() user: AuthenticatedUser,
     @Param("paymentMethodId", new ParseUUIDPipe()) paymentMethodId: string,
   ) {
+    if (await this.peach.removeSavedPaymentMethod(user.id, paymentMethodId)) {
+      return { success: true, paymentMethods: await this.listSavedPaymentMethods(user) };
+    }
     return this.payfast.removeSavedPaymentMethod(user.id, paymentMethodId);
   }
 
