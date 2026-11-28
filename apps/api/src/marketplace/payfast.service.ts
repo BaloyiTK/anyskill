@@ -297,7 +297,7 @@ export class PayFastService {
     });
     if (!method) throw new NotFoundException("Saved payment method not found.");
     const token = this.decryptToken(method);
-    const timestamp = new Date().toISOString().replace(/\\.\\d{3}Z$/, "+00:00");
+    const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "+00:00");
     const signedValues = { "merchant-id": config.merchantId, version: "v1", timestamp };
     const signature = this.apiSignature(signedValues, config.passphrase);
     const response = await fetch(`https://api.payfast.co.za/subscriptions/${encodeURIComponent(token)}/cancel?testing=true`, {
@@ -474,11 +474,17 @@ export class PayFastService {
         throw new ConflictException("PayFast returned a payment token already linked to another AnySkill account.");
       }
       if (existing) {
+        const hasOtherDefault = await tx.savedPaymentMethod.count({
+          where: { userId: setup.userId, status: "ACTIVE", isDefault: true, id: { not: existing.id } },
+        });
         await tx.savedPaymentMethod.update({
           where: { id: existing.id },
           data: {
             ...encrypted,
             status: "ACTIVE",
+            isDefault: existing.isDefault || hasOtherDefault === 0,
+            consentAt: setup.consentAt,
+            consentVersion: "ANY_SKILL_CARD_ON_FILE_V1",
             cardBrand: body.card_type ?? existing.cardBrand,
             lastFour: body.card_last_four && /^\d{4}$/.test(body.card_last_four) ? body.card_last_four : existing.lastFour,
           },
