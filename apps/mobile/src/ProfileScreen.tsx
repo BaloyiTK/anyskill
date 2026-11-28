@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 import { apiRequest } from "./api";
 
 type Mode = "seeker" | "provider";
@@ -81,6 +82,10 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
   const [paymentError, setPaymentError] = useState("");
   const [paymentNotice, setPaymentNotice] = useState("");
   const [paymentFormVisible, setPaymentFormVisible] = useState(false);
+  const [paymentCheckoutVisible, setPaymentCheckoutVisible] = useState(false);
+  const [paymentCheckoutUrl, setPaymentCheckoutUrl] = useState("");
+  const [paymentCheckoutStatus, setPaymentCheckoutStatus] = useState<"loading" | "checking" | "success" | "cancelled" | "error">("loading");
+  const [paymentMethodIdsBeforeSetup, setPaymentMethodIdsBeforeSetup] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -193,6 +198,38 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
     } catch (e) { setPaymentError(e instanceof Error ? e.message : "Could not load saved cards."); }
     finally { setPaymentLoading(false); }
   };
+  const pollForSavedCard = async (existingIds: string[]) => {
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      try {
+        const methods = await apiRequest<SavedPaymentMethod[]>("/marketplace/payment-methods", {}, true);
+        const newlySaved = methods.filter((method) => !existingIds.includes(method.id));
+        if (newlySaved.length > 0) {
+          setPaymentMethods(methods);
+          setPaymentCheckoutStatus("success");
+          setPaymentNotice("PayFast confirmed your card registration. Your card is now saved in AnySkill.");
+          return;
+        }
+      } catch {
+        // ITN processing and the saved-card list can become available a little later.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    setPaymentCheckoutStatus("error");
+    setPaymentError("PayFast returned to AnySkill, but the saved card is not confirmed yet. Do not retry repeatedly; refresh your payment methods in a moment.");
+  };
+
+  const handlePayFastNavigation = (url: string) => {
+    if (url.includes("/marketplace/payments/payfast/cancel")) {
+      setPaymentCheckoutStatus("cancelled");
+      setPaymentNotice("Card registration was cancelled. No card has been saved.");
+      return;
+    }
+    if (url.includes("/marketplace/payments/payfast/return") && paymentCheckoutStatus === "loading") {
+      setPaymentCheckoutStatus("checking");
+      void pollForSavedCard(paymentMethodIdsBeforeSetup);
+    }
+  };
+
   const addPaymentCard = async () => {
     if (!paymentConsent || paymentBusy) return;
     setPaymentBusy(true); setPaymentError(""); setPaymentNotice("");
@@ -200,9 +237,11 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
       const result = await apiRequest<{ checkoutUrl: string }>("/marketplace/payment-methods/payfast/setup", {
         method: "POST", body: JSON.stringify({ accepted: true }),
       }, true);
-      await Linking.openURL(result.checkoutUrl);
+      setPaymentMethodIdsBeforeSetup(paymentMethods.map((method) => method.id));
+      setPaymentCheckoutUrl(result.checkoutUrl);
+      setPaymentCheckoutStatus("loading");
       setPaymentFormVisible(false);
-      setPaymentNotice("PayFast has opened securely. Your card will appear here after PayFast confirms registration.");
+      setPaymentCheckoutVisible(true);
     } catch (e) { setPaymentError(e instanceof Error ? e.message : "Could not start secure card registration."); }
     finally { setPaymentBusy(false); }
   };
@@ -403,6 +442,43 @@ export function ProfileScreen({ email, mode, providerStatus, seekerStatus, onAcc
         </View>
       </View>
     </Modal>
+    <Modal visible={paymentCheckoutVisible} animationType="slide" onRequestClose={() => setPaymentCheckoutVisible(false)} statusBarTranslucent>
+      <SafeAreaView style={styles.paymentCheckoutScreen} edges={["top", "bottom"]}>
+        <View style={styles.paymentCheckoutHeader}>
+          <View style={styles.paymentModalCopy}>
+            <Text style={styles.paymentModalEyebrow}>PAYFAST SECURE CHECKOUT</Text>
+            <Text style={styles.paymentModalTitle}>Add your card</Text>
+            <Text style={styles.paymentModalSubtitle}>Your card details are entered directly on PayFast. AnySkill does not receive your card number or CVV.</Text>
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close PayFast checkout" onPress={() => setPaymentCheckoutVisible(false)} style={styles.drawerClose}><Text style={styles.drawerCloseText}>×</Text></Pressable>
+        </View>
+        <WebView
+          source={{ uri: paymentCheckoutUrl }}
+          style={styles.paymentWebView}
+          originWhitelist={["https://*"]}
+          javaScriptEnabled
+          domStorageEnabled
+          sharedCookiesEnabled
+          thirdPartyCookiesEnabled
+          setSupportMultipleWindows={false}
+          startInLoadingState
+          onNavigationStateChange={(navigation) => handlePayFastNavigation(navigation.url)}
+          onShouldStartLoadWithRequest={(request) => request.url.startsWith("https://")}
+          onError={() => { if (paymentCheckoutStatus === "loading") setPaymentCheckoutStatus("error"); }}
+          onHttpError={(event) => { if (event.nativeEvent.statusCode >= 400 && paymentCheckoutStatus === "loading") setPaymentCheckoutStatus("error"); }}
+        />
+        {paymentCheckoutStatus !== "loading" ? <View style={styles.paymentCheckoutStatus}>
+          <Text style={[styles.paymentCheckoutStatusText, paymentCheckoutStatus === "success" && styles.paymentCheckoutSuccess, paymentCheckoutStatus === "error" && styles.paymentCheckoutFailure]}>
+            {paymentCheckoutStatus === "checking" ? "Checking PayFast confirmation…" : paymentCheckoutStatus === "success" ? "Card successfully saved" : paymentCheckoutStatus === "cancelled" ? "Card registration cancelled" : "Confirmation not received yet"}
+          </Text>
+          {paymentCheckoutStatus === "checking" ? <ActivityIndicator color={colors.primary} /> : null}
+          {paymentCheckoutStatus === "success" ? <Text style={styles.paymentCheckoutHint}>Your saved card is now available under Payment Methods.</Text> : null}
+          {paymentCheckoutStatus === "cancelled" ? <Text style={styles.paymentCheckoutHint}>You can close this screen and try again whenever you are ready.</Text> : null}
+          {paymentCheckoutStatus === "error" ? <Text style={styles.paymentCheckoutHint}>Refresh Payment Methods before trying again. A return from PayFast alone does not prove that registration succeeded.</Text> : null}
+          <Pressable accessibilityRole="button" onPress={() => setPaymentCheckoutVisible(false)} style={styles.paymentCheckoutClose}><Text style={styles.paymentContinueText}>Return to AnySkill</Text></Pressable>
+        </View> : null}
+      </SafeAreaView>
+    </Modal>
     <Modal visible={skillDrawerVisible} transparent animationType="slide" onRequestClose={closeSkillDrawer} statusBarTranslucent>
       <KeyboardAvoidingView style={styles.skillDrawerBackdrop} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close skill drawer" style={styles.skillDrawerDismiss} onPress={closeSkillDrawer}/>
@@ -533,6 +609,15 @@ const styles = StyleSheet.create({
   detailAction: { alignSelf: "flex-start", backgroundColor: colors.primary, borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
   detailActionText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
   paymentManager: { gap: 10 },
+  paymentCheckoutScreen: { flex: 1, backgroundColor: colors.bg },
+  paymentCheckoutHeader: { backgroundColor: "#FFFFFF", paddingHorizontal: 16, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", alignItems: "center", gap: 10 },
+  paymentWebView: { flex: 1, backgroundColor: "#FFFFFF" },
+  paymentCheckoutStatus: { padding: 15, backgroundColor: "#FFFFFF", borderTopWidth: 1, borderTopColor: colors.border, gap: 8 },
+  paymentCheckoutStatusText: { color: colors.ink, fontSize: 12, fontWeight: "900" },
+  paymentCheckoutSuccess: { color: colors.green },
+  paymentCheckoutFailure: { color: "#B33B3B" },
+  paymentCheckoutHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },
+  paymentCheckoutClose: { backgroundColor: colors.primary, borderRadius: 10, minHeight: 44, alignItems: "center", justifyContent: "center" },
   paymentModalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(5, 23, 31, 0.52)" },
   paymentModal: { backgroundColor: colors.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden" },
   paymentModalHeader: { backgroundColor: "#FFFFFF", paddingHorizontal: 18, paddingTop: 22, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: "row", alignItems: "flex-start", gap: 12 },
