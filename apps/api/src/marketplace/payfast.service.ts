@@ -252,6 +252,24 @@ export class PayFastService {
     return { success: true };
   }
 
+  async chargeDefaultSavedCard(seekerId: string, requestId: string) {
+    const methods = await this.prisma.savedPaymentMethod.findMany({
+      where: { userId: seekerId, provider: "PAYFAST", status: "ACTIVE" },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
+    });
+    const method = methods.find((item) => item.isDefault) ?? (methods.length === 1 ? methods[0] : null);
+    if (!method) {
+      return {
+        success: false,
+        status: methods.length === 0 ? "PAYMENT_METHOD_REQUIRED" : "PAYMENT_METHOD_SELECTION_REQUIRED",
+        message: methods.length === 0
+          ? "Add a saved PayFast card to your profile to complete payment."
+          : "Choose a default PayFast card in your profile before approving payment.",
+      };
+    }
+    return this.chargeSavedCard(seekerId, requestId, method.id);
+  }
+
   async chargeSavedCard(seekerId: string, requestId: string, paymentMethodId: string) {
     const config = this.config();
     const job = await this.getPayableJob(seekerId, requestId);
