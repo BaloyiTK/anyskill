@@ -214,6 +214,13 @@ export class MarketplaceController {
     return this.marketplace.submitJobCompletion(user.id, requestId, dto);
   }
 
+  @Get("admin/marketplace/payments/reconciliation")
+  @UseGuards(StaffAccessGuard)
+  @RequireStaffRole(StaffRole.FINANCE_OFFICER)
+  getPayFastReconciliation() {
+    return this.payfast.getReconciliation();
+  }
+
   @Post("marketplace/requests/:requestId/payment/payfast")
   @RequireMarketplaceRole("SEEKER")
   startPayFastCheckout(
