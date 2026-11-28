@@ -1311,33 +1311,44 @@ export class MarketplaceService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException("This service does not have a physical destination.");
     }
     if (["COMPLETED", "CANCELLED"].includes(job.status)) throw new ConflictException("This service route is no longer active.");
-    // Directions has separate Google Cloud API enablement/restrictions from Places
-    // and Geocoding. Keep its server-side key isolated from the Places key.
-    const key = process.env.GOOGLE_DIRECTIONS_API_KEY?.trim();
-    if (!key) throw new ServiceUnavailableException("Google Maps route directions are not configured. Set GOOGLE_DIRECTIONS_API_KEY on the AnySkill API and enable the Directions API for that key.");
-    const params = new URLSearchParams({
-      origin: `${originLatitude},${originLongitude}`,
-      destination: `${job.request.latitude},${job.request.longitude}`,
-      mode: "driving",
-      key,
+
+    // Routes API uses a separate server-side key and a POST request with an explicit response field mask.
+    const key = process.env.GOOGLE_ROUTES_API_KEY?.trim();
+    if (!key) throw new ServiceUnavailableException("Google Maps route directions are not configured. Set GOOGLE_ROUTES_API_KEY on the AnySkill API and enable the Routes API for that key.");
+
+    const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": key,
+        "X-Goog-FieldMask": "routes.polyline.encodedPolyline",
+      },
+      signal: AbortSignal.timeout(15_000),
+      body: JSON.stringify({
+        origin: { location: { latLng: { latitude: originLatitude, longitude: originLongitude } } },
+        destination: { location: { latLng: { latitude: job.request.latitude, longitude: job.request.longitude } } },
+        travelMode: "DRIVE",
+        routingPreference: "TRAFFIC_UNAWARE",
+        polylineQuality: "OVERVIEW",
+        polylineEncoding: "ENCODED_POLYLINE",
+      }),
     });
-    const response = await fetch(`https://maps.googleapis.com/maps/api/directions/json?${params.toString()}`);
-    if (!response.ok) throw new BadGatewayException("Google Maps could not calculate the service route.");
+
     const payload = await response.json() as {
-      status?: string;
-      routes?: Array<{ overview_polyline?: { points?: string } }>;
+      routes?: Array<{ polyline?: { encodedPolyline?: string } }>;
+      error?: { code?: number; status?: string; message?: string };
     };
-    const encoded = payload.routes?.[0]?.overview_polyline?.points;
-    if (payload.status !== "OK" || !encoded) {
-      if (payload.status === "ZERO_RESULTS") {
-        throw new BadGatewayException("No driving route is available for this destination.");
-      }
-      const googleStatus = payload.status ?? "UNKNOWN_STATUS";
-      const googleMessage = (payload as { error_message?: string }).error_message;
+    if (!response.ok) {
+      const googleStatus = payload.error?.status ?? response.status;
+      const googleMessage = payload.error?.message;
       throw new BadGatewayException(
-        `Google Maps Directions failed (${googleStatus})${googleMessage ? `: ${googleMessage}` : ". Check that the Directions API is enabled and permitted for GOOGLE_DIRECTIONS_API_KEY."}`,
+        `Google Maps Routes API failed (${googleStatus})${googleMessage ? `: ${googleMessage}` : "."}`,
       );
     }
+
+    const encoded = payload.routes?.[0]?.polyline?.encodedPolyline;
+    if (!encoded) throw new BadGatewayException("Google Maps Routes API did not return a driving route for this destination.");
+
     const coordinates: Array<{ latitude: number; longitude: number }> = [];
     let index = 0, latitude = 0, longitude = 0;
     while (index < encoded.length) {
