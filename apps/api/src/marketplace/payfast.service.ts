@@ -57,6 +57,29 @@ export class PayFastService {
     };
   }
 
+  private onsiteConfig() {
+    if (process.env.PAYFAST_ONSITE_ENABLED?.trim().toLowerCase() !== "true") {
+      throw new ServiceUnavailableException("PayFast Onsite card registration is not enabled. Configure a live PayFast merchant account and set PAYFAST_ONSITE_ENABLED=true.");
+    }
+    if ((process.env.PAYFAST_MODE ?? "sandbox").trim().toLowerCase() !== "live") {
+      throw new ServiceUnavailableException("PayFast Onsite Payments is live-only and cannot run in Sandbox mode.");
+    }
+    const merchantId = process.env.PAYFAST_MERCHANT_ID?.trim();
+    const merchantKey = process.env.PAYFAST_MERCHANT_KEY?.trim();
+    const passphrase = process.env.PAYFAST_PASSPHRASE;
+    const publicApiUrl = process.env.PAYFAST_PUBLIC_API_URL?.trim().replace(/\\/$/, "");
+    const returnUrl = process.env.PAYFAST_RETURN_URL?.trim();
+    const cancelUrl = process.env.PAYFAST_CANCEL_URL?.trim();
+    if (!merchantId || !merchantKey || !passphrase || !publicApiUrl || !returnUrl || !cancelUrl) {
+      throw new ServiceUnavailableException("Live PayFast Onsite is not configured. Set the PAYFAST_* environment variables on the API.");
+    }
+    if (!/^\\d{8}$/.test(merchantId)) throw new ServiceUnavailableException("PAYFAST_MERCHANT_ID must be the 8-digit live merchant ID.");
+    if (![publicApiUrl, returnUrl, cancelUrl].every((value) => /^https:\\/\\//i.test(value))) {
+      throw new ServiceUnavailableException("PayFast public API, return and cancel URLs must use HTTPS.");
+    }
+    return { merchantId, merchantKey, passphrase, publicApiUrl, returnUrl, cancelUrl };
+  }
+
   private tokenKey(): Buffer {
     const secret = process.env.PAYFAST_TOKEN_ENCRYPTION_KEY?.trim();
     if (!secret || secret.length < 32) {
@@ -178,7 +201,6 @@ export class PayFastService {
   }
 
   async getCheckoutHtml(merchantPaymentId: string): Promise<string> {
-    const config = this.config();
     const checkout = await this.prisma.payFastCheckout.findUnique({
       where: { merchantPaymentId },
       include: { user: { select: { email: true } } },
@@ -191,6 +213,37 @@ export class PayFastService {
       if (!setup || setup.status !== "PENDING") {
         throw new NotFoundException("This PayFast card setup has expired. Return to AnySkill and try again.");
       }
+      if (process.env.PAYFAST_ONSITE_ENABLED?.trim().toLowerCase() === "true") {
+        const config = this.onsiteConfig();
+        const fields: Record<string, string> = {
+          merchant_id: config.merchantId,
+          merchant_key: config.merchantKey,
+          return_url: this.withPaymentReference(`${config.publicApiUrl}/api/v1/marketplace/payments/payfast/return`, setup.merchantPaymentId),
+          cancel_url: this.withPaymentReference(`${config.publicApiUrl}/api/v1/marketplace/payments/payfast/cancel`, setup.merchantPaymentId),
+          notify_url: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/itn`,
+          email_address: setup.user.email,
+          m_payment_id: setup.merchantPaymentId,
+          amount: "0.00",
+          item_name: "AnySkill saved card setup",
+          item_description: "Securely register a card for future AnySkill service payments",
+          subscription_type: "2",
+        };
+        fields.signature = this.formSignature(fields, config.passphrase);
+        const body = new URLSearchParams(fields).toString();
+        const response = await fetch("https://www.payfast.co.za/onsite/process", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body,
+          signal: AbortSignal.timeout(20_000),
+        }).catch(() => null);
+        const payload = await response?.json().catch(() => ({})) as { uuid?: string; error?: string } | undefined;
+        if (!response?.ok || !payload?.uuid) {
+          throw new BadGatewayException(payload?.error || "PayFast could not initialise its secure onsite card form. No card details were collected.");
+        }
+        const uuid = JSON.stringify(payload.uuid);
+        return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta charset="utf-8"><title>Add card securely</title><style>html,body{margin:0;min-height:100%;font-family:system-ui,-apple-system,sans-serif;background:#f4f8f9;color:#12313a}main{padding:20px;text-align:center}button{border:0;border-radius:10px;background:#075b78;color:#fff;padding:13px 20px;font-weight:700}</style><script src="https://www.payfast.co.za/onsite/engine.js"></script></head><body><main><p id="status">Opening PayFast secure card form…</p><button id="retry" type="button" hidden>Open secure card form</button></main><script>(function(){var uuid=${uuid};var status=document.getElementById("status");var retry=document.getElementById("retry");function open(){if(typeof window.payfast_do_onsite_payment!=="function"){status.textContent="The secure PayFast form could not load. Check your connection and try again.";retry.hidden=false;return;}window.payfast_do_onsite_payment({uuid:uuid});}retry.addEventListener("click",open);window.addEventListener("load",function(){setTimeout(open,150);});})();</script></body></html>`;
+      }
+      const config = this.config();
       const fields: Record<string, string> = {
         merchant_id: config.merchantId,
         merchant_key: config.merchantKey,
@@ -210,6 +263,7 @@ export class PayFastService {
         .join("");
       return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Save card securely with PayFast</title></head><body><main><p>Redirecting securely to PayFast…</p><form id="payfast" action="${config.sandboxHost}/eng/process" method="post">${inputs}<button type="submit">Continue to PayFast</button></form></main><script>document.getElementById("payfast").submit();</script></body></html>`;
     }
+    const config = this.config();
     if (checkout.status !== "PENDING") {
       throw new NotFoundException("This PayFast checkout has expired. Return to AnySkill and try again.");
     }
@@ -246,7 +300,9 @@ export class PayFastService {
   }
 
   async createSavedCardSetup(userId: string) {
-    const config = this.config();
+    const onsiteEnabled = process.env.PAYFAST_ONSITE_ENABLED?.trim().toLowerCase() === "true";
+    if (onsiteEnabled) this.onsiteConfig();
+    else this.config();
     this.tokenKey();
     const existing = await this.prisma.payFastCardSetup.findFirst({
       where: { userId, status: "PENDING" },
@@ -261,11 +317,12 @@ export class PayFastService {
         consentVersion: "ANY_SKILL_CARD_ON_FILE_V1",
       },
     });
+    const publicApiUrl = onsiteEnabled ? this.onsiteConfig().publicApiUrl : this.config().publicApiUrl;
     return {
-      checkoutUrl: `${config.publicApiUrl}/api/v1/marketplace/payments/payfast/checkout/${setup.merchantPaymentId}`,
+      checkoutUrl: `${publicApiUrl}/api/v1/marketplace/payments/payfast/checkout/${setup.merchantPaymentId}`,
       merchantPaymentId: setup.merchantPaymentId,
       amount: "0.00",
-      mode: "PAYFAST_SANDBOX",
+      mode: onsiteEnabled ? "PAYFAST_ONSITE_LIVE" : "PAYFAST_SANDBOX",
     };
   }
 
